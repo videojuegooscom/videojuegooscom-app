@@ -89,6 +89,8 @@
  *   palabra, acuerdos concretos con ese cliente... Se guarda entera de una
  *   vez al pulsar "Guardar nota" (no autoguardado), y queda registrado quién
  *   la actualizó por última vez y cuándo.
+ * - Avisos de precio (mejora 5, 2026-11-14; migración 20261114160100): en la pestaña de pedidos, los productos que este
+ *   cliente sigue con «Avísame si baja de precio» (desde cuándo, precio al activarlo y ahora). Sin la tabla, no sale.
  *
  * Conectado con:
  * - app/admin/users.tsx → navega aquí al tocar una fila de la lista.
@@ -1353,6 +1355,9 @@ export default function ClienteFicha() {
                         )}
                       </Seccion>
 
+                      {/* Mejora 5: lo que sigue con «Avísame si baja de precio» (aquí sí, de este cliente). */}
+                      <AvisosPrecioCliente userId={userId} />
+
                       {/* Pagos con tarjeta e intentos de compra (dueño, 2026-11-06): lo que ha pagado y devuelto, y lo que ha hecho
                           en la cesta y al pagar según la analítica propia (solo si la aceptó). */}
                       <Seccion nativeID="ficha-compras" icon="card-outline" title="Pagos e intentos de compra">
@@ -1801,6 +1806,59 @@ function MejorasCliente({ userId, visible, onDatos }: { userId: string; visible:
           </View>
         </View>
       ))}
+    </Seccion>
+  );
+}
+
+// --- Avisos de precio de este cliente (mejora 5, 2026-11-14; migración 20261114160100) -----------------------------
+// Los productos que sigue con «Avísame si baja de precio» (avisos_precio; el administrador las lee todas), con el precio al
+// activarlo y el de ahora. Sin la tabla o si la lectura falla, no sale; sin ninguno, «No sigue ningún producto».
+function AvisosPrecioCliente({ userId }: { userId: string }) {
+  const [filas, setFilas] = useState<{ id: string; titulo: string; antes: number; ahora: number | null; desde: string }[] | null>(null);
+  useEffect(() => {
+    if (!userId) return;
+    let vivo = true;
+    (async () => {
+      const { data, error } = await supabase.from("avisos_precio").select("product_id,precio_inicial,creado_en").eq("user_id", userId).order("creado_en", { ascending: false }).limit(50);
+      if (!vivo || error || !Array.isArray(data)) return;
+      const lista = data as { product_id: string; precio_inicial: number | string; creado_en: string }[];
+      const titulos = new Map<string, { title: string; price_eur: number | string | null }>();
+      if (lista.length) {
+        const { data: prods } = await supabase.from("products").select("id,title,price_eur").in("id", lista.map((f) => f.product_id));
+        for (const p of (prods ?? []) as { id: string; title: string; price_eur: number | string | null }[]) titulos.set(p.id, p);
+      }
+      if (!vivo) return;
+      setFilas(
+        lista.map((f) => ({
+          id: f.product_id,
+          titulo: titulos.get(f.product_id)?.title ?? "Producto retirado",
+          antes: Number(f.precio_inicial),
+          ahora: titulos.has(f.product_id) ? Number(titulos.get(f.product_id)?.price_eur ?? 0) : null,
+          desde: f.creado_en,
+        }))
+      );
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [userId]);
+  if (filas === null) return null;
+  const eur = (n: number) => `${n.toFixed(2).replace(".", ",")}€`;
+  return (
+    <Seccion nativeID="ficha-avisos-precio" icon="notifications-outline" title="Avisos de precio" count={filas.length}>
+      {filas.length === 0 ? (
+        <EmptyRow text="No sigue ningún producto." />
+      ) : (
+        filas.map((f) => (
+          <View key={f.id} nativeID={`ficha-aviso-precio-${f.id}`} style={{ paddingVertical: 6, gap: 2 }}>
+            <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 15 }}>{f.titulo}</Text>
+            <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13 }}>
+              Desde {fechaHora(f.desde)} · al activarlo {eur(f.antes)}
+              {f.ahora !== null ? ` · ahora ${eur(f.ahora)}` : ""}
+            </Text>
+          </View>
+        ))
+      )}
     </Seccion>
   );
 }

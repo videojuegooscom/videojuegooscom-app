@@ -92,6 +92,11 @@
  *   las manda VeoAura (api/escaparate-veoaura.ts, evento «venta_tienda») y salen como un pedido más, «Compra en tienda
  *   VZ-… · total · fecha», con la forma de pago, «Entregado» y «Descargar factura», sin barra de envío. Al abrir «Mis
  *   seguimientos» se pide a api/factura.ts («unir_compras_tienda») que una a la cuenta las que llegaron con su correo.
+ * - Seguimiento paso a paso (mejora 5, 2026-11-14; migración 20261114160000): bajo la barra de cada pedido, los pasos
+ *   dados con su fecha y hora reales (PasosDelPedido con lib/envio.ts → pasosDelPedido; sin hora conocida, sin fecha) y
+ *   «Seguir el envío» (44 px) si la tienda puso el número de Correos o el enlace del transportista; en las reparaciones,
+ *   «Última actualización» y «Seguir el envío» con el número de la vuelta. En «Me gusta», arriba, «Avisos de precio» con
+ *   lo que sigue desde la ficha y «Quitar» (AvisosPrecioSeccion, migración 20261114160100).
  * - Tamaños y colores (auditoría móvil y lección del 2026-11-12, constants/theme.ts): toda la letra sale de TAMANOS (13 px
  *   como mínimo; 12 solo «SESIÓN ACTUAL», las etiquetas de la barra de etapas y las de los filtros cuando son cinco), lo
  *   que se toca mide 44 px (pestañas Mi cuenta / Mis seguimientos / Me gusta, «Preguntar por esto», enlaces), los campos
@@ -123,7 +128,16 @@ import { firmaPedidoSeg, marcarSeguimientosVistos } from "../../components/Campa
 import CategoryProductsShelf, { columnasLista, RejillaTarjetas, TarjetaProducto } from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
-import { cargarAjustesReparacionEnvio, datosPagoManual, type AjustesReparacionEnvio } from "../../lib/envio";
+import {
+  cargarAjustesReparacionEnvio,
+  cargarSeguimientoPedidos,
+  datosPagoManual,
+  enlaceSeguimientoEnvio,
+  fechaHoraPaso,
+  pasosDelPedido,
+  type AjustesReparacionEnvio,
+  type HistorialPedidos,
+} from "../../lib/envio";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PerfilPublico from "../../components/PerfilPublico";
 import ReviewModal, { MejorasModal } from "../../components/ReviewModal";
@@ -131,8 +145,8 @@ import SiteFooter from "../../components/SiteFooter";
 import SmartImage from "../../components/SmartImage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { medirCuentaCreada, trackEvent } from "../../lib/analytics";
-import { LIKED_PRODUCTS_KEY, LIKED_SERVICES_KEY, meGustaLocales, misMeGustaServidor } from "../../lib/interaccion";
-import { abrirDescarga } from "../../lib/openExternalLink";
+import { fijarAvisoPrecio, LIKED_PRODUCTS_KEY, LIKED_SERVICES_KEY, meGustaLocales, misAvisosPrecio, misMeGustaServidor } from "../../lib/interaccion";
+import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
 import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
@@ -1156,9 +1170,13 @@ export default function PerfilScreen() {
                   <SeguimientosSeccion filtroInicial={filtroParam === "facturas" ? "facturas" : undefined} />
                 </SectionCard>
               ) : showMeGusta ? (
-                <SectionCard padding={cardPadding}>
-                  <MeGustaSeccion />
-                </SectionCard>
+                <>
+                  {/* «Avisos de precio» (mejora 5): lo que sigue con «Avísame si baja de precio», para quitarlo. */}
+                  <AvisosPrecioSeccion cardPadding={cardPadding} />
+                  <SectionCard padding={cardPadding}>
+                    <MeGustaSeccion />
+                  </SectionCard>
+                </>
               ) : (
               <>
               {/* «Mi perfil» (foto, usuario, nombre, país, provincia y edad) con la cuenta dentro, debajo de los datos. Si la
@@ -1654,6 +1672,8 @@ type PedidoSeg = {
   // Venta en mano registrada en VeoAura (migración 20261111170000; puede no venir): origen 'tienda_fisica' y cómo se pagó.
   origen?: string | null;
   venta_forma_pago?: string | null;
+  // Número de envío de Correos o enlace del transportista (migración 20261114160000; puede no venir): «Seguir el envío».
+  envio_seguimiento?: string | null;
 };
 
 // «Pagado con Bizum · Entregado» bajo el título «Compra en tienda VZ-…» (venta en mano que manda VeoAura, evento
@@ -2759,6 +2779,8 @@ function CobrosDeLaReparacion({
         Enviada por Correos · nº {r.vuelta_seguimiento}
       </LineaIcono>
     );
+    // Mejora 5: el mismo «Seguir el envío» que los pedidos (localizador de Correos).
+    if (r.seguimiento === "enviada") bloques.push(<BotonSeguirEnvio key="se" id={`seguir-envio-rep-${r.id}`} numero={r.vuelta_seguimiento} tipo="reparacion" />);
   }
   // 4) Garantía (entregada).
   if (garantia?.hasta) {
@@ -2965,6 +2987,81 @@ function LineaProgreso({ etiquetas, actual, cancelado, antes }: { etiquetas: str
   }
 }
 
+// --- Seguimiento del pedido paso a paso (mejora 5, 2026-11-14) ------------------------------------------------------
+// Debajo de la barra, los pasos que ya se han dado con su fecha y hora reales (lib/envio.ts → pasosDelPedido: «Pedido
+// recibido», «Pagado», «Confirmado»… según pedido_estados, migración 20261114160000). Un paso sin hora conocida (anterior a
+// la migración o que se saltó) sale sin fecha, nunca inventada; el siguiente, en gris «Siguiente: …».
+function PasosDelPedido({ p, historial }: { p: PedidoSeg; historial: HistorialPedidos | null }) {
+  const pasos = pasosDelPedido(p, historial?.[p.id]);
+  const hechos = pasos.filter((x) => x.hecho);
+  const siguiente = pasos.find((x) => !x.hecho);
+  const ref = p.numero ?? p.id;
+  return (
+    <View nativeID={`pasos-pedido-${ref}`} style={{ width: "100%", maxWidth: 460, gap: 0, paddingHorizontal: 8 }}>
+      {hechos.map((x, i) => {
+        const color = x.tipo === "cancelado" ? SEG.danger : x.actual ? SEG.accentTexto : SEG.text;
+        const fecha = fechaHoraPaso(x.fecha);
+        return (
+          <View key={x.clave} nativeID={`paso-${ref}-${x.clave}`} style={{ flexDirection: "row", alignItems: "stretch", gap: 10 }}>
+            {/* El punto y la línea que une los pasos. */}
+            <View style={{ width: 14, alignItems: "center" }}>
+              <View style={{ width: 2, flex: 1, backgroundColor: i === 0 ? "transparent" : SEG.accent, opacity: 0.5 }} />
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: x.tipo === "cancelado" ? SEG.danger : SEG.accent }} />
+              <View style={{ width: 2, flex: 1, backgroundColor: i === hechos.length - 1 ? "transparent" : SEG.accent, opacity: 0.5 }} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0, flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 8, paddingVertical: 4 }}>
+              <Text style={{ color, fontWeight: x.actual ? "900" : "800", fontSize: TAMANOS.minimo }}>{x.etiqueta}</Text>
+              {fecha ? (
+                <Text nativeID={`paso-${ref}-${x.clave}-fecha`} style={{ color: SEG.muted, fontWeight: "700", fontSize: TAMANOS.minimo }}>
+                  {fecha}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        );
+      })}
+      {siguiente && p.estado !== "cancelado" ? (
+        <Text nativeID={`paso-${ref}-siguiente`} style={{ color: SEG.muted, fontWeight: "700", fontSize: TAMANOS.minimo, paddingLeft: 24, paddingTop: 2 }}>
+          Siguiente: {siguiente.etiqueta}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+// «Seguir el envío» (44 px): abre el localizador de Correos con el número o el enlace del transportista. Sin número válido, nada.
+function BotonSeguirEnvio({ id, numero, tipo }: { id: string; numero: string | null | undefined; tipo: "pedido" | "reparacion" }) {
+  const enlace = enlaceSeguimientoEnvio(numero);
+  if (!enlace) return null;
+  return (
+    <Pressable
+      nativeID={id}
+      onPress={() => {
+        void trackEvent("seguir_envio", "Mis seguimientos: seguir el envío", { metadata: { tipo } });
+        openExternalLink(enlace);
+      }}
+      accessibilityRole="link"
+      accessibilityLabel="Seguir el envío"
+      style={({ pressed }) => ({
+        minHeight: TACTIL.minimo,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        paddingHorizontal: 18,
+        borderRadius: 999,
+        borderWidth: 1.5,
+        borderColor: SEG.accent,
+        backgroundColor: "#FFFFFF",
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <Ionicons name="navigate-outline" size={16} color={SEG.accent} />
+      <Text style={{ color: SEG.accentTexto, fontWeight: "900", fontSize: TAMANOS.minimo }}>Seguir el envío</Text>
+    </Pressable>
+  );
+}
+
 function PreguntarBoton({ onPress }: { onPress: () => void }) {
   return (
     // 44 px de alto (TACTIL.minimo; antes 23) para el dedo.
@@ -3072,6 +3169,85 @@ async function fichasGustadas(tipo: "producto" | "servicio", ids: string[]): Pro
     .map((f) => ({ id: f.id, titulo: f.title, precio: Number(f.price_eur ?? 0), imagen: portada[f.id] ?? null }));
 }
 
+// --- «Avisos de precio» (mejora 5, 2026-11-14; migración 20261114160100) --------------------------------------------
+// Los artículos que el cliente sigue con «Avísame si baja de precio» (tabla avisos_precio): título, precio al activarlo y
+// ahora, y «Quitar» (44 px). Sin la tabla, sin ninguno o si la lectura falla, no sale (un error no es «no tienes avisos»).
+type AvisoPrecioFila = { productId: string; titulo: string; precioAntes: number; precioAhora: number | null };
+function AvisosPrecioSeccion({ cardPadding }: { cardPadding: number }) {
+  const [filas, setFilas] = useState<AvisoPrecioFila[] | null>(null);
+  const [quitando, setQuitando] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const avisos = await misAvisosPrecio();
+      if (!vivo || !avisos?.length) return;
+      const { data } = await supabase.from("products").select("id,title,price_eur").in("id", avisos.map((a) => a.product_id));
+      if (!vivo) return;
+      const porId = new Map(((data ?? []) as { id: string; title: string; price_eur: number | string | null }[]).map((p) => [p.id, p]));
+      setFilas(
+        avisos.map((a) => {
+          const p = porId.get(a.product_id);
+          return { productId: a.product_id, titulo: p?.title ?? "Artículo ya vendido o retirado", precioAntes: a.precio_inicial, precioAhora: p ? Number(p.price_eur ?? 0) : null };
+        })
+      );
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  const quitar = useCallback(async (id: string) => {
+    setQuitando(id);
+    setError(null);
+    const r = await fijarAvisoPrecio(id, false);
+    setQuitando(null);
+    if (r === "ok") {
+      setFilas((f) => (f ?? []).filter((x) => x.productId !== id));
+      void trackEvent("aviso_precio_desactivado", "Aviso de precio: desactivado", { path: "/perfil", metadata: { productId: id, donde: "perfil" } });
+    } else setError("No se ha podido quitar el aviso. Inténtalo de nuevo.");
+  }, []);
+  if (!filas?.length) return null;
+  return (
+    <SectionCard padding={cardPadding}>
+      <View nativeID="perfil-avisos-precio" style={{ gap: 10, alignItems: "center" }}>
+        <SegTitulo>Avisos de precio ({filas.length})</SegTitulo>
+        <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, textAlign: "center", lineHeight: 18, maxWidth: 420 }}>
+          Blue te avisa si alguno baja de precio.
+        </Text>
+        {filas.map((f) => (
+          <View key={f.productId} nativeID={`perfil-aviso-precio-${f.productId}`} style={{ flexDirection: "row", alignItems: "center", gap: 10, width: "100%", maxWidth: 460 }}>
+            <Pressable
+              onPress={() => router.push(`/producto/${f.productId}` as never)}
+              accessibilityRole="link"
+              style={({ pressed }) => ({ flex: 1, minWidth: 0, minHeight: TACTIL.minimo, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+            >
+              <Text numberOfLines={2} style={{ color: SEG.text, fontWeight: "800", fontSize: TAMANOS.cuerpo }}>{f.titulo}</Text>
+              <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, fontWeight: "700" }}>
+                {f.precioAhora === null
+                  ? `Al activarlo: ${segEuros(f.precioAntes)}`
+                  : f.precioAhora < f.precioAntes - 0.004
+                    ? `Ha bajado: ${segEuros(f.precioAntes)} → ${segEuros(f.precioAhora)}`
+                    : `Ahora: ${segEuros(f.precioAhora)}`}
+              </Text>
+            </Pressable>
+            <Pressable
+              nativeID={`perfil-aviso-precio-quitar-${f.productId}`}
+              onPress={() => quitar(f.productId)}
+              disabled={quitando === f.productId}
+              accessibilityRole="button"
+              accessibilityLabel={`Quitar el aviso de precio de ${f.titulo}`}
+              style={({ pressed }) => ({ minHeight: TACTIL.minimo, minWidth: TACTIL.minimo, paddingHorizontal: 12, justifyContent: "center", alignItems: "center", opacity: pressed || quitando === f.productId ? 0.6 : 1 })}
+            >
+              <Text style={{ color: SEG.danger, fontWeight: "900", fontSize: TAMANOS.minimo }}>Quitar</Text>
+            </Pressable>
+          </View>
+        ))}
+        {error ? <Text style={{ color: SEG.danger, fontSize: TAMANOS.minimo, textAlign: "center" }}>{error}</Text> : null}
+      </View>
+    </SectionCard>
+  );
+}
+
 function MeGustaSeccion() {
   const { width } = useWindowDimensions();
   const isMobile = width < 700;
@@ -3165,6 +3341,8 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
   const [cargando, setCargando] = useState(true);
   const [conSesion, setConSesion] = useState(false);
   const [pedidos, setPedidos] = useState<PedidoSeg[] | null>(null); // null = tabla aún no disponible
+  // Hora de cada paso de los pedidos (pedido_estados; null sin la migración: los pasos salen sin hora).
+  const [historial, setHistorial] = useState<HistorialPedidos | null>(null);
   // ¿Existen ya las facturas de VeoAura? (migración 20261110100000). Sin ellas no se enseña nada de facturas.
   const [facturasOk, setFacturasOk] = useState(false);
   const [reparaciones, setReparaciones] = useState<ReparacionSeg[]>([]);
@@ -3280,9 +3458,13 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
           }
         }
         setFacturasOk(conFacturas);
+        // La hora de cada paso y el número de envío (migración 20261114160000; sin ella, pasos sin hora y sin botón).
+        const seg = await cargarSeguimientoPedidos(filas.map((p) => p.id));
+        setHistorial(seg.historial);
         setPedidos(
           filas.map((p) => ({
             ...p,
+            envio_seguimiento: seg.numeros[p.id] ?? null,
             ...devueltos[p.id],
             items: porPedido[p.id] ?? [],
             foto: fotoPedido[p.id] ?? null,
@@ -3533,6 +3715,10 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
                       actual={Math.max(0, ETAPAS_PEDIDO.indexOf(p.estado))}
                       cancelado={p.estado === "cancelado"}
                     />
+                    <PasosDelPedido p={p} historial={historial} />
+                    {p.entrega !== "recogida" && p.estado !== "cancelado" ? (
+                      <BotonSeguirEnvio id={`seguir-envio-${p.numero ?? p.id}`} numero={p.envio_seguimiento} tipo="pedido" />
+                    ) : null}
                     <PagoDelPedido p={p} />
                     <FacturaDelPedido p={p} facturasOk={facturasOk} />
                     {/* La referencia ya va en el título: aquí solo la entrega. */}
@@ -3577,6 +3763,12 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
                   />
                 );
               })()}
+              {/* Mejora 5: la hora real del último cambio que apuntó el taller (seguimiento_actualizado). */}
+              {r.seguimiento_actualizado && fechaHoraPaso(r.seguimiento_actualizado) ? (
+                <Text nativeID={`rep-actualizado-${r.id}`} style={{ color: SEG.muted, fontWeight: "700", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                  Última actualización: {fechaHoraPaso(r.seguimiento_actualizado)}
+                </Text>
+              ) : null}
               <EnvioDeLaReparacion
                 r={r}
                 ajustes={ajustesEnvio}

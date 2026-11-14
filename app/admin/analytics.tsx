@@ -83,6 +83,10 @@
  *   ficha_foto_zoom (visor abierto, con zoom, cerrado deslizando) y ficha_entrega_estimada (por tipo: mismo día, resto de
  *   España, islas y sin código postal; nunca el código) de app/producto/[id].tsx, y el recuento de productos revisados y con
  *   garantía (migración 20261114140000; sin ella, esa línea no sale).
+ * - «Seguimiento de pedidos y avisos de precio (30 días)» (#analitica-avisos-precio, mejora 5 del 2026-11-14): eventos
+ *   pedido_aviso_estado_mostrado / _tocado, seguir_envio y aviso_precio_activado / _desactivado / _mostrado / _tocado /
+ *   _invitacion (components/Campanita.tsx, app/producto/[id].tsx, app/(tabs)/perfil.tsx; sin datos personales) y cuántos
+ *   clientes siguen cada producto (avisos_precio, migración 20261114160100: solo recuentos, sin nombres; sin ella, no sale).
  * - app/admin/index.tsx → tarjeta "Visitas y métricas" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("analytics") en el Stack.
  */
@@ -850,6 +854,50 @@ export default function AdminAnalytics() {
         revisados,
         conGarantia,
       });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Seguimiento y avisos de precio (mejora 5, 2026-11-14): cuántos clientes siguen cada producto con «Avísame si baja de
+  // precio» (avisos_precio, solo recuentos por producto, sin nombres; sin la migración 20261114160100, null) y, en 30 días,
+  // los avisos de Blue mostrados y tocados (estado del pedido y bajadas) y los avisos activados y quitados.
+  const [avisosPrecio, setAvisosPrecio] = useState<{
+    porProducto: { id: string; titulo: string; clientes: number }[] | null;
+    clientes: number | null;
+    ev: Record<string, number>;
+  } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const NOMBRES = ["pedido_aviso_estado_mostrado", "pedido_aviso_estado_tocado", "aviso_precio_activado", "aviso_precio_desactivado", "aviso_precio_mostrado", "aviso_precio_tocado", "aviso_precio_invitacion", "seguir_envio"];
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const [ev, filas] = await Promise.all([
+        supabase.from("analytics_events").select("event_name").in("event_name", NOMBRES).gte("created_at", desde).limit(5000),
+        supabase.from("avisos_precio").select("product_id,user_id").limit(5000),
+      ]);
+      const cuenta: Record<string, number> = Object.fromEntries(NOMBRES.map((n) => [n, 0]));
+      for (const f of (ev.error ? [] : ev.data ?? []) as { event_name: string }[]) cuenta[f.event_name] = (cuenta[f.event_name] ?? 0) + 1;
+      let porProducto: { id: string; titulo: string; clientes: number }[] | null = null;
+      let clientes: number | null = null;
+      if (!filas.error && Array.isArray(filas.data)) {
+        const lista = filas.data as { product_id: string; user_id: string }[];
+        const n = new Map<string, number>();
+        for (const f of lista) n.set(f.product_id, (n.get(f.product_id) ?? 0) + 1);
+        clientes = new Set(lista.map((f) => f.user_id)).size;
+        const ids = [...n.keys()];
+        const titulos = new Map<string, string>();
+        if (ids.length) {
+          const { data: prods } = await supabase.from("products").select("id,title").in("id", ids.slice(0, 200));
+          for (const p of (prods ?? []) as { id: string; title: string }[]) titulos.set(p.id, p.title);
+        }
+        porProducto = ids
+          .map((id) => ({ id, titulo: titulos.get(id) ?? "Producto retirado", clientes: n.get(id) ?? 0 }))
+          .sort((a, b) => b.clientes - a.clientes)
+          .slice(0, 10);
+      }
+      if (vivo) setAvisosPrecio({ porProducto, clientes, ev: cuenta });
     })();
     return () => {
       vivo = false;
@@ -1928,6 +1976,52 @@ export default function AdminAnalytics() {
                       <Text nativeID="analitica-ficha-revisados" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                         Productos revisados por el equipo: {fichaConfianza.revisados} · con garantía indicada: {fichaConfianza.conGarantia ?? 0}
                       </Text>
+                    </View>
+                  ) : null}
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Seguimiento de pedidos y avisos de precio (30 días)"
+              subtitle="Cuántos clientes siguen cada producto con «Avísame si baja de precio» (recuentos, sin nombres) y los avisos de Blue sobre el estado de los pedidos y las bajadas: mostrados y tocados. Solo visitantes que aceptaron la analítica."
+            >
+              {!avisosPrecio ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>Cargando…</Text>
+              ) : (
+                <View nativeID="analitica-avisos-precio" style={{ gap: 10 }}>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="cube-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-aviso-estado" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Avisos de Blue del estado del pedido: mostrados {avisosPrecio.ev.pedido_aviso_estado_mostrado} · tocados {avisosPrecio.ev.pedido_aviso_estado_tocado} ·
+                      «Seguir el envío» tocado {avisosPrecio.ev.seguir_envio}
+                    </Text>
+                  </View>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="trending-down-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-aviso-precio-uso" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Avisos de bajada de precio: activados {avisosPrecio.ev.aviso_precio_activado} · quitados {avisosPrecio.ev.aviso_precio_desactivado} · bajadas
+                      avisadas por Blue {avisosPrecio.ev.aviso_precio_mostrado} · tocadas {avisosPrecio.ev.aviso_precio_tocado} · sin cuenta (invitados a crearla){" "}
+                      {avisosPrecio.ev.aviso_precio_invitacion}
+                    </Text>
+                  </View>
+                  {avisosPrecio.porProducto ? (
+                    <View nativeID="analitica-avisos-precio-productos" style={{ gap: 6 }}>
+                      <Text nativeID="analitica-avisos-precio-total" style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
+                        Ahora: {avisosPrecio.clientes ?? 0} {avisosPrecio.clientes === 1 ? "cliente sigue" : "clientes siguen"} algún producto
+                      </Text>
+                      {avisosPrecio.porProducto.length === 0 ? (
+                        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Aún nadie sigue ningún producto.</Text>
+                      ) : (
+                        avisosPrecio.porProducto.map((f) => (
+                          <View key={f.id} nativeID={`analitica-aviso-precio-${f.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700", flex: 1 }}>{f.titulo}</Text>
+                            <Text style={{ color: COLORES_TEXTO.azulTexto, fontSize: TAMANOS.minimo, fontWeight: "900" }}>
+                              {f.clientes} {f.clientes === 1 ? "cliente" : "clientes"}
+                            </Text>
+                          </View>
+                        ))
+                      )}
                     </View>
                   ) : null}
                 </View>
