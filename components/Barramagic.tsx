@@ -341,6 +341,15 @@ function palabrasDe(texto: string) {
   return { raw, canon: s.tokens, set };
 }
 
+/**
+ * Las palabras de un texto como las entiende la búsqueda (mismos sinónimos de GRUPOS_SINONIMOS): `raw` tal cual,
+ * `canon` en orden con los sinónimos cambiados («Nintendo Switch 2» → switch 2) y `set` con todo (también plurales y
+ * «tambien»). Lo usan «Productos parecidos» y «Completa tu compra» (components/CategoryProductsShelf.tsx).
+ */
+export function palabrasBusqueda(texto: string) {
+  return palabrasDe(texto);
+}
+
 const preparados = new WeakMap<ProductoIndice, ProductoPreparado>();
 function preparar(p: ProductoIndice): ProductoPreparado {
   const hecho = preparados.get(p);
@@ -514,7 +523,7 @@ export function cargarIndiceBusqueda(admin = false): Promise<IndiceBusqueda | nu
 }
 
 /** Portada pequeña de unos pocos productos (la marcada, la primera o products.images[0]); nunca todas sus fotos. */
-async function portadasDeProductos(ids: string[]): Promise<Map<string, string>> {
+export async function portadasDeProductos(ids: string[]): Promise<Map<string, string>> {
   const portadas = new Map<string, string>();
   if (!ids.length) return portadas;
   const [medios, filas] = await Promise.all([

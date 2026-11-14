@@ -32,6 +32,11 @@
  * bajar; letra mínima 13 y grises a 0,72 (constants/theme.ts). La prueba TM3
  * de pruebas/perfil-datos.mjs lo comprueba.
  *
+ * «Completa tu compra» (mejora 6, 2026-11-14; components/CategoryProductsShelf.tsx → CompletaTuCompra): si en la cesta
+ * hay una consola, debajo del resumen salen como mucho 3 mandos o accesorios de su familia con un «Añadir» de 44 px que
+ * los añade aquí mismo (anadirProducto, con su reserva). Sin consola o sin nada que encaje, no sale. Se mide como
+ * complemento_mostrado / _tocado / _anadido (Administración → Analítica).
+ *
  * Diseño (dueño, 2026-11-04): iconos sueltos, sin burbujas alrededor (quitar
  * es una papelera roja; «Vaciar cesta», «Seguir comprando» y Blue son textos
  * con su icono), la foto entera sobre blanco y el precio en el azul de la
@@ -54,7 +59,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import CategoryProductsShelf from "../../components/CategoryProductsShelf";
+import CategoryProductsShelf, { CompletaTuCompra } from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import SiteFooter from "../../components/SiteFooter";
@@ -694,25 +699,24 @@ export default function CestaScreen() {
     }
   }, []);
 
-  const addToCartById = useCallback(
-    async (productId: string) => {
-      if (!productId) return;
-      if (lastAddRef.current === productId) return;
-
-      lastAddRef.current = productId;
+  // Añade un producto (con su reserva de 15 minutos) sin salir de la cesta. true = añadido (o ya estaba).
+  // Lo usan ?add=<id> y el «Añadir» de «Completa tu compra».
+  const anadirProducto = useCallback(
+    async (productId: string): Promise<boolean> => {
+      if (!productId) return false;
       setAdding(true);
       setErr(null);
 
       try {
         const existing = items.find((it) => it.id === productId);
 
-        if (existing) return; // unidad única: ya está en la cesta
+        if (existing) return true; // unidad única: ya está en la cesta
 
         const fetched = await fetchProductForCart(productId);
 
         if (!fetched) {
           setErr("Ese producto no está disponible en este momento.");
-          return;
+          return false;
         }
 
         const reserva = await reservarProducto(productId);
@@ -720,20 +724,34 @@ export default function CestaScreen() {
           setErr(
             `Otro cliente tiene este artículo en su cesta. Se reserva ${RESERVA_MINUTOS} minutos: vuelve a mirar en un rato.`
           );
-          return;
+          return false;
         }
 
         const next = [{ ...fetched, reservedUntil: reserva.hasta }, ...items];
         await persist(next);
+        return true;
       } catch (e: any) {
         console.error("Error añadiendo producto a la cesta:", e);
         setErr("No se pudo añadir el producto a la cesta. Inténtalo de nuevo.");
+        return false;
       } finally {
         setAdding(false);
       }
     },
     [items, persist]
   );
+
+  const addToCartById = useCallback(
+    async (productId: string) => {
+      if (!productId) return;
+      if (lastAddRef.current === productId) return;
+      lastAddRef.current = productId;
+      await anadirProducto(productId);
+    },
+    [anadirProducto]
+  );
+
+  const idsCesta = useMemo(() => items.map((it) => it.id), [items]);
 
   useEffect(() => {
     if (bootedRef.current) return;
@@ -966,6 +984,9 @@ export default function CestaScreen() {
           </View>
           ) : null}
           </View>
+
+          {/* «Completa tu compra» (mejora 6): solo si hay una consola en la cesta, mandos y accesorios de su familia. */}
+          {items.length > 0 ? <CompletaTuCompra bases={idsCesta} origen="cesta" onAnadir={anadirProducto} /> : null}
 
           {/* Con la cesta vacía o llena: Blue IA ayuda a elegir (abre la conversación con la pregunta ya enviada). */}
           <BotonBlueElegir conArticulos={items.length > 0} />

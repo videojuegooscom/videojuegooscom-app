@@ -87,6 +87,9 @@
  *   pedido_aviso_estado_mostrado / _tocado, seguir_envio y aviso_precio_activado / _desactivado / _mostrado / _tocado /
  *   _invitacion (components/Campanita.tsx, app/producto/[id].tsx, app/(tabs)/perfil.tsx; sin datos personales) y cuántos
  *   clientes siguen cada producto (avisos_precio, migración 20261114160100: solo recuentos, sin nombres; sin ella, no sale).
+ * - «Parecidos y complementos (30 días)» (#analitica-parecidos, mejora 6 del 2026-11-14): eventos parecidos_mostrado,
+ *   parecido_tocado, complemento_mostrado (ficha o cesta), complemento_tocado y complemento_anadido de
+ *   components/CategoryProductsShelf.tsx (solo ids de producto) y los 5 productos que más se añaden desde ahí.
  * - app/admin/index.tsx → tarjeta "Visitas y métricas" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("analytics") en el Stack.
  */
@@ -898,6 +901,59 @@ export default function AdminAnalytics() {
           .slice(0, 10);
       }
       if (vivo) setAvisosPrecio({ porProducto, clientes, ev: cuenta });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Parecidos y complementos (mejora 6, 2026-11-14): en 30 días, veces que se enseñan «Productos parecidos» (ficha) y
+  // «Completa tu compra» (ficha y cesta), cuántas se tocan, cuántos complementos se añaden a la cesta y cuáles se añaden
+  // más (metadata.id, solo ids de producto; los títulos se piden aparte).
+  const [parecidos, setParecidos] = useState<{
+    ev: Record<string, number>;
+    mostradosFicha: number;
+    mostradosCesta: number;
+    masAnadidos: { id: string; titulo: string; n: number }[];
+  } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const NOMBRES = ["parecidos_mostrado", "parecido_tocado", "complemento_mostrado", "complemento_tocado", "complemento_anadido"];
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data, error } = await supabase
+        .from("analytics_events")
+        .select("event_name, metadata")
+        .in("event_name", NOMBRES)
+        .gte("created_at", desde)
+        .limit(5000);
+      if (!vivo) return;
+      if (error || !Array.isArray(data)) {
+        setParecidos(null);
+        return;
+      }
+      const filas = data as { event_name: string; metadata: Record<string, unknown> | null }[];
+      const ev: Record<string, number> = Object.fromEntries(NOMBRES.map((n) => [n, 0]));
+      for (const f of filas) ev[f.event_name] = (ev[f.event_name] ?? 0) + 1;
+      const mostrados = filas.filter((f) => f.event_name === "complemento_mostrado");
+      const n = new Map<string, number>();
+      for (const f of filas) {
+        const id = f.event_name === "complemento_anadido" && typeof f.metadata?.id === "string" ? f.metadata.id : null;
+        if (id) n.set(id, (n.get(id) ?? 0) + 1);
+      }
+      const ids = [...n.keys()].sort((a, b) => (n.get(b) ?? 0) - (n.get(a) ?? 0)).slice(0, 5);
+      const titulos = new Map<string, string>();
+      if (ids.length) {
+        const { data: prods } = await supabase.from("products").select("id,title").in("id", ids);
+        for (const p of (prods ?? []) as { id: string; title: string }[]) titulos.set(p.id, p.title);
+      }
+      if (!vivo) return;
+      setParecidos({
+        ev,
+        mostradosFicha: mostrados.filter((f) => f.metadata?.origen === "ficha").length,
+        mostradosCesta: mostrados.filter((f) => f.metadata?.origen === "cesta").length,
+        masAnadidos: ids.map((id) => ({ id, titulo: titulos.get(id) ?? "Producto retirado", n: n.get(id) ?? 0 })),
+      });
     })();
     return () => {
       vivo = false;
@@ -2024,6 +2080,47 @@ export default function AdminAnalytics() {
                       )}
                     </View>
                   ) : null}
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Parecidos y complementos (30 días)"
+              subtitle="«Productos parecidos» al final de la ficha y «Completa tu compra» (mandos y accesorios de la misma consola, en la ficha y en la cesta): veces mostrados, tocados y añadidos a la cesta. Solo ids de producto, sin datos de nadie; solo visitantes que aceptaron la analítica."
+            >
+              {!parecidos ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se han podido cargar los parecidos y complementos.</Text>
+              ) : (
+                <View nativeID="analitica-parecidos" style={{ gap: 10 }}>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="albums-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-parecidos-uso" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Productos parecidos: mostrados {parecidos.ev.parecidos_mostrado} {parecidos.ev.parecidos_mostrado === 1 ? "vez" : "veces"} · tocados{" "}
+                      {parecidos.ev.parecido_tocado}
+                    </Text>
+                  </View>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="add-circle-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-complementos-uso" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Completa tu compra: mostrado {parecidos.ev.complemento_mostrado} (ficha {parecidos.mostradosFicha} · cesta {parecidos.mostradosCesta}) · tocados{" "}
+                      {parecidos.ev.complemento_tocado} · añadidos a la cesta {parecidos.ev.complemento_anadido}
+                    </Text>
+                  </View>
+                  <View nativeID="analitica-complementos-top" style={{ gap: 6 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Lo que más se añade desde «Completa tu compra»</Text>
+                    {parecidos.masAnadidos.length === 0 ? (
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Aún no se ha añadido ninguno.</Text>
+                    ) : (
+                      parecidos.masAnadidos.map((f) => (
+                        <View key={f.id} nativeID={`analitica-complemento-${f.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700", flex: 1 }}>{f.titulo}</Text>
+                          <Text style={{ color: COLORES_TEXTO.azulTexto, fontSize: TAMANOS.minimo, fontWeight: "900" }}>
+                            {f.n} {f.n === 1 ? "vez" : "veces"}
+                          </Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
                 </View>
               )}
             </SectionCard>
