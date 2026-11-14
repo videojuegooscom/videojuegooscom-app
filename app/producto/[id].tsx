@@ -60,6 +60,11 @@
  * lectura falla, no se ofrece (un error no es «no lo sigues»). Se mide como aviso_precio_activado / aviso_precio_desactivado
  * (solo el producto) y aviso_precio_invitacion; Blue avisa de la bajada (components/Campanita.tsx).
  *
+ * «Productos parecidos» y «Completa tu compra» (mejora 6, 2026-11-14; components/CategoryProductsShelf.tsx): al final,
+ * hasta 8 productos de la misma categoría y precio parecido (carrusel en el móvil, rejilla de 4 en el ordenador; sin
+ * ninguno, no sale) y, bajo los botones de comprar, como mucho 3 mandos o accesorios de la misma familia SOLO si es una
+ * consola. Se miden parecidos_mostrado / parecido_tocado y complemento_mostrado / _tocado (Administración → Analítica).
+ *
  * Cabecera: solo el botón "←" queda fijo arriba; el título y el subtítulo
  * del producto viven dentro del ScrollView (son lo primero que se ve) y
  * desaparecen al hacer scroll como el resto del contenido, en vez de
@@ -147,6 +152,7 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
+import { CompletaTuCompra, ProductosParecidos } from "../../components/CategoryProductsShelf";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -1789,6 +1795,9 @@ export default function ProductoScreen() {
 
                   {/* «Avísame si baja de precio» (solo con cuenta): en lo que se puede comprar. */}
                   {p.status === "PUBLICADA" && p.isActive ? <AvisoPrecioFicha productId={p.id} precio={p.priceEUR} /> : null}
+
+                  {/* «Completa tu compra» (mejora 6): solo en consolas, como mucho 3 mandos o accesorios de su familia. */}
+                  {p.status === "PUBLICADA" && p.isActive ? <CompletaTuCompra bases={[p.id]} origen="ficha" /> : null}
                 </View>
 
                 {/* Ficha técnica y mantenimiento de VeoAura y descripción: con más de una, un carrusel que se desliza
@@ -1798,6 +1807,11 @@ export default function ProductoScreen() {
               {/* Las garantías y promesas las escribe la tienda en la descripción de cada producto; las insignias de
                   arriba solo salen si el dueño las marca en ese producto (nunca fijas para todos). */}
             </View>
+          </View>
+
+          {/* «Productos parecidos» (mejora 6): misma categoría y precio parecido; sin ninguno, no sale. */}
+          <View style={{ width: "100%", paddingTop: isMobile ? 18 : 28 }}>
+            <ProductosParecidos producto={{ id: p.id, categoriaId: p.category?.id ?? null, precio: p.priceEUR }} isMobile={isMobile} />
           </View>
 
           {/* Último botón: limpio y claro, vuelve a donde estaba (o al catálogo). */}

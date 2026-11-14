@@ -336,7 +336,13 @@
  *    Administración → Pedidos (pasos, recuento, número de envío, cambio de estado con hora) y Analítica (recuentos por
  *    producto sin nombres y avisos mostrados/tocados); sin las migraciones nada se rompe ni se pide la columna nueva; 360,
  *    390 y 1280 px sin desbordes y sin errores de JavaScript.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP]
+ *  - PAREC) Productos parecidos y «Completa tu compra» (2026-11-14, mejora 6, sin migración): parecidos de la misma
+ *    categoría sin el actual (el de precio más cercano primero, completados hasta 4) y sin ninguno la sección no sale;
+ *    carrusel en el móvil que no ensancha la página y 4 en una fila a 1280; PS5 → mando y gafas PS5 (nunca otra consola ni
+ *    el PS Portal), Switch → solo su mando (ni la funda de Switch 2 ni juegos), mando o PS4 sin accesorios → nada; en la
+ *    cesta «Añadir» de 44 px suma sin salir y deja de sugerirse; solo portadas; analítica con ids y la tarjeta «Parecidos y
+ *    complementos (30 días)» de Administración → Analítica; 360, 390 y 1280 sin desbordes ni errores de JavaScript.
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -1027,13 +1033,22 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         else if (op === "lte") filas = filas.filter((f) => Number(f[campo]) <= Number(v));
       }
       filas = [...filas].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-      const cols = select.split(",");
+      // Las tablas unidas («category:categories(id,name,slug)», sección PAREC) salen con su alias, como PostgREST.
+      const unidas = [...select.matchAll(/(\w+):\w+\([^)]*\)/g)].map((m) => m[1]);
+      const cols = [...select.replace(/(\w+):\w+\([^)]*\)/g, "").split(",").filter(Boolean), ...unidas];
       const proyecta = (f) => (cols.includes("*") ? f : Object.fromEntries(cols.map((c) => [c, f[c] ?? null])));
       if (/vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "")) return filas[0] ? json(proyecta(filas[0])) : json({ code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" }, 406);
       const desde = Number(url.searchParams.get("offset") ?? 0);
       const limite = url.searchParams.get("limit");
       const pagina = limite ? filas.slice(desde, desde + Number(limite)) : filas;
       return json(pagina.map(proyecta), 200, { "content-range": `${pagina.length ? `${desde}-${desde + pagina.length - 1}` : "*"}/${filas.length}`, "access-control-expose-headers": "*" });
+    }
+    // Fotos de esos productos (sección PAREC: `fotosCatalogo`), por product_id=eq. o in.(…); sin ellas, ninguna.
+    if (estado.catalogoFB && url.pathname.endsWith("/rest/v1/product_media") && metodo === "GET" && estado.fotosCatalogo) {
+      const f = url.searchParams.get("product_id") ?? "";
+      const ids = f.startsWith("in.(") ? f.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")) : f.startsWith("eq.") ? [f.slice(3)] : null;
+      estado.consultasFotosCatalogo = [...(estado.consultasFotosCatalogo ?? []), decodeURIComponent(url.search)];
+      return json(estado.fotosCatalogo.filter((m) => !ids || ids.includes(m.product_id)));
     }
     if (estado.catalogoFB && /\/rest\/v1\/(product_media|product_likes|product_reviews)$/.test(url.pathname) && metodo === "GET") return json([]);
     // Catálogo sin productos (sección Y): sin pedirlos a la base de datos real (que rechaza la sesión de prueba).
@@ -15176,8 +15191,258 @@ async function seccionSEGP() {
   }
 }
 
+// ===== PAREC) Productos parecidos y «Completa tu compra» (dueño, 2026-11-14, mejora 6; sin migración): al final de la
+// ficha, productos de la misma categoría y precio parecido sin el actual (carrusel en el móvil que no ensancha la página,
+// rejilla de 4 en el ordenador); sin parecidos no sale. Bajo los botones, SOLO en consolas, mandos y accesorios de su
+// familia (PS5 → mando y gafas PS5; Switch → mando Switch, nunca la funda de Switch 2 ni juegos); un mando o una consola sin
+// accesorios no sugieren nada. En la cesta, «Añadir» de 44 px que suma sin salir. Analítica sin datos personales y la
+// tarjeta de Administración → Analítica. Catálogo, cesta y sesión simulados. ==========================================
+async function seccionPAREC() {
+  const CATS = [
+    { id: "c0000000-0000-4000-8000-0000000000a5", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true },
+    { id: "c0000000-0000-4000-8000-0000000000a4", slug: "playstation-4", name: "PlayStation 4", sort_order: 1, is_active: true },
+    { id: "c0000000-0000-4000-8000-0000000000a6", slug: "nintendo-switch", name: "Nintendo Switch", sort_order: 2, is_active: true },
+    { id: "c0000000-0000-4000-8000-0000000000a7", slug: "xbox", name: "Xbox", sort_order: 3, is_active: true },
+  ];
+  const [PS5, PS4, SW, XB] = CATS;
+  const ID = (n) => `e0000000-0000-4000-8000-0000000000${String(n).padStart(2, "0")}`;
+  const art = (n, title, cat, price_eur) => ({
+    id: ID(n), title, description: "Revisado por la tienda.", price_eur, status: "PUBLISHED", is_active: true, condition: "GOOD",
+    category_id: cat.id, category: { id: cat.id, name: cat.name, slug: cat.slug }, created_at: new Date(Date.UTC(2026, 10, 1 + n)).toISOString(),
+    updated_at: "2026-11-14T10:00:00Z", view_count: n, images: [], like_count: 0, reference: null,
+  });
+  const PRODUCTOS = [
+    art(1, "Playstation 5 Slim Con Lector", PS5, 450),
+    art(2, "Mando ps5 con caja en color blanco cromado", PS5, 60),
+    art(3, "Gafas VR ps5 sin caja", PS5, 240),
+    art(4, "PS5 Digital Edition", PS5, 380),
+    art(5, "Playstation 5 Pro 2TB Nueva a Estrenar", PS5, 700),
+    art(6, "Consola PS5 Portal Completa con caja", PS5, 170),
+    art(7, "Consola Nintendo Switch Oled", SW, 190),
+    art(8, "Mando Pro Original Nintendo Switch", SW, 33),
+    art(9, "Mario Tennis Fever Videojuego Con Caset", SW, 45),
+    art(10, "Funda Nintendo Switch 2 Original", SW, 15),
+    art(11, "Xbox Serie X", XB, 690),
+    art(12, "Playstation 4 edicion especial azul, con mando mas videojuego y sus 3 cables", PS4, 150),
+    art(13, "Forza horizon con caset metalico para ps4", PS4, 9),
+  ];
+  const T = Object.fromEntries(PRODUCTOS.map((p) => [p.id, p.title]));
+  const CONSOLAS = [ID(1), ID(4), ID(5), ID(6), ID(7), ID(11), ID(12)];
+  const fotosCatalogo = PRODUCTOS.map((p, i) => ({ id: `pm${i}`, product_id: p.id, kind: "image", public_url: `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/parec/${i}.jpg`, file_name: `${i}.jpg`, sort_order: 0, is_cover: true, duration_seconds: null }));
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const nuevoEstado = (extra = {}) => ({ filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS, fotosCatalogo, ...extra });
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  // Ids de las tarjetas o filas de una sección (por su prefijo), en el orden en que salen.
+  const idsDe = (p, prefijo) =>
+    p.evaluate((pre) => [...document.querySelectorAll(`[id^="${pre}"]`)].map((e) => e.id.slice(pre.length)).filter((x) => /^e0000000-/.test(x)), prefijo);
+  const abrirFicha = async (ctx, estado, n) => {
+    const p = await pagina(ctx, `/producto/${ID(n)}`);
+    await p.getByText("Comprar ya", { exact: true }).first().waitFor({ timeout: 40000 }).catch(() => {});
+    // El índice ligero ya se ha pedido y respondido: lo que tenga que salir, sale en un momento.
+    await esperar(p, () => (estado.consultasCatalogo ?? []).some((c) => /^id,title,description,price_eur,condition/.test(c)));
+    await p.waitForTimeout(1500);
+    return p;
+  };
+  const conCesta = (ctx, articulos) =>
+    ctx.addInitScript((a) => {
+      try {
+        if (!sessionStorage.getItem("vz-prueba-cesta")) {
+          sessionStorage.setItem("vz-prueba-cesta", "1");
+          localStorage.setItem("videojuegoos_cart_v1", JSON.stringify(a.map((x) => ({ ...x, reservedUntil: Date.now() + 14 * 60000 }))));
+        }
+      } catch {
+        // sin almacenamiento
+      }
+    }, articulos);
+  const enCesta = (p) => p.evaluate(() => JSON.parse(localStorage.getItem("videojuegoos_cart_v1") ?? "[]").map((x) => x.id));
+  const sinDatos = (estado) => !/cliente@example|Ana|ana_g/.test(JSON.stringify((estado.eventosEnviados ?? []).filter((e) => /parecid|complemento/.test(e.event_name)).map((e) => e.metadata)));
+
+  // PAREC1) PS5 Slim (450 €) a 360, 390 y 1280: «Productos parecidos» de PlayStation 5 sin ella (primero la Digital, 380 €, la
+  // única a ±40 %; luego se completa hasta 4 con el resto de la categoría), nunca de otra categoría; «Completa tu compra» con
+  // el mando y las gafas PS5 (en ese orden), nunca otra consola ni el PS Portal. Carrusel sin ensanchar la página en el móvil,
+  // 4 en una fila en el ordenador. Se mide lo mostrado y lo tocado.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await abrirFicha(ctx, estado, 1);
+    await p.locator("#ficha-parecidos").waitFor({ timeout: 15000 }).catch(() => {});
+    const par = await idsDe(p, "ficha-parecidos-");
+    ok(par.length >= 4 && par.length <= 8 && par[0] === ID(4), `PAREC (${nombre}): parecidos de la PS5 Slim, primero la Digital (la de precio más cercano) (${par.map((i) => T[i]).join(" | ")})`);
+    ok(!par.includes(ID(1)) && par.every((i) => PRODUCTOS.find((x) => x.id === i)?.category_id === PS5.id), `PAREC (${nombre}): sin el propio producto y solo de PlayStation 5`);
+    const comp = await idsDe(p, "ficha-complemento-");
+    ok(JSON.stringify(comp) === JSON.stringify([ID(2), ID(3)]), `PAREC (${nombre}): «Completa tu compra» de la PS5 → el mando y las gafas PS5, en ese orden (${comp.map((i) => T[i]).join(" | ")})`);
+    ok(comp.every((i) => !CONSOLAS.includes(i)), `PAREC (${nombre}): nunca sugiere otra consola (ni el PS Portal)`);
+    const filaAlta = await p.evaluate(() => [...document.querySelectorAll('[id^="ficha-complemento-"] a, [id^="ficha-complemento-"] [role=link]')].map((e) => Math.round(e.getBoundingClientRect().height)));
+    ok(filaAlta.length === 2 && filaAlta.every((h) => h >= 44), `PAREC (${nombre}): cada complemento se toca con 44 px o más (${filaAlta.join(", ")})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `PAREC (${nombre}): la ficha no se ensancha con el carrusel (${d.a}/${d.v})`);
+    if (nombre === "1280") {
+      const tops = await p.evaluate(() => [...document.querySelectorAll('[id^="ficha-parecidos-e"]')].map((e) => Math.round(e.getBoundingClientRect().top)));
+      ok(tops.length === 4 && new Set(tops).size === 1, `PAREC (1280): rejilla de 4 en una fila (${tops.join(", ")})`);
+    } else {
+      const carrusel = await p.evaluate(() => {
+        const e = document.getElementById("ficha-parecidos");
+        const s = e ? [...e.querySelectorAll("div")].find((x) => getComputedStyle(x).overflowX === "auto" || getComputedStyle(x).overflowX === "scroll") : null;
+        return s ? { ancho: Math.round(s.clientWidth), contenido: Math.round(s.scrollWidth) } : null;
+      });
+      ok(!!carrusel && carrusel.contenido > carrusel.ancho && carrusel.ancho <= d.v, `PAREC (${nombre}): en el móvil es un carrusel que se desliza dentro de su sitio (${JSON.stringify(carrusel)})`);
+    }
+    await esperar(p, () => evento(estado, "parecidos_mostrado").length > 0 && evento(estado, "complemento_mostrado").length > 0);
+    const em = evento(estado, "parecidos_mostrado");
+    ok(em.length === 1 && em[0]?.metadata?.productId === ID(1) && JSON.stringify(em[0]?.metadata?.ids) === JSON.stringify(par), `PAREC (${nombre}): se mide parecidos_mostrado una vez con los ids enseñados (${JSON.stringify(em.map((e) => e.metadata))})`);
+    const cm = evento(estado, "complemento_mostrado");
+    ok(cm.length === 1 && cm[0]?.metadata?.origen === "ficha" && JSON.stringify(cm[0]?.metadata?.ids) === JSON.stringify([ID(2), ID(3)]), `PAREC (${nombre}): y complemento_mostrado (ficha) con sus ids (${JSON.stringify(cm.map((e) => e.metadata))})`);
+    const fotos = (estado.consultasFotosCatalogo ?? []).filter((c) => /in\.\(/.test(c));
+    ok(fotos.length > 0 && fotos.every((c) => /is_cover\.eq\.true,sort_order\.eq\.0/.test(c)), `PAREC (${nombre}): solo pide las portadas (nunca todas las fotos) (${fotos.length})`);
+    await p.locator("#ficha-complementos").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `PAREC1-ficha-complementos-${nombre}`);
+    await p.locator("#ficha-parecidos").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(300);
+    await capturar(p, `PAREC1-ficha-parecidos-${nombre}`);
+    if (nombre === "390") {
+      await p.locator(`#ficha-parecidos-${ID(4)}`).click();
+      await p.waitForURL(new RegExp(`/producto/${ID(4)}`), { timeout: 10000 }).catch(() => {});
+      ok(p.url().includes(`/producto/${ID(4)}`), `PAREC: tocar un parecido abre su ficha (${p.url().replace(BASE, "")})`);
+      await esperar(p, () => evento(estado, "parecido_tocado").length > 0);
+      const t = evento(estado, "parecido_tocado")[0]?.metadata;
+      ok(t?.productId === ID(1) && t?.id === ID(4) && t?.posicion === 1, `PAREC: se mide parecido_tocado (de dónde, cuál y su posición) (${JSON.stringify(t ?? null)})`);
+    }
+    ok(sinDatos(estado), `PAREC (${nombre}): la analítica solo lleva ids de producto (sin datos de nadie)`);
+    ok(p.errores.length === 0, `PAREC1 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // PAREC2) Un mando (PS5) no sugiere consolas ni nada («Completa tu compra» no sale), pero sí tiene parecidos. La Switch OLED,
+  // solo el mando de Switch (no la funda de Switch 2 ni el juego). La PS4 (sus accesorios no están a la venta, solo un juego)
+  // no sugiere nada. La Xbox, sola en su categoría y sin accesorios: ni parecidos ni complementos. Tocar un complemento abre
+  // su ficha y se mide.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrirFicha(ctx, estado, 2);
+    ok((await p.locator("#ficha-complementos").count()) === 0 && (await idsDe(p, "ficha-complemento-")).length === 0, "PAREC: un mando no sugiere consolas (ni nada): «Completa tu compra» no sale");
+    ok((await idsDe(p, "ficha-parecidos-")).length >= 4, "PAREC: el mando sí tiene sus parecidos de PlayStation 5");
+    ok(p.errores.length === 0, `PAREC2 (mando): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await p.close();
+
+    const sw = await abrirFicha(ctx, estado, 7);
+    const compSw = await idsDe(sw, "ficha-complemento-");
+    ok(JSON.stringify(compSw) === JSON.stringify([ID(8)]), `PAREC: la Switch OLED → solo el mando de Switch (ni la funda de Switch 2 ni el juego) (${compSw.map((i) => T[i]).join(" | ")})`);
+    await sw.locator("#ficha-complementos").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(sw, "PAREC2-switch-390");
+    await sw.locator(`#ficha-complemento-${ID(8)} a, #ficha-complemento-${ID(8)} [role=link]`).first().click();
+    await sw.waitForURL(new RegExp(`/producto/${ID(8)}`), { timeout: 10000 }).catch(() => {});
+    await esperar(sw, () => evento(estado, "complemento_tocado").length > 0);
+    const ct = evento(estado, "complemento_tocado")[0]?.metadata;
+    ok(sw.url().includes(`/producto/${ID(8)}`) && ct?.origen === "ficha" && ct?.id === ID(8), `PAREC: tocar un complemento abre su ficha y se mide (${JSON.stringify(ct ?? null)})`);
+    ok(sw.errores.length === 0, `PAREC2 (switch): sin errores de JavaScript (${sw.errores[0] ?? "ninguno"})`);
+    await sw.close();
+
+    const ps4 = await abrirFicha(ctx, estado, 12);
+    ok((await ps4.locator("#ficha-complementos").count()) === 0, "PAREC: la PS4 (sin mandos ni accesorios a la venta, solo un juego) no sugiere nada");
+    await ps4.close();
+
+    const xb = await abrirFicha(ctx, estado, 11);
+    ok((await xb.locator("#ficha-parecidos").count()) === 0 && (await xb.locator("#ficha-complementos").count()) === 0, "PAREC: sin parecidos (sola en su categoría) ni complementos, no sale ninguna de las dos secciones");
+    ok((await xb.getByText("Volver atrás", { exact: true }).count()) >= 1, "PAREC: y la ficha sigue entera");
+    ok(xb.errores.length === 0, `PAREC2 (xbox): sin errores de JavaScript (${xb.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // PAREC3) Cesta con la PS5 Slim (360, 390 y 1280): «Completa tu compra» con el mando y las gafas, «Añadir» de 44 px; al
+  // añadir el mando se suma a la cesta sin salir, deja de sugerirse y se mide complemento_anadido. Con solo un mando en la
+  // cesta, no sale nada.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await conCesta(ctx, [{ id: ID(1), title: T[ID(1)], subtitle: "PlayStation 5", priceEUR: 450, qty: 1, imageUrl: null }]);
+    const p = await pagina(ctx, "/cesta");
+    await p.locator("#cesta-complementos").waitFor({ timeout: 30000 }).catch(() => {});
+    const comp = await idsDe(p, "cesta-complemento-");
+    ok(JSON.stringify(comp.filter((x, i, a) => a.indexOf(x) === i)) === JSON.stringify([ID(2), ID(3)]), `PAREC (${nombre}): en la cesta con la PS5, «Completa tu compra» → el mando y las gafas (${comp.map((i) => T[i]).join(" | ")})`);
+    const boton = await p.evaluate((id) => {
+      const e = document.getElementById(`cesta-complemento-anadir-${id}`);
+      return e ? { texto: e.innerText.trim(), alto: Math.round(e.getBoundingClientRect().height), ancho: Math.round(e.getBoundingClientRect().width) } : null;
+    }, ID(2));
+    ok(boton?.texto === "Añadir" && boton.alto >= 44 && boton.ancho >= 44, `PAREC (${nombre}): «Añadir» de 44 px (${JSON.stringify(boton)})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `PAREC (${nombre}): la cesta no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#cesta-complementos").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `PAREC3-cesta-${nombre}`);
+    await p.locator(`#cesta-complemento-anadir-${ID(2)}`).click();
+    for (let i = 0; i < 40 && !(await enCesta(p)).includes(ID(2)); i++) await p.waitForTimeout(250);
+    const ids = await enCesta(p);
+    ok(ids.includes(ID(1)) && ids.includes(ID(2)) && /\/cesta/.test(p.url()), `PAREC (${nombre}): «Añadir» suma el mando a la cesta sin salir (${ids.map((i) => T[i]).join(" | ")})`);
+    await p.locator(`#cesta-fila-${ID(2)}`).waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.locator(`#cesta-fila-${ID(2)}`).count()) === 1, `PAREC (${nombre}): y sale en la lista de la cesta`);
+    await esperar(p, () => evento(estado, "complemento_anadido").length > 0);
+    const ea = evento(estado, "complemento_anadido")[0]?.metadata;
+    ok(ea?.origen === "cesta" && ea?.id === ID(2) && ea?.precio === 60, `PAREC (${nombre}): se mide complemento_anadido (${JSON.stringify(ea ?? null)})`);
+    for (let i = 0; i < 20 && (await p.locator(`#cesta-complemento-${ID(2)}`).count()) > 0; i++) await p.waitForTimeout(250);
+    ok((await p.locator(`#cesta-complemento-${ID(2)}`).count()) === 0 && (await p.locator(`#cesta-complemento-${ID(3)}`).count()) === 1, `PAREC (${nombre}): lo añadido deja de sugerirse; las gafas siguen`);
+    ok(evento(estado, "complemento_mostrado").some((e) => e.metadata?.origen === "cesta"), `PAREC (${nombre}): se mide complemento_mostrado (cesta)`);
+    ok(sinDatos(estado), `PAREC (${nombre}): la analítica de la cesta solo lleva ids`);
+    await capturar(p, `PAREC3-cesta-anadido-${nombre}`);
+    ok(p.errores.length === 0, `PAREC3 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx, [{ id: ID(2), title: T[ID(2)], subtitle: "PlayStation 5", priceEUR: 60, qty: 1, imageUrl: null }]);
+    const p = await pagina(ctx, "/cesta");
+    await p.locator(`#cesta-fila-${ID(2)}`).waitFor({ timeout: 30000 }).catch(() => {});
+    await esperar(p, () => (estado.consultasCatalogo ?? []).some((c) => /^id,title,description,price_eur,condition/.test(c)));
+    await p.waitForTimeout(1500);
+    ok((await p.locator("#cesta-complementos").count()) === 0, "PAREC: con solo un mando en la cesta, «Completa tu compra» no sale (no sugiere consolas)");
+    ok(p.errores.length === 0, `PAREC3 (mando): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // PAREC4) Administración → Analítica (390 y 1280): la tarjeta «Parecidos y complementos (30 días)» con lo mostrado, tocado
+  // y añadido, y lo que más se añade (con su título, sin datos de nadie).
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const ev = (n, k, metadata = {}) => Array.from({ length: k }, () => ({ event_name: n, metadata, created_at: "2026-11-13T10:00:00Z", session_id: "x", step_label: n }));
+    const estado = {
+      filas: perfilAdmin, guardados: [], embudo: [], categorias: CATS, catalogoFB: PRODUCTOS,
+      eventos: [
+        ...ev("parecidos_mostrado", 7), ...ev("parecido_tocado", 3), ...ev("complemento_mostrado", 4, { origen: "ficha" }), ...ev("complemento_mostrado", 2, { origen: "cesta" }),
+        ...ev("complemento_tocado", 2), ...ev("complemento_anadido", 3, { origen: "cesta", id: ID(2) }), ...ev("complemento_anadido", 1, { origen: "cesta", id: ID(3) }),
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-parecidos").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    // El texto visible, sin los iconos (Ionicons usa caracteres de uso privado).
+    const texto = (sel) => p.locator(sel).innerText({ timeout: 3000 }).then((t) => t.replace(/[-]/g, "").replace(/\s+/g, " ").trim()).catch(() => "");
+    ok(/Productos parecidos: mostrados 7 veces · tocados 3/.test(await texto("#analitica-parecidos-uso")), `PAREC (${nombre}): Analítica cuenta los parecidos mostrados y tocados (${await texto("#analitica-parecidos-uso")})`);
+    ok(/mostrado 6 \(ficha 4 · cesta 2\) · tocados 2 · añadidos a la cesta 4/.test(await texto("#analitica-complementos-uso")), `PAREC (${nombre}): y «Completa tu compra» mostrado, tocado y añadido (${await texto("#analitica-complementos-uso")})`);
+    const top = await texto("#analitica-complementos-top");
+    ok(/Mando ps5 con caja en color blanco cromado 3 veces/.test(top) && /Gafas VR ps5 sin caja 1 vez/.test(top) && top.indexOf("Mando ps5") < top.indexOf("Gafas VR"), `PAREC (${nombre}): lo que más se añade, con su título y en orden (${top})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `PAREC (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#analitica-parecidos").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `PAREC4-analitica-${nombre}`);
+    ok(p.errores.length === 0, `PAREC4 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "PAREC") await seccionPAREC();
   if (SOLO === "SEGP") await seccionSEGP();
   if (SOLO === "FCONF") await seccionFCONF();
   if (SOLO === "FBU") await seccionFBU();
@@ -16275,6 +16540,7 @@ try {
   await seccionFBU();
   await seccionFCONF();
   await seccionSEGP();
+  await seccionPAREC();
   await seccionCAMPOS16();
   }
 } catch (e) {

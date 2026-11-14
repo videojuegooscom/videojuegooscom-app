@@ -50,6 +50,14 @@
  * otro dentro de esos 5 minutos, ya no vuelve a preguntar. Pasado ese tiempo
  * (o si recarga la página), se refresca solo.
  *
+ * «Productos parecidos» y «Completa tu compra» (mejora 6, dueño 2026-11-14; abajo del todo): ProductosParecidos (final
+ * de la ficha: misma categoría y precio parecido ±40 %, sin el actual; carrusel en el móvil con este mismo estante y
+ * `productos` ya calculados, rejilla de 4 en el ordenador) y CompletaTuCompra (bajo los botones de la ficha y en la
+ * cesta): solo si hay una consola, mandos y accesorios de su familia (tipoDeArticulo y familiasDeProducto, con los
+ * sinónimos de la búsqueda); nunca otra consola ni relleno. Salen del índice ligero de components/Barramagic.tsx y
+ * solo bajan las portadas pequeñas de lo que se enseña. Analítica propia: parecidos_mostrado, parecido_tocado,
+ * complemento_mostrado, complemento_tocado y complemento_anadido (ids de producto), en Administración → Analítica.
+ *
  * Tamaños (2026-11-12, grupo 3): nombres a 13 px como mínimo, precios pequeños (menos de 17 px) en el azul de texto
  * #0A78B4 (constants/theme.ts) y flechas con 44 px de zona táctil.
  *
@@ -60,18 +68,22 @@
  *   barra de carga global, components/lineapensadoraefectosiri.tsx,
  *   mientras esa foto concreta está descargándose).
  * - app/producto/[id].tsx → destino de cada tarjeta.
- * - app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx → pantallas que lo montan.
+ * - app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx → pantallas que lo montan (la cesta, también «Completa tu compra»).
+ * - app/producto/[id].tsx → «Productos parecidos» y «Completa tu compra» de la ficha.
+ * - app/admin/analytics.tsx → tarjeta «Parecidos y complementos (30 días)».
  */
 import { Ionicons } from "@expo/vector-icons";
 import type { Href } from "expo-router";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import SmartImage from "./SmartImage";
 import { useRecarga } from "./TirarParaActualizar";
+import { cargarIndiceBusqueda, palabrasBusqueda, portadasDeProductos, type ProductoIndice } from "./Barramagic";
 import { supabase } from "../lib/supabase";
-import { colorTextoAzul, COLORES_TEXTO, TAMANOS } from "../constants/theme";
+import { trackEvent } from "../lib/analytics";
+import { colorTextoAzul, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 
 const COLORS = {
   text: "#0B2138",
@@ -446,13 +458,26 @@ export default function CategoryProductsShelf({
   modo = "consolas",
   titulo,
   pie,
+  productos: productosFijos,
+  onTocar,
+  sinMovimiento,
+  nativeID,
 }: {
   modo?: ShelfModo;
   titulo?: string;
   // Algo que va debajo solo si el estante se pinta (p. ej. el separador de la portada).
   pie?: React.ReactNode;
+  /** Lista ya calculada (p. ej. «Productos parecidos» de la ficha): no se consulta nada y se enseña tal cual. */
+  productos?: ShelfProduct[];
+  /** Al tocar una tarjeta (antes de abrir la ficha), con su posición: para la analítica. */
+  onTocar?: (id: string, posicion: number) => void;
+  /** Sin el movimiento automático (en la ficha, el cliente decide cuándo mirar). */
+  sinMovimiento?: boolean;
+  nativeID?: string;
 } = {}) {
-  const [products, setProducts] = useState<ShelfProduct[] | null>(null);
+  const [cargados, setProducts] = useState<ShelfProduct[] | null>(null);
+  const products = productosFijos ?? cargados;
+  const conLista = !!productosFijos;
 
   // Estado del carrusel: solo hace falta saber cuánto se puede seguir
   // desplazando hacia cada lado, para mostrar u ocultar las flechas ‹ ›. La
@@ -469,6 +494,7 @@ export default function CategoryProductsShelf({
   // «Desliza para actualizar»: con recarga > 0 se piden de nuevo, sin la copia guardada.
   const recarga = useRecarga({ parte: true });
   useEffect(() => {
+    if (conLista) return;
     let alive = true;
 
     getShelfProductsCached(modo, recarga > 0).then((rows) => {
@@ -478,7 +504,7 @@ export default function CategoryProductsShelf({
     return () => {
       alive = false;
     };
-  }, [modo, recarga]);
+  }, [modo, recarga, conLista]);
 
   // Movimiento automático: cada AUTO_PASO_MS avanza una tarjeta (tiempo de sobra para verla);
   // al llegar al final vuelve al principio. Si la persona toca o desliza el carrusel, se para
@@ -486,7 +512,7 @@ export default function CategoryProductsShelf({
   const pausaHasta = useRef(0);
   const hayProductos = !!products && products.length > 0;
   useEffect(() => {
-    if (!hayProductos) return;
+    if (!hayProductos || sinMovimiento) return;
     const t = setInterval(() => {
       if (Date.now() < pausaHasta.current) return;
       const maxX = contentWidthRef.current - layoutWidthRef.current;
@@ -495,7 +521,7 @@ export default function CategoryProductsShelf({
       scrollRef.current?.scrollTo({ x: siguiente > maxX + 4 ? 0 : Math.min(maxX, siguiente), animated: true });
     }, AUTO_PASO_MS);
     return () => clearInterval(t);
-  }, [hayProductos]);
+  }, [hayProductos, sinMovimiento]);
   const pausarAuto = useCallback(() => {
     pausaHasta.current = Date.now() + AUTO_PAUSA_MS;
   }, []);
@@ -541,8 +567,8 @@ export default function CategoryProductsShelf({
   if (!products || products.length === 0) return null;
 
   return (
-    <View style={{ gap: 10 }}>
-      <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: "900", textAlign: "center" }}>
+    <View nativeID={nativeID} style={{ gap: 10 }}>
+      <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 17, fontWeight: "900", textAlign: "center" }}>
         {titulo ?? "También te puede interesar"}
       </Text>
 
@@ -570,10 +596,16 @@ export default function CategoryProductsShelf({
           scrollEventThrottle={16}
           contentContainerStyle={{ gap: CARD_GAP, paddingRight: 4 }}
         >
-          {products.map((p) => (
+          {products.map((p, i) => (
             <Pressable
               key={p.id}
-              onPress={() => router.push(`/producto/${p.id}` as Href)}
+              nativeID={nativeID ? `${nativeID}-${p.id}` : undefined}
+              accessibilityRole="link"
+              accessibilityLabel={`${p.title}, ${fmtEUR(p.priceEUR)}`}
+              onPress={() => {
+                onTocar?.(p.id, i + 1);
+                router.push(`/producto/${p.id}` as Href);
+              }}
               style={({ pressed }) => ({
                 width: CARD_WIDTH,
                 borderRadius: 16,
@@ -644,6 +676,308 @@ export default function CategoryProductsShelf({
         ) : null}
       </View>
       {pie}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// «Productos parecidos» y «Completa tu compra» (mejora 6, dueño 2026-11-14). Todo sale del índice ligero de la búsqueda
+// (components/Barramagic.tsx → cargarIndiceBusqueda: sin fotos, en memoria 5 min) y solo se piden las portadas pequeñas
+// de lo que se enseña (portadasDeProductos), para cuidar la cuota de salida de Supabase.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Familias de consola que la tienda distingue para los complementos (Switch 2 aparte: su funda no vale para la Switch). */
+export type FamiliaConsola = "ps5" | "ps4" | "switch" | "switch2" | "xbox";
+export type TipoArticulo = "consola" | "mando" | "accesorio" | "juego" | "otro";
+
+/** Palabras (ya normalizadas y en singular) que dicen que un título es un videojuego. «Caset» = la caja del juego. */
+const PALABRAS_JUEGO = ["videojuego", "juego", "caset", "cartucho"];
+/** Palabras que dicen que es un accesorio. Sin ninguna, no se sugiere nunca (mejor nada que relleno sin sentido). */
+const PALABRAS_ACCESORIO = [
+  "casco", "auricular", "headset", "funda", "estuche", "cargador", "cable", "dock", "base", "soporte", "gafa", "vr",
+  "almacenamiento", "ssd", "disco", "tarjeta", "memoria", "volante", "pedal", "adaptador", "aparato", "camara",
+  "bateria", "protector", "grip",
+];
+const CANON_CONSOLA = ["ps5", "ps4", "switch", "xbox", "xboxseries"];
+
+/** Familias que nombra un texto (con los sinónimos de la búsqueda: «Playstation 5» = ps5, «joycon» = Switch…). */
+function familiasDeTexto(texto: string): Set<FamiliaConsola> {
+  const w = palabrasBusqueda(texto);
+  const raw = ` ${w.raw.join(" ")} `;
+  const canon = ` ${w.canon.join(" ")} `;
+  const f = new Set<FamiliaConsola>();
+  if (w.set.has("ps5") || w.set.has("dualsense")) f.add("ps5");
+  if (w.set.has("ps4") || w.set.has("dualshock")) f.add("ps4");
+  if (canon.includes(" switch 2 ")) f.add("switch2");
+  else if (w.set.has("switch") || w.set.has("joycon") || raw.includes(" joy con ")) f.add("switch");
+  if (w.set.has("xbox") || w.set.has("xboxseries")) f.add("xbox");
+  return f;
+}
+
+/** Familias de un producto: las de su título y, si el título no nombra ninguna, las de su categoría. */
+export function familiasDeProducto(p: { titulo: string; categoria: string }): Set<FamiliaConsola> {
+  const delTitulo = familiasDeTexto(p.titulo);
+  return delTitulo.size ? delTitulo : familiasDeTexto(p.categoria);
+}
+
+/**
+ * Qué es un artículo, por su título. Se mira el artículo principal (lo que va antes de «+», «,», «con» o «más»:
+ * «Xbox Series S + Mando Élite 2» es una consola; «Mando ps5 con caja», un mando):
+ * 1. «consola» o empieza por el nombre de una consola → consola (el PS Portal, un reproductor remoto, queda en «otro»);
+ * 2. si el título dice videojuego, juego o caset → juego;
+ * 3. mando (también dualsense, joycon…) → mando;
+ * 4. una palabra de accesorio (cascos, funda, gafas VR, volante…) → accesorio;
+ * 5. lo demás → otro (no se sugiere).
+ */
+export function tipoDeArticulo(titulo: string): TipoArticulo {
+  const principal = titulo.split(/\s\+\s|\+|,|\s(?:con|mas|más)\s/i)[0] || titulo;
+  const p = palabrasBusqueda(principal);
+  const todo = palabrasBusqueda(titulo);
+  if (p.set.has("portal")) return "otro";
+  if (p.set.has("consola") || CANON_CONSOLA.includes(p.canon[0] ?? "")) return "consola";
+  if (PALABRAS_JUEGO.some((x) => todo.set.has(x))) return "juego";
+  if (p.set.has("mando")) return "mando";
+  if (PALABRAS_ACCESORIO.some((x) => p.set.has(x))) return "accesorio";
+  return "otro";
+}
+
+const publicado = (p: ProductoIndice) => !p.estado || p.estado === "PUBLISHED";
+
+/**
+ * «Productos parecidos»: de la misma categoría, sin el actual, con precio parecido (±40 %), los más cercanos en precio
+ * primero (hasta 8). Si salen menos de 4, se completa hasta 4 con el resto de la categoría (también por cercanía).
+ */
+export function productosParecidos(
+  lista: ProductoIndice[],
+  base: { id: string; categoriaId: string | null; precio: number },
+  max = 8,
+  min = 4
+): ProductoIndice[] {
+  if (!base.categoriaId) return [];
+  const misma = lista.filter((p) => p.id !== base.id && p.categoriaId === base.categoriaId && publicado(p));
+  const cercania = (a: ProductoIndice, b: ProductoIndice) => Math.abs(a.precio - base.precio) - Math.abs(b.precio - base.precio);
+  const cerca = misma.filter((p) => !(base.precio > 0) || Math.abs(p.precio - base.precio) <= base.precio * 0.4).sort(cercania);
+  const out = cerca.slice(0, max);
+  if (out.length < min) out.push(...misma.filter((p) => !out.includes(p)).sort(cercania).slice(0, min - out.length));
+  return out;
+}
+
+/**
+ * «Completa tu compra»: SOLO si entre `bases` hay una consola. Se sugieren mandos y accesorios de su misma familia
+ * (PS5 → mandos y accesorios PS5; Switch → Switch; Switch 2 → Switch 2), nunca otra consola ni juegos, sin lo que ya
+ * está en `fuera` (el propio artículo o la cesta). Primero los mandos y luego los accesorios, de más barato a más caro;
+ * como mucho `max`. Un mando o un accesorio no tiene complementos: la lista sale vacía y no se enseña nada.
+ */
+export function complementosDe(
+  lista: ProductoIndice[],
+  bases: { titulo: string; categoria: string }[],
+  fuera: string[],
+  max = 3
+): ProductoIndice[] {
+  const familias = new Set<FamiliaConsola>();
+  for (const b of bases) if (tipoDeArticulo(b.titulo) === "consola") familiasDeProducto(b).forEach((f) => familias.add(f));
+  if (!familias.size) return [];
+  const excluidos = new Set(fuera);
+  return lista
+    .filter((p) => !excluidos.has(p.id) && publicado(p))
+    .map((p) => ({ p, tipo: tipoDeArticulo(p.titulo) }))
+    .filter((x) => (x.tipo === "mando" || x.tipo === "accesorio") && [...familiasDeProducto(x.p)].some((f) => familias.has(f)))
+    .sort((a, b) => Number(a.tipo !== "mando") - Number(b.tipo !== "mando") || a.p.precio - b.p.precio)
+    .slice(0, max)
+    .map((x) => x.p);
+}
+
+async function conPortadas(productos: ProductoIndice[]): Promise<ShelfProduct[]> {
+  const portadas = await portadasDeProductos(productos.map((p) => p.id)).catch(() => new Map<string, string>());
+  return productos.map((p) => ({ id: p.id, title: p.titulo.trim() || "Producto", priceEUR: p.precio, image: portadas.get(p.id) ?? null }));
+}
+
+/**
+ * Sección «Productos parecidos» al final de la ficha (app/producto/[id].tsx): carrusel en el móvil y rejilla de 4 en el
+ * ordenador. Sin parecidos, no sale. Mide parecidos_mostrado (ids enseñados) y parecido_tocado (cuál y en qué posición).
+ */
+export function ProductosParecidos({
+  producto,
+  isMobile,
+}: {
+  producto: { id: string; categoriaId: string | null; precio: number };
+  isMobile: boolean;
+}) {
+  const [lista, setLista] = useState<ShelfProduct[] | null>(null);
+  const { id, categoriaId, precio } = producto;
+  useEffect(() => {
+    let vivo = true;
+    setLista(null);
+    (async () => {
+      const indice = await cargarIndiceBusqueda(false);
+      const elegidos = indice ? productosParecidos(indice.productos, { id, categoriaId, precio }) : [];
+      const conFoto = elegidos.length ? await conPortadas(elegidos) : [];
+      if (!vivo) return;
+      setLista(conFoto);
+      if (conFoto.length) {
+        void trackEvent("parecidos_mostrado", "Ficha: productos parecidos", {
+          path: `/producto/${id}`,
+          metadata: { productId: id, ids: conFoto.map((p) => p.id), n: conFoto.length },
+        });
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [id, categoriaId, precio]);
+
+  const tocar = useCallback(
+    (destino: string, posicion: number) => {
+      void trackEvent("parecido_tocado", "Ficha: producto parecido tocado", { path: `/producto/${id}`, metadata: { productId: id, id: destino, posicion } });
+    },
+    [id]
+  );
+
+  if (!lista || !lista.length) return null;
+  if (isMobile) return <CategoryProductsShelf nativeID="ficha-parecidos" titulo="Productos parecidos" productos={lista} onTocar={tocar} sinMovimiento />;
+  return (
+    <View nativeID="ficha-parecidos" style={{ gap: 12 }}>
+      <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
+        Productos parecidos
+      </Text>
+      <RejillaTarjetas columns={4} gap={14}>
+        {lista.map((p, i) => (
+          <View key={p.id} nativeID={`ficha-parecidos-${p.id}`}>
+            <TarjetaProducto
+              titulo={p.title}
+              precioEUR={p.priceEUR}
+              imagenUrl={p.image}
+              onPress={() => {
+                tocar(p.id, i + 1);
+                router.push(`/producto/${p.id}` as Href);
+              }}
+            />
+          </View>
+        ))}
+      </RejillaTarjetas>
+    </View>
+  );
+}
+
+/**
+ * «Completa tu compra» (ficha y cesta). `bases` = los ids de lo que se mira (el producto de la ficha o lo que hay en la
+ * cesta); los complementos salen de complementosDe y, si no hay ninguno que encaje, no se pinta nada. En la ficha, filas
+ * discretas que abren el producto; en la cesta, además un «Añadir» de 44 px (onAnadir) que lo añade sin salir.
+ * Mide complemento_mostrado, complemento_tocado y complemento_anadido (solo ids de producto).
+ */
+export function CompletaTuCompra({
+  bases,
+  origen,
+  onAnadir,
+}: {
+  bases: string[];
+  origen: "ficha" | "cesta";
+  onAnadir?: (id: string) => Promise<boolean>;
+}) {
+  const [lista, setLista] = useState<ShelfProduct[] | null>(null);
+  const [anadiendo, setAnadiendo] = useState<string | null>(null);
+  const clave = bases.join(",");
+  const medidos = useRef(new Set<string>());
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const ids = clave ? clave.split(",") : [];
+      const indice = ids.length ? await cargarIndiceBusqueda(false) : null;
+      const porId = new Map((indice?.productos ?? []).map((p) => [p.id, p]));
+      const basesIndice = ids.map((x) => porId.get(x)).filter((p): p is ProductoIndice => !!p);
+      const elegidos = indice ? complementosDe(indice.productos, basesIndice, ids) : [];
+      const conFoto = elegidos.length ? await conPortadas(elegidos) : [];
+      if (!vivo) return;
+      setLista(conFoto);
+      const firma = `${clave}|${conFoto.map((p) => p.id).join(",")}`;
+      if (conFoto.length && !medidos.current.has(firma)) {
+        medidos.current.add(firma);
+        void trackEvent("complemento_mostrado", origen === "ficha" ? "Ficha: completa tu compra" : "Cesta: completa tu compra", {
+          metadata: { origen, bases: ids, ids: conFoto.map((p) => p.id), n: conFoto.length },
+        });
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [clave, origen]);
+
+  if (!lista || !lista.length) return null;
+  const enCesta = origen === "cesta";
+  return (
+    <View nativeID={`${origen}-complementos`} style={{ width: "100%", gap: 6, marginTop: enCesta ? 0 : 4 }}>
+      <Text
+        accessibilityRole="header"
+        style={{ color: COLORS.text, fontWeight: "900", fontSize: enCesta ? 18 : TAMANOS.cuerpo, textAlign: "center" }}
+      >
+        Completa tu compra
+      </Text>
+      {lista.map((p, i) => (
+        <View
+          key={p.id}
+          nativeID={`${origen}-complemento-${p.id}`}
+          style={{ flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: "#EEF3F8" }}
+        >
+          <Pressable
+            onPress={() => {
+              void trackEvent("complemento_tocado", "Completa tu compra: producto tocado", { metadata: { origen, id: p.id, posicion: i + 1 } });
+              router.push(`/producto/${p.id}` as Href);
+            }}
+            accessibilityRole="link"
+            accessibilityLabel={`${p.title}, ${fmtEUR(p.priceEUR)}`}
+            style={({ pressed }) => ({ flex: 1, minWidth: 0, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6, opacity: pressed ? 0.7 : 1 })}
+          >
+            <View style={{ width: enCesta ? 56 : 44, height: enCesta ? 56 : 44, borderRadius: 10, overflow: "hidden", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
+              {p.image ? (
+                <SmartImage uri={p.image} alt={p.title} ancho={enCesta ? 72 : 56} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+              ) : (
+                <Ionicons name="game-controller-outline" size={20} color={COLORS.muted} />
+              )}
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 17 }}>
+                {p.title}
+              </Text>
+              <Text style={{ color: colorTextoAzul(14), fontWeight: "900", fontSize: 14, marginTop: 2 }}>{fmtEUR(p.priceEUR)}</Text>
+            </View>
+          </Pressable>
+          {enCesta && onAnadir ? (
+            <Pressable
+              nativeID={`cesta-complemento-anadir-${p.id}`}
+              disabled={!!anadiendo}
+              onPress={async () => {
+                setAnadiendo(p.id);
+                try {
+                  const ok = await onAnadir(p.id);
+                  if (ok) void trackEvent("complemento_anadido", "Cesta: complemento añadido", { metadata: { origen, id: p.id, precio: p.priceEUR } });
+                } finally {
+                  setAnadiendo(null);
+                }
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Añadir ${p.title} a la cesta`}
+              style={({ pressed }) => ({
+                minHeight: TACTIL.minimo,
+                minWidth: 88,
+                paddingHorizontal: 14,
+                borderRadius: 999,
+                borderWidth: 1.5,
+                borderColor: COLORS.accent,
+                backgroundColor: "#FFFFFF",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: anadiendo && anadiendo !== p.id ? 0.5 : pressed ? 0.8 : 1,
+              })}
+            >
+              {anadiendo === p.id ? (
+                <ActivityIndicator size="small" color={COLORS.accent} />
+              ) : (
+                <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Añadir</Text>
+              )}
+            </Pressable>
+          ) : null}
+        </View>
+      ))}
     </View>
   );
 }
