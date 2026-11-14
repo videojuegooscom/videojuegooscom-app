@@ -11,7 +11,7 @@
  *   (inicio de sesión de la app). Con sesión pero sin rol "admin" (o si el
  *   perfil falla) → router.replace("/"). Nunca cierra la sesión del cliente.
  * - Se suscribe a supabase.auth.onAuthStateChange() para revalidar si la
- *   sesión cambia mientras el panel está abierto.
+ *   sesión cambia mientras el panel está abierto (no con cada renovación del token, TOKEN_REFRESHED: misma cuenta).
  * - safeNavigate() evita navegaciones duplicadas con un pequeño bloqueo
  *   temporal (navLockRef).
  * - Sigue el tema claro global en su pantalla de carga: fondo blanco, la
@@ -129,8 +129,9 @@ export default function AdminLayout() {
     mountedRef.current = true;
     validateAccess();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(() => {
-      validateAccess();
+    // Con cada renovación del token (TOKEN_REFRESHED) no se vuelve a leer el rol: es la misma cuenta (sesión estable).
+    const { data: authListener } = supabase.auth.onAuthStateChange((evento) => {
+      if (evento !== "TOKEN_REFRESHED") validateAccess();
     });
 
     return () => {

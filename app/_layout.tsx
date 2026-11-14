@@ -25,7 +25,12 @@
  *
  * Dispositivos (2026-11-12): con sesión, al abrir la tienda, al volver a ella (como mucho cada 15 min) y al iniciar
  * sesión, apunta el tipo de dispositivo y navegador y la hora (lib/supabase.ts → registrarDispositivo, tabla
- * cliente_dispositivos); lo ve Administración en la ficha del cliente, Usuarios y Analítica.
+ * cliente_dispositivos); lo ve Administración en la ficha del cliente, Usuarios y Analítica. Con cada renovación del
+ * token (TOKEN_REFRESHED) no apunta nada.
+ *
+ * Sesión estable (2026-11-14): mide con la analítica propia lo que frena la guardia de la sesión (lib/supabase.ts →
+ * alIncidenciaDeSesion): «sesion_reloj_desfasado» (minutos de desfase, sin más) y «sesion_bucle_frenado» (bucle o 429);
+ * Administración → Usuarios los cuenta (30 días).
  *
  * Conectado con:
  * - components/BrandLoadingScreen.tsx → pantalla de carga inicial.
@@ -71,7 +76,7 @@ import { PerfilObligatorio } from "../components/PerfilPublico";
 import SiteHead from "../components/SiteHead";
 import TirarParaActualizar from "../components/TirarParaActualizar";
 import { medirLlegadaDesdeRedes, trackEvent } from "../lib/analytics";
-import { registrarDispositivo, supabase } from "../lib/supabase";
+import { alIncidenciaDeSesion, registrarDispositivo, supabase } from "../lib/supabase";
 
 // Máximo que se espera a la fuente de iconos antes de mostrar la tienda igualmente.
 const BOOT_FONT_TIMEOUT_MS = 1500;
@@ -154,13 +159,25 @@ export default function RootLayout() {
     if (Platform.OS === "web") medirLlegadaDesdeRedes();
   }, []);
 
+  // Sesión estable (lib/supabase.ts → alIncidenciaDeSesion): lo que frena la guardia de la renovación, una vez por visita.
+  useEffect(
+    () =>
+      alIncidenciaDeSesion((tipo, datos) => {
+        const etiqueta = tipo === "reloj_desfasado" ? "Sesión: reloj desfasado" : "Sesión: bucle de renovación frenado";
+        void trackEvent(`sesion_${tipo}`, etiqueta, { path: rutaActual.current, metadata: datos });
+      }),
+    []
+  );
+
   // Dispositivos y última conexión (lib/supabase.ts → registrarDispositivo): con sesión, al abrir la tienda y al volver a
   // ella (como mucho cada 15 min); al iniciar sesión de verdad (sesión nueva en este dispositivo), además, suma un inicio.
   useEffect(() => {
     let actual: { uid: string; token: string } | null = null;
-    const { data } = supabase.auth.onAuthStateChange((_evento, sesion) => {
+    const { data } = supabase.auth.onAuthStateChange((evento, sesion) => {
       actual = sesion?.user?.id ? { uid: sesion.user.id, token: sesion.access_token } : null;
       const ahora = actual;
+      // Con cada renovación del token (TOKEN_REFRESHED) no se apunta nada (sesión estable, 2026-11-14: alimentaba el bucle).
+      if (evento === "TOKEN_REFRESHED") return;
       // Fuera del aviso de Supabase (no se puede consultar la base de datos dentro de él).
       if (ahora) setTimeout(() => void registrarDispositivo(ahora.uid, ahora.token), 0);
     });

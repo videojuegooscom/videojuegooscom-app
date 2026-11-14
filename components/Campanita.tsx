@@ -127,7 +127,9 @@
  *
  * Rendimiento: el sondeo (45 s) de mensajes sin leer y de noticias nuevas se pausa
  * con la pestaña en segundo plano (web). El recuento de noticias es head (sin
- * filas). Las consultas del bocadillo son pequeñas y de una fila.
+ * filas). Las consultas del bocadillo son pequeñas y de una fila. Los cambios de sesión releen la cuenta, el chat y los
+ * avisos al entrar, salir o cambiar la cuenta, nunca con cada renovación del token (TOKEN_REFRESHED; sesión estable,
+ * 2026-11-14).
  *
  * Conectado con:
  * - app/_layout.tsx → la monta una sola vez.
@@ -1538,7 +1540,10 @@ export default function Campanita() {
       document.addEventListener("visibilitychange", onVisibilityChange);
     }
 
-    const { data: authSub } = supabase.auth.onAuthStateChange(() => {
+    // Solo al entrar, salir o cambiar la cuenta: con cada renovación del token (TOKEN_REFRESHED) no se relee nada (sesión
+    // estable, 2026-11-14: esas relecturas pedían otra vez la sesión y alimentaban el bucle de renovaciones).
+    const { data: authSub } = supabase.auth.onAuthStateChange((evento) => {
+      if (evento === "TOKEN_REFRESHED") return;
       refreshAuth();
       refreshChats();
       refreshNoticiasNuevas();

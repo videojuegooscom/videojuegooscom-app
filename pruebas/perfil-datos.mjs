@@ -246,6 +246,10 @@
  *    401, «No hemos podido cargar tus datos · Reintentar» sin formulario ni «Guardar» (ningún POST/PATCH) y «Reintentar»
  *    vuelve a pedir (y lo mide la analítica, sin datos); «Completa tu perfil» no sale vacío; tras SIGNED_IN se relee; al
  *    volver a la pestaña con el token vencido se renueva antes de pedir y no se pisa lo escrito. Simula /auth/v1/token.
+ *  - SES2) Sesión estable en el iPhone (2026-11-14, mejora 1): con el reloj del navegador adelantado 1 h y el token vencido,
+ *    al volver a la tienda ≤ 2 renovaciones en 10 s, la sesión sigue guardada, el token renovado no vale más de 60 min y se
+ *    mide «reloj desfasado» (solo minutos); un 429 de /token no cierra la sesión ni se insiste; 6 renovaciones seguidas →
+ *    ≤ 2 a la red («bucle frenado»); Blue no relee con TOKEN_REFRESHED (sí con SIGNED_IN); Usuarios cuenta las dos cosas.
  *  - DV) Dispositivos y última conexión (2026-11-12, migración 20261112120000): con sesión, la tienda apunta «iPhone ·
  *    Safari» (solo ese nombre: sin el identificador completo, IP ni ubicación) y no lo repite antes de 15 minutos (ni al
  *    recargar ni al volver a la pestaña); pasados, lo pone al día sin sumar inicios; sin la tabla, una sola petición y sin
@@ -301,7 +305,7 @@
  *    primero, «Marcar leída» de 44 px); Seguridad con el aviso rojo, la moderación en cifras y «Quitar silencio»; letra
  *    ≥ 12 px, táctiles de 44 px separados 8 px, nada se sale y en el ordenador centrada y de 960 px como mucho. Las
  *    secciones E, F, M, ME, CO, DI, SE, C8, P, RE y DV abren la pestaña que les toca (?tab=participacion|ideas|seguridad).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -427,13 +431,20 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       return r.fulfill({ status: 204, headers: CORS, body: "" });
     }
     // Renovación del token (sección SES, con `estado.renovar`): una sesión nueva de 1 hora, como Supabase.
+    // Sección SES2: la hora de cada renovación (`estado.horasRenovacion`, la del servidor) y, con `estado.token429`, las
+    // primeras N responden 429 como Supabase al cortar. La caducidad va en la hora del servidor (la real), como Supabase.
     if (estado.renovar && url.pathname.endsWith("/auth/v1/token") && metodo === "POST") {
       estado.renovaciones = (estado.renovaciones ?? 0) + 1;
+      if (estado.horasRenovacion) estado.horasRenovacion.push(Date.now());
       if (estado.orden) estado.orden.push("renovar");
+      if ((estado.token429 ?? 0) > 0) {
+        estado.token429 -= 1;
+        return json({ code: "over_request_rate_limit", message: "Request rate limit reached" }, 429);
+      }
       const exp = Math.floor(Date.now() / 1000) + 3600;
       const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
       const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: usuario.id, role: "authenticated", exp, aud: "authenticated", email: usuario.email })}.firma`;
-      return json({ access_token: jwt, refresh_token: `r${estado.renovaciones}`, expires_in: 3600, expires_at: exp, token_type: "bearer", user: usuario });
+      return json({ access_token: jwt, refresh_token: `r${estado.renovaciones}`, expires_in: 3600, expires_at: exp, token_type: "bearer", user: usuario }, 200, { date: new Date().toUTCString() });
     }
     // Reparación por envío (sección RE2): los ajustes, las solicitudes, la API de archivos, la subida al almacén privado y
     // los recuentos de Analítica, como la base de datos y el servidor. Sin `estado.re2`, la tabla de ajustes no existe
@@ -13188,6 +13199,145 @@ async function seccionSES() {
   }
 }
 
+// ===== SES2) Sesión estable en el iPhone (dueño, 2026-11-14, mejora 1): con el reloj del dispositivo adelantado ~1 h, cada
+// token renovado (caducidad en la hora del servidor) parecía ya caducado y se renovaba en bucle hasta el 429, que borraba la
+// sesión. Aquí: con el reloj adelantado 1 h y el token vencido, al volver a la tienda no hay más de 2 renovaciones en 10 s y
+// la sesión sigue viva (y se mide «reloj desfasado»); un 429 de /token no cierra la sesión; Blue (components/Campanita.tsx)
+// no relee nada con cada TOKEN_REFRESHED; Administración → Usuarios cuenta las dos cosas. Sin fotos reales. =================
+async function seccionSES2() {
+  const fila = { user_id: CLIENTE.id, nombre: "Ana García", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", foto_url: null, codigo_postal: null, localidad: null, direccion: null, piso: null, telefono: null };
+  const CLAVE = "videojuegoos.supabase.auth";
+  const vencer = (p) =>
+    p.evaluate((clave) => {
+      const s = JSON.parse(localStorage.getItem(clave) ?? "{}");
+      s.expires_at = Math.floor(Date.now() / 1000) - 60;
+      localStorage.setItem(clave, JSON.stringify(s));
+      document.dispatchEvent(new Event("visibilitychange", { bubbles: true }));
+    }, CLAVE);
+  const sesionViva = (p) =>
+    p.evaluate(async (clave) => {
+      const guardada = !!JSON.parse(localStorage.getItem(clave) ?? "null")?.refresh_token;
+      return guardada;
+    }, CLAVE);
+  const enVentana = (horas, ms) => horas.reduce((max, t, i) => Math.max(max, horas.filter((u) => u >= t && u - t < ms).length), 0);
+
+  // SES2-a) Reloj del dispositivo adelantado 1 h (y 2 min): al volver a la tienda con el token vencido, una renovación y no un
+  // bucle; la sesión sigue guardada y «Mi perfil» sale con sus datos; la analítica cuenta «reloj desfasado» (solo minutos).
+  {
+    const estado = { filas: [{ ...fila }], guardados: [], renovar: true, horasRenovacion: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await ctx.clock.install({ time: new Date(Date.now() + 62 * 60_000) });
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-cabecera, #perfil-error").first().waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    estado.horasRenovacion = [];
+    await vencer(p);
+    await p.waitForTimeout(10_000);
+    const n = enVentana(estado.horasRenovacion, 10_000);
+    ok(n >= 1 && n <= 2, `SES2: con el reloj adelantado 1 h, al volver a la tienda hay ${n} renovaciones en 10 s (máx. 2; sin la corrección, un bucle)`);
+    ok(await sesionViva(p), "SES2: y la sesión sigue guardada (no se cierra sola)");
+    ok(!estado.salio, "SES2: no se llama a cerrar la sesión");
+    const caduca = await p.evaluate((clave) => JSON.parse(localStorage.getItem(clave) ?? "{}").expires_at * 1000 - Date.now(), CLAVE);
+    ok(caduca > 50 * 60_000 && caduca <= 3600_000, `SES2: el token renovado caduca en ${Math.round(caduca / 60_000)} min en la hora del dispositivo (≤ 60: nunca más de lo que vale)`);
+    ok(/@ana_g/.test(await p.locator("#perfil-cabecera").innerText().catch(() => "")), "SES2: «Mi perfil» sigue con sus datos");
+    const ev = (estado.eventosEnviados ?? []).filter((e) => /^sesion_/.test(e.event_name));
+    const reloj = ev.filter((e) => e.event_name === "sesion_reloj_desfasado");
+    ok(reloj.length === 1 && Math.abs(Number(reloj[0]?.metadata?.minutos) - 62) <= 2 && !/Ana|ana_g|cliente@|refresh|access_token/.test(JSON.stringify(ev)), `SES2: la analítica cuenta «reloj desfasado» una vez (${JSON.stringify(reloj[0]?.metadata ?? null)}), sin datos ni tokens`);
+    ok(p.errores.filter((e) => e.startsWith("error JS")).length === 0, `SES2-a: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SES2-b) Supabase corta la renovación con 429: la sesión NO se borra, no se insiste (≤ 2 peticiones en 10 s) y, cuando
+  // vuelve a responder, se renueva sola. Se mide «bucle de renovación frenado» (motivo «limite»).
+  {
+    const estado = { filas: [{ ...fila }], guardados: [], renovar: true, horasRenovacion: [], token429: 1e9, aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-cabecera, #perfil-error").first().waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    estado.horasRenovacion = [];
+    await vencer(p);
+    await p.waitForTimeout(10_000);
+    const n = enVentana(estado.horasRenovacion, 10_000);
+    ok(await sesionViva(p), `SES2: con un 429 de /token la sesión sigue guardada (no se cierra; ${n} peticiones)`);
+    ok(n >= 1 && n <= 2, `SES2: y no se insiste: ${n} peticiones a /token en 10 s (máx. 2)`);
+    const ev = (estado.eventosEnviados ?? []).filter((e) => e.event_name === "sesion_bucle_frenado");
+    ok(ev.length === 1 && ev[0]?.metadata?.motivo === "limite", `SES2: la analítica cuenta «bucle de renovación frenado» (${JSON.stringify(ev[0]?.metadata ?? null)})`);
+    ok(p.errores.filter((e) => e.startsWith("error JS")).length === 0, `SES2-b: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SES2-c) Bucle sin desfase (p. ej. algo que pide renovar una y otra vez): la 3.ª renovación en 10 s ya no sale a la red.
+  {
+    const estado = { filas: [{ ...fila }], guardados: [], renovar: true, horasRenovacion: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.waitForTimeout(3000);
+    estado.horasRenovacion = [];
+    await p.evaluate(async () => {
+      const c = globalThis.__videojuegoos_supabase__;
+      for (let i = 0; i < 6; i++) await c.auth.refreshSession().catch(() => {});
+    });
+    await p.waitForTimeout(1500);
+    ok(estado.horasRenovacion.length <= 2, `SES2: 6 renovaciones seguidas → ${estado.horasRenovacion.length} salen a la red (máx. 2) y el resto se frena`);
+    ok(await sesionViva(p), "SES2: y la sesión sigue guardada");
+    const ev = (estado.eventosEnviados ?? []).filter((e) => e.event_name === "sesion_bucle_frenado");
+    ok(ev.length === 1 && ev[0]?.metadata?.motivo === "bucle", `SES2: se mide «bucle de renovación frenado» (motivo «bucle»: ${JSON.stringify(ev[0]?.metadata ?? null)})`);
+    await ctx.close();
+  }
+
+  // SES2-d) Blue no relee nada con cada TOKEN_REFRESHED (sí al iniciar sesión).
+  {
+    const estado = { filas: [{ ...fila }], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    let sinLeer = 0;
+    p.on("request", (r) => {
+      if (/\/rpc\/get_unread_chat_count/.test(r.url())) sinLeer += 1;
+    });
+    await p.waitForTimeout(3500);
+    const antes = sinLeer;
+    await p.evaluate(async () => {
+      const c = globalThis.__videojuegoos_supabase__;
+      const { data } = await c.auth.getSession();
+      for (let i = 0; i < 5; i++) await c.auth._notifyAllSubscribers("TOKEN_REFRESHED", data.session, false);
+    });
+    await p.waitForTimeout(1500);
+    ok(sinLeer - antes === 0, `SES2: 5 TOKEN_REFRESHED → Blue relee el chat ${sinLeer - antes} veces (0)`);
+    const antesEntrar = sinLeer;
+    await p.evaluate(async () => {
+      const c = globalThis.__videojuegoos_supabase__;
+      const { data } = await c.auth.getSession();
+      await c.auth._notifyAllSubscribers("SIGNED_IN", data.session, false);
+    });
+    await p.waitForTimeout(1500);
+    ok(sinLeer - antesEntrar >= 1, `SES2: y con SIGNED_IN sí relee (${sinLeer - antesEntrar})`);
+    ok(p.errores.length === 0, `SES2-d: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SES2-e) Administración → Usuarios: «Sesión (30 días): reloj desfasado N · bucle de renovación frenado M», sin datos de nadie.
+  {
+    const estado = {
+      filas: [{ ...fila }],
+      guardados: [],
+      usuarios: [{ user_id: CLIENTE.id, email: CLIENTE.email, role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 }],
+      eventos: [
+        { event_name: "sesion_reloj_desfasado", user_id: CLIENTE.id, session_id: "s1", metadata: { minutos: 62, fuente: "token" } },
+        { event_name: "sesion_reloj_desfasado", user_id: null, session_id: "s2", metadata: { minutos: -5, fuente: "token" } },
+        { event_name: "sesion_bucle_frenado", user_id: CLIENTE.id, session_id: "s1", metadata: { motivo: "limite" } },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users?tab=participacion");
+    await p.locator("#admin-sesion-estable").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = (await p.locator("#admin-sesion-estable").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/reloj desfasado 2 · bucle de renovación frenado 1/.test(t), `SES2: Usuarios cuenta «reloj desfasado 2 · bucle frenado 1» (${t || "no sale"})`);
+    ok(!/cliente@|Ana/.test(t), "SES2: y sin datos de nadie");
+    await ctx.close();
+  }
+}
+
 // ===== CAMPOS16) Todo recuadro donde sale el teclado (input, textarea, contenteditable) lleva letra de 16 px o más (con menos,
 // Safari del iPhone hace zoom al tocarlo; constants/theme.ts: CAMPO.letra). Recorre cliente (sin y con sesión) y Administración,
 // con los formularios que se pueden abrir con un toque. Lista los que fallen con su selector. ===================================
@@ -13275,6 +13425,7 @@ const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "CAMPOS16") await seccionCAMPOS16();
   if (SOLO === "SES") await seccionSES();
+  if (SOLO === "SES2") await seccionSES2();
   if (SOLO === "TEL") await seccionTEL();
   if (SOLO === "TM5") await seccionTM5();
   if (SOLO === "TM4") await seccionTM4();
@@ -14360,6 +14511,7 @@ try {
   await seccionTM5();
   await seccionTEL();
   await seccionSES();
+  await seccionSES2();
   await seccionCAMPOS16();
   }
 } catch (e) {
