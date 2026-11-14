@@ -321,7 +321,14 @@
  *    para el lector) en ?precio_min=/?precio_max=; estado solo con los que hay, ?estado=bueno, recargar, «Quitar» y «Borrar
  *    filtros»; la analítica (busqueda, busqueda_sin_resultados, busqueda_sugerencia_tocada, catalogo_filtro; nada si se
  *    rechazó) y Administración → Analítica → «Búsquedas (30 días)», a 360, 390 y 1280 px.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU]
+ *  - FCONF) Ficha de confianza (2026-11-14, mejora 4, migración 20261114140000; «FC» y «FC2» ya eran la ficha del cliente):
+ *    el visor se abre, se desliza, amplía (doble toque, rueda), no se cierra con poco y sí deslizando hacia abajo, con
+ *    Escape y con la X (≥ 44 px), medido como ficha_foto_zoom; con el reloj fijado y el navegador en UTC, «Llega hoy» con
+ *    50410/50001, «Llega entre el lunes y el martes» con 28001 un viernes (sin domingo), Baleares sin fecha, sin código las
+ *    dos («mañana, lunes» el domingo de Madrid) y un campo de 16 px que no guarda; la insignia y la garantía solo si el
+ *    dueño las marca; sin la columna, nada y sin errores (y sin pedirla por su nombre); Productos marca, filtra y no deja 40
+ *    meses; Analítica «Ficha del producto (30 días)»; sin desbordes a 360, 390 y 1280 px; nada si se rechazó la analítica.
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -963,6 +970,17 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       const tabla = url.pathname.split("/").pop();
       if (estado.tablas[tabla]) return json(estado.tablas[tabla], 200, { "content-range": `*/${estado.tablas[tabla].length}` });
     }
+    // Ficha de confianza (sección FCONF), Administración → Analítica: «*» en una fila de products (para saber si existen
+    // revisado y garantia_meses) y los recuentos sin filas (HEAD con revisado=eq.true o garantia_meses=not.is.null).
+    if (estado.confianza && url.pathname.endsWith("/rest/v1/products")) {
+      const c = estado.confianza;
+      estado.consultasConfianza = [...(estado.consultasConfianza ?? []), `${metodo} ${decodeURIComponent(url.search)}`];
+      if (metodo === "HEAD") {
+        const n = url.searchParams.get("revisado") === "eq.true" ? c.revisados : url.searchParams.get("garantia_meses") === "not.is.null" ? c.conGarantia : 0;
+        return json([], 200, { "content-range": `*/${n ?? 0}`, "access-control-expose-headers": "*" });
+      }
+      if (metodo === "GET") return json(c.muestra ?? []);
+    }
     // Administración → Productos (sección NO): la lista, sus fotos (ninguna) y lo que se manda cambiar.
     if (estado.productosAdmin && url.pathname.endsWith("/rest/v1/products")) {
       if (metodo === "GET") return json(estado.productosAdmin, 200, { "content-range": `0-${estado.productosAdmin.length - 1}/${estado.productosAdmin.length}` });
@@ -1015,6 +1033,8 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       return json([], 200, { "content-range": "*/0", "access-control-expose-headers": "*" });
     }
     if (estado.producto && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
+      // Se apunta qué columnas pide la ficha (sección FCONF: con «*», nunca «revisado» por su nombre).
+      estado.consultasProducto = [...(estado.consultasProducto ?? []), url.searchParams.get("select") ?? ""];
       return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(estado.producto) : json([estado.producto]);
     }
     if (estado.producto && url.pathname.endsWith("/rest/v1/product_media") && metodo === "GET") return json(estado.fotosProducto ?? []);
@@ -1433,6 +1453,8 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     }
     // Lecturas vacías de todo lo demás que pide la tienda con esta sesión (nada de la base de datos real).
     if (metodo === "GET" || metodo === "HEAD") {
+      // Administración → Analítica mira con «*» en una fila si products ya tiene «revisado» (mejora 4): sin fila, no sale.
+      if (url.pathname.endsWith("/rest/v1/products") && url.searchParams.get("select") === "*" && url.searchParams.get("limit") === "1") return json([]);
       if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|product_chats|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
       }
@@ -14226,8 +14248,442 @@ async function seccionFBU() {
   }
 }
 
+// ===== FCONF) Ficha de confianza (dueño, 2026-11-14, mejora 4; migración 20261114140000_productos_revisado.sql): el visor
+// de fotos se abre, se desliza, amplía y se cierra (X, Escape y deslizando hacia abajo), y se mide; «Llega hoy» con el código
+// postal de Zaragoza/Cuarte, «Llega entre el … y el …» con el del resto de España (sin domingos, con la fecha de Madrid
+// aunque el navegador esté en otra zona), sin código las dos y un campo de 16 px que solo calcula; la insignia y la garantía
+// solo si el dueño las marca; Administración → Productos las marca y las filtra, y Analítica las cuenta; sin la columna no se
+// rompe nada; a 360, 390 y 1280 px sin desbordes. Sesión, datos y reloj simulados. ==================================
+async function seccionFCONF() {
+  const ID = "00000000-0000-4000-8000-0000000000fc";
+  const foto = (n) => `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/confianza/${n}.jpg`;
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const producto = (extra = {}) => ({
+    id: ID, title: "PlayStation 5 Slim", description: "Consola en buen estado.", price_eur: 399, status: "PUBLISHED", is_active: true,
+    category_id: null, images: [], updated_at: "2026-11-14T10:00:00Z", created_at: "2026-11-14T10:00:00Z", condition: "GOOD",
+    like_count: 0, reference: null, caracteristicas: null, mantenimiento: null, category: null, solo_entrega_mano: false, ...extra,
+  });
+  const fotos = [1, 2, 3].map((n) => ({ id: `fc${n}`, product_id: ID, kind: "image", public_url: foto(n), file_name: `${n}.jpg`, sort_order: n - 1, is_cover: n === 1, duration_seconds: null }));
+  const perfilBase = { user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", telefono: null };
+  const conCp = (cp) => ({ ...perfilBase, codigo_postal: cp, localidad: "x", direccion: "Calle Mayor 5", piso: null, direcciones: [{ etiqueta: "casa", codigo_postal: cp, localidad: "x", direccion: "Calle Mayor 5", piso: null, predeterminada: true }] });
+  const sinCp = { ...perfilBase, codigo_postal: null, localidad: null, direccion: null, piso: null, direcciones: [] };
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  // El texto visible, sin los iconos (que también son letras: Ionicons usa caracteres privados).
+  const texto = (p, sel) =>
+    p.locator(sel).innerText({ timeout: 3000 }).then((t) => t.replace(/[-]/g, "").replace(/\s+/g, " ").trim()).catch(() => "");
+  // ¿Dice que llega un domingo? («sin contar domingos» sí puede decirlo).
+  const llegaDomingo = (t) => /(el|mañana,|hoy,?) domingo/i.test(t);
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const sinCodigos = (estado) => !/\b(50410|50001|28001|07001)\b/.test(JSON.stringify(estado.eventosEnviados ?? []));
+  const abrirFicha = async (ctx, estado, vista) => {
+    const p = await pagina(ctx, `/producto/${ID}`);
+    await p.locator("#ficha-entrega").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(400);
+    return p;
+  };
+  // Un dedo de verdad que va de (x, y) a (x + dx, y + dy) en `pasos`.
+  const deslizar = async (cdp, p, x, y, dx, dy, pasos = 10) => {
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    for (let i = 1; i <= pasos; i++) {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x + (dx * i) / pasos, y: y + (dy * i) / pasos }] });
+      await p.waitForTimeout(16);
+    }
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  };
+  const tocar = async (cdp, x, y) => {
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  };
+  const fotoPrincipal = (p) =>
+    p.evaluate(() => {
+      const imgs = [...document.querySelectorAll('img[alt="PlayStation 5 Slim"]')].map((i) => i.getBoundingClientRect()).sort((a, b) => b.width * b.height - a.width * a.height);
+      return imgs[0] ? { x: imgs[0].left + imgs[0].width / 2, y: imgs[0].top + imgs[0].height / 2 } : null;
+    });
+  const vistaVisor = (p) =>
+    p.evaluate(() => {
+      const t = document.getElementById("visor-fotos-capa")?.style.transform ?? "";
+      const m = /translate3d\(([-\d.e+]+)px, ([-\d.e+]+)px, 0px\) scale\(([-\d.e+]+)\)/.exec(t);
+      return m ? { x: Math.round(+m[1]), y: Math.round(+m[2]), s: Math.round(+m[3] * 100) / 100 } : { x: 0, y: 0, s: 1 };
+    });
+
+  // FCONF1) Viernes 13 a las 11:00 en Madrid (navegador en UTC), cliente con CP 50410 (Cuarte) en su dirección predeterminada:
+  // «Llega hoy» (de tu perfil); al cambiar a 28001, «Llega entre el lunes y el martes» (el domingo no cuenta); 50001, hoy;
+  // 07001 (Baleares), sin fecha. La insignia y la garantía de 12 meses que marcó el dueño. Medido sin el código postal.
+  {
+    const estado = { filas: [conCp("50410")], guardados: [], aceptaAnalitica: true, producto: producto({ revisado: true, garantia_meses: 12 }), fotosProducto: fotos };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { timezoneId: "UTC" });
+    await ctx.clock.install({ time: new Date("2026-11-13T10:00:00Z") });
+    const p = await abrirFicha(ctx, estado);
+    const tipo = () => p.locator("#ficha-entrega").getAttribute("data-tipo").catch(() => "");
+    ok((await tipo()) === "mismo_dia" && (await texto(p, "#ficha-entrega-titulo")) === "Llega hoy", `FCONF: con el CP 50410 del perfil, «Llega hoy» (${await tipo()} · ${await texto(p, "#ficha-entrega-titulo")})`);
+    const detalle = await texto(p, "#ficha-entrega-detalle");
+    ok(/Entrega estimada/.test(detalle) && /si lo pides hoy/.test(detalle) && !/garantiza/i.test(detalle), `FCONF: dice «Entrega estimada … si lo pides hoy», sin garantizarlo (${detalle})`);
+    ok(/Código postal 50410 \(de tu perfil\)/.test(await texto(p, "#ficha-entrega-cp-actual")), `FCONF: dice de dónde sale el código (${await texto(p, "#ficha-entrega-cp-actual")})`);
+    ok((await texto(p, "#ficha-revisado")) === "Revisado por nuestro equipo" && (await texto(p, "#ficha-garantia")) === "Garantía de 12 meses", `FCONF: con lo que marcó el dueño, «Revisado por nuestro equipo» y «Garantía de 12 meses» (${await texto(p, "#ficha-confianza")})`);
+    await esperar(p, () => evento(estado, "ficha_entrega_estimada").length > 0);
+    const e1 = evento(estado, "ficha_entrega_estimada")[0];
+    ok(e1?.metadata?.tipo === "mismo_dia" && e1?.metadata?.origen === "perfil" && evento(estado, "ficha_entrega_estimada").length === 1, `FCONF: se mide «ficha_entrega_estimada» una vez: mismo_dia, del perfil (${JSON.stringify(e1?.metadata ?? null)})`);
+    ok((estado.consultasProducto ?? []).length > 0 && (estado.consultasProducto ?? []).every((s) => !/revisado|garantia/.test(s)), `FCONF: la ficha no pide «revisado» por su nombre (sin 400 antes de la migración) (${JSON.stringify(estado.consultasProducto)})`);
+    await capturar(p, "FCONF1-llega-hoy-390");
+
+    await p.locator("#ficha-entrega-cambiar").click();
+    const campo = p.locator("#ficha-entrega-cp");
+    await campo.waitFor({ timeout: 8000 }).catch(() => {});
+    const medida = await p.evaluate(() => {
+      const e = document.getElementById("ficha-entrega-cp");
+      return e ? { letra: parseFloat(getComputedStyle(e).fontSize), alto: Math.round(e.getBoundingClientRect().height), modo: e.getAttribute("inputmode") } : null;
+    });
+    ok(!!medida && medida.letra >= 16 && medida.alto >= 48 && medida.modo === "numeric", `FCONF: el campo del código postal a 16 px, 48 px de alto y teclado numérico (${JSON.stringify(medida)})`);
+    await campo.fill("28001");
+    await p.waitForTimeout(400);
+    const t28 = await texto(p, "#ficha-entrega-titulo");
+    ok((await tipo()) === "peninsula" && t28 === "Llega entre el lunes y el martes", `FCONF: con 28001 (viernes), «Llega entre el lunes y el martes»: el domingo no cuenta (${t28})`);
+    ok(/sale en 1-2 días laborables y llega en 72 h como máximo/.test(await texto(p, "#ficha-entrega-detalle")), `FCONF: y explica 1-2 días laborables y 72 h (${await texto(p, "#ficha-entrega-detalle")})`);
+    ok(/Solo para calcular la entrega: no se guarda\./.test(await texto(p, "#ficha-entrega")) && (estado.guardados ?? []).length === 0 && !(estado.actualizados ?? []).length, "FCONF: el código escrito solo calcula: no se guarda en el perfil");
+    await capturar(p, "FCONF1-peninsula-390");
+    await campo.fill("50001");
+    await p.waitForTimeout(300);
+    ok((await tipo()) === "mismo_dia" && (await texto(p, "#ficha-entrega-titulo")) === "Llega hoy", `FCONF: con 50001 (Zaragoza), otra vez «Llega hoy» (${await texto(p, "#ficha-entrega-titulo")})`);
+    await campo.fill("07001");
+    await p.waitForTimeout(300);
+    ok((await tipo()) === "islas" && /Baleares, Canarias, Ceuta y Melilla/.test(await texto(p, "#ficha-entrega-detalle")) && !/Llega/.test(await texto(p, "#ficha-entrega-titulo")), `FCONF: con 07001 (Baleares), sin fecha: «pregúntanos» (${await texto(p, "#ficha-entrega")})`);
+    await esperar(p, () => evento(estado, "ficha_entrega_estimada").length >= 3);
+    const tipos = evento(estado, "ficha_entrega_estimada").map((e) => `${e.metadata?.tipo}/${e.metadata?.origen}`);
+    ok(tipos.includes("peninsula/escrito") && tipos.includes("islas/escrito") && tipos.filter((t) => t.startsWith("mismo_dia")).length === 1, `FCONF: cada tipo se mide una vez por ficha (${tipos.join(", ")})`);
+    ok(sinCodigos(estado), "FCONF: la analítica nunca lleva el código postal");
+    ok(!llegaDomingo(await texto(p, "#ficha-entrega")), "FCONF: nunca dice que llega en domingo");
+    ok(p.errores.length === 0, `FCONF1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FCONF2) Domingo 00:30 en Madrid (aún sábado 23:30 en UTC, la zona del navegador) y sin código postal: las dos opciones
+  // («mañana, lunes» y «entre el miércoles y el jueves»), «Indica tu código postal» de 44 px y su campo; sin marcas del
+  // dueño, ni insignia ni garantía.
+  {
+    const estado = { filas: [sinCp], guardados: [], aceptaAnalitica: true, producto: producto({ revisado: false, garantia_meses: null }), fotosProducto: fotos };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { timezoneId: "UTC" });
+    await ctx.clock.install({ time: new Date("2026-11-14T23:30:00Z") });
+    const p = await abrirFicha(ctx, estado);
+    ok((await p.locator("#ficha-entrega").getAttribute("data-tipo").catch(() => "")) === "sin_cp", "FCONF: sin código postal, el tipo es sin_cp");
+    const local = await texto(p, "#ficha-entrega-local");
+    const resto = await texto(p, "#ficha-entrega-resto");
+    ok(local === "Zaragoza y Cuarte de Huerva: llega mañana, lunes", `FCONF: domingo en Madrid → Zaragoza «llega mañana, lunes» (con la fecha de Madrid, no la del navegador) (${local})`);
+    ok(resto === "Resto de España: llega entre el miércoles y el jueves", `FCONF: y el resto de España «entre el miércoles y el jueves» (${resto})`);
+    ok(!llegaDomingo(await texto(p, "#ficha-entrega")) && /sin contar domingos/.test(await texto(p, "#ficha-entrega-detalle")), `FCONF: sin domingos (${await texto(p, "#ficha-entrega-detalle")})`);
+    ok((await p.locator("#ficha-confianza").count()) === 0 && (await p.locator("#ficha-revisado").count()) === 0 && (await p.locator("#ficha-garantia").count()) === 0, "FCONF: sin marcar por el dueño, ni insignia ni garantía");
+    const boton = await p.evaluate(() => {
+      const e = document.getElementById("ficha-entrega-cp-boton");
+      return e ? { texto: e.innerText.trim(), alto: Math.round(e.getBoundingClientRect().height) } : null;
+    });
+    ok(boton?.texto === "Indica tu código postal" && boton.alto >= 44, `FCONF: «Indica tu código postal» de 44 px (${JSON.stringify(boton)})`);
+    await esperar(p, () => evento(estado, "ficha_entrega_estimada").length > 0);
+    const e2 = evento(estado, "ficha_entrega_estimada")[0];
+    ok(e2?.metadata?.tipo === "sin_cp" && e2?.metadata?.origen === null, `FCONF: se mide sin_cp (${JSON.stringify(e2?.metadata ?? null)})`);
+    await capturar(p, "FCONF2-sin-cp-390");
+    await p.locator("#ficha-entrega-cp-boton").click();
+    await p.locator("#ficha-entrega-cp").waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.locator("#ficha-entrega-perfil").count()) === 1, "FCONF: con el campo, «Guárdalo en Mi perfil»");
+    await p.locator("#ficha-entrega-cp").fill("50410");
+    await p.waitForTimeout(300);
+    ok((await texto(p, "#ficha-entrega-titulo")) === "Llega mañana, lunes", `FCONF: el domingo, en Cuarte «Llega mañana, lunes» (${await texto(p, "#ficha-entrega-titulo")})`);
+    await p.locator("#ficha-entrega-perfil").click();
+    await p.waitForURL(/\/perfil/, { timeout: 10000 }).catch(() => {});
+    ok(/\/perfil/.test(p.url()), `FCONF: «Guárdalo en Mi perfil» lleva a Mi perfil (${p.url().replace(BASE, "")})`);
+    ok(p.errores.length === 0, `FCONF2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FCONF3) Solo garantía (6 meses, sin «revisado»): sale la garantía y no la insignia. Sin la columna (la migración aún no
+  // aplicada): nada, sin errores. Lo que solo se entrega en mano no lleva entrega estimada.
+  {
+    const estado = { filas: [sinCp], guardados: [], aceptaAnalitica: true, producto: producto({ revisado: false, garantia_meses: 6 }), fotosProducto: fotos };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrirFicha(ctx, estado);
+    ok((await texto(p, "#ficha-garantia")) === "Garantía de 6 meses" && (await p.locator("#ficha-revisado").count()) === 0, `FCONF: solo con meses, «Garantía de 6 meses» y sin la insignia (${await texto(p, "#ficha-confianza")})`);
+    ok(p.errores.length === 0, `FCONF3: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+  {
+    const estado = { filas: [sinCp], guardados: [], aceptaAnalitica: true, producto: producto(), fotosProducto: fotos };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrirFicha(ctx, estado);
+    ok((await p.locator("#ficha-confianza").count()) === 0 && (await p.locator("#ficha-entrega").count()) === 1 && (await p.getByText("Comprar ya", { exact: true }).count()) >= 1, "FCONF: sin la columna, la ficha sale entera, sin insignias y con la entrega estimada");
+    ok(p.errores.length === 0, `FCONF: sin la columna, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+  {
+    const estado = { filas: [sinCp], guardados: [], aceptaAnalitica: true, producto: producto({ solo_entrega_mano: true, revisado: true, garantia_meses: 3 }), fotosProducto: fotos };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/producto/${ID}`);
+    await p.locator("#ficha-solo-mano").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    ok((await p.locator("#ficha-solo-mano").count()) === 1 && (await p.locator("#ficha-entrega").count()) === 0 && (await texto(p, "#ficha-garantia")) === "Garantía de 3 meses", "FCONF: solo en mano: su aviso, sin entrega estimada (y con su garantía)");
+    await ctx.close();
+  }
+
+  // FCONF4) Visor (390, dedos de verdad): se abre al tocar la foto, se desliza a la siguiente, el doble toque amplía, deslizar
+  // poco hacia abajo no cierra y deslizar de verdad sí; Escape y la X (44 px o más) también. Todo medido como ficha_foto_zoom.
+  {
+    const estado = { filas: [sinCp], guardados: [], aceptaAnalitica: true, producto: producto(), fotosProducto: fotos };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrirFicha(ctx, estado);
+    const cdp = await ctx.newCDPSession(p);
+    const abrir = async () => {
+      const f = await fotoPrincipal(p);
+      if (f) await tocar(cdp, f.x, f.y);
+      await p.locator("#visor-fotos").waitFor({ timeout: 8000 }).catch(() => {});
+      await p.waitForTimeout(450);
+    };
+    const abierto = async () => (await p.locator("#visor-fotos").count()) === 1;
+    await abrir();
+    ok((await abierto()) && /1 \/ 3/.test(await texto(p, "#visor-fotos")), "FCONF: tocar la foto abre el visor a pantalla completa (1 / 3)");
+    await esperar(p, () => evento(estado, "ficha_foto_zoom").length > 0);
+    ok(evento(estado, "ficha_foto_zoom")[0]?.metadata?.accion === "abrir", `FCONF: se mide ficha_foto_zoom al abrir (${JSON.stringify(evento(estado, "ficha_foto_zoom")[0]?.metadata ?? null)})`);
+    const caja = await p.locator("#visor-fotos").boundingBox();
+    const cx = caja.x + caja.width / 2;
+    const cy = caja.y + caja.height / 2;
+    await deslizar(cdp, p, cx + 100, cy, -200, 0, 8);
+    await p.waitForTimeout(600);
+    ok(/2 \/ 3/.test(await texto(p, "#visor-fotos")), "FCONF: deslizar a la izquierda pasa a la foto 2 de 3");
+    await tocar(cdp, cx, cy);
+    await p.waitForTimeout(80);
+    await tocar(cdp, cx, cy);
+    await p.waitForTimeout(450);
+    const z = await vistaVisor(p);
+    ok(z.s > 2, `FCONF: el doble toque amplía (x${z.s})`);
+    await esperar(p, () => evento(estado, "ficha_foto_zoom").some((e) => e.metadata?.accion === "zoom"));
+    ok(evento(estado, "ficha_foto_zoom").some((e) => e.metadata?.accion === "zoom" && e.metadata?.como === "doble_toque"), "FCONF: y se mide el zoom (doble toque)");
+    // Con zoom, arrastrar hacia abajo mueve la foto: no cierra.
+    await deslizar(cdp, p, cx, cy - 100, 0, 200);
+    await p.waitForTimeout(500);
+    ok(await abierto(), "FCONF: con zoom, arrastrar hacia abajo mueve la foto y no cierra");
+    await tocar(cdp, cx, cy);
+    await p.waitForTimeout(80);
+    await tocar(cdp, cx, cy);
+    await p.waitForTimeout(450);
+    // Sin zoom: un poco hacia abajo (60 px) vuelve; de verdad (240 px) cierra.
+    await deslizar(cdp, p, cx, cy - 100, 0, 60, 12);
+    await p.waitForTimeout(400);
+    const v = await vistaVisor(p);
+    ok((await abierto()) && Math.abs(v.y) <= 2 && v.s === 1, `FCONF: deslizar poco hacia abajo no cierra y la foto vuelve (${JSON.stringify(v)})`);
+    await deslizar(cdp, p, cx, cy - 150, 0, 240);
+    await p.waitForTimeout(600);
+    ok(!(await abierto()), "FCONF: deslizar hacia abajo cierra el visor");
+    await esperar(p, () => evento(estado, "ficha_foto_zoom").some((e) => e.metadata?.accion === "cerrar_deslizando"));
+    ok(evento(estado, "ficha_foto_zoom").some((e) => e.metadata?.accion === "cerrar_deslizando"), "FCONF: y se mide «cerrar_deslizando»");
+    await abrir();
+    await p.keyboard.press("Escape");
+    await p.waitForTimeout(300);
+    ok(!(await abierto()), "FCONF: Escape cierra el visor");
+    await abrir();
+    const x = await p.locator("#visor-fotos-cerrar").boundingBox();
+    ok(!!x && x.width >= 44 && x.height >= 44, `FCONF: la X para cerrar mide 44 px o más (${Math.round(x?.width ?? 0)} × ${Math.round(x?.height ?? 0)})`);
+    await capturar(p, "FCONF4-visor-390");
+    await p.locator("#visor-fotos-cerrar").click();
+    await p.waitForTimeout(300);
+    ok(!(await abierto()), "FCONF: la X cierra el visor");
+    ok(p.errores.length === 0, `FCONF4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FCONF4b) Visor en el ordenador: clic para abrir, flechas del teclado y rueda para ampliar (medida como «rueda»).
+  {
+    const estado = { filas: [sinCp], guardados: [], aceptaAnalitica: true, producto: producto(), fotosProducto: fotos };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, ESCRITORIO);
+    const p = await abrirFicha(ctx, estado);
+    const f = await fotoPrincipal(p);
+    if (f) await p.mouse.click(f.x, f.y);
+    await p.locator("#visor-fotos").waitFor({ timeout: 8000 }).catch(() => {});
+    await p.waitForTimeout(450);
+    ok((await p.locator("#visor-fotos").count()) === 1, "FCONF (1280): un clic en la foto abre el visor");
+    await p.keyboard.press("ArrowRight");
+    await p.waitForTimeout(400);
+    ok(/2 \/ 3/.test(await texto(p, "#visor-fotos")), "FCONF (1280): la flecha del teclado pasa a la foto 2");
+    const caja = await p.locator("#visor-fotos").boundingBox();
+    await p.mouse.move(caja.x + caja.width / 2, caja.y + caja.height / 2);
+    await p.mouse.wheel(0, -400);
+    await p.waitForTimeout(300);
+    const z = await vistaVisor(p);
+    await esperar(p, () => evento(estado, "ficha_foto_zoom").some((e) => e.metadata?.como === "rueda"));
+    ok(z.s > 1.1 && evento(estado, "ficha_foto_zoom").some((e) => e.metadata?.accion === "zoom" && e.metadata?.como === "rueda"), `FCONF (1280): la rueda amplía y se mide (x${z.s})`);
+    await capturar(p, "FCONF4b-visor-1280");
+    await p.keyboard.press("Escape");
+    await p.waitForTimeout(300);
+    ok((await p.locator("#visor-fotos").count()) === 0 && p.errores.length === 0, `FCONF (1280): Escape cierra, sin errores (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FCONF5) A 360, 390 y 1280 px: la ficha con insignias, la entrega y el campo abierto no se ensancha; campos a 16 px.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = { filas: [sinCp], guardados: [], aceptaAnalitica: true, producto: producto({ revisado: true, garantia_meses: 12 }), fotosProducto: fotos };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await abrirFicha(ctx, estado);
+    await p.locator("#ficha-entrega-cp-boton").click().catch(() => {});
+    await p.locator("#ficha-entrega-cp").waitFor({ timeout: 8000 }).catch(() => {});
+    const d = await sinDesborde(p);
+    const cajas = await p.evaluate(() =>
+      ["ficha-entrega", "ficha-confianza", "ficha-revisado", "ficha-garantia"].map((id) => {
+        const r = document.getElementById(id)?.getBoundingClientRect();
+        return r ? { id, izq: Math.round(r.left), der: Math.round(r.right), v: window.innerWidth } : { id, falta: true };
+      })
+    );
+    ok(d.a <= d.v + 1 && cajas.every((c) => !c.falta && c.izq >= 0 && c.der <= c.v + 1), `FCONF (${nombre}): la ficha no se ensancha y todo cabe (${d.a}/${d.v} · ${JSON.stringify(cajas)})`);
+    const letras = await p.evaluate(() => [...document.querySelectorAll("input, textarea")].filter((e) => e.offsetParent).map((e) => parseFloat(getComputedStyle(e).fontSize)));
+    ok(letras.every((x) => x >= 16), `FCONF (${nombre}): campos a 16 px o más (${letras.join(", ")})`);
+    const enlaces = await p.evaluate(() => ["ficha-entrega-perfil"].map((id) => Math.round(document.getElementById(id)?.getBoundingClientRect().height ?? 0)));
+    ok(enlaces.every((h) => h >= 44), `FCONF (${nombre}): «Guárdalo en Mi perfil» de 44 px (${enlaces.join(", ")})`);
+    await p.locator("#ficha-entrega").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `FCONF5-ficha-${nombre}`);
+    ok(p.errores.length === 0, `FCONF5 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FCONF6) Administración → Productos (390 y 1280): indicador «✓ Revisado · Garantía 12 meses», filtro «Revisados» con sus
+  // recuentos, marcar otro como revisado con 6 meses (se guarda), 40 meses no se deja; sin la columna, nada de eso.
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+  const A = "p0000000-0000-4000-8000-0000000000fa";
+  const B = "p0000000-0000-4000-8000-0000000000fb";
+  const fila = (id, title, extra = {}) => ({
+    id, title, description: "Revisado.", price_eur: 49.9, status: "PUBLISHED", is_active: true, category_id: null, images: [], condition: "USED",
+    reference: null, is_featured_home: false, created_at: "2026-10-30T10:00:00Z", updated_at: "2026-10-30T10:00:00Z", ...extra,
+  });
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const estado = {
+      guardados: [], filas: perfilAdmin, categorias: [],
+      productosAdmin: [fila(A, "Consola PS5 Slim", { revisado: true, garantia_meses: 12 }), fila(B, "Mando DualSense", { revisado: false, garantia_meses: null })],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/products");
+    await p.locator("#productos-filtro-revisados").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok(/1 revisado · 1 con garantía/.test(await texto(p, "#productos-filtro-revisados")), `FCONF (${nombre}): Productos cuenta «1 revisado · 1 con garantía» (${await texto(p, "#productos-filtro-revisados")})`);
+    ok((await texto(p, `#producto-revisado-${A}`)) === "✓ Revisado · Garantía 12 meses" && (await p.locator(`#producto-revisado-${B}`).count()) === 0, `FCONF (${nombre}): en la lista, «✓ Revisado · Garantía 12 meses» solo en el marcado (${await texto(p, `#producto-revisado-${A}`)})`);
+    await p.locator("#productos-filtro-revisados").getByText("Revisados", { exact: true }).click();
+    await p.waitForTimeout(300);
+    const visibles = await p.evaluate(() => [...document.querySelectorAll('[id^="producto-ficha-"]')].map((e) => e.id));
+    ok(visibles.length === 1 && visibles[0] === `producto-ficha-${A}`, `FCONF (${nombre}): el filtro «Revisados» deja solo el revisado (${JSON.stringify(visibles)})`);
+    await p.locator("#productos-filtro-revisados").getByText("Sin revisar", { exact: true }).click();
+    await p.waitForTimeout(300);
+    const sinRev = await p.evaluate(() => [...document.querySelectorAll('[id^="producto-ficha-"]')].map((e) => e.id));
+    ok(sinRev.length === 1 && sinRev[0] === `producto-ficha-${B}`, `FCONF (${nombre}): «Sin revisar» deja el otro (${JSON.stringify(sinRev)})`);
+    await capturar(p, `FCONF6-productos-${nombre}`);
+    await p.locator("#productos-filtro-revisados").getByText("Todos", { exact: true }).click();
+    await p.waitForTimeout(300);
+    await p.locator('[aria-label="Editar Mando DualSense"]').click();
+    await p.locator("#producto-confianza").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok((await p.locator("#producto-confianza").count()) === 1 && /Sin marcar, la ficha no enseña ni revisión ni garantía\./.test(await texto(p, "#producto-confianza")), "FCONF: el formulario tiene «Revisado por nuestro equipo» y «Garantía», y avisa de que sin marcar no se enseña");
+    await p.locator("#producto-revisado").click();
+    await p.locator("#producto-garantia-opciones").getByText("6 meses", { exact: true }).click();
+    await p.waitForTimeout(200);
+    ok((await p.locator("#producto-garantia").inputValue().catch(() => "")) === "6", "FCONF: elegir «6 meses» pone 6");
+    await p.locator("#producto-confianza").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `FCONF6-formulario-${nombre}`);
+    await p.getByText("Guardar cambios", { exact: true }).last().click();
+    await esperar(p, () => (estado.productosCambiados ?? []).some((c) => c.id === B));
+    const cambio = (estado.productosCambiados ?? []).find((c) => c.id === B);
+    ok(cambio?.cuerpo?.revisado === true && cambio?.cuerpo?.garantia_meses === 6, `FCONF (${nombre}): guarda revisado y 6 meses (${JSON.stringify(cambio?.cuerpo ? { revisado: cambio.cuerpo.revisado, garantia_meses: cambio.cuerpo.garantia_meses } : null)})`);
+    await p.waitForTimeout(800);
+    await p.locator('[aria-label="Editar Mando DualSense"]').click();
+    await p.locator("#producto-garantia").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(400);
+    await p.locator("#producto-garantia").fill("40");
+    const antes = (estado.productosCambiados ?? []).length;
+    await p.getByText("Guardar cambios", { exact: true }).last().click();
+    await p.waitForTimeout(800);
+    ok((estado.productosCambiados ?? []).length === antes && (await p.getByText("La garantía va de 1 a 36 meses (o «Sin indicar»).").count()) >= 1, "FCONF: 40 meses no se guarda y lo explica");
+    const campos = await p.evaluate(() => [...document.querySelectorAll("#producto-confianza input")].filter((e) => e.offsetParent && e.type !== "checkbox").map((e) => parseFloat(getComputedStyle(e).fontSize)));
+    ok(campos.length >= 1 && campos.every((x) => x >= 16), `FCONF (${nombre}): el campo de meses a 16 px (${campos.join(", ")})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `FCONF (${nombre}): Productos no se ensancha (${d.a}/${d.v})`);
+    ok(p.errores.length === 0, `FCONF6 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+  {
+    const estado = { guardados: [], filas: perfilAdmin, categorias: [], productosAdmin: [fila(A, "Consola PS5 Slim"), fila(B, "Mando DualSense")] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/products");
+    await p.locator("#productos-rejilla").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok((await p.locator("#productos-filtro-revisados").count()) === 0, "FCONF: sin la columna, Productos no enseña el filtro «Revisados»");
+    await p.locator('[aria-label="Editar Mando DualSense"]').click();
+    await p.getByText("Guardar cambios", { exact: true }).last().waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(400);
+    ok((await p.locator("#producto-confianza").count()) === 0, "FCONF: ni el interruptor ni la garantía en el formulario");
+    await p.getByText("Guardar cambios", { exact: true }).last().click();
+    await esperar(p, () => (estado.productosCambiados ?? []).length > 0);
+    const c = (estado.productosCambiados ?? [])[0]?.cuerpo ?? {};
+    ok((estado.productosCambiados ?? []).length === 1 && !("revisado" in c) && !("garantia_meses" in c), `FCONF: y guarda sin esas columnas (${Object.keys(c).join(",")})`);
+    ok(p.errores.length === 0, `FCONF: sin la columna, Productos sin errores (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FCONF7) Administración → Analítica: «Ficha del producto (30 días)» con el visor, las entregas por tipo y los recuentos.
+  {
+    const ahora = new Date().toISOString();
+    const ev = (event_name, metadata) => ({ event_name, metadata, created_at: ahora });
+    const eventos = [
+      ev("ficha_foto_zoom", { accion: "abrir", fotos: 3 }),
+      ev("ficha_foto_zoom", { accion: "abrir", fotos: 3 }),
+      ev("ficha_foto_zoom", { accion: "zoom", como: "pellizco" }),
+      ev("ficha_foto_zoom", { accion: "cerrar_deslizando" }),
+      ev("ficha_entrega_estimada", { tipo: "mismo_dia", origen: "perfil" }),
+      ev("ficha_entrega_estimada", { tipo: "peninsula", origen: "escrito" }),
+      ev("ficha_entrega_estimada", { tipo: "peninsula", origen: "perfil" }),
+      ev("ficha_entrega_estimada", { tipo: "sin_cp", origen: null }),
+    ];
+    for (const { nombre, vista } of VISTAS) {
+      const estado = { filas: [], guardados: [], embudo: [], eventos, confianza: { muestra: [{ id: A, revisado: true, garantia_meses: 12 }], revisados: 4, conGarantia: 3 } };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, "/admin/analytics");
+      await p.locator("#analitica-ficha-producto").waitFor({ timeout: 30000 }).catch(() => {});
+      await p.waitForTimeout(400);
+      const z = await texto(p, "#analitica-ficha-zoom");
+      const e = await texto(p, "#analitica-ficha-entregas");
+      const r = await texto(p, "#analitica-ficha-revisados");
+      ok(z === "Visor de fotos: abierto 2 veces · con zoom 1 · cerrado deslizando 1", `FCONF (${nombre}): Analítica, el visor (${z})`);
+      ok(e === "Entregas estimadas mostradas: mismo día 1 · resto de España 2 · islas, Ceuta y Melilla 0 · sin código postal 1", `FCONF (${nombre}): Analítica, las entregas por tipo (${e})`);
+      ok(r === "Productos revisados por el equipo: 4 · con garantía indicada: 3", `FCONF (${nombre}): Analítica, los revisados y con garantía (${r})`);
+      ok((estado.consultasConfianza ?? []).every((c) => !/^GET .*select=(?!\*)/.test(c)) && (estado.consultasConfianza ?? []).some((c) => c.startsWith("HEAD")), `FCONF (${nombre}): los recuentos sin descargar filas (${JSON.stringify(estado.consultasConfianza)})`);
+      const d = await sinDesborde(p);
+      ok(d.a <= d.v + 1, `FCONF (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+      await p.locator("#analitica-ficha-producto").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `FCONF7-analitica-${nombre}`);
+      ok(p.errores.length === 0, `FCONF7 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+    // Sin la columna: la línea de revisados no sale.
+    const estado = { filas: [], guardados: [], embudo: [], eventos, confianza: { muestra: [{ id: A }] } };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-ficha-producto").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(400);
+    ok((await p.locator("#analitica-ficha-revisados").count()) === 0 && !(estado.consultasConfianza ?? []).some((c) => c.startsWith("HEAD")), "FCONF: sin la columna, Analítica no cuenta revisados (ni lo intenta)");
+    await ctx.close();
+  }
+
+  // FCONF8) Quien rechazó la analítica: la ficha se ve igual y no se mide nada.
+  {
+    const estado = { filas: [conCp("28001")], guardados: [], aceptaAnalitica: false, producto: producto(), fotosProducto: fotos };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrirFicha(ctx, estado);
+    await p.waitForTimeout(1000);
+    ok((await p.locator("#ficha-entrega").getAttribute("data-tipo").catch(() => "")) === "peninsula" && !evento(estado, "ficha_entrega_estimada").length, "FCONF: con la analítica rechazada, la entrega sale igual y no se mide");
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "FCONF") await seccionFCONF();
   if (SOLO === "FBU") await seccionFBU();
   if (SOLO === "CAMPOS16") await seccionCAMPOS16();
   if (SOLO === "SES") await seccionSES();
@@ -15321,6 +15777,7 @@ try {
   await seccionSES2();
   await seccionCR();
   await seccionFBU();
+  await seccionFCONF();
   await seccionCAMPOS16();
   }
 } catch (e) {

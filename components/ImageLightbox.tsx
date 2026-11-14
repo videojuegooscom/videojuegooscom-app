@@ -25,6 +25,11 @@
  * - Se abre con la versión de la foto del tamaño de la pantalla (la misma que ya bajó la ficha: sale al instante) y
  *   solo al acercar se descarga la original, para ver el detalle.
  *
+ * Cerrar (mejora 4 «Ficha de confianza», 2026-11-14): la X de 52 px de abajo, Escape y, sin zoom, deslizar la foto hacia
+ * abajo (la foto baja con el dedo y el fondo se aclara; al soltar pasada la mitad del camino, o rápido, se cierra; si no,
+ * vuelve). El eje se decide al empezar a mover: en horizontal cambia de foto, en vertical cierra. onEvento avisa a quien lo
+ * abre del zoom (una vez por apertura) y del cierre deslizando, para su analítica (la ficha lo cuenta como ficha_foto_zoom).
+ *
  * Blue: mientras el visor está abierto, components/Campanita.tsx lo esconde (suscribirVisorFotos) y guarda sus
  * mensajes para cuando se cierre. No usa ninguna librería nueva: los gestos son PanResponder de React Native.
  *
@@ -48,6 +53,8 @@ const DOUBLE_TAP_SCALE = 2.5;
 const DOUBLE_TAP_MS = 300;
 const DOUBLE_TAP_PX = 40;
 const SWIPE_THRESHOLD = 60;
+// Deslizar hacia abajo para cerrar: a partir de estos px (o soltando rápido hacia abajo).
+const CERRAR_ABAJO_PX = 110;
 const TAP_MOVE_TOLERANCE = 8;
 // Con este zoom o más se descarga la foto original (más detalle que la del tamaño de la pantalla).
 const ZOOM_ORIGINAL = 1.4;
@@ -89,7 +96,11 @@ type Gesto = {
   ultimo: Punto; // dedos ahora, respecto al centro del visor
   pellizco: boolean;
   movido: boolean;
+  // Sin zoom, hacia dónde va el dedo: «x» cambia de foto, «y» cierra deslizando hacia abajo.
+  eje: "x" | "y" | null;
 };
+
+export type EventoVisor = "zoom" | "cerrar_deslizando";
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -118,11 +129,14 @@ export default function ImageLightbox({
   images,
   initialIndex,
   onClose,
+  onEvento,
 }: {
   visible: boolean;
   images: LightboxImage[];
   initialIndex: number;
   onClose: () => void;
+  /** Zoom usado (una vez por apertura, con cómo) o cierre deslizando hacia abajo: para la analítica de quien lo abre. */
+  onEvento?: (evento: EventoVisor, como?: string) => void;
 }) {
   const abierto = visible && images.length > 0;
 
@@ -134,10 +148,20 @@ export default function ImageLightbox({
 
   // Se monta de nuevo en cada apertura: empieza siempre en la foto tocada y sin zoom.
   if (!abierto) return null;
-  return <Visor images={images} initialIndex={initialIndex} onClose={onClose} />;
+  return <Visor images={images} initialIndex={initialIndex} onClose={onClose} onEvento={onEvento} />;
 }
 
-function Visor({ images, initialIndex, onClose }: { images: LightboxImage[]; initialIndex: number; onClose: () => void }) {
+function Visor({
+  images,
+  initialIndex,
+  onClose,
+  onEvento,
+}: {
+  images: LightboxImage[];
+  initialIndex: number;
+  onClose: () => void;
+  onEvento?: (evento: EventoVisor, como?: string) => void;
+}) {
   const ventana = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [marco, setMarco] = useState({ w: ventana.width, h: ventana.height });
@@ -147,9 +171,9 @@ function Visor({ images, initialIndex, onClose }: { images: LightboxImage[]; ini
   const capaRef = useRef<View>(null);
 
   // Lo que necesitan los gestos (se crean una sola vez): siempre los valores de ahora.
-  const datos = useRef({ index, total: images.length, marco, onClose, verOriginal });
+  const datos = useRef({ index, total: images.length, marco, onClose, verOriginal, onEvento });
   useEffect(() => {
-    datos.current = { index, total: images.length, marco, onClose, verOriginal };
+    datos.current = { index, total: images.length, marco, onClose, verOriginal, onEvento };
   });
 
   const motor = useMemo(() => {
@@ -171,6 +195,11 @@ function Visor({ images, initialIndex, onClose }: { images: LightboxImage[]; ini
       if (!n) return;
       if (Platform.OS === "web" && n.style) n.style.transform = `translate3d(${vista.x}px, ${vista.y}px, 0) scale(${vista.s})`;
       else n.setNativeProps?.({ style: { transform: [{ translateX: vista.x }, { translateY: vista.y }, { scale: vista.s }] } });
+      // Deslizando hacia abajo para cerrar (sin zoom): el fondo se aclara según baja la foto.
+      const f = nodo(fondoRef);
+      const bajando = vista.s <= 1.001 && vista.y > 0;
+      const opacidad = bajando ? Math.max(0.3, 1 - vista.y / (datos.current.marco.h * 0.6)) : 1;
+      if (Platform.OS === "web" && f?.style) f.style.backgroundColor = bajando ? `rgba(4,8,15,${opacidad.toFixed(3)})` : FONDO;
     }
     function poner(v: Vista) {
       vista.s = v.s;
@@ -236,6 +265,7 @@ function Visor({ images, initialIndex, onClose }: { images: LightboxImage[]; ini
       if (zoomContado) return;
       zoomContado = true;
       trackEvent("foto_zoom", "Ficha: zoom en la foto", { metadata: { como } });
+      datos.current.onEvento?.("zoom", como);
     }
     function pedirOriginal(s: number) {
       if (s < ZOOM_ORIGINAL || datos.current.verOriginal) return;
@@ -323,6 +353,7 @@ function Visor({ images, initialIndex, onClose }: { images: LightboxImage[]; ini
         ultimo: c0,
         pellizco: (previo?.pellizco ?? false) || n === 2,
         movido: (previo?.movido ?? false) || n === 2,
+        eje: previo?.eje ?? null,
       };
     }
 
@@ -361,8 +392,15 @@ function Visor({ images, initialIndex, onClose }: { images: LightboxImage[]; ini
           y: conMuelle(g.base.y + dy, Math.min(-my, g.base.y), Math.max(my, g.base.y)),
         });
       } else if (!g.pellizco) {
-        // Sin zoom, la foto sigue al dedo hacia los lados (con una sola foto, apenas).
-        poner({ s: 1, x: dx * (datos.current.total > 1 ? 1 : 0.25), y: 0 });
+        // Sin zoom, el primer movimiento claro decide: hacia los lados cambia de foto, hacia abajo cierra.
+        if (!g.eje && g.movido) g.eje = Math.abs(dy) > Math.abs(dx) ? "y" : "x";
+        if (g.eje === "y") {
+          // La foto baja con el dedo (hacia arriba, apenas).
+          poner({ s: 1, x: 0, y: dy > 0 ? dy : dy * 0.2 });
+        } else if (g.eje === "x") {
+          // La foto sigue al dedo hacia los lados (con una sola foto, apenas).
+          poner({ s: 1, x: dx * (datos.current.total > 1 ? 1 : 0.25), y: 0 });
+        }
       }
     }
 
@@ -399,6 +437,14 @@ function Visor({ images, initialIndex, onClose }: { images: LightboxImage[]; ini
         // Un poco de inercia al soltar con velocidad (las velocidades van en px por ms).
         const rapido = Math.abs(v.vx) > 0.25 || Math.abs(v.vy) > 0.25;
         return asentar(undefined, rapido ? { x: vista.x + v.vx * 140, y: vista.y + v.vy * 140 } : undefined);
+      }
+      if (g.eje === "y") {
+        // Deslizar hacia abajo: pasado el umbral (o rápido hacia abajo) termina de bajar y se cierra; si no, vuelve.
+        if (vista.y > CERRAR_ABAJO_PX || (vista.y > 40 && v.vy > 0.5)) {
+          datos.current.onEvento?.("cerrar_deslizando");
+          return animarA({ s: 1, x: 0, y: datos.current.marco.h }, 160, () => datos.current.onClose());
+        }
+        return animarA({ s: 1, x: 0, y: 0 }, 180);
       }
       const dx = vista.x;
       if (datos.current.total > 1 && (Math.abs(dx) > SWIPE_THRESHOLD || (Math.abs(dx) > 20 && Math.abs(v.vx) > 0.4))) {

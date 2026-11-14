@@ -46,6 +46,14 @@
  * puede deslizar con el dedo hacia los lados como un carrusel, para pasar
  * de una foto a otra sin salir de la ficha (mainImagePan).
  *
+ * Ficha de confianza (mejora 4, 2026-11-14): el visor se cierra también deslizando hacia abajo y su uso se mide como
+ * ficha_foto_zoom (abrir, zoom, cerrar deslizando). Debajo del precio, «Revisado por nuestro equipo» y «Garantía de N
+ * meses» SOLO si el dueño los marca en el producto (products.revisado / garantia_meses, migración 20261114140000; sin
+ * la columna no sale nada). Y la entrega estimada (EntregaEstimadaFicha con lib/envio.ts → entregaEstimada): con el
+ * código postal del perfil (dirección predeterminada) o uno escrito aquí que no se guarda, «Llega hoy» en Zaragoza y
+ * Cuarte, «Llega entre el … y el …» en el resto de España (sin domingos) y, sin código, las dos; se mide como
+ * ficha_entrega_estimada (tipo y origen, nunca el código postal). Se ve en Administración → Analítica.
+ *
  * Cabecera: solo el botón "←" queda fijo arriba; el título y el subtítulo
  * del producto viven dentro del ScrollView (son lo primero que se ve) y
  * desaparecen al hacer scroll como el resto del contenido, en vez de
@@ -104,6 +112,7 @@ import {
   Share,
   StatusBar,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
   type ViewStyle,
@@ -112,12 +121,21 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
-import { TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/theme";
 import { sinEmojis } from "../../lib/admin/products.utils";
 import { contarVistaProducto, fijarMeGusta } from "../../lib/interaccion";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
 import { productosReservadosPorOtros, RESERVA_MINUTOS, reservarProducto } from "../../lib/reservas";
-import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
+import {
+  cargarTarifas,
+  entregaEstimada,
+  limpiarCodigoPostal,
+  tipoEntregaPorCodigo,
+  type TipoEntregaEstimada,
+  type ZonaEnvio,
+} from "../../lib/envio";
+import { direccionesDeFila } from "../../components/PerfilPublico";
+import ImageLightbox, { type EventoVisor, type LightboxImage } from "../../components/ImageLightbox";
 import SmartImage from "../../components/SmartImage";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
@@ -197,6 +215,9 @@ type ProductDbRow = {
   reference: string | null;
   // Solo entrega en mano: no se envía (televisores sin su caja original; migración 20261107140000).
   solo_entrega_mano: boolean;
+  // Lo marca el dueño por producto (migración 20261114140000): sin la columna, false / null y no se muestra nada.
+  revisado: boolean;
+  garantia_meses: number | null;
 };
 
 type Product = {
@@ -205,6 +226,8 @@ type Product = {
   caracteristicas: Caracteristica[];
   mantenimiento: Mantenimiento | null;
   soloEntregaMano: boolean;
+  revisado: boolean;
+  garantiaMeses: number | null;
   description: string | null;
   priceEUR: number;
   status: UiStatus;
@@ -415,6 +438,11 @@ function asProductDbRow(value: unknown): ProductDbRow | null {
     caracteristicas: asCaracteristicas(row.caracteristicas),
     mantenimiento: asMantenimiento(row.mantenimiento),
     solo_entrega_mano: row.solo_entrega_mano === true,
+    revisado: row.revisado === true,
+    garantia_meses: (() => {
+      const n = Number(row.garantia_meses);
+      return row.garantia_meses != null && Number.isInteger(n) && n >= 1 && n <= 36 ? n : null;
+    })(),
     description: typeof row.description === "string" ? row.description : null,
     price_eur: typeof row.price_eur === "number" ? row.price_eur : Number(row.price_eur ?? 0),
     status: statusRaw as DbStatus,
@@ -568,6 +596,11 @@ const PRODUCT_SELECT_BASE =
 // mantenimiento (20261030100000_productos_mantenimiento.sql). Si alguna aún no existe, se pide sin ella (y ya sin
 // ella en adelante): la ficha del producto nunca se rompe por eso.
 const COLUMNAS_OPCIONALES = ["caracteristicas", "mantenimiento", "solo_entrega_mano"];
+// «revisado» y «garantia_meses» (20261114140000, mejora 4): se piden con «*» (trae las columnas que existan, todas
+// pequeñas) para que, mientras la migración no esté aplicada, no salga un 400 en la consola en cada visita (lección
+// «Columna nueva sin errores en la consola antes de la migración»). Sin ellas no sale ninguna insignia.
+const PRODUCT_SELECT_TODO = "*,category:categories(id,name,slug)";
+let seleccionTodoFalla = false;
 const columnasQueFaltan = new Set<string>();
 
 function columnaQueFalta(error: unknown): string | null {
@@ -580,7 +613,9 @@ function columnaQueFalta(error: unknown): string | null {
 // un cliente); el admin puede abrir también borradores y productos ocultos.
 async function fetchProductRow(productId: string, publicOnly: boolean): Promise<ProductDbRow | null> {
   const consultar = () => {
-    const columnas = [PRODUCT_SELECT_BASE, ...COLUMNAS_OPCIONALES.filter((c) => !columnasQueFaltan.has(c))].join(",");
+    const columnas = seleccionTodoFalla
+      ? [PRODUCT_SELECT_BASE, ...COLUMNAS_OPCIONALES.filter((c) => !columnasQueFaltan.has(c))].join(",")
+      : PRODUCT_SELECT_TODO;
     let query = supabase.from("products").select(columnas).eq("id", productId);
     if (publicOnly) {
       query = query.eq("is_active", true).eq("status", "PUBLISHED");
@@ -589,6 +624,11 @@ async function fetchProductRow(productId: string, publicOnly: boolean): Promise<
   };
 
   let res = await consultar();
+  // Si «*» fallara por cualquier motivo (no debería), se vuelve a las columnas de siempre, como antes.
+  if (res.error && !seleccionTodoFalla) {
+    seleccionTodoFalla = true;
+    res = await consultar();
+  }
   for (let i = 0; i < COLUMNAS_OPCIONALES.length && res.error; i++) {
     const falta = columnaQueFalta(res.error);
     if (!falta || columnasQueFaltan.has(falta)) break;
@@ -629,6 +669,16 @@ export default function ProductoScreen() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
+  // Entrega estimada (mejora 4 «Ficha de confianza»): el código postal del perfil (su dirección predeterminada) o el que
+  // escribe aquí el cliente solo para calcular (no se guarda). perfilListo evita contar «sin_cp» antes de leer el perfil.
+  const [cpPerfil, setCpPerfil] = useState<string | null>(null);
+  const [perfilListo, setPerfilListo] = useState(false);
+  const [cpEscrito, setCpEscrito] = useState("");
+  const [campoCp, setCampoCp] = useState(false);
+  const [zonasEnvio, setZonasEnvio] = useState<ZonaEnvio[] | null>(null);
+  const zonasPedidas = useRef(false);
+  const entregasContadas = useRef(new Set<string>());
+
   const reqSeqRef = useRef(0);
 
   const canBuy = useMemo(() => {
@@ -656,6 +706,60 @@ export default function ProductoScreen() {
     const estado = p.condition === "NEW" ? "Nuevo · unidad única" : `Segunda mano · ${labelCondition(p.condition)} · unidad única`;
     return isAdmin ? `${estado} · Vista admin` : estado;
   }, [p, isAdmin]);
+
+  // Entrega estimada: el código postal de la dirección predeterminada del perfil (o el de siempre), solo con sesión.
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const { data: s } = await supabase.auth.getSession();
+        const uid = s.session?.user?.id;
+        if (uid) {
+          // select("*"): una sola petición que no falla aunque falte alguna columna del perfil.
+          const { data } = await supabase.from("perfiles_cliente").select("*").eq("user_id", uid).maybeSingle();
+          if (vivo && data) {
+            const fila = data as Record<string, unknown>;
+            const lista = direccionesDeFila(fila);
+            const pred = lista?.find((d) => d.predeterminada) ?? lista?.[0] ?? null;
+            const cp = limpiarCodigoPostal(pred?.codigoPostal || (typeof fila.codigo_postal === "string" ? fila.codigo_postal : ""));
+            setCpPerfil(cp.length === 5 ? cp : null);
+          }
+        }
+      } catch {
+        // Sin perfil: se enseñan las dos opciones.
+      } finally {
+        if (vivo) setPerfilListo(true);
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  const cpEscritoLimpio = limpiarCodigoPostal(cpEscrito);
+  const cpActivo = cpEscritoLimpio.length === 5 ? cpEscritoLimpio : cpPerfil;
+  const origenCp: "escrito" | "perfil" | null = cpEscritoLimpio.length === 5 ? "escrito" : cpPerfil ? "perfil" : null;
+  // Las tarifas (zona «local» que edita el dueño) solo hacen falta con un código postal; una vez por visita.
+  useEffect(() => {
+    if (!cpActivo || zonasPedidas.current) return;
+    zonasPedidas.current = true;
+    cargarTarifas().then((z) => setZonasEnvio(z));
+  }, [cpActivo]);
+  const tipoEntrega: TipoEntregaEstimada = tipoEntregaPorCodigo(cpActivo, zonasEnvio);
+  // Solo en lo que se puede comprar y enviar (lo que solo se entrega en mano ya lo explica su aviso).
+  const conEntrega = !!p && !p.soloEntregaMano && p.status === "PUBLICADA" && p.isActive;
+  const productoCargadoId = p?.id ?? null;
+  useEffect(() => {
+    if (!conEntrega || !perfilListo || !productoCargadoId || params.guia === "1") return;
+    const clave = `${productoCargadoId}:${tipoEntrega}`;
+    if (entregasContadas.current.has(clave)) return;
+    entregasContadas.current.add(clave);
+    // Sin el código postal en los datos: solo el tipo y de dónde salió.
+    trackEvent("ficha_entrega_estimada", "Ficha: entrega estimada", {
+      path: `/producto/${productoCargadoId}`,
+      metadata: { tipo: tipoEntrega, origen: origenCp, productId: productoCargadoId },
+    });
+  }, [conEntrega, perfilListo, productoCargadoId, tipoEntrega, origenCp, params.guia]);
 
   // silencioso («Desliza para actualizar»): sin volver a la pantalla de carga y sin contar otra visita.
   async function loadProduct(silencioso = false) {
@@ -722,6 +826,8 @@ export default function ProductoScreen() {
         caracteristicas: productRow.caracteristicas,
         mantenimiento: productRow.mantenimiento,
         soloEntregaMano: productRow.solo_entrega_mano,
+        revisado: productRow.revisado,
+        garantiaMeses: productRow.garantia_meses,
         description: productRow.description ?? null,
         priceEUR: Number(productRow.price_eur ?? 0),
         status: mapDbStatusToUi(productRow.status),
@@ -879,6 +985,15 @@ export default function ProductoScreen() {
     setLightboxOpen(true);
     // Uso del visor (Administración → Analítica → Recorrido principal). El zoom lo cuenta el propio visor.
     trackEvent("foto_ampliada", "Ficha: foto ampliada", { metadata: { fotos: lightboxImages.length } });
+    // Ficha del producto (Analítica → «Ficha del producto (30 días)»): abrir, zoom y cerrar deslizando.
+    trackEvent("ficha_foto_zoom", "Ficha: visor de fotos", { path: `/producto/${p?.id ?? ""}`, metadata: { accion: "abrir", fotos: lightboxImages.length } });
+  }
+
+  function eventoVisor(evento: EventoVisor, como?: string) {
+    trackEvent("ficha_foto_zoom", "Ficha: visor de fotos", {
+      path: `/producto/${p?.id ?? ""}`,
+      metadata: evento === "zoom" ? { accion: "zoom", como: como ?? null } : { accion: "cerrar_deslizando" },
+    });
   }
 
   // Desliza la foto principal como un carrusel (sin zoom: el zoom vive en
@@ -1556,6 +1671,9 @@ export default function ProductoScreen() {
                   {fmtEUR(p.priceEUR)}
                 </Text>
 
+                {/* «Revisado por nuestro equipo» y la garantía: SOLO si el dueño lo ha marcado en este producto. */}
+                <InsigniasConfianza revisado={p.revisado} garantiaMeses={p.garantiaMeses} />
+
                 {/* Solo entrega en mano (dueño, 2026-11-07: los televisores sin su caja original no se envían). */}
                 {p.soloEntregaMano ? (
                   <View nativeID="ficha-solo-mano" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
@@ -1564,6 +1682,20 @@ export default function ProductoScreen() {
                       Solo entrega en mano en Zaragoza o Cuarte de Huerva: sin su caja original no se puede enviar.
                     </Text>
                   </View>
+                ) : null}
+
+                {/* Entrega estimada con los plazos de siempre (nunca garantizada). */}
+                {conEntrega ? (
+                  <EntregaEstimadaFicha
+                    tipo={tipoEntrega}
+                    cp={cpActivo}
+                    origen={origenCp}
+                    campoAbierto={campoCp}
+                    onAbrirCampo={() => setCampoCp(true)}
+                    cpEscrito={cpEscrito}
+                    onCpEscrito={(v) => setCpEscrito(v.replace(/[^0-9]/g, "").slice(0, 5))}
+                    onIrPerfil={() => pushRoute("/perfil" as Href)}
+                  />
                 ) : null}
 
                 {reservadoPorOtro ? (
@@ -1654,7 +1786,8 @@ export default function ProductoScreen() {
                     (y pasa solo cada 10 s); con solo la descripción, sin carrusel. */}
                 <FichaProducto key={p.id} caracteristicas={p.caracteristicas} mantenimiento={p.mantenimiento} descripcion={p.description} />
               </View>
-              {/* Las garantías y promesas las escribe la tienda en la descripción de cada producto. */}
+              {/* Las garantías y promesas las escribe la tienda en la descripción de cada producto; las insignias de
+                  arriba solo salen si el dueño las marca en ese producto (nunca fijas para todos). */}
             </View>
           </View>
 
@@ -1692,7 +1825,188 @@ export default function ProductoScreen() {
         images={lightboxImages}
         initialIndex={lightboxIndex}
         onClose={() => setLightboxOpen(false)}
+        onEvento={eventoVisor}
       />
+    </View>
+  );
+}
+
+// --- Ficha de confianza (mejora 4, aprobada por el dueño el 2026-11-14) -------------------------------------------
+// «Revisado por nuestro equipo» y «Garantía de N meses» los marca el dueño en cada producto (Administración → Productos,
+// migración 20261114140000): si no lo ha marcado, no se enseña nada (ninguna promesa por defecto). La entrega estimada usa
+// los plazos de siempre (lib/envio.ts → entregaEstimada) y siempre dice «estimada».
+
+const VERDE_CONFIANZA = "#15803D";
+
+function InsigniasConfianza({ revisado, garantiaMeses }: { revisado: boolean; garantiaMeses: number | null }) {
+  if (!revisado && !garantiaMeses) return null;
+  const chip = {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 32,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#CDEBD6",
+    backgroundColor: "#F1FAF4",
+    flexShrink: 1,
+  } as const;
+  const texto = { color: COLORES_TEXTO.texto, fontWeight: "800", fontSize: TAMANOS.minimo + 0.5, lineHeight: 18, flexShrink: 1 } as const;
+  return (
+    <View nativeID="ficha-confianza" style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, maxWidth: "100%" }}>
+      {revisado ? (
+        <View nativeID="ficha-revisado" style={chip}>
+          <Ionicons name="checkmark-circle" size={16} color={VERDE_CONFIANZA} />
+          <Text style={texto}>Revisado por nuestro equipo</Text>
+        </View>
+      ) : null}
+      {garantiaMeses ? (
+        <View nativeID="ficha-garantia" style={chip}>
+          <Ionicons name="shield-checkmark-outline" size={16} color={VERDE_CONFIANZA} />
+          <Text style={texto}>
+            Garantía de {garantiaMeses} {garantiaMeses === 1 ? "mes" : "meses"}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function EntregaEstimadaFicha({
+  tipo,
+  cp,
+  origen,
+  campoAbierto,
+  onAbrirCampo,
+  cpEscrito,
+  onCpEscrito,
+  onIrPerfil,
+}: {
+  tipo: TipoEntregaEstimada;
+  cp: string | null;
+  origen: "escrito" | "perfil" | null;
+  campoAbierto: boolean;
+  onAbrirCampo: () => void;
+  cpEscrito: string;
+  onCpEscrito: (v: string) => void;
+  onIrPerfil: () => void;
+}) {
+  const azul = colorTextoAzul(14);
+  const enlace = (texto: string, onPress: () => void, id: string) => (
+    <Pressable
+      nativeID={id}
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => ({ minHeight: TACTIL.minimo, justifyContent: "center", paddingHorizontal: 4, opacity: pressed ? 0.7 : 1 })}
+    >
+      <Text style={{ color: azul, fontWeight: "900", fontSize: 14, textDecorationLine: "underline" }}>{texto}</Text>
+    </Pressable>
+  );
+  const textoTitulo = { color: COLORES_TEXTO.texto, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 20, flexShrink: 1 } as const;
+  const textoDetalle = { color: COLORES_TEXTO.secundario, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 } as const;
+
+  let cuerpo: React.ReactNode;
+  if (tipo === "sin_cp") {
+    const local = entregaEstimada("mismo_dia").titulo ?? "";
+    const resto = entregaEstimada("peninsula").titulo ?? "";
+    const enMinuscula = (t: string) => t.replace(/^Llega/, "llega");
+    cuerpo = (
+      <>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Ionicons name="cube-outline" size={18} color={COLORES_TEXTO.texto} />
+          <Text nativeID="ficha-entrega-titulo" style={textoTitulo}>
+            Entrega estimada
+          </Text>
+        </View>
+        <Text nativeID="ficha-entrega-local" style={{ ...textoDetalle, color: COLORES_TEXTO.texto }}>
+          Zaragoza y Cuarte de Huerva: {enMinuscula(local)}
+        </Text>
+        <Text nativeID="ficha-entrega-resto" style={{ ...textoDetalle, color: COLORES_TEXTO.texto }}>
+          Resto de España: {enMinuscula(resto)}
+        </Text>
+        <Text nativeID="ficha-entrega-detalle" style={textoDetalle}>
+          Si lo pides hoy, sin contar domingos.
+        </Text>
+      </>
+    );
+  } else {
+    const e = entregaEstimada(tipo);
+    cuerpo = (
+      <>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Ionicons
+            name={tipo === "mismo_dia" ? "bicycle-outline" : tipo === "peninsula" ? "cube-outline" : "information-circle-outline"}
+            size={18}
+            color={COLORES_TEXTO.texto}
+          />
+          <Text nativeID="ficha-entrega-titulo" style={textoTitulo}>
+            {e.titulo ?? "Entrega estimada"}
+          </Text>
+        </View>
+        <Text nativeID="ficha-entrega-detalle" style={textoDetalle}>
+          {e.detalle}
+        </Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 4 }}>
+          <Text nativeID="ficha-entrega-cp-actual" style={textoDetalle}>
+            Código postal {cp}
+            {origen === "perfil" ? " (de tu perfil)" : ""} ·
+          </Text>
+          {campoAbierto ? null : enlace("Cambiar", onAbrirCampo, "ficha-entrega-cambiar")}
+        </View>
+      </>
+    );
+  }
+
+  return (
+    <View
+      nativeID="ficha-entrega"
+      {...({ dataSet: { tipo } } as object)}
+      style={{
+        width: "100%",
+        maxWidth: 460,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.bg2,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        gap: 6,
+      }}
+    >
+      {cuerpo}
+      {tipo === "sin_cp" && !campoAbierto ? enlace("Indica tu código postal", onAbrirCampo, "ficha-entrega-cp-boton") : null}
+      {campoAbierto ? (
+        <View style={{ gap: 4, marginTop: 4 }}>
+          <TextInput
+            nativeID="ficha-entrega-cp"
+            value={cpEscrito}
+            onChangeText={onCpEscrito}
+            placeholder="Código postal (5 cifras)"
+            placeholderTextColor="rgba(11,33,56,0.45)"
+            keyboardType="number-pad"
+            inputMode="numeric"
+            maxLength={5}
+            autoComplete="postal-code"
+            accessibilityLabel="Código postal para calcular la entrega"
+            style={{
+              height: CAMPO.alto,
+              fontSize: CAMPO.letra,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              borderRadius: 12,
+              paddingHorizontal: 12,
+              color: COLORES_TEXTO.texto,
+              backgroundColor: "#FFFFFF",
+            }}
+          />
+          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 4 }}>
+            <Text style={textoDetalle}>Solo para calcular la entrega: no se guarda.</Text>
+            {enlace("Guárdalo en Mi perfil", onIrPerfil, "ficha-entrega-perfil")}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
