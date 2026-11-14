@@ -39,6 +39,22 @@
  * que desplazarlo no arrastre la barra, y sale debajo si la barra está arriba
  * y encima si está abajo.
  *
+ * Búsqueda tolerante (mejora 3, 2026-11-14): los productos ya no se buscan con
+ * ilike. cargarIndiceBusqueda() pide UNA vez cada 5 min un índice ligero (id,
+ * título, descripción, precio, estado, categoría; sin fotos) y buscarProductos()
+ * busca en él normalizando (minúsculas, sin tildes ni guiones), con los
+ * sinónimos de la tienda (GRUPOS_SINONIMOS: «play 5» = «ps5» = «PlayStation 5»,
+ * mandos, Switch, Xbox Series, portátil, móvil), plurales simples y errores
+ * de escritura (Damerau-Levenshtein ≤ 1 en palabras de 4-6 letras, ≤ 2 desde
+ * 7), por relevancia (frase en el título > todas las palabras > parecido) y,
+ * a igualdad, en el orden de siempre. Sin resultados propone la corrección
+ * con productos («¿Querías decir…?»). El panel de Inicio enseña hasta 5
+ * productos, se recorre con las flechas (Intro abre el elegido) y ofrece «Ver
+ * todo el catálogo»; el catálogo usa SugerenciasCatalogo (hasta 6, con foto
+ * pequeña o categoría). Analítica propia: busqueda, busqueda_sin_resultados y
+ * busqueda_sugerencia_tocada (texto normalizado; si parece un correo o un
+ * teléfono no se guarda), que resume Administración → Analítica.
+ *
  * Cómo funciona `FloatingBarramagic`: usa Animated + PanResponder para el
  * arrastre y el efecto muelle (spring) al soltar, y mide la altura real del
  * teclado/viewport en web para no tapar contenido. La prop "hidden" (la
@@ -84,6 +100,8 @@ import {
   type ViewStyle,
 } from "react-native";
 import { supabase } from "../lib/supabase";
+import { trackEvent } from "../lib/analytics";
+import { colorTextoAzul } from "../constants/theme";
 import SmartImage from "./SmartImage";
 
 const COLORS = {
@@ -206,6 +224,400 @@ export function normalizarBusqueda(texto: string): string {
     .trim();
 }
 
+// ---------------------------------------------------------------------------
+// Búsqueda tolerante de productos (mejora 3 «Filtros y búsqueda», dueño 2026-11-14). Sin dependencias: se normaliza
+// (minúsculas, sin tildes, sin guiones ni espacios dobles), se aplican los sinónimos de la tienda, los plurales simples
+// y los errores de escritura (distancia de edición ≤ 1 en palabras de 4-6 letras y ≤ 2 en las de 7 o más) contra las
+// palabras de los títulos y las categorías. La usan el buscador de Inicio (FloatingBarramagic) y el catálogo
+// (app/catalogo.tsx), con el mismo índice ligero de productos (cargarIndiceBusqueda: sin fotos).
+// ---------------------------------------------------------------------------
+
+/**
+ * Sinónimos y abreviaturas de la tienda. Cada forma (normalizada) se cambia por su `canon` en la búsqueda y en los
+ * productos; `tambien` añade palabras que el producto también cumple («ps5» también es «playstation»).
+ */
+const GRUPOS_SINONIMOS: { canon: string; formas: string[]; tambien?: string[] }[] = [
+  { canon: "ps5", formas: ["playstation 5", "play station 5", "play 5", "play5", "ps 5", "ps5"], tambien: ["playstation"] },
+  { canon: "ps4", formas: ["playstation 4", "play station 4", "play 4", "play4", "ps 4", "ps4"], tambien: ["playstation"] },
+  { canon: "switch", formas: ["nintendo switch", "switch"], tambien: ["nintendo"] },
+  { canon: "mando", formas: ["mandos", "mando", "controller", "controllers", "joystick", "joysticks", "dualsense", "dualshock", "joy con", "joy cons", "joycon", "joycons"] },
+  { canon: "xboxseries", formas: ["xbox series x", "xbox series s", "xbox series", "series x", "series s"], tambien: ["xbox"] },
+  { canon: "portatil", formas: ["portatiles", "portatil", "laptop", "laptops"] },
+  { canon: "movil", formas: ["telefono movil", "moviles", "movil", "smartphone", "smartphones", "telefono", "telefonos"] },
+];
+
+const FORMAS_SINONIMOS = GRUPOS_SINONIMOS.flatMap((g) =>
+  g.formas.map((f) => ({ tokens: normalizarBusqueda(f).split(" "), canon: g.canon, tambien: g.tambien ?? [] }))
+).sort((a, b) => b.tokens.length - a.tokens.length);
+
+/** Palabras que no cuentan al buscar («mandos de switch» = «mandos switch»). */
+const PALABRAS_VACIAS = new Set(["de", "del", "la", "el", "los", "las", "para", "con", "y", "en", "un", "una", "a", "por", "sin"]);
+
+/** Plural simple: «mandos» → «mando», «portatiles» → «portatil», «cables» → «cable». Números y palabras cortas, igual. */
+export function raizPalabra(w: string): string {
+  if (w.length <= 3 || /\d/.test(w)) return w;
+  const n = w.length;
+  if (n > 4 && w.endsWith("es") && "lrndzj".includes(w[n - 3]) && "aeiou".includes(w[n - 4])) return w.slice(0, -2);
+  if (w.endsWith("s")) return w.slice(0, -1);
+  return w;
+}
+
+/** Cambia las formas de los sinónimos por su canon; `cambiado` = se usó un sinónimo o abreviatura. */
+function aplicarSinonimos(tokens: string[]): { tokens: string[]; extra: string[]; cambiado: boolean } {
+  const out: string[] = [];
+  const extra: string[] = [];
+  let cambiado = false;
+  for (let i = 0; i < tokens.length; ) {
+    const f = FORMAS_SINONIMOS.find((x) => x.tokens.every((t, k) => tokens[i + k] === t));
+    if (f) {
+      out.push(f.canon);
+      extra.push(...f.tambien);
+      if (f.tokens.join(" ") !== f.canon && raizPalabra(f.tokens.join(" ")) !== f.canon) cambiado = true;
+      i += f.tokens.length;
+    } else {
+      out.push(tokens[i]);
+      i += 1;
+    }
+  }
+  return { tokens: out, extra, cambiado };
+}
+
+/** Distancia de edición con trasposiciones (Damerau-Levenshtein, alineación óptima); corta en cuanto pasa de `max`. */
+export function distanciaEdicion(a: string, b: string, max: number): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  const m = b.length;
+  let anterior2: number[] = [];
+  let anterior = Array.from({ length: m + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const actual = [i];
+    let minimo = i;
+    for (let j = 1; j <= m; j++) {
+      const coste = a[i - 1] === b[j - 1] ? 0 : 1;
+      let v = Math.min(anterior[j] + 1, actual[j - 1] + 1, anterior[j - 1] + coste);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, anterior2[j - 2] + 1);
+      actual[j] = v;
+      if (v < minimo) minimo = v;
+    }
+    if (minimo > max) return max + 1;
+    anterior2 = anterior;
+    anterior = actual;
+  }
+  return anterior[m];
+}
+
+/** Cuántas letras de error se aceptan: ninguna con menos de 4 letras, 1 hasta 6 y 2 desde 7. */
+function toleranciaPara(largo: number) {
+  return largo >= 7 ? 2 : largo >= 4 ? 1 : 0;
+}
+
+/** Un producto tal y como lo necesita la búsqueda (sin fotos: lo justo para buscar, filtrar y ordenar). */
+export type ProductoIndice = {
+  id: string;
+  titulo: string;
+  descripcion: string;
+  precio: number;
+  condicion: string | null;
+  categoriaId: string | null;
+  categoria: string;
+  creado: string;
+  vistas: number;
+  estado: string | null;
+};
+
+type ProductoPreparado = {
+  tituloSeq: string;
+  tituloCanon: string;
+  palabras: Set<string>;
+  lista: string[];
+  desc: Set<string>;
+  descLista: string[];
+};
+
+function palabrasDe(texto: string) {
+  const raw = normalizarBusqueda(texto).split(" ").filter(Boolean);
+  const s = aplicarSinonimos(raw);
+  const set = new Set<string>([...raw, ...raw.map(raizPalabra), ...s.tokens, ...s.extra]);
+  return { raw, canon: s.tokens, set };
+}
+
+const preparados = new WeakMap<ProductoIndice, ProductoPreparado>();
+function preparar(p: ProductoIndice): ProductoPreparado {
+  const hecho = preparados.get(p);
+  if (hecho) return hecho;
+  const t = palabrasDe(p.titulo);
+  const c = palabrasDe(p.categoria);
+  const d = palabrasDe(p.descripcion.slice(0, 2000));
+  const palabras = new Set<string>([...t.set, ...c.set]);
+  const listo: ProductoPreparado = {
+    tituloSeq: t.raw.join(" "),
+    tituloCanon: t.canon.join(" "),
+    palabras,
+    lista: [...palabras],
+    desc: d.set,
+    descLista: [...d.set],
+  };
+  preparados.set(p, listo);
+  return listo;
+}
+
+function prepararConsulta(texto: string) {
+  const raw = normalizarBusqueda(texto).split(" ").filter(Boolean);
+  const s = aplicarSinonimos(raw);
+  const utiles = s.tokens.filter((t) => !PALABRAS_VACIAS.has(t));
+  return { texto: raw.join(" "), raw, tokens: utiles.length ? utiles : s.tokens, frase: s.tokens.join(" "), sinonimo: s.cambiado };
+}
+
+/** 3 = la palabra está tal cual, 2 = es el principio de una, 1 = parecida (error de escritura), 0,5 = en la descripción. */
+function encajePalabra(t: string, p: ProductoPreparado): number {
+  const r = raizPalabra(t);
+  if (p.palabras.has(t) || p.palabras.has(r)) return 3;
+  if (t.length >= 2 && p.lista.some((w) => w.startsWith(t))) return 2;
+  const tol = toleranciaPara(t.length);
+  if (tol && p.lista.some((w) => w.length >= 4 && (distanciaEdicion(t, w, tol) <= tol || distanciaEdicion(r, w, tol) <= tol))) return 1;
+  if (p.desc.has(t) || p.desc.has(r)) return 0.5;
+  if (t.length >= 3 && p.descLista.some((w) => w.startsWith(t))) return 0.5;
+  return 0;
+}
+
+export type ResultadoBusquedaProductos<T extends ProductoIndice> = {
+  /** Lo que encaja, por relevancia (frase exacta en el título > todas las palabras > parecido) y, a igualdad, en el orden recibido. */
+  productos: T[];
+  /** Texto buscado, normalizado (lo que se mide en la analítica). */
+  texto: string;
+  /** Se usó un sinónimo o abreviatura («play 5» → PS5). */
+  sinonimo: boolean;
+  /** Algún resultado solo encaja por un error de escritura («plaistation»). */
+  correccion: boolean;
+  /** Sin resultados: la mejor corrección con productos («¿Querías decir…?») o null. */
+  sugerencia: string | null;
+};
+
+function buscarSinSugerencia<T extends ProductoIndice>(lista: T[], texto: string) {
+  const c = prepararConsulta(texto);
+  if (!c.tokens.length) return { c, productos: lista, correccion: false };
+  const puntuados: { p: T; i: number; nivel: number; aproximado: boolean }[] = [];
+  lista.forEach((p, i) => {
+    const prep = preparar(p);
+    let fuertes = true;
+    let aproximado = false;
+    for (const t of c.tokens) {
+      const e = encajePalabra(t, prep);
+      if (!e) return;
+      if (e < 2) fuertes = false;
+      if (e === 1) aproximado = true;
+    }
+    const frase = ` ${prep.tituloSeq} `.includes(` ${c.texto} `) || ` ${prep.tituloCanon} `.includes(` ${c.frase} `);
+    puntuados.push({ p, i, nivel: frase ? 3 : fuertes ? 2 : 1, aproximado });
+  });
+  puntuados.sort((a, b) => b.nivel - a.nivel || a.i - b.i);
+  return { c, productos: puntuados.map((x) => x.p), correccion: puntuados.some((x) => x.aproximado) };
+}
+
+/** La palabra (tal y como se escribe en los títulos y categorías, en minúsculas) más parecida a cada palabra buscada. */
+function sugerirCorreccion<T extends ProductoIndice>(lista: T[], palabras: string[]): string | null {
+  const vocabulario = new Map<string, string>();
+  for (const p of lista) {
+    for (const trozo of `${p.titulo} ${p.categoria}`.split(/[\s/,.;:()«»"'¡!¿?+]+/)) {
+      const n = normalizarBusqueda(trozo);
+      if (n.length >= 3 && !n.includes(" ") && !vocabulario.has(n)) vocabulario.set(n, trozo.toLowerCase());
+    }
+  }
+  let cambio = false;
+  const nuevas = palabras.map((w) => {
+    if (w.length < 3 || PALABRAS_VACIAS.has(w) || vocabulario.has(w) || vocabulario.has(raizPalabra(w))) return vocabulario.get(w) ?? w;
+    const tol = w.length <= 4 ? 1 : w.length <= 7 ? 2 : 3;
+    let mejor: string | null = null;
+    let mejorD = tol + 1;
+    for (const v of vocabulario.keys()) {
+      const d = distanciaEdicion(w, v, tol);
+      if (d < mejorD) {
+        mejor = v;
+        mejorD = d;
+      }
+    }
+    if (!mejor) return w;
+    cambio = true;
+    return vocabulario.get(mejor) ?? mejor;
+  });
+  if (!cambio) return null;
+  const propuesta = nuevas.join(" ");
+  return buscarSinSugerencia(lista, propuesta).productos.length ? propuesta : null;
+}
+
+/** Busca `texto` en `lista` (ya filtrada y ordenada como se quiera a igualdad de relevancia). */
+export function buscarProductos<T extends ProductoIndice>(lista: T[], texto: string): ResultadoBusquedaProductos<T> {
+  const r = buscarSinSugerencia(lista, texto);
+  return {
+    productos: r.productos,
+    texto: r.c.texto,
+    sinonimo: r.c.sinonimo,
+    correccion: r.correccion,
+    sugerencia: r.productos.length || !r.c.tokens.length ? null : sugerirCorreccion(lista, r.c.raw),
+  };
+}
+
+/** Lo que se mide de una búsqueda (sin datos personales: si parece un correo o un teléfono, no se guarda el texto). */
+export function textoParaAnalitica(textoCrudo: string): string | null {
+  if (/@/.test(textoCrudo) || /\d[\d\s.-]{5,}\d/.test(textoCrudo)) return null;
+  return normalizarBusqueda(textoCrudo).slice(0, 80) || null;
+}
+
+export type IndiceBusqueda = { productos: ProductoIndice[] };
+
+// Índice ligero (sin fotos ni columnas de más) de los productos, en memoria 5 minutos. La tienda lo comparte entre el
+// buscador de Inicio y el catálogo, así cada visita lo pide una vez (cuota de salida de Supabase).
+const COLUMNAS_INDICE = "id,title,description,price_eur,condition,category_id,created_at,view_count,status";
+const DURACION_INDICE_MS = 5 * 60 * 1000;
+const cacheIndice = new Map<string, { hasta: number; promesa: Promise<IndiceBusqueda | null> }>();
+
+export function cargarIndiceBusqueda(admin = false): Promise<IndiceBusqueda | null> {
+  const clave = admin ? "admin" : "tienda";
+  const guardado = cacheIndice.get(clave);
+  if (guardado && guardado.hasta > Date.now()) return guardado.promesa;
+  const promesa = (async (): Promise<IndiceBusqueda | null> => {
+    try {
+      let consulta = supabase.from("products").select(COLUMNAS_INDICE);
+      if (!admin) consulta = consulta.eq("is_active", true).eq("status", "PUBLISHED");
+      const [prods, cats] = await Promise.all([
+        consulta.order("created_at", { ascending: false }).order("id", { ascending: true }).limit(2000),
+        supabase.from("categories").select("id,name"),
+      ]);
+      if (prods.error || !Array.isArray(prods.data)) return null;
+      const nombres = new Map<string, string>();
+      if (!cats.error && Array.isArray(cats.data)) for (const c of cats.data as { id: string; name: string | null }[]) nombres.set(c.id, String(c.name ?? ""));
+      type Fila = { id: string; title: string | null; description: string | null; price_eur: number | string | null; condition: string | null; category_id: string | null; created_at: string | null; view_count: number | null; status: string | null };
+      return {
+        productos: (prods.data as unknown as Fila[]).map((f) => ({
+          id: f.id,
+          titulo: String(f.title ?? ""),
+          descripcion: String(f.description ?? ""),
+          precio: Number(f.price_eur ?? 0),
+          condicion: f.condition ?? null,
+          categoriaId: f.category_id ?? null,
+          categoria: f.category_id ? nombres.get(f.category_id) ?? "" : "",
+          creado: String(f.created_at ?? ""),
+          vistas: Number(f.view_count ?? 0),
+          estado: f.status ?? null,
+        })),
+      };
+    } catch {
+      return null;
+    }
+  })();
+  cacheIndice.set(clave, { hasta: Date.now() + DURACION_INDICE_MS, promesa });
+  // Si falla, no se guarda: la próxima búsqueda lo vuelve a intentar.
+  promesa.then((r) => {
+    if (!r) cacheIndice.delete(clave);
+  });
+  return promesa;
+}
+
+/** Portada pequeña de unos pocos productos (la marcada, la primera o products.images[0]); nunca todas sus fotos. */
+async function portadasDeProductos(ids: string[]): Promise<Map<string, string>> {
+  const portadas = new Map<string, string>();
+  if (!ids.length) return portadas;
+  const [medios, filas] = await Promise.all([
+    supabase.from("product_media").select("product_id,public_url,sort_order,is_cover").eq("kind", "image").in("product_id", ids).or("is_cover.eq.true,sort_order.eq.0"),
+    supabase.from("products").select("id,images").in("id", ids),
+  ]);
+  if (!medios.error && Array.isArray(medios.data)) {
+    const ordenados = [...(medios.data as { product_id: string; public_url?: string | null; sort_order?: number | null; is_cover?: boolean | null }[])].sort(
+      (a, b) => Number(!!b.is_cover) - Number(!!a.is_cover) || (a.sort_order ?? 9999) - (b.sort_order ?? 9999)
+    );
+    for (const m of ordenados) {
+      const url = typeof m.public_url === "string" ? m.public_url.trim() : "";
+      if (url && !portadas.has(m.product_id)) portadas.set(m.product_id, url);
+    }
+  }
+  if (!filas.error && Array.isArray(filas.data)) {
+    for (const f of filas.data as { id: string; images?: unknown }[]) {
+      const primera = Array.isArray(f.images) ? f.images.find((u) => typeof u === "string" && u.trim()) : null;
+      if (typeof primera === "string" && !portadas.has(f.id)) portadas.set(f.id, primera.trim());
+    }
+  }
+  return portadas;
+}
+
+export type SugerenciaProducto = { id: string; titulo: string; precio: number; imagen: string | null; categoria: string };
+export type EstadoSugerencias = {
+  texto: string;
+  listo: boolean;
+  error: boolean;
+  productos: SugerenciaProducto[];
+  total: number;
+  sinonimo: boolean;
+  correccion: boolean;
+  sugerencia: string | null;
+};
+
+/** Las mejores `max` coincidencias para lo escrito, con su portada pequeña. null = no se ha podido buscar. */
+export async function sugerenciasParaTexto(texto: string, max: number): Promise<Omit<EstadoSugerencias, "texto" | "listo" | "error"> | null> {
+  const indice = await cargarIndiceBusqueda(false);
+  if (!indice) return null;
+  const r = buscarProductos(indice.productos, texto);
+  const primeros = r.productos.slice(0, max);
+  const portadas = await portadasDeProductos(primeros.map((p) => p.id)).catch(() => new Map<string, string>());
+  return {
+    productos: primeros.map((p) => ({ id: p.id, titulo: p.titulo.trim() || "Producto", precio: p.precio, imagen: portadas.get(p.id) ?? null, categoria: p.categoria })),
+    total: r.productos.length,
+    sinonimo: r.sinonimo,
+    correccion: r.correccion,
+    sugerencia: r.sugerencia,
+  };
+}
+
+const SUGERENCIAS_VACIAS: EstadoSugerencias = { texto: "", listo: true, error: false, productos: [], total: 0, sinonimo: false, correccion: false, sugerencia: null };
+
+/** Sugerencias mientras se escribe (desde 2 letras, con una espera de 0,22 s), para el catálogo. `activo` = buscar o no. */
+export function useSugerenciasProductos(textoCrudo: string, max: number, activo = true): EstadoSugerencias {
+  const texto = textoCrudo.trim();
+  const [estado, setEstado] = useState<EstadoSugerencias>(SUGERENCIAS_VACIAS);
+  useEffect(() => {
+    if (!activo || texto.length < 2) {
+      setEstado({ ...SUGERENCIAS_VACIAS, texto });
+      return;
+    }
+    let vigente = true;
+    setEstado((e) => ({ ...e, listo: false }));
+    const espera = setTimeout(async () => {
+      const r = await sugerenciasParaTexto(texto, max);
+      if (!vigente) return;
+      setEstado(r ? { ...r, texto, listo: true, error: false } : { ...SUGERENCIAS_VACIAS, texto, error: true });
+    }, 220);
+    return () => {
+      vigente = false;
+      clearTimeout(espera);
+    };
+  }, [texto, max, activo]);
+  return { ...estado, listo: estado.listo && estado.texto === texto };
+}
+
+// Una búsqueda medida por visita y texto (lib/analytics.ts ya no manda nada a quien rechazó la analítica).
+let ultimaBusquedaMedida = "";
+export function medirBusqueda(
+  origen: "inicio" | "catalogo",
+  textoCrudo: string,
+  r: { total: number; sinonimo: boolean; correccion: boolean; sugerencia: string | null }
+) {
+  const texto = textoParaAnalitica(textoCrudo);
+  const clave = `${origen}|${texto ?? "(omitido)"}`;
+  if (!texto || clave === ultimaBusquedaMedida) return;
+  ultimaBusquedaMedida = clave;
+  const path = origen === "inicio" ? "/" : "/catalogo";
+  trackEvent("busqueda", "Búsqueda", { path, metadata: { texto, resultados: r.total, sinonimo: r.sinonimo, correccion: r.correccion, origen } });
+  if (r.total === 0) {
+    trackEvent("busqueda_sin_resultados", "Búsqueda: sin resultados", { path, metadata: { texto, sugerencia: r.sugerencia ? normalizarBusqueda(r.sugerencia) : null, origen } });
+  }
+}
+
+export function medirSugerenciaTocada(origen: "inicio" | "catalogo", textoCrudo: string, posicion: number) {
+  trackEvent("busqueda_sugerencia_tocada", "Búsqueda: sugerencia tocada", {
+    path: origen === "inicio" ? "/" : "/catalogo",
+    metadata: { texto: textoParaAnalitica(textoCrudo), posicion: posicion + 1, origen },
+  });
+}
+
 type IconoNombre = keyof typeof Ionicons.glyphMap;
 
 export type SeccionBusqueda = {
@@ -275,7 +687,7 @@ export function seccionesParaBusqueda(texto: string): SeccionBusqueda[] {
 
 export type ProductoBusqueda = { id: string; titulo: string; precio: number; imagen: string | null };
 
-const MAX_PRODUCTOS_PANEL = 4;
+const MAX_PRODUCTOS_PANEL = 5;
 const MAX_PRODUCTOS_INTENCION = 3;
 
 export type IntencionBusqueda = "recientes" | "antiguos";
@@ -300,55 +712,41 @@ export function intencionDeBusqueda(texto: string): IntencionBusqueda | null {
   return reciente ? "recientes" : "antiguos";
 }
 
+type ResultadoInicio = { productos: ProductoBusqueda[]; total: number; sinonimo: boolean; correccion: boolean; sugerencia: string | null };
+
 // Misma regla que el catálogo (app/catalogo.tsx): la portada es la marcada, o la primera por orden, o images[0].
-async function buscarProductosInicio(texto: string, intencion: IntencionBusqueda | null): Promise<{ productos: ProductoBusqueda[]; total: number } | null> {
+// Búsqueda normal: la tolerante (sugerenciasParaTexto, con el índice ligero). «Lo último / lo más antiguo»: por fecha.
+async function buscarProductosInicio(texto: string, intencion: IntencionBusqueda | null): Promise<ResultadoInicio | null> {
   try {
-    const seguro = texto.replace(/[%(),*]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
-    if (!seguro) return { productos: [], total: 0 };
-    const patron = `%${seguro}%`;
-    let consulta = supabase
+    if (!intencion) {
+      const r = await sugerenciasParaTexto(texto, Math.min(MAX_PRODUCTOS_PANEL, filasDemo ?? 99));
+      return r ? { productos: r.productos, total: r.total, sinonimo: r.sinonimo, correccion: r.correccion, sugerencia: r.sugerencia } : null;
+    }
+    const consulta = supabase
       .from("products")
       .select("id,title,price_eur,images", { count: "exact" })
       .eq("is_active", true)
       .eq("status", "PUBLISHED");
-    if (!intencion) consulta = consulta.or(`title.ilike.${patron},description.ilike.${patron}`);
     const { data, error, count } = await consulta
       .order("created_at", { ascending: intencion === "antiguos" })
-      .range(0, Math.min(intencion ? MAX_PRODUCTOS_INTENCION : MAX_PRODUCTOS_PANEL, filasDemo ?? 99) - 1);
+      .range(0, Math.min(MAX_PRODUCTOS_INTENCION, filasDemo ?? 99) - 1);
     if (error) return null;
     const filas = (Array.isArray(data) ? data : []) as { id: string; title: string | null; price_eur: number | string | null; images?: string[] | null }[];
-    const portadas = new Map<string, string>();
-    if (filas.length) {
-      const { data: medios, error: errorMedios } = await supabase
-        .from("product_media")
-        .select("product_id,public_url,sort_order,is_cover")
-        .eq("kind", "image")
-        .in("product_id", filas.map((f) => f.id))
-        // Solo la portada (marcada o la primera), no las filas de todas las fotos (hasta 30 por producto).
-        .or("is_cover.eq.true,sort_order.eq.0");
-      if (!errorMedios && Array.isArray(medios)) {
-        const ordenados = [...(medios as { product_id: string; public_url?: string | null; sort_order?: number | null; is_cover?: boolean | null }[])].sort(
-          (a, b) => Number(!!b.is_cover) - Number(!!a.is_cover) || (a.sort_order ?? 9999) - (b.sort_order ?? 9999)
-        );
-        for (const m of ordenados) {
-          const url = typeof m.public_url === "string" ? m.public_url.trim() : "";
-          if (url && !portadas.has(m.product_id)) portadas.set(m.product_id, url);
-        }
-      }
-    }
+    const portadas = await portadasDeProductos(filas.map((f) => f.id)).catch(() => new Map<string, string>());
     const productos = filas.map((f) => ({
       id: f.id,
       titulo: String(f.title ?? "").trim() || "Producto",
       precio: Number(f.price_eur ?? 0),
       imagen: portadas.get(f.id) ?? (Array.isArray(f.images) && typeof f.images[0] === "string" ? f.images[0] : null),
     }));
-    return { productos, total: typeof count === "number" ? count : productos.length };
+    return { productos, total: typeof count === "number" ? count : productos.length, sinonimo: false, correccion: false, sugerencia: null };
   } catch {
     return null;
   }
 }
 
-type EstadoBusqueda = { texto: string; cargando: boolean; productos: ProductoBusqueda[]; total: number; error: boolean };
+type EstadoBusqueda = { texto: string; cargando: boolean; error: boolean } & ResultadoInicio;
+const BUSQUEDA_VACIA: ResultadoInicio = { productos: [], total: 0, sinonimo: false, correccion: false, sugerencia: null };
 
 /** Lo que enseña el panel del buscador para lo escrito: productos (con una espera de 0,26 s al teclear) y secciones. */
 export function useBusquedaInicio(textoCrudo: string) {
@@ -356,11 +754,11 @@ export function useBusquedaInicio(textoCrudo: string) {
   // «Lo último añadido» / «lo más antiguo»: se enseñan los más recientes o los más antiguos, sin secciones.
   const intencion = useMemo(() => intencionDeBusqueda(texto), [texto]);
   const secciones = useMemo(() => (intencion ? [] : seccionesParaBusqueda(texto)), [texto, intencion]);
-  const [estado, setEstado] = useState<EstadoBusqueda>({ texto: "", cargando: false, productos: [], total: 0, error: false });
+  const [estado, setEstado] = useState<EstadoBusqueda>({ texto: "", cargando: false, error: false, ...BUSQUEDA_VACIA });
 
   useEffect(() => {
     if (texto.length < 2) {
-      setEstado({ texto, cargando: false, productos: [], total: 0, error: false });
+      setEstado({ texto, cargando: false, error: false, ...BUSQUEDA_VACIA });
       return;
     }
     let vigente = true;
@@ -368,7 +766,7 @@ export function useBusquedaInicio(textoCrudo: string) {
     const espera = setTimeout(async () => {
       const r = await buscarProductosInicio(texto, intencion);
       if (!vigente) return;
-      setEstado({ texto, cargando: false, productos: r?.productos ?? [], total: r?.total ?? 0, error: r === null });
+      setEstado({ texto, cargando: false, error: r === null, ...(r ?? BUSQUEDA_VACIA) });
     }, 260);
     return () => {
       vigente = false;
@@ -377,17 +775,45 @@ export function useBusquedaInicio(textoCrudo: string) {
   }, [texto, intencion]);
 
   // «listo»: los productos que hay en el estado son de lo que está escrito ahora (no de una letra antes).
-  return { texto, intencion, secciones, productos: estado.productos, total: estado.total, error: estado.error, listo: !estado.cargando && estado.texto === texto };
+  return {
+    texto,
+    intencion,
+    secciones,
+    productos: estado.productos,
+    total: estado.total,
+    sinonimo: estado.sinonimo,
+    correccion: estado.correccion,
+    sugerencia: estado.sugerencia,
+    error: estado.error,
+    listo: !estado.cargando && estado.texto === texto,
+  };
 }
 
 type BusquedaInicio = ReturnType<typeof useBusquedaInicio>;
 
-function FilaPanel({ onPress, etiqueta, children, primera }: { onPress: () => void; etiqueta: string; children: React.ReactNode; primera?: boolean }) {
+function FilaPanel({
+  onPress,
+  etiqueta,
+  children,
+  primera,
+  resaltada,
+  id,
+}: {
+  onPress: () => void;
+  etiqueta: string;
+  children: React.ReactNode;
+  primera?: boolean;
+  /** Elegida con las flechas del teclado (Intro la abre). */
+  resaltada?: boolean;
+  id?: string;
+}) {
   return (
     <Pressable
+      nativeID={id}
       onPress={onPress}
       accessibilityRole="link"
       accessibilityLabel={etiqueta}
+      {...({ "aria-selected": resaltada ? true : undefined, dataSet: resaltada ? { resaltada: "1" } : undefined } as object)}
       style={({ pressed }) => ({
         minHeight: 56,
         flexDirection: "row",
@@ -397,7 +823,7 @@ function FilaPanel({ onPress, etiqueta, children, primera }: { onPress: () => vo
         paddingVertical: 8,
         borderTopWidth: primera ? 0 : 1,
         borderTopColor: COLORS.border,
-        backgroundColor: pressed ? "rgba(30,167,232,0.08)" : "transparent",
+        backgroundColor: pressed || resaltada ? "rgba(30,167,232,0.12)" : "transparent",
       })}
     >
       {children}
@@ -427,6 +853,10 @@ function PanelBusqueda({
   puedeAvisar,
   avisoMsg,
   onAvisar,
+  activo = -1,
+  onProducto,
+  onCorregir,
+  onVerCatalogo,
 }: {
   busqueda: BusquedaInicio;
   maxAlto: number;
@@ -437,8 +867,16 @@ function PanelBusqueda({
   puedeAvisar: boolean;
   avisoMsg: string | null;
   onAvisar: () => void;
+  /** Producto elegido con las flechas (−1 = ninguno). */
+  activo?: number;
+  /** Se toca el producto `i` (se mide y se abre su ficha). */
+  onProducto: (i: number) => void;
+  /** «¿Querías decir…?»: escribe la corrección en el buscador. */
+  onCorregir: (texto: string) => void;
+  /** Sin resultados: «Ver todo el catálogo». */
+  onVerCatalogo: () => void;
 }) {
-  const { texto, productos, total, secciones, listo, error, intencion } = busqueda;
+  const { texto, productos, total, secciones, listo, error, intencion, sugerencia } = busqueda;
   const hayProductos = listo && productos.length > 0;
   const titulosIntencion: Record<IntencionBusqueda, string> = { recientes: "Lo último añadido", antiguos: "Lo más antiguo" };
   return (
@@ -469,7 +907,14 @@ function PanelBusqueda({
         ) : hayProductos ? (
           <>
             {productos.map((p, i) => (
-              <FilaPanel key={p.id} primera={i === 0 && !intencion} onPress={() => onIrA(`/producto/${p.id}`)} etiqueta={`${p.titulo}, ${fmtEUR(p.precio)}`}>
+              <FilaPanel
+                key={p.id}
+                id={`buscador-sugerencia-${i}`}
+                resaltada={i === activo}
+                primera={i === 0 && !intencion}
+                onPress={() => onProducto(i)}
+                etiqueta={`${p.titulo}, ${fmtEUR(p.precio)}`}
+              >
                 <View style={{ width: 48, height: 48, flexShrink: 0, backgroundColor: "#FFFFFF" }}>
                   {p.imagen ? <SmartImage uri={p.imagen} alt={p.titulo} ancho={96} contentFit="contain" style={{ width: "100%", height: "100%" }} /> : null}
                 </View>
@@ -493,7 +938,25 @@ function PanelBusqueda({
             ) : null}
           </>
         ) : (
-          <TextoPanel>{error ? "No se ha podido buscar ahora mismo." : intencion ? "Todavía no hay productos." : `No hay productos para «${texto}»`}</TextoPanel>
+          <>
+            <TextoPanel>{error ? "No se ha podido buscar ahora mismo." : intencion ? "Todavía no hay productos." : `No hemos encontrado «${texto}».`}</TextoPanel>
+            {!error && !intencion && sugerencia ? (
+              <FilaPanel id="buscador-quisiste-decir" onPress={() => onCorregir(sugerencia)} etiqueta={`¿Querías decir ${sugerencia}?`}>
+                <Ionicons name="search-outline" size={20} color={COLORS.text} />
+                <Text numberOfLines={2} style={{ flex: 1, color: COLORS.text, fontSize: 15, lineHeight: 20, fontWeight: "700", textAlign: "center" }}>
+                  ¿Querías decir <Text style={{ color: colorTextoAzul(15), fontWeight: "900" }}>«{sugerencia}»</Text>?
+                </Text>
+                <Ionicons name="arrow-forward" size={18} color={COLORS.muted} />
+              </FilaPanel>
+            ) : null}
+            {!error && !intencion ? (
+              <FilaPanel id="buscador-ver-catalogo" onPress={onVerCatalogo} etiqueta="Ver todo el catálogo">
+                <Ionicons name="grid-outline" size={20} color={COLORS.text} />
+                <Text style={{ flex: 1, color: colorTextoAzul(15), fontSize: 15, fontWeight: "800", textAlign: "center" }}>Ver todo el catálogo</Text>
+                <Ionicons name="arrow-forward" size={18} color={COLORS.muted} />
+              </FilaPanel>
+            ) : null}
+          </>
         )}
 
         {secciones.map((s) => (
@@ -537,6 +1000,80 @@ function PanelBusqueda({
           )
         ) : null}
       </ScrollView>
+    </View>
+  );
+}
+
+/**
+ * Sugerencias del buscador del catálogo (app/catalogo.tsx) mientras se escribe: como mucho 6, con la foto pequeña (o
+ * nada) y la categoría; la elegida con las flechas se resalta y tocar una abre el producto. Va en una capa encima de
+ * la lista (no la empuja).
+ */
+export function SugerenciasCatalogo({
+  estado,
+  activo,
+  onElegir,
+}: {
+  estado: EstadoSugerencias;
+  activo: number;
+  onElegir: (i: number) => void;
+}) {
+  if (estado.texto.length < 2) return null;
+  const hay = estado.listo && estado.productos.length > 0;
+  return (
+    <View
+      nativeID="catalogo-sugerencias"
+      accessibilityRole="list"
+      style={{
+        width: "100%",
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.bg,
+        overflow: "hidden",
+        ...Platform.select({
+          ios: { shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 6 } },
+          android: { elevation: 6 },
+          default: { boxShadow: "0 8px 24px rgba(11,33,56,0.14)" } as ViewStyle,
+        }),
+      }}
+    >
+      {!estado.listo ? (
+        <TextoPanel>Buscando…</TextoPanel>
+      ) : hay ? (
+        estado.productos.map((p, i) => (
+          <FilaPanel
+            key={p.id}
+            id={`catalogo-sugerencia-${i}`}
+            primera={i === 0}
+            resaltada={i === activo}
+            onPress={() => onElegir(i)}
+            etiqueta={`${p.titulo}${p.categoria ? `, ${p.categoria}` : ""}`}
+          >
+            <View style={{ width: 44, height: 44, flexShrink: 0, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
+              {p.imagen ? (
+                <SmartImage uri={p.imagen} alt={p.titulo} ancho={88} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+              ) : (
+                <Ionicons name="cube-outline" size={20} color={COLORS.muted} />
+              )}
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text numberOfLines={2} style={{ color: COLORS.text, fontSize: 15, lineHeight: 20, fontWeight: "700" }}>
+                {p.titulo}
+              </Text>
+              {p.categoria ? (
+                <Text numberOfLines={1} style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, lineHeight: 17, fontWeight: "600" }}>
+                  {p.categoria}
+                </Text>
+              ) : null}
+            </View>
+          </FilaPanel>
+        ))
+      ) : (
+        <TextoPanel>
+          {estado.error ? "No se ha podido buscar ahora mismo." : "Sin sugerencias: pulsa Intro para buscar en todo el catálogo."}
+        </TextoPanel>
+      )}
     </View>
   );
 }
@@ -692,6 +1229,8 @@ export default function Barramagic({
           editable={textoSiri == null}
           style={{
             flex: 1,
+            // Sin esto, el <input> web no encoge de su ancho propio y a 360 px la «x» de borrar se salía de la píldora.
+            minWidth: 0,
             // En la demostración de la guía, las letras las dibuja TextoSiri encima (con el brillo de Siri).
             color: textoSiri != null ? "transparent" : COLORS.text,
             fontWeight: "600",
@@ -1103,7 +1642,10 @@ export function FloatingBarramagic({
   const alDesenfocar = () => {
     if (demo) return; // la demostración de la guía mantiene el panel abierto
     if (cierreRef.current) clearTimeout(cierreRef.current);
-    cierreRef.current = setTimeout(() => setAbierto(false), 220);
+    cierreRef.current = setTimeout(() => {
+      medirAqui();
+      setAbierto(false);
+    }, 220);
   };
   const irA = (ruta: string) => {
     if (cierreRef.current) clearTimeout(cierreRef.current);
@@ -1134,9 +1676,27 @@ export function FloatingBarramagic({
       setTexto("");
     }, 3000);
   };
+  // Producto elegido con las flechas del teclado en el ordenador (Intro lo abre); se olvida al escribir.
+  const [activo, setActivo] = useState(-1);
+  useEffect(() => setActivo(-1), [texto]);
+  // Analítica propia: lo buscado en Inicio (si se va al catálogo con lo escrito, lo mide el catálogo).
+  const medirAqui = () => {
+    if (!demo && busqueda.listo && !busqueda.intencion && !busqueda.error && texto.trim().length >= 2) medirBusqueda("inicio", texto, busqueda);
+  };
+  const abrirProducto = (i: number) => {
+    const p = busqueda.productos[i];
+    if (!p) return;
+    medirAqui();
+    medirSugerenciaTocada("inicio", texto, i);
+    irA(`/producto/${p.id}`);
+  };
   const alEnviar = () => {
     const t = texto.trim();
     if (!t) return;
+    if (activo >= 0 && busqueda.listo && busqueda.productos[activo]) {
+      abrirProducto(activo);
+      return;
+    }
     // «Lo último añadido» / «lo más antiguo»: no es un texto que buscar, se abre el catálogo entero.
     if (busqueda.intencion) {
       irA("/catalogo");
@@ -1144,13 +1704,25 @@ export function FloatingBarramagic({
     }
     // Sin productos pero con una sección que encaja («Blog», «Inicio de sesión»): directo a ella.
     if (busqueda.listo && busqueda.productos.length === 0 && busqueda.secciones.length > 0) {
+      medirAqui();
       irA(busqueda.secciones[0].ruta);
       return;
     }
     irA(`/catalogo?query=${encodeURIComponent(t)}`);
   };
   const alPulsarTecla = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
-    if (e.nativeEvent.key === "Escape") setAbierto(false);
+    const tecla = e.nativeEvent.key;
+    if (tecla === "Escape") {
+      medirAqui();
+      setAbierto(false);
+      return;
+    }
+    const n = busqueda.listo ? busqueda.productos.length : 0;
+    if ((tecla === "ArrowDown" || tecla === "ArrowUp") && n > 0) {
+      (e as unknown as { preventDefault?: () => void }).preventDefault?.();
+      setAbierto(true);
+      setActivo((i) => (tecla === "ArrowDown" ? Math.min(i + 1, n - 1) : Math.max(i - 1, -1)));
+    }
   };
   const panelVisible = !modoEnlace && abierto && texto.trim().length >= 2;
   // Alto que cabe para el panel: lo que queda debajo del buscador (si está arriba) o encima (si está abajo).
@@ -1240,12 +1812,30 @@ export function FloatingBarramagic({
               <PanelBusqueda
                 busqueda={busqueda}
                 maxAlto={maxAltoPanel}
-                onIrA={irA}
+                onIrA={(ruta) => {
+                  medirAqui();
+                  irA(ruta);
+                }}
                 onVerTodo={() => irA(busqueda.intencion ? "/catalogo" : `/catalogo?query=${encodeURIComponent(texto.trim())}`)}
-                onPreguntar={() => irA(`/blue-ia?q=${encodeURIComponent(texto.trim())}`)}
+                onPreguntar={() => {
+                  medirAqui();
+                  irA(`/blue-ia?q=${encodeURIComponent(texto.trim())}`);
+                }}
                 puedeAvisar={!demo && !!crearAvisoLlegada}
                 avisoMsg={avisoMsg}
                 onAvisar={alAvisar}
+                activo={activo}
+                onProducto={abrirProducto}
+                onCorregir={(t) => {
+                  medirAqui();
+                  if (cierreRef.current) clearTimeout(cierreRef.current);
+                  setTexto(t);
+                  setAbierto(true);
+                }}
+                onVerCatalogo={() => {
+                  medirAqui();
+                  irA("/catalogo");
+                }}
               />
             </View>
           </View>

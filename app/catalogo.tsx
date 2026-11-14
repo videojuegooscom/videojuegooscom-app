@@ -22,7 +22,21 @@
  * - "Ver más productos" (botón centrado) o llegar al final del scroll carga
  *   la siguiente página.
  * - Filtros desde la URL: ?cat= (o ?categoria=) con el slug o el id de la
- *   categoría, y ?query= con el texto de búsqueda.
+ *   categoría, ?query= con el texto de búsqueda y (mejora 3, 2026-11-14)
+ *   ?estado= (nuevo, segunda-mano, como-nuevo, bueno, regular, para-piezas),
+ *   ?precio_min= y ?precio_max= (1–1000; sin precio_max = «1000 € o más»):
+ *   el estado y el precio se leen SIEMPRE de la dirección, así se pueden
+ *   compartir y no se pierden al volver atrás. Encima de la lista, un chip por
+ *   filtro activo con su «Quitar» y «Borrar filtros».
+ * - Búsqueda con texto (mejora 3): ya no es un ilike. Se busca en el índice
+ *   ligero de components/Barramagic.tsx (sin fotos; una vez cada 5 min) con
+ *   sinónimos («play 5» = «ps5» = «PlayStation 5»), plurales y errores de
+ *   escritura, por relevancia, y solo se piden las 24 filas de la página.
+ *   Sin resultados: «No hemos encontrado «x»», «¿Querías decir «y»?» y «Ver
+ *   todo el catálogo». Mientras se escribe, hasta 6 sugerencias (flechas e
+ *   Intro en el ordenador). Si el índice no carga, se busca como antes.
+ *   Analítica: busqueda, busqueda_sin_resultados, busqueda_sugerencia_tocada
+ *   y catalogo_filtro (Administración → Analítica → «Búsquedas (30 días)»).
  *
  * Analítica: registra el paso "Categoría" (o "Categoría {nombre}") al entrar
  * y cada vez que cambia la categoría elegida (lib/analytics.ts).
@@ -52,6 +66,7 @@ import {
   ScrollView,
   StatusBar,
   Text,
+  type TextInputKeyPressEventData,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -59,7 +74,16 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../lib/analytics";
-import Barramagic from "../components/Barramagic";
+import Barramagic, {
+  SugerenciasCatalogo,
+  buscarProductos,
+  cargarIndiceBusqueda,
+  medirBusqueda,
+  medirSugerenciaTocada,
+  useSugerenciasProductos,
+  type ProductoIndice,
+} from "../components/Barramagic";
+import { colorTextoAzul } from "../constants/theme";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
@@ -69,12 +93,18 @@ import { crearAvisoBusqueda } from "../components/Campanita";
 import { RejillaTarjetas, TarjetaProducto } from "../components/CategoryProductsShelf";
 import CatalogFilters, {
   Chip,
-  tramoDePrecio,
+  PRECIO_MAX,
+  PRECIO_MIN,
   USED_CONDITIONS,
+  estadoAUrl,
+  estadoDeUrl,
+  nombreEstado,
+  precioActivo,
+  precioDeUrl,
+  textoPrecio,
   type CatalogCategoryOption,
   type FiltrosDisponibles,
   type ConditionFilter,
-  type PriceFilter,
   type SortKey,
 } from "../components/CatalogFilters";
 
@@ -146,10 +176,15 @@ type ListFilters = {
   statusFilter: UiFilter;
   categoryId: string | null;
   condition: ConditionFilter;
-  price: PriceFilter;
+  /** 1–1000 (1 = sin mínimo; 1000 = «1000 € o más», sin tope). */
+  priceMin: number;
+  priceMax: number;
   sort: SortKey;
   queryText: string;
 };
+
+/** Cómo fue la búsqueda (para «¿Querías decir…?» y la analítica propia). */
+type InfoBusqueda = { sinonimo: boolean; correccion: boolean; sugerencia: string | null };
 
 function pushRoute(route: Href) {
   router.push(route);
@@ -309,7 +344,12 @@ async function fetchCategoriesSafe(adminFlag: boolean): Promise<CategoryRow[]> {
 async function fetchProductsPage(
   f: ListFilters,
   offset: number
-): Promise<{ rows: ProductDbRow[]; total: number | null }> {
+): Promise<{ rows: ProductDbRow[]; total: number | null; busqueda?: InfoBusqueda }> {
+  // Con texto: búsqueda tolerante en el índice ligero (components/Barramagic.tsx) y luego solo esa página de filas.
+  if (f.queryText) {
+    const porIndice = await fetchProductsPageBuscando(f, offset);
+    if (porIndice) return porIndice;
+  }
   let query = supabase.from("products").select(PRODUCT_COLUMNS, { count: "exact" });
 
   if (!f.adminFlag) {
@@ -329,16 +369,10 @@ async function fetchProductsPage(
     query = query.eq("condition", f.condition);
   }
 
-  if (f.price === "UP_25") {
-    query = query.lte("price_eur", 25);
-  } else if (f.price === "25_100") {
-    query = query.gt("price_eur", 25).lte("price_eur", 100);
-  } else if (f.price === "100_300") {
-    query = query.gt("price_eur", 100).lte("price_eur", 300);
-  } else if (f.price === "OVER_300") {
-    query = query.gt("price_eur", 300);
-  }
+  if (f.priceMin > PRECIO_MIN) query = query.gte("price_eur", f.priceMin);
+  if (f.priceMax < PRECIO_MAX) query = query.lte("price_eur", f.priceMax);
 
+  // Solo si el índice de búsqueda no se ha podido cargar: la búsqueda de siempre (texto tal cual).
   if (f.queryText) {
     const safeQuery = f.queryText.replace(/[%(),*]/g, " ").trim();
     if (safeQuery) {
@@ -361,6 +395,50 @@ async function fetchProductsPage(
   if (error) throw error;
 
   return { rows: asArray<ProductDbRow>(data), total: typeof count === "number" ? count : null };
+}
+
+/** Mismo orden que la consulta (fecha de alta, y el id para desempatar) cuando se busca en el índice. */
+function ordenarIndice(lista: ProductoIndice[], sort: SortKey): ProductoIndice[] {
+  const porFecha = (a: ProductoIndice, b: ProductoIndice) => (a.creado < b.creado ? 1 : a.creado > b.creado ? -1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const copia = [...lista];
+  if (sort === "PRICE_ASC") copia.sort((a, b) => a.precio - b.precio || porFecha(a, b));
+  else if (sort === "PRICE_DESC") copia.sort((a, b) => b.precio - a.precio || porFecha(a, b));
+  else if (sort === "MOST_VIEWED") copia.sort((a, b) => b.vistas - a.vistas || porFecha(a, b));
+  else copia.sort(porFecha);
+  return copia;
+}
+
+/**
+ * Búsqueda con texto: filtra el índice (estado, categoría, condición y precio, igual que la consulta), busca con
+ * sinónimos, plurales y errores de escritura, ordena por relevancia y pide a Supabase SOLO las 24 filas de esa página.
+ * null = el índice no se ha podido cargar (se busca como antes).
+ */
+async function fetchProductsPageBuscando(
+  f: ListFilters,
+  offset: number
+): Promise<{ rows: ProductDbRow[]; total: number; busqueda: InfoBusqueda } | null> {
+  const indice = await cargarIndiceBusqueda(f.adminFlag);
+  if (!indice) return null;
+  const dbStatus = f.adminFlag ? uiFilterToDb(f.statusFilter) : null;
+  const usados: readonly string[] = USED_CONDITIONS;
+  const lista = indice.productos.filter(
+    (p) =>
+      (!dbStatus || p.estado === dbStatus) &&
+      (!f.categoryId || p.categoriaId === f.categoryId) &&
+      (f.condition === "ALL" || (f.condition === "USED" ? usados.includes(p.condicion ?? "") : p.condicion === f.condition)) &&
+      (f.priceMin <= PRECIO_MIN || p.precio >= f.priceMin) &&
+      (f.priceMax >= PRECIO_MAX || p.precio <= f.priceMax)
+  );
+  const r = buscarProductos(ordenarIndice(lista, f.sort), f.queryText);
+  const ids = r.productos.slice(offset, offset + PAGE_SIZE).map((p) => p.id);
+  let rows: ProductDbRow[] = [];
+  if (ids.length) {
+    const { data, error } = await supabase.from("products").select(PRODUCT_COLUMNS).in("id", ids);
+    if (error) throw error;
+    const porId = new Map(asArray<ProductDbRow>(data).map((row) => [row.id, row]));
+    rows = ids.map((id) => porId.get(id)).filter((row): row is ProductDbRow => !!row);
+  }
+  return { rows, total: r.productos.length, busqueda: { sinonimo: r.sinonimo, correccion: r.correccion, sugerencia: r.sugerencia } };
 }
 
 /** Fotos (solo imágenes) de los productos de UNA página (máx. 24 ids). */
@@ -410,7 +488,7 @@ export default function CatalogoScreen() {
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
 
-  const params = useLocalSearchParams<{ cat?: string; categoria?: string; query?: string }>();
+  const params = useLocalSearchParams<{ cat?: string; categoria?: string; query?: string; estado?: string; precio_min?: string; precio_max?: string }>();
   const rawCat =
     typeof params.cat === "string" && params.cat
       ? params.cat
@@ -434,8 +512,23 @@ export default function CatalogoScreen() {
   // Filtros
   const [filter, setFilter] = useState<UiFilter>("ALL");
   const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [condition, setCondition] = useState<ConditionFilter>("ALL");
-  const [price, setPrice] = useState<PriceFilter>("ALL");
+  // Estado y precio viven en la dirección (?estado=bueno&precio_min=20&precio_max=300): se pueden compartir y no se
+  // pierden al volver atrás (mejora 3, 2026-11-14).
+  const condition: ConditionFilter = estadoDeUrl(typeof params.estado === "string" ? params.estado : undefined);
+  const minUrl = precioDeUrl(typeof params.precio_min === "string" ? params.precio_min : undefined, PRECIO_MIN);
+  const maxUrl = precioDeUrl(typeof params.precio_max === "string" ? params.precio_max : undefined, PRECIO_MAX);
+  const priceMin = Math.min(minUrl, maxUrl);
+  const priceMax = Math.max(minUrl, maxUrl);
+  const setCondition = useCallback((c: ConditionFilter) => {
+    router.setParams({ estado: estadoAUrl(c) });
+    if (c !== "ALL") trackEvent("catalogo_filtro", "Filtro: estado", { path: "/catalogo", metadata: { filtro: "estado", valor: c } });
+  }, []);
+  const setPrice = useCallback((min: number, max: number) => {
+    router.setParams({ precio_min: min > PRECIO_MIN ? String(min) : undefined, precio_max: max < PRECIO_MAX ? String(max) : undefined });
+    if (precioActivo(min, max)) {
+      trackEvent("catalogo_filtro", "Filtro: precio", { path: "/catalogo", metadata: { filtro: "precio", min, max: max >= PRECIO_MAX ? null : max } });
+    }
+  }, []);
   const [sort, setSort] = useState<SortKey>("NEWEST");
   const [q, setQ] = useState(queryFromUrl);
   // «Avísame cuando llegue» desde una búsqueda sin resultados (lo avisa Blue, components/Campanita.tsx).
@@ -449,6 +542,44 @@ export default function CatalogoScreen() {
   }, [q]);
   useEffect(() => setAvisoMsg(null), [q]);
   const [appliedQuery, setAppliedQuery] = useState(queryFromUrl);
+  // «¿Querías decir…?» y cómo fue la última búsqueda (sinónimo, corrección).
+  const [infoBusqueda, setInfoBusqueda] = useState<InfoBusqueda | null>(null);
+
+  // Sugerencias mientras se escribe (desde 2 letras, como mucho 6): con el campo activo y algo distinto de lo buscado.
+  const [enfocado, setEnfocado] = useState(false);
+  const [activo, setActivo] = useState(-1);
+  const cierreSugerencias = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textoEscrito = q.trim();
+  const verSugerencias = enfocado && textoEscrito.length >= 2 && textoEscrito !== appliedQuery.trim();
+  const sugerencias = useSugerenciasProductos(q, 6, verSugerencias);
+  useEffect(() => setActivo(-1), [q]);
+  useEffect(
+    () => () => {
+      if (cierreSugerencias.current) clearTimeout(cierreSugerencias.current);
+    },
+    []
+  );
+
+  // Buscar lo escrito: se aplica y queda en la dirección (?query=), como los filtros.
+  const aplicarBusqueda = useCallback((texto: string) => {
+    const t = texto.trim();
+    setQ(t);
+    setAppliedQuery(t);
+    router.setParams({ query: t || undefined });
+  }, []);
+
+  const elegirSugerencia = useCallback(
+    (i: number) => {
+      const p = sugerencias.productos[i];
+      if (!p) return;
+      medirBusqueda("catalogo", q, sugerencias);
+      medirSugerenciaTocada("catalogo", q, i);
+      if (cierreSugerencias.current) clearTimeout(cierreSugerencias.current);
+      setEnfocado(false);
+      pushRoute(`/producto/${p.id}` as Href);
+    },
+    [q, sugerencias]
+  );
 
   const [contactBusy, setContactBusy] = useState(false);
 
@@ -493,8 +624,23 @@ export default function CatalogoScreen() {
   const [disponibles, setDisponibles] = useState<FiltrosDisponibles | null>(null);
   useEffect(() => {
     setDisponibles(null);
-    if (!enCategoria || !categoryId || isAdmin) return;
+    if (isAdmin) return;
     let vivo = true;
+    // Fuera de una categoría: los estados y precios de toda la tienda, del índice de búsqueda (ya cargado o pequeño,
+    // sin fotos). Así solo se ofrecen los estados que existen de verdad (hoy, por ejemplo, ningún «Nuevo»).
+    if (!enCategoria || !categoryId) {
+      cargarIndiceBusqueda(false).then((indice) => {
+        if (!vivo || !indice || !indice.productos.length) return;
+        const lista = categoryId ? indice.productos.filter((p) => p.categoriaId === categoryId) : indice.productos;
+        setDisponibles({
+          condiciones: [...new Set(lista.map((p) => String(p.condicion ?? "")).filter(Boolean))],
+          precios: [...new Set(lista.map((p) => p.precio))],
+        });
+      });
+      return () => {
+        vivo = false;
+      };
+    }
     supabase
       .from("products")
       .select("price_eur,condition")
@@ -507,7 +653,7 @@ export default function CatalogoScreen() {
         const filas = data as { price_eur: number | string | null; condition: string | null }[];
         setDisponibles({
           condiciones: [...new Set(filas.map((f) => String(f.condition ?? "")).filter(Boolean))],
-          precios: [...new Set(filas.map((f) => tramoDePrecio(Number(f.price_eur ?? 0))))],
+          precios: [...new Set(filas.map((f) => Number(f.price_eur ?? 0)))],
         });
       });
     return () => {
@@ -518,7 +664,7 @@ export default function CatalogoScreen() {
   const hasActiveFilters =
     (!!categoryId && !enCategoria) ||
     condition !== "ALL" ||
-    price !== "ALL" ||
+    precioActivo(priceMin, priceMax) ||
     !!appliedQuery ||
     (isAdmin && filter !== "ALL");
 
@@ -555,11 +701,12 @@ export default function CatalogoScreen() {
       statusFilter: effectiveFilter,
       categoryId,
       condition,
-      price,
+      priceMin,
+      priceMax,
       sort,
       queryText: appliedQuery.trim(),
     }),
-    [isAdmin, effectiveFilter, categoryId, condition, price, sort, appliedQuery]
+    [isAdmin, effectiveFilter, categoryId, condition, priceMin, priceMax, sort, appliedQuery]
   );
 
   // Primera página con los filtros actuales (sustituye la lista).
@@ -570,7 +717,7 @@ export default function CatalogoScreen() {
     setRefreshing(true);
     setErr(null);
     try {
-      const { rows, total: count } = await fetchProductsPage(f, 0);
+      const { rows, total: count, busqueda } = await fetchProductsPage(f, 0);
       if (seq !== reqSeqRef.current) return;
       const mediaMap = await fetchCoverMap(rows.map((r) => r.id));
       if (seq !== reqSeqRef.current) return;
@@ -578,6 +725,17 @@ export default function CatalogoScreen() {
       setItems(mapRows(rows, mediaMap));
       setTotal(count);
       setHasMore(count !== null ? rows.length < count : rows.length === PAGE_SIZE);
+      setInfoBusqueda(f.queryText && busqueda ? busqueda : null);
+      // Analítica propia (Administración → Analítica → Búsquedas): lo buscado (normalizado), cuántos resultados y si
+      // hizo falta un sinónimo o una corrección. Una vez por texto (no con cada cambio de filtro).
+      if (f.queryText && !f.adminFlag) {
+        medirBusqueda("catalogo", f.queryText, {
+          total: count ?? rows.length,
+          sinonimo: !!busqueda?.sinonimo,
+          correccion: !!busqueda?.correccion,
+          sugerencia: busqueda?.sugerencia ?? null,
+        });
+      }
     } catch (e) {
       if (seq !== reqSeqRef.current) return;
       console.error("Error cargando catálogo:", e);
@@ -585,6 +743,7 @@ export default function CatalogoScreen() {
       setItems([]);
       setTotal(null);
       setHasMore(false);
+      setInfoBusqueda(null);
     } finally {
       if (seq === reqSeqRef.current) {
         setRefreshing(false);
@@ -683,18 +842,59 @@ export default function CatalogoScreen() {
   }, [ready, categoryId, selectedCategory, rawCat]);
 
   function clearFilters() {
-    setCondition("ALL");
-    setPrice("ALL");
     setFilter("ALL");
     setQ("");
     setAppliedQuery("");
-    // Dentro de una categoría se queda en ella (solo se quitan sus filtros).
+    trackEvent("catalogo_filtro", "Filtro: borrar filtros", { path: "/catalogo", metadata: { filtro: "todos", accion: "borrar" } });
+    // Estado, precio y búsqueda salen de la dirección; dentro de una categoría se queda en ella (solo se quitan sus filtros).
+    const sinFiltros = { query: undefined, estado: undefined, precio_min: undefined, precio_max: undefined };
     if (enCategoria) {
-      if (queryFromUrl) replaceRoute(`/catalogo?cat=${encodeURIComponent(rawCat ?? "")}` as Href);
+      router.setParams(sinFiltros);
       return;
     }
     setCategoryId(null);
-    if (rawCat || queryFromUrl) replaceRoute("/catalogo" as Href);
+    router.setParams({ ...sinFiltros, cat: undefined, categoria: undefined });
+  }
+
+  // Chips de lo que está filtrando ahora, cada uno con su «Quitar» (y «Borrar filtros» al lado).
+  const quitarYMedir = (filtro: string, quitar: () => void) => () => {
+    quitar();
+    trackEvent("catalogo_filtro", "Filtro: quitado", { path: "/catalogo", metadata: { filtro, accion: "quitar" } });
+  };
+  const chipsActivos: { clave: string; texto: string; quitar: () => void }[] = [];
+  if (appliedQuery.trim()) chipsActivos.push({ clave: "busqueda", texto: `Búsqueda: «${appliedQuery.trim().slice(0, 40)}»`, quitar: quitarYMedir("busqueda", () => aplicarBusqueda("")) });
+  if (categoryId && !enCategoria && selectedCategory) {
+    chipsActivos.push({
+      clave: "plataforma",
+      texto: `Plataforma: ${selectedCategory.name}`,
+      quitar: quitarYMedir("plataforma", () => {
+        setCategoryId(null);
+        if (rawCat) router.setParams({ cat: undefined, categoria: undefined });
+      }),
+    });
+  }
+  if (condition !== "ALL") chipsActivos.push({ clave: "estado", texto: `Estado: ${nombreEstado(condition)}`, quitar: quitarYMedir("estado", () => router.setParams({ estado: undefined })) });
+  if (precioActivo(priceMin, priceMax)) {
+    chipsActivos.push({
+      clave: "precio",
+      texto: `Precio: ${textoPrecio(priceMin, priceMax)}`,
+      quitar: quitarYMedir("precio", () => router.setParams({ precio_min: undefined, precio_max: undefined })),
+    });
+  }
+  if (isAdmin && filter !== "ALL") chipsActivos.push({ clave: "interno", texto: `Estado interno: ${adminStatusLabel(filter)}`, quitar: () => setFilter("ALL") });
+
+  // Teclado del buscador (ordenador): flechas para elegir una sugerencia, Intro la abre y Escape las cierra.
+  function teclaBuscador(e: NativeSyntheticEvent<TextInputKeyPressEventData>) {
+    const tecla = e.nativeEvent.key;
+    if (tecla === "Escape") {
+      setEnfocado(false);
+      return;
+    }
+    const n = verSugerencias && sugerencias.listo ? sugerencias.productos.length : 0;
+    if ((tecla === "ArrowDown" || tecla === "ArrowUp") && n > 0) {
+      (e as unknown as { preventDefault?: () => void }).preventDefault?.();
+      setActivo((i) => (tecla === "ArrowDown" ? Math.min(i + 1, n - 1) : Math.max(i - 1, -1)));
+    }
   }
 
   function handleScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
@@ -756,6 +956,8 @@ export default function CatalogoScreen() {
             paddingTop: isMobile ? 12 : 14,
             paddingBottom: isMobile ? 14 : 18,
             alignItems: "center",
+            // Las sugerencias del buscador quedan por encima de la lista (no la empujan).
+            zIndex: 10,
           }}
         >
           <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
@@ -794,20 +996,41 @@ export default function CatalogoScreen() {
 
             {/* Buscador compartido (components/Barramagic.tsx), modo "input": busca al pulsar intro y limpia con la
                 "x". A su derecha, a la misma altura, el icono de filtros (dueño, 2026-11-07); sin contador de productos. */}
-            <View nativeID="catalogo-buscador-filtros" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View nativeID="catalogo-buscador-filtros" style={{ flexDirection: "row", alignItems: "center", gap: 6, zIndex: 2 }}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Barramagic
                   isMobile={isMobile}
                   mode="input"
                   value={q}
-                  onChangeText={setQ}
-                  onSubmit={() => setAppliedQuery(q.trim())}
-                  onClear={() => {
-                    setQ("");
-                    setAppliedQuery("");
+                  onChangeText={(t) => {
+                    setQ(t);
+                    setEnfocado(true);
                   }}
+                  onSubmit={() => {
+                    if (activo >= 0 && verSugerencias && sugerencias.listo && sugerencias.productos[activo]) {
+                      elegirSugerencia(activo);
+                      return;
+                    }
+                    aplicarBusqueda(q);
+                  }}
+                  onClear={() => aplicarBusqueda("")}
+                  onFocus={() => {
+                    if (cierreSugerencias.current) clearTimeout(cierreSugerencias.current);
+                    setEnfocado(true);
+                  }}
+                  // Con un pequeño retraso: al tocar una sugerencia el campo pierde el foco ANTES de que llegue el toque.
+                  onBlur={() => {
+                    if (cierreSugerencias.current) clearTimeout(cierreSugerencias.current);
+                    cierreSugerencias.current = setTimeout(() => setEnfocado(false), 220);
+                  }}
+                  onKeyPress={teclaBuscador}
                   placeholder={isMobile ? "Buscar productos..." : "Buscar consola, videojuego, accesorio..."}
                 />
+                {verSugerencias ? (
+                  <View style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 6, zIndex: 20 }}>
+                    <SugerenciasCatalogo estado={sugerencias} activo={activo} onElegir={elegirSugerencia} />
+                  </View>
+                ) : null}
               </View>
 
             {/* Icono de filtros con su panel: dentro van todos los filtros (y, para admin, el estado interno de
@@ -843,8 +1066,9 @@ export default function CatalogoScreen() {
               onCategoryChange={(c) => setCategoryId(c?.id ?? null)}
               condition={condition}
               onConditionChange={setCondition}
-              price={price}
-              onPriceChange={setPrice}
+              priceMin={priceMin}
+              priceMax={priceMax}
+              onPriceCommit={setPrice}
               sort={sort}
               onSortChange={setSort}
               total={loading ? null : total}
@@ -853,6 +1077,48 @@ export default function CatalogoScreen() {
               onClear={clearFilters}
             />
             </View>
+
+            {/* Lo que está filtrando ahora: un chip con su «Quitar» por filtro y «Borrar filtros» (44 px). */}
+            {chipsActivos.length ? (
+              <View nativeID="catalogo-filtros-activos" style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: 8 }}>
+                {chipsActivos.map((c) => (
+                  <Pressable
+                    key={c.clave}
+                    nativeID={`catalogo-chip-${c.clave}`}
+                    onPress={c.quitar}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Quitar ${c.texto}`}
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.85 : 1,
+                      minHeight: 44,
+                      maxWidth: "100%",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      paddingLeft: 14,
+                      paddingRight: 10,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: COLORS.accentBorder,
+                      backgroundColor: COLORS.accent2,
+                    })}
+                  >
+                    <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 14, flexShrink: 1 }}>
+                      {c.texto}
+                    </Text>
+                    <Ionicons name="close" size={18} color={COLORS.text} />
+                  </Pressable>
+                ))}
+                <Pressable
+                  nativeID="catalogo-borrar-filtros"
+                  onPress={clearFilters}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, minHeight: 44, paddingHorizontal: 10, justifyContent: "center" })}
+                >
+                  <Text style={{ color: colorTextoAzul(14), fontWeight: "900", fontSize: 14 }}>Borrar filtros</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             {err ? (
               <View style={{ alignItems: "center" }}>
@@ -902,10 +1168,27 @@ export default function CatalogoScreen() {
                       textAlign: "center",
                     }}
                   >
-                    {hasActiveFilters
-                      ? "No hay productos con estos filtros"
-                      : "Ahora mismo no hay productos publicados"}
+                    {appliedQuery.trim()
+                      ? `No hemos encontrado «${appliedQuery.trim().slice(0, 60)}»`
+                      : hasActiveFilters
+                        ? "No hay productos con estos filtros"
+                        : "Ahora mismo no hay productos publicados"}
                   </Text>
+
+                  {/* La mejor corrección que sí tiene productos («plaistation» → «playstation»). */}
+                  {appliedQuery.trim() && infoBusqueda?.sugerencia ? (
+                    <Pressable
+                      nativeID="catalogo-quisiste-decir"
+                      onPress={() => aplicarBusqueda(infoBusqueda.sugerencia ?? "")}
+                      accessibilityRole="button"
+                      accessibilityLabel={`¿Querías decir ${infoBusqueda.sugerencia}?`}
+                      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, minHeight: 44, justifyContent: "center", paddingHorizontal: 12 })}
+                    >
+                      <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 17, textAlign: "center" }}>
+                        ¿Querías decir <Text style={{ color: COLORS.accent, fontWeight: "900" }}>«{infoBusqueda.sugerencia}»</Text>?
+                      </Text>
+                    </Pressable>
+                  ) : null}
 
                   <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center", maxWidth: 560 }}>
                     {hasActiveFilters
@@ -915,11 +1198,14 @@ export default function CatalogoScreen() {
 
                   {hasActiveFilters ? (
                     <Pressable
+                      nativeID="catalogo-ver-todo"
                       onPress={clearFilters}
                       accessibilityRole="button"
                       style={({ pressed }) => ({
                         opacity: pressed ? 0.88 : 1,
                         alignSelf: isMobile ? "stretch" : "center",
+                        minHeight: 44,
+                        justifyContent: "center",
                         borderRadius: 999,
                         paddingVertical: 12,
                         paddingHorizontal: 18,
@@ -928,7 +1214,7 @@ export default function CatalogoScreen() {
                       })}
                     >
                       <Text style={{ color: "#FFFFFF", fontWeight: "900", textAlign: "center" }}>
-                        Quitar filtros
+                        {appliedQuery.trim() ? "Ver todo el catálogo" : "Quitar filtros"}
                       </Text>
                     </Pressable>
                   ) : null}
