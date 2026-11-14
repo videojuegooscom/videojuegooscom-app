@@ -161,6 +161,10 @@
  *  - CAMPOS16) Todo input/textarea visible (cliente sin y con sesión, y las pantallas de Administración, con lo que se abre
  *    con un toque) tiene letra computada de 16 px o más (sin zoom en iPhone); lista los que fallen con su selector.
  *    Se lanza con SOLO = CAMPOS16 y en la pasada completa.
+ *  - CHATP) Chat con el producto adjunto (mejora 10): «Preguntar por este artículo» abre el chat de ese producto (sin
+ *    duplicarlo) con su tarjeta y preguntas sugeridas que rellenan sin enviar; sin cuenta invita y vuelve abriendo el chat;
+ *    Administración → Chat (tarjeta con estado, enlaces y filtro «Con producto»), ficha del cliente y Analítica; 360/390/1280.
+ *    Se lanza con SOLO = CHATP y en la pasada completa.
  *  - FS) Ficha de servicio con el formato de la de producto (galería, visor con zoom, botones iguales, pestañas,
  *    «Volver atrás», sin bloques de más) y su uso en Administración → Analítica, en el móvil y en el ordenador.
  *
@@ -676,6 +680,74 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       const n = url.pathname.endsWith("/pedidos") ? estado.olvidados.pedidos : estado.olvidados.reparaciones;
       estado.consultasOlvidados = [...(estado.consultasOlvidados ?? []), `${url.pathname.split("/").pop()}?${decodeURIComponent(url.search.slice(1))}`];
       return json([], 200, { "content-range": `*/${n}`, "access-control-expose-headers": "*" });
+    }
+    // Chat con el producto adjunto (sección CHATP), como la base de datos: get_or_create_product_chat devuelve la
+    // conversación de (producto, persona) o crea una (nunca dos); product_chats y product_chat_messages filtrados por id,
+    // cliente, producto, borradas y chat_id (eq o in); el mensaje enviado queda guardado (lo firma «el disparador»); las
+    // ventas (product_sales) por producto; marcar leído, borrar y los nombres del panel, sin nada más.
+    if (estado.chatp) {
+      const cp = estado.chatp;
+      const objeto = /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "");
+      const valor = (campo) => url.searchParams.get(campo) ?? "";
+      const lista = (f) => f.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, ""));
+      if (url.pathname.endsWith("/rpc/get_or_create_product_chat")) {
+        const { p_product_id } = JSON.parse(peticion.postData() ?? "{}");
+        cp.rpc = [...(cp.rpc ?? []), p_product_id];
+        let fila = cp.chats.find((c) => c.product_id === p_product_id && c.customer_user_id === usuario.id);
+        if (!fila) {
+          const ahoraIso = new Date().toISOString();
+          fila = { id: `e1000000-0000-4000-8000-0000000001${String(cp.chats.length).padStart(2, "0")}`, created_at: ahoraIso, product_id: p_product_id, sell_request_id: null, customer_user_id: usuario.id, last_message_at: ahoraIso, last_message_preview: "", last_sender_role: "customer", admin_deleted_at: null, customer_deleted_at: null };
+          cp.chats = [...cp.chats, fila];
+        }
+        return json(fila.id);
+      }
+      if (/\/rpc\/(mark_chat_read|delete_chat_for_me)$/.test(url.pathname)) return json(null);
+      if (url.pathname.endsWith("/rpc/admin_users_by_ids")) return json(cp.usuarios ?? []);
+      if (url.pathname.endsWith("/rest/v1/product_sales") && metodo === "GET") {
+        const f = valor("product_id");
+        return json((cp.ventas ?? []).filter((v) => !f || (f.startsWith("in.(") ? lista(f).includes(v.product_id) : v.product_id === f.replace(/^eq\./, ""))));
+      }
+      if (url.pathname.endsWith("/rest/v1/product_chats")) {
+        if (metodo === "POST") {
+          const cuerpo = [].concat(JSON.parse(peticion.postData() ?? "{}"))[0];
+          const ahoraIso = new Date().toISOString();
+          const fila = { id: `e1000000-0000-4000-8000-0000000002${String(cp.chats.length).padStart(2, "0")}`, created_at: ahoraIso, product_id: null, sell_request_id: null, last_message_at: ahoraIso, last_message_preview: "", last_sender_role: "customer", admin_deleted_at: null, customer_deleted_at: null, ...cuerpo };
+          cp.chats = [...cp.chats, fila];
+          return objeto ? json(fila, 201) : json([fila], 201);
+        }
+        if (metodo === "GET") {
+          let filas = cp.chats.filter((c) => rol === "admin" || c.customer_user_id === usuario.id);
+          const id = valor("id").replace(/^eq\./, "");
+          const cli = valor("customer_user_id").replace(/^eq\./, "");
+          const prod = valor("product_id");
+          if (id) filas = filas.filter((c) => c.id === id);
+          if (cli) filas = filas.filter((c) => c.customer_user_id === cli);
+          if (prod === "not.is.null") filas = filas.filter((c) => c.product_id);
+          else if (prod === "is.null") filas = filas.filter((c) => !c.product_id);
+          else if (prod) filas = filas.filter((c) => c.product_id === prod.replace(/^eq\./, ""));
+          if (valor("admin_deleted_at") === "is.null") filas = filas.filter((c) => !c.admin_deleted_at);
+          if (valor("customer_deleted_at") === "is.null") filas = filas.filter((c) => !c.customer_deleted_at);
+          filas = [...filas].sort((a, b) => (a.last_message_at < b.last_message_at ? 1 : -1));
+          return objeto ? json(filas[0] ?? null) : json(filas);
+        }
+      }
+      if (url.pathname.endsWith("/rest/v1/product_chat_messages")) {
+        if (metodo === "POST") {
+          const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+          cp.enviados = [...(cp.enviados ?? []), cuerpo];
+          const ahoraIso = new Date().toISOString();
+          cp.mensajes = [...cp.mensajes, { id: `m${cp.mensajes.length + 1}`, created_at: ahoraIso, chat_id: cuerpo.chat_id, sender_user_id: usuario.id, sender_role: rol === "admin" ? "admin" : "customer", sender_name: rol === "admin" ? "Tienda" : "Ana", body: String(cuerpo.body ?? "").trim() }];
+          cp.chats = cp.chats.map((c) => (c.id === cuerpo.chat_id ? { ...c, last_message_at: ahoraIso, last_message_preview: String(cuerpo.body ?? "").slice(0, 140), last_sender_role: rol === "admin" ? "admin" : "customer" } : c));
+          return r.fulfill({ status: 201, headers: CORS, body: "" });
+        }
+        if (metodo === "GET") {
+          const c = valor("chat_id");
+          const ids = c.startsWith("in.(") ? lista(c) : [c.replace(/^eq\./, "")];
+          const filas = cp.mensajes.filter((m) => ids.includes(m.chat_id)).sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+          const limite = Number(valor("limit") || 0);
+          return json(limite ? filas.slice(0, limite) : filas);
+        }
+      }
     }
     // Ficha del cliente → «Escribir por el chat» (sección FCH): conversaciones y mensajes ficticios de verdad filtrados
     // (por cliente, por id, por varios chats), y la creación de la conversación que haría el administrador (se apunta lo mandado).
@@ -6225,12 +6297,13 @@ async function seccionFS() {
     await q.locator("#producto-ficha-carrusel").waitFor({ timeout: 40000 }).catch(() => {});
     await q.waitForTimeout(500);
     const comprar = await botonConTexto(q, "Comprar ya");
-    const preguntarProducto = await botonConTexto(q, "Preguntar por este producto");
+    // Desde la mejora 10 (chat con el producto adjunto) el botón de la ficha de producto se llama «Preguntar por este artículo».
+    const preguntarProducto = await botonConTexto(q, "Preguntar por este artículo");
     const volverProducto = await botonConTexto(q, "Volver atrás");
     const igual = (a, b) => !!a && !!b && a.h === b.h && a.w === b.w && a.radio === b.radio && a.fondo === b.fondo;
     const sinPos = (a) => a && { w: a.w, h: a.h, radio: a.radio, fondo: a.fondo };
     ok(igual(contratar, comprar), `FS (${nombre}): «Contratar servicio ahora» mide y se ve como «Comprar ya» (${JSON.stringify([sinPos(contratar), sinPos(comprar)])})`);
-    ok(igual(preguntar, preguntarProducto), `FS (${nombre}): «Preguntar por este servicio» como «Preguntar por este producto» (${JSON.stringify([sinPos(preguntar), sinPos(preguntarProducto)])})`);
+    ok(igual(preguntar, preguntarProducto), `FS (${nombre}): «Preguntar por este servicio» como «Preguntar por este artículo» (${JSON.stringify([sinPos(preguntar), sinPos(preguntarProducto)])})`);
     ok(igual(volver, volverProducto), `FS (${nombre}): «Volver atrás» como el de producto (${JSON.stringify([sinPos(volver), sinPos(volverProducto)])})`);
     ok((await q.locator("#producto-caracteristicas").count()) === 1 && q.errores.length === 0, `FS (${nombre}): la ficha de producto sigue con sus pestañas y sin errores (${q.errores[0] ?? "ninguno"})`);
     await q.close();
@@ -14948,7 +15021,7 @@ async function seccionSEGP() {
     ok((await p.locator('[id^="seguir-envio-"]').count()) === 0, "SEGP: sin la migración, ningún «Seguir el envío»");
     ok(p.errores.length === 0, `SEGP2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     const f = await pagina(ctx, `/producto/${PROD}`);
-    await f.getByText("Preguntar por este producto").first().waitFor({ timeout: 40000 }).catch(() => {});
+    await f.getByText("Preguntar por este artículo").first().waitFor({ timeout: 40000 }).catch(() => {});
     await f.waitForTimeout(1500);
     ok((await f.locator("#ficha-aviso-precio").count()) === 0 && (await f.getByText("Comprar ya", { exact: true }).count()) >= 1, "SEGP: sin la tabla, la ficha sale entera y sin el aviso de precio (no se puede guardar)");
     ok(f.errores.length === 0, `SEGP2: la ficha sin errores de JavaScript (${f.errores[0] ?? "ninguno"})`);
@@ -16450,8 +16523,333 @@ async function seccionVISTOS() {
   }
 }
 
+// ===== CHATP) Chat con el producto adjunto (mejora 10, 2026-11-15) ===================================================
+// «Preguntar por este artículo» en la ficha abre el chat de la tienda de ese producto (el que ya hay o uno nuevo, nunca dos)
+// con la tarjeta del producto arriba (foto, título, precio y «Ver el artículo») y primeras preguntas que rellenan el campo
+// sin enviarlo; sin cuenta invita a crearla o entrar y vuelve abriendo el chat; Administración → Chat enseña la tarjeta con
+// su estado (a la venta / vendido / retirado), enlaces y el filtro «Con producto»; la ficha del cliente, sus preguntas por
+// artículos; Analítica, «Preguntas por artículos (30 días)». A 360, 390 y 1280 sin desbordes ni errores.
+async function seccionCHATP() {
+  const CATS = [{ id: "c0000000-0000-4000-8000-0000000000c7", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true }];
+  const ID = (n) => `d2000000-0000-4000-8000-0000000000${String(n).padStart(2, "0")}`;
+  const cat = CATS[0];
+  const producto = (n, extra = {}) => ({
+    id: ID(n), title: ["", "PlayStation 5 Slim con mando", "Mando DualSense blanco", "Auriculares Pulse 3D"][n], description: "Revisado por la tienda.", price_eur: [0, 349.99, 54.9, 79][n],
+    status: "PUBLISHED", is_active: true, condition: "GOOD", category_id: cat.id, category: { id: cat.id, name: cat.name, slug: cat.slug }, created_at: new Date(Date.UTC(2026, 10, 1, n)).toISOString(),
+    updated_at: "2026-11-14T10:00:00Z", novedad_en: null, view_count: 3, images: [], like_count: 0, reference: null, revisado: false, garantia_meses: null, solo_entrega_mano: false, ...extra,
+  });
+  // 1 a la venta, 2 vendido (tiene su venta registrada), 3 retirado.
+  const PRODUCTOS = [producto(1), producto(2), producto(3, { is_active: false })];
+  const T = Object.fromEntries(PRODUCTOS.map((p) => [p.id, p.title]));
+  const fotosCatalogo = PRODUCTOS.map((p, i) => ({ id: `cp${i}`, product_id: p.id, kind: "image", public_url: `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/chatp/${i}.jpg`, file_name: `${i}.jpg`, sort_order: 0, is_cover: true, duration_seconds: null }));
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const nuevoEstado = (extra = {}) => ({ filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS, fotosCatalogo, chatp: { chats: [], mensajes: [], ventas: [] }, ...extra });
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !(await cond()); i++) await p.waitForTimeout(250);
+  };
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/[-]/g, "").replace(/\s+/g, " ").trim()).catch(() => "");
+  const caja = (p, sel) => p.evaluate((s) => {
+    const e = document.querySelector(s);
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return { top: Math.round(r.top), h: Math.round(r.height), w: Math.round(r.width), l: Math.round(r.left), r: Math.round(r.right), fondo: getComputedStyle(e).backgroundColor };
+  }, sel);
+  const sinDatos = (estado) => !/cliente@example|Ana|ana_g|Dani/.test(JSON.stringify((estado.eventosEnviados ?? []).filter((e) => /^chat_producto/.test(e.event_name)).map((e) => e.metadata)));
+  const abrirFicha = async (ctx, n = 1, extra = "") => {
+    const p = await pagina(ctx, `/producto/${ID(n)}${extra}`);
+    await p.locator("#ficha-preguntar").first().waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(400);
+    return p;
+  };
+  const esperarHilo = async (p) => {
+    await p.waitForURL(/\/chat\/e1000000/, { timeout: 20000 }).catch(() => {});
+    await p.locator("#chat-producto-tarjeta:visible").first().waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(500);
+  };
+
+  // CHATP1) 390 con cuenta: el botón (44 px, secundario, tras los de comprar) abre el chat con la tarjeta del producto (foto,
+  // título, precio y «Ver el artículo») y 4 preguntas sugeridas de 44 px (sin «verlo en persona»: tienda solo online) que
+  // rellenan el campo de 16 px sin enviar; «Enviar» lo manda; reabrir no duplica la conversación. Analítica sin datos.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrirFicha(ctx);
+    const boton = await caja(p, "#ficha-preguntar");
+    const cesta = await caja(p, "#ficha-anadir-cesta");
+    ok(!!boton && boton.h >= 44 && /Preguntar por este artículo/.test(await texto(p, "#ficha-preguntar")), `CHATP: la ficha tiene «Preguntar por este artículo» de 44 px (${JSON.stringify(boton)})`);
+    ok(!!boton && !!cesta && boton.top > cesta.top && /255, 255, 255/.test(boton.fondo), `CHATP: secundario (blanco) y justo tras los botones de comprar (${boton?.top} > ${cesta?.top})`);
+    await capturar(p, "CHATP1-ficha-390");
+    await p.locator("#ficha-preguntar").click();
+    await esperarHilo(p);
+    const chatId = p.url().split("/chat/")[1]?.split("?")[0] ?? "";
+    ok(p.url().includes("/chat/") && (estado.chatp.rpc ?? []).length === 1 && estado.chatp.rpc[0] === ID(1), `CHATP: abre la conversación de este producto (${p.url().replace(BASE, "")}; ${JSON.stringify(estado.chatp.rpc)})`);
+    const tarjeta = await texto(p, "#chat-producto-tarjeta");
+    ok(tarjeta.includes(T[ID(1)]) && /349,99€/.test(tarjeta) && /Ver el artículo/.test(tarjeta), `CHATP: la tarjeta lleva título, precio y «Ver el artículo» (${tarjeta})`);
+    const foto = await p.evaluate(() => {
+      const t = document.getElementById("chat-producto-tarjeta");
+      const img = t?.querySelector("img");
+      const r = img?.getBoundingClientRect();
+      return r ? { w: Math.round(r.width), h: Math.round(r.height), src: img.getAttribute("src") ?? "" } : null;
+    });
+    ok(!!foto && foto.w > 0 && foto.w <= 64 && /chatp\/0/.test(foto.src), `CHATP: con la foto pequeña del producto (${JSON.stringify(foto)})`);
+    ok(/Pregunta por un artículo/.test(await texto(p, "body")), "CHATP: la cabecera dice «Pregunta por un artículo» (sin repetir el título)");
+    const chips = await p.evaluate(() => [...document.querySelectorAll('#chat-producto-sugerencias [role="button"]')].map((b) => ({ t: b.textContent.trim(), h: Math.round(b.getBoundingClientRect().height) })));
+    ok(chips.map((c) => c.t).join("|") === "¿Sigue disponible?|¿En qué estado está?|¿Hacéis envíos a mi zona?|¿Tiene garantía?" && chips.every((c) => c.h >= 44), `CHATP: 4 preguntas sugeridas de 44 px (${JSON.stringify(chips)})`);
+    ok(!/en persona/i.test(await texto(p, "body")), "CHATP: sin «¿Puedo verlo en persona?» (la tienda es solo online)");
+    const letra = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById("chat-campo")).fontSize));
+    ok(letra >= 16, `CHATP: el campo de escribir es de 16 px o más (${letra})`);
+    await capturar(p, "CHATP1-hilo-vacio-390");
+    await p.getByRole("button", { name: "Usar la pregunta ¿Sigue disponible?" }).click();
+    await p.waitForTimeout(500);
+    const valorCampo = await p.locator("#chat-campo").inputValue().catch(() => "");
+    ok(valorCampo === "¿Sigue disponible?" && !(estado.chatp.enviados ?? []).length, `CHATP: tocar una sugerencia rellena el campo y NO la envía (${valorCampo}; ${(estado.chatp.enviados ?? []).length} enviados)`);
+    await esperar(p, () => evento(estado, "chat_producto_sugerencia").length > 0);
+    const su = evento(estado, "chat_producto_sugerencia").map((e) => e.metadata);
+    ok(su.length === 1 && su[0]?.sugerencia === "¿Sigue disponible?" && su[0]?.productId === ID(1), `CHATP: se mide qué sugerencia (${JSON.stringify(su)})`);
+    await p.locator("#chat-campo").fill("¿Sigue disponible? ¿Lleva la caja?");
+    await p.locator("#chat-enviar").click();
+    await esperar(p, () => (estado.chatp.enviados ?? []).length > 0);
+    await p.waitForTimeout(400);
+    const env = estado.chatp.enviados ?? [];
+    ok(env.length === 1 && env[0].chat_id === chatId && env[0].body === "¿Sigue disponible? ¿Lleva la caja?" && Object.keys(env[0]).sort().join(",") === "body,chat_id", `CHATP: «Enviar» manda solo la conversación y el texto (quién escribe lo pone la base de datos) (${JSON.stringify(env)})`);
+    ok((await p.locator("#chat-campo").inputValue().catch(() => "x")) === "" && (await p.locator("#chat-producto-sugerencias").count()) === 0, "CHATP: tras enviar, el campo se vacía y las sugerencias se van");
+    await esperar(p, () => evento(estado, "chat_producto_enviado").length > 0);
+    const en = evento(estado, "chat_producto_enviado").map((e) => e.metadata);
+    ok(en.length === 1 && en[0]?.primera === true && en[0]?.sugerencia === false && en[0]?.productId === ID(1), `CHATP: se mide el envío (primera, sin el texto) (${JSON.stringify(en)})`);
+    const ab = evento(estado, "chat_producto_abierto").map((e) => e.metadata);
+    ok(ab.length === 1 && JSON.stringify(ab[0]) === JSON.stringify({ productId: ID(1) }), `CHATP: se mide chat_producto_abierto solo con el producto (${JSON.stringify(ab)})`);
+    ok(!JSON.stringify(estado.eventosEnviados ?? []).includes("Lleva la caja") && sinDatos(estado), "CHATP: la analítica nunca lleva el texto ni datos del cliente");
+    // «Ver el artículo» vuelve a la ficha; volver a preguntar abre LA MISMA conversación, ya con su mensaje y sin sugerencias.
+    await p.locator("#chat-producto-tarjeta-ver").click();
+    await p.waitForURL(new RegExp(`/producto/${ID(1)}`), { timeout: 15000 }).catch(() => {});
+    ok(p.url().endsWith(`/producto/${ID(1)}`), `CHATP: «Ver el artículo» lleva a su ficha (${p.url().replace(BASE, "")})`);
+    // (La ficha de antes sigue debajo en la pila de pantallas: se toca la que se ve.)
+    await p.locator("#ficha-preguntar:visible").first().waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#ficha-preguntar:visible").first().click();
+    await esperarHilo(p);
+    ok(p.url().includes(`/chat/${chatId}`) && estado.chatp.chats.length === 1, `CHATP: reabrir no duplica la conversación (${estado.chatp.chats.length} conversación; ${p.url().replace(BASE, "")})`);
+    await p.getByText("¿Sigue disponible? ¿Lleva la caja?").first().waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.getByText("¿Sigue disponible? ¿Lleva la caja?").count()) >= 1 && (await p.locator("#chat-producto-sugerencias").count()) === 0, "CHATP: y sale su pregunta, ya sin sugerencias");
+    await capturar(p, "CHATP1-hilo-con-mensaje-390");
+    ok(p.errores.length === 0, `CHATP1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CHATP2) Sin cuenta: explica la ventaja con «Crear cuenta gratis» y «Entrar» (44 px), sin abrir nada; recuerda volver a la
+  // ficha con ?chat=1 y, al entrar, Mi cuenta vuelve a la ficha y se abre el chat con la tarjeta.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await abrirFicha(ctx);
+    await p.locator("#ficha-preguntar").click();
+    await p.locator("#ficha-chat-invitacion").waitFor({ timeout: 8000 }).catch(() => {});
+    const inv = await texto(p, "#ficha-chat-invitacion");
+    ok(/te contestamos aquí/.test(inv) && /te avisamos cuando respondamos/.test(inv) && /Crear cuenta gratis/.test(inv) && /Entrar/.test(inv), `CHATP: sin cuenta explica la ventaja y ofrece crear la cuenta o entrar (${inv})`);
+    ok(!(estado.chatp.rpc ?? []).length && !p.url().includes("/chat/"), "CHATP: sin cuenta no abre ni crea ninguna conversación");
+    const altos = [await caja(p, "#ficha-chat-crear-cuenta"), await caja(p, "#ficha-chat-entrar")].map((b) => b?.h ?? 0);
+    ok(altos.every((h) => h >= 44), `CHATP: «Crear cuenta gratis» y «Entrar» de 44 px (${altos.join(", ")})`);
+    await esperar(p, () => evento(estado, "chat_producto_invitacion").length > 0);
+    ok(evento(estado, "chat_producto_invitacion").length === 1 && JSON.stringify(evento(estado, "chat_producto_invitacion")[0].metadata) === JSON.stringify({ productId: ID(1) }), "CHATP: se mide la invitación sin cuenta (solo el producto)");
+    await capturar(p, "CHATP2-sin-cuenta-390");
+    await p.locator("#ficha-chat-entrar").click();
+    await p.waitForURL(/\/perfil\?acceso=entrar/, { timeout: 15000 }).catch(() => {});
+    const volver = await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:volver_tras_acceso") ?? "");
+    ok(/\/perfil\?acceso=entrar/.test(p.url()) && volver.includes(`/producto/${ID(1)}?chat=1`), `CHATP: «Entrar» lleva al acceso y recuerda volver a la ficha con el chat (${p.url().replace(BASE, "")}; ${volver})`);
+    ok(p.errores.length === 0, `CHATP2: sin cuenta, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+    // Ya con la sesión iniciada: Mi cuenta vuelve a la ficha (?chat=1) y la ficha abre el chat sola.
+    const estado2 = nuevoEstado();
+    const ctx2 = await contexto(navegador, CLIENTE, "user", estado2);
+    await ctx2.addInitScript(([ruta]) => {
+      try {
+        if (!sessionStorage.getItem("vz-prueba-chatp")) {
+          sessionStorage.setItem("vz-prueba-chatp", "1");
+          localStorage.setItem("videojuegoszaragoza:volver_tras_acceso", JSON.stringify({ ruta, hasta: Date.now() + 600000 }));
+        }
+      } catch {
+        // sin almacenamiento
+      }
+    }, [`/producto/${ID(1)}?chat=1`]);
+    const p2 = await pagina(ctx2, "/perfil");
+    await esperarHilo(p2);
+    ok(p2.url().includes("/chat/e1000000") && (await p2.locator("#chat-producto-tarjeta").count()) === 1 && (estado2.chatp.rpc ?? [])[0] === ID(1), `CHATP: al entrar vuelve a la ficha y abre el chat con la tarjeta (${p2.url().replace(BASE, "")})`);
+    ok(p2.errores.length === 0, `CHATP2: al volver, sin errores de JavaScript (${p2.errores[0] ?? "ninguno"})`);
+    await ctx2.close();
+  }
+
+  // CHATP3) 360, 390 y 1280: la ficha y el hilo caben a lo ancho y sin errores; capturas.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await abrirFicha(ctx);
+    let d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `CHATP (${nombre}): la ficha no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#ficha-preguntar").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `CHATP3-ficha-${nombre}`);
+    await p.locator("#ficha-preguntar").click();
+    await esperarHilo(p);
+    d = await sinDesborde(p);
+    const t = await caja(p, "#chat-producto-tarjeta");
+    const s = await caja(p, "#chat-producto-sugerencias");
+    ok(d.a <= d.v + 1 && !!t && t.l >= 0 && t.r <= d.v && !!s && s.r <= d.v, `CHATP (${nombre}): el hilo, la tarjeta y las sugerencias caben (${d.a}/${d.v}; ${JSON.stringify(t)})`);
+    await capturar(p, `CHATP3-hilo-${nombre}`);
+    ok(p.errores.length === 0, `CHATP3 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CHATP4) Con la analítica rechazada funciona igual y no se mide nada.
+  {
+    const estado = nuevoEstado({ aceptaAnalitica: false });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrirFicha(ctx);
+    await p.locator("#ficha-preguntar").click();
+    await esperarHilo(p);
+    await p.getByRole("button", { name: "Usar la pregunta ¿Tiene garantía?" }).click();
+    await p.locator("#chat-enviar").click();
+    await esperar(p, () => (estado.chatp.enviados ?? []).length > 0);
+    await p.waitForTimeout(600);
+    ok((estado.chatp.enviados ?? [])[0]?.body === "¿Tiene garantía?" && !(estado.eventosEnviados ?? []).some((e) => /^chat_producto/.test(e.event_name)), "CHATP: con la analítica rechazada se pregunta igual y no se mide nada");
+    await ctx.close();
+  }
+
+  // Administración: tres conversaciones con producto (a la venta, vendido y retirado) y una general.
+  const hace = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  const CH = (n) => `e1000000-0000-4000-8000-0000000003${String(n).padStart(2, "0")}`;
+  const chatAdmin = (n, productId, min, vista) => ({ id: CH(n), created_at: hace(min + 5), product_id: productId, sell_request_id: null, customer_user_id: CLIENTE.id, last_message_at: hace(min), last_message_preview: vista, last_sender_role: "customer", admin_deleted_at: null, customer_deleted_at: null, customer_last_read_at: hace(min), admin_last_read_at: hace(min) });
+  const chatpAdmin = () => ({
+    chats: [chatAdmin(1, ID(1), 5, "¿Sigue disponible?"), chatAdmin(2, ID(2), 10, "¿En qué estado está?"), chatAdmin(3, ID(3), 15, "¿Tiene garantía?"), chatAdmin(4, null, 20, "Tengo un mando que no carga")],
+    mensajes: [
+      { id: "ma1", created_at: hace(5), chat_id: CH(1), sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Ana", body: "¿Sigue disponible?" },
+      { id: "ma2", created_at: hace(10), chat_id: CH(2), sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Ana", body: "¿En qué estado está?" },
+      { id: "ma3", created_at: hace(15), chat_id: CH(3), sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Ana", body: "¿Tiene garantía?" },
+      { id: "ma4", created_at: hace(20), chat_id: CH(4), sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Ana", body: "Tengo un mando que no carga" },
+    ],
+    ventas: [{ product_id: ID(2), buyer_user_id: "99999999-9999-4999-8999-999999999999" }],
+    usuarios: [{ id: CLIENTE.id, full_name: "Ana García", username: "ana_g", email: CLIENTE.email }],
+  });
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+
+  // CHATP5) Administración → Chat (390 y 1280): cada producto con su tarjeta (foto, título, precio, estado y enlaces); el
+  // filtro «Con producto» deja solo esas; el hilo abierto lleva la tarjeta con «Ver la ficha» y «Editar en Productos» (que
+  // abre su formulario), sin sugerencias de cliente.
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const estado = { filas: perfilAdmin, guardados: [], categorias: CATS, catalogoFB: PRODUCTOS, fotosCatalogo, chatp: chatpAdmin() };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/chats");
+    await p.locator(`[id="chats-tarjeta-${ID(1)}"]`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const t1 = await texto(p, `[id="chats-tarjeta-${ID(1)}"]`);
+    const t2 = await texto(p, `[id="chats-tarjeta-${ID(2)}"]`);
+    const t3 = await texto(p, `[id="chats-tarjeta-${ID(3)}"]`);
+    ok(t1.includes(T[ID(1)]) && /349,99€/.test(t1) && /A la venta/.test(t1) && /Ver la ficha/.test(t1) && /Editar en Productos/.test(t1), `CHATP (${nombre}): Administración enseña la tarjeta del producto (${t1})`);
+    ok(/Vendido/.test(t2) && /54,90€/.test(t2), `CHATP (${nombre}): el producto vendido se marca «Vendido» (${t2})`);
+    ok(/Retirado/.test(t3), `CHATP (${nombre}): y el retirado, «Retirado» (${t3})`);
+    const fotos = await p.evaluate((id) => document.querySelectorAll(`[id="chats-tarjeta-${id}"] img`).length, ID(1));
+    ok(fotos >= 1, `CHATP (${nombre}): con su foto (${fotos})`);
+    ok((await p.getByText("Atención al cliente").count()) >= 1, `CHATP (${nombre}): con «Todas» sale también la consulta general`);
+    await capturar(p, `CHATP5-admin-lista-${nombre}`);
+    await p.getByRole("button", { name: "Con producto (3)" }).click();
+    await p.waitForTimeout(400);
+    ok((await p.getByText("Atención al cliente").count()) === 0 && (await p.locator('[id^="chats-producto-d2000000"]').count()) === 3, `CHATP (${nombre}): el filtro «Con producto» deja solo las 3 con producto`);
+    const chipsFiltro = await p.evaluate(() => [...document.querySelectorAll('#chats-filtro [role="button"]')].map((b) => Math.round(b.getBoundingClientRect().height)));
+    ok(chipsFiltro.length === 2 && chipsFiltro.every((h) => h >= 44), `CHATP (${nombre}): los filtros miden 44 px (${chipsFiltro.join(", ")})`);
+    let d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `CHATP (${nombre}): la lista no se ensancha (${d.a}/${d.v})`);
+    await capturar(p, `CHATP5-admin-con-producto-${nombre}`);
+    await p.getByText("¿Sigue disponible?").first().click();
+    await p.locator("#chat-producto-tarjeta").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const th = await texto(p, "#chat-producto-tarjeta");
+    ok(th.includes(T[ID(1)]) && /A la venta/.test(th) && /Ver la ficha/.test(th) && /Editar en Productos/.test(th), `CHATP (${nombre}): el hilo abierto lleva la tarjeta con su estado y enlaces (${th})`);
+    ok((await p.locator("#chat-producto-sugerencias").count()) === 0, `CHATP (${nombre}): el administrador no ve las preguntas sugeridas del cliente`);
+    d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `CHATP (${nombre}): el hilo no se ensancha (${d.a}/${d.v})`);
+    await capturar(p, `CHATP5-admin-hilo-${nombre}`);
+    await p.locator("#chat-producto-tarjeta-editar").click();
+    await p.waitForURL(/\/admin\/products\?editar=/, { timeout: 15000 }).catch(() => {});
+    ok(p.url().includes(`/admin/products?editar=${ID(1)}`), `CHATP (${nombre}): «Editar en Productos» lleva a su ficha en Productos (${p.url().replace(BASE, "")})`);
+    await esperar(p, () => p.evaluate((titulo) => [...document.querySelectorAll("input,textarea")].some((i) => i.value === titulo), T[ID(1)]), 40);
+    ok(await p.evaluate((titulo) => [...document.querySelectorAll("input,textarea")].some((i) => i.value === titulo), T[ID(1)]), `CHATP (${nombre}): y abre su formulario para editarlo`);
+    await capturar(p, `CHATP5-admin-editar-${nombre}`);
+    ok(p.errores.length === 0, `CHATP5 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CHATP6) La ficha del cliente: «Preguntas por artículos (3)» con el producto, precio y estado; tocar una abre su hilo.
+  {
+    const estado = {
+      filas: perfil, guardados: [], tarifas: [], pedidosFicha: [], pedidosAdmin: [], dispositivos: { filas: [] },
+      tablas: { customer_notes: [], sell_requests: [] }, categorias: CATS, catalogoFB: PRODUCTOS, fotosCatalogo, chatp: chatpAdmin(),
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}&createdAt=2026-09-15T10%3A00%3A00Z`);
+    await p.locator("#ficha-chats-producto").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = await texto(p, "#ficha-chats-producto");
+    ok(/Preguntas por artículos \(3\)/.test(t) && t.includes(T[ID(1)]) && /349,99€/.test(t) && /A la venta/.test(t) && /Vendido/.test(t) && /Retirado/.test(t) && !/mando que no carga/.test(t), `CHATP: la ficha del cliente enseña sus preguntas por artículos con su estado (${t})`);
+    const filas = await p.evaluate(() => [...document.querySelectorAll('[id^="ficha-chat-producto-"]')].map((e) => Math.round(e.getBoundingClientRect().height)));
+    ok(filas.length === 3 && filas.every((h) => h >= 44), `CHATP: cada una se toca bien, de 44 px (${filas.join(", ")})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `CHATP: la ficha del cliente no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#ficha-chats-producto").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "CHATP6-ficha-cliente-390");
+    await p.locator(`[id="ficha-chat-producto-${CH(2)}"]`).click();
+    await p.waitForURL(/\/admin\/chats/, { timeout: 15000 }).catch(() => {});
+    await p.locator("#chat-producto-tarjeta").waitFor({ timeout: 20000 }).catch(() => {});
+    ok(p.url().includes(`chat=${CH(2)}`) && /Vendido/.test(await texto(p, "#chat-producto-tarjeta")), `CHATP: tocarla abre su hilo en Chat, con el producto vendido (${p.url().replace(BASE, "")})`);
+    ok(p.errores.length === 0, `CHATP6: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CHATP7) Administración → Analítica (390 y 1280): «Preguntas por artículos (30 días)» con conversaciones abiertas, envíos,
+  // invitaciones, las preguntas sugeridas más usadas y los productos por los que más se pregunta (con su título y en orden).
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const ev = (n, k, metadata = {}) => Array.from({ length: k }, () => ({ event_name: n, metadata, created_at: "2026-11-14T10:00:00Z", session_id: "x", step_label: n }));
+    const estado = {
+      filas: perfilAdmin, guardados: [], embudo: [], categorias: CATS, catalogoFB: PRODUCTOS,
+      eventos: [
+        ...ev("chat_producto_abierto", 3, { productId: ID(1) }), ...ev("chat_producto_abierto", 1, { productId: ID(2) }),
+        ...ev("chat_producto_sugerencia", 2, { productId: ID(1), sugerencia: "¿Sigue disponible?" }), ...ev("chat_producto_sugerencia", 1, { productId: ID(2), sugerencia: "¿Tiene garantía?" }),
+        ...ev("chat_producto_enviado", 1, { productId: ID(1), primera: true, sugerencia: true }), ...ev("chat_producto_enviado", 2, { productId: ID(1), primera: false, sugerencia: false }),
+        ...ev("chat_producto_invitacion", 2, { productId: ID(1) }), ...ev("vistos_mostrado", 2, { n: 3 }),
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-chat-producto").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const uso = await texto(p, "#analitica-chat-producto-uso");
+    ok(/Conversaciones abiertas 4 · mensajes enviados 3 \(primera pregunta 1\) · sin cuenta, invitados a crearla 2/.test(uso), `CHATP (${nombre}): Analítica cuenta conversaciones, envíos e invitaciones (${uso})`);
+    const su = await texto(p, "#analitica-chat-producto-sugerencias");
+    ok(/¿Sigue disponible\? 2 veces/.test(su) && /¿Tiene garantía\? 1 vez/.test(su) && su.indexOf("¿Tiene garantía?") > su.indexOf("¿Sigue disponible?"), `CHATP (${nombre}): las primeras preguntas más usadas, en orden (${su})`);
+    const top = await texto(p, "#analitica-chat-producto-top");
+    ok(new RegExp(`${T[ID(1)]} 3 veces`).test(top) && new RegExp(`${T[ID(2)]} 1 vez`).test(top) && top.indexOf(T[ID(2)]) > top.indexOf(T[ID(1)]), `CHATP (${nombre}): los productos por los que más se pregunta, con su título y en orden (${top})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `CHATP (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#analitica-chat-producto").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `CHATP7-analitica-${nombre}`);
+    ok(p.errores.length === 0, `CHATP7 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "CHATP") await seccionCHATP();
   if (SOLO === "VISTOS") await seccionVISTOS();
   if (SOLO === "COMPA") await seccionCOMPA();
   if (SOLO === "RAPI") await seccionRAPI();
@@ -17557,6 +17955,7 @@ try {
   await seccionRAPI();
   await seccionCOMPA();
   await seccionVISTOS();
+  await seccionCHATP();
   await seccionCAMPOS16();
   }
 } catch (e) {

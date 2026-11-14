@@ -73,6 +73,9 @@
  * Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px, grises desde
  * COLORS.muted (= COLORES_TEXTO.secundario) y filtros, chips y volver de 44 px (lib/admin/products.components.tsx).
  *
+ * ?editar=<id> (mejora 10, 2026-11-15): «Editar en Productos» desde Administración → Chats abre ya el formulario de ese
+ * producto (una sola vez, en cuanto llega la lista).
+ *
  * Scroll: cabecera fija y compacta (AdminHeader) y, debajo, un único
  * ScrollView (flex 1) con margen final de 48 px + zona segura. El modal de
  * alta/edición se desplaza entero (también con el teclado abierto en iOS).
@@ -95,6 +98,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { fmtKg, PESO_SIN_DATO_KG } from "../../lib/envio";
 import { TAMANOS } from "../../constants/theme";
@@ -1025,6 +1029,18 @@ export default function AdminProducts() {
     },
     [resetForm]
   );
+
+  // ?editar=<id> (Administración → Chats → «Editar en Productos»): abre su formulario una vez, cuando ya está la lista.
+  const { editar: editarUrl } = useLocalSearchParams<{ editar?: string }>();
+  const editarAbierto = useRef("");
+  useEffect(() => {
+    const id = typeof editarUrl === "string" ? editarUrl : "";
+    if (!id || editarAbierto.current === id || loading) return;
+    const objetivo = items.find((x) => x.id === id);
+    if (!objetivo) return;
+    editarAbierto.current = id;
+    openEditProduct(objetivo);
+  }, [editarUrl, items, loading, openEditProduct]);
 
   async function addMediaFromPicker() {
     setModalErr(null);
