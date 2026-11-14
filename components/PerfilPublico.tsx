@@ -25,6 +25,12 @@
  *   al de antes y al nuevo; se cambia al confirmar los dos y, mientras, sale «Cambio pendiente») y la contraseña (pide la
  *   actual, que se comprueba volviendo a entrar; la nueva dos veces; «Mostrar»; «¿No recuerdas la actual?»). Al volver de
  *   un enlace (/perfil?cuenta=correo) la tarjeta se abre y dice en español cómo va.
+ *   Si no se pueden leer los datos (sesión caducada o sin conexión; fallo real del 2026-11-14 en el iPhone), NUNCA se
+ *   enseña el formulario vacío como si no hubiera datos: se reintenta una vez tras renovar la sesión y, si sigue fallando,
+ *   «No hemos podido cargar tus datos · Reintentar», sin «Guardar» (no se pueden sobrescribir con vacíos). Se vuelve a
+ *   leer al iniciar sesión, al renovarse la sesión o al cambiar la cuenta (SIGNED_IN / TOKEN_REFRESHED / USER_UPDATED),
+ *   al volver a la tienda y al volver a Mi cuenta, sin pisar lo que se esté escribiendo. Se mide con perfil_carga_fallida y
+ *   perfil_carga_reintentada (Administración → Usuarios).
  * - perfilesPublicos(ids): usuario y foto de varias personas para el Foro (función perfiles_publicos de la base de datos,
  *   que solo devuelve eso; si aún no existe, el Foro sigue como antes).
  * - PerfilObligatorio (montado una vez en app/_layout.tsx): con sesión iniciada y el perfil sin completar, una pantalla
@@ -49,7 +55,17 @@ import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextIn
 import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, motivoErrorAuth, pedirEnlaceContrasena, supabase } from "../lib/supabase";
+import {
+  alVolverALaTienda,
+  avisoContrasenaCorta,
+  CONTRASENA_MINIMA,
+  esErrorDeSesion,
+  mensajeAuthEnEspanol,
+  motivoErrorAuth,
+  pedirEnlaceContrasena,
+  sesionActual,
+  supabase,
+} from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
 import { pickMediaFilesWeb, reducirImagenWeb } from "../lib/admin/products.utils";
 import CargaMarca from "./marca/CargaMarca";
@@ -268,13 +284,42 @@ export function datosDeFila(fila: Record<string, unknown>): DatosPerfil {
 
 // Con «*» la lectura funciona antes y después de cada migración (sin peticiones fallidas): qué columnas hay se sabe por la
 // fila. Sin fila todavía, se ofrece todo y, si al guardar falta una columna, se guarda sin ella.
+// Sesión caducada o sin conexión (fallo real del 2026-11-14): un error NUNCA es «no hay fila». Antes de leer se comprueba
+// que la sesión es la de esta persona (si no, la consulta saldría con la clave anónima y no vería su fila); si la lectura
+// falla por la sesión o la red, se espera un momento, se renueva la sesión (sesionActual) y se vuelve a intentar una vez.
+// Si sigue fallando, lanza: quien llama enseña «No hemos podido cargar tus datos» y no deja guardar.
+const ESPERA_REINTENTO_MS = 900;
+// Lecturas silenciosas (al volver o al renovarse la sesión): como mucho una cada 2 s, aunque Supabase avise muchas veces.
+const RELEER_CADA_MS = 2000;
 async function leerPerfil(uid: string): Promise<Lectura> {
-  const r = await supabase.from("perfiles_cliente").select("*").eq("user_id", uid).maybeSingle();
-  if (r.error) {
-    if (faltaEsquema(r.error)) return { disponible: false };
-    throw r.error;
+  let ultimo: unknown = null;
+  for (let intento = 0; intento < 2; intento++) {
+    if (intento > 0) await new Promise((listo) => setTimeout(listo, ESPERA_REINTENTO_MS));
+    const sesion = await sesionActual();
+    if (sesion?.user?.id !== uid) {
+      ultimo = { message: "sin sesión" };
+      continue;
+    }
+    let r;
+    try {
+      r = await supabase.from("perfiles_cliente").select("*").eq("user_id", uid).maybeSingle();
+    } catch (e) {
+      ultimo = e; // sin conexión
+      continue;
+    }
+    if (r.error) {
+      if (faltaEsquema(r.error)) return { disponible: false };
+      ultimo = Object.assign({ status: r.status }, r.error);
+      // Otro fallo que no es de la sesión ni de la red (p. ej. un dato mal): no se reintenta.
+      if (!esErrorDeSesion(ultimo) && r.status > 0 && r.status < 500) break;
+      continue;
+    }
+    return lecturaDeFila(r.data as Record<string, unknown> | null);
   }
-  const fila = r.data as Record<string, unknown> | null;
+  throw ultimo ?? new Error("No se ha podido leer el perfil");
+}
+
+function lecturaDeFila(fila: Record<string, unknown> | null): Lectura {
   if (!fila) return { disponible: true, conFoto: true, conDireccion: true, conTelefono: true, datos: null };
   return { disponible: true, conFoto: "foto_url" in fila, conDireccion: "codigo_postal" in fila, conTelefono: "telefono" in fila, datos: datosDeFila(fila) };
 }
@@ -470,6 +515,7 @@ export default function PerfilPublico({
   correo,
   cuenta,
   onDisponible,
+  recargar,
 }: {
   uid: string;
   /** «tarjeta»: en Mi cuenta, plegable. «obligatorio»: dentro de «Completa tu perfil». */
@@ -481,14 +527,18 @@ export default function PerfilPublico({
   cuenta?: React.ReactNode;
   /** Dice si «Mi perfil» se puede enseñar (si la tabla aún no existe, la pantalla enseña la cuenta por su cuenta). */
   onDisponible?: (disponible: boolean) => void;
+  /** Cambia al volver a la pantalla (Mi cuenta): se vuelve a leer el perfil sin «Cargando…». */
+  recargar?: number;
 }) {
   const obligatorio = modo === "obligatorio";
   // Vuelta de un enlace de «cambiar el correo» (Inicio de sesión y seguridad): la tarjeta se abre para decir cómo va.
   const [retornoCorreo] = useState<RetornoCorreo>(() => (obligatorio ? null : tomarRetornoCorreo()));
-  const [estado, setEstado] = useState<"cargando" | "no-disponible" | "listo">("cargando");
+  // «error»: no se han podido leer los datos (sesión caducada o sin conexión). Nunca se enseña el formulario vacío como si
+  // no hubiera datos ni se deja guardar (se sobrescribirían con vacíos): «No hemos podido cargar tus datos · Reintentar».
+  const [estado, setEstado] = useState<"cargando" | "no-disponible" | "listo" | "error">("cargando");
   const [recorte, setRecorte] = useState<string | null>(null); // foto elegida, a la espera de recortarla
   useEffect(() => {
-    if (estado !== "cargando") onDisponible?.(estado === "listo");
+    if (estado !== "cargando") onDisponible?.(estado !== "no-disponible");
   }, [estado, onDisponible]);
   const [conFoto, setConFoto] = useState(true);
   // ¿Existen ya las columnas de la dirección? (migración 20261102120000_perfiles_direccion.sql)
@@ -505,16 +555,31 @@ export default function PerfilPublico({
   // Fecha y edad en la misma fila a partir de este ancho de pantalla (más estrecha, la fecha no se leería entera).
   const fechaYEdadJuntas = useWindowDimensions().width >= 370;
 
-  useEffect(() => {
-    let vivo = true;
-    (async () => {
+  // Lectura del perfil. «silenciosa»: al volver a la pantalla o al renovarse la sesión, sin «Cargando…» y sin tocar lo que
+  // la persona esté escribiendo; si falla estando ya cargado, se queda lo que había (se leyó bien). La primera vez (y al
+  // pulsar «Reintentar»), un fallo deja «No hemos podido cargar tus datos».
+  const vivoRef = useRef(true);
+  const leyendo = useRef(false);
+  const primeraCarga = useRef(true);
+  const ultimaLectura = useRef(0);
+  const estadoRef = useRef(estado);
+  estadoRef.current = estado;
+  const hayCambiosRef = useRef(false);
+  const cargar = useCallback(
+    async (silenciosa: boolean) => {
+      if (leyendo.current) return;
+      leyendo.current = true;
+      ultimaLectura.current = Date.now();
+      if (!silenciosa) setEstado("cargando");
       try {
         const l = await leerPerfil(uid);
-        if (!vivo) return;
+        if (!vivoRef.current) return;
         if (!l.disponible) {
           setEstado("no-disponible");
           return;
         }
+        // Con cambios sin guardar no se pisa lo escrito (se leerá otra vez al volver).
+        if (silenciosa && estadoRef.current === "listo" && hayCambiosRef.current) return;
         setConFoto(l.conFoto);
         setConDireccion(l.conDireccion);
         setConTelefono(l.conTelefono);
@@ -522,24 +587,67 @@ export default function PerfilPublico({
           setDatos(l.datos);
           setGuardado(l.datos);
           // Completo: en Mi cuenta se enseña plegado (se abre al tocarlo), salvo al volver de un enlace del correo.
-          if (!obligatorio && perfilCompleto(l.datos) && !retornoCorreo) setAbierto(false);
+          if (primeraCarga.current && !obligatorio && perfilCompleto(l.datos) && !retornoCorreo) setAbierto(false);
         } else {
-          // Todavía sin guardar: se rellena con lo que escribió al registrarse (queda pendiente de guardar).
-          const { data: s } = await supabase.auth.getSession();
-          const meta = (s.session?.user?.user_metadata ?? {}) as Record<string, unknown>;
-          if (!vivo) return;
+          // Todavía sin guardar (la lectura fue bien y no hay fila): se rellena con lo que escribió al registrarse.
+          const s = await sesionActual();
+          const meta = (s?.user?.user_metadata ?? {}) as Record<string, unknown>;
+          if (!vivoRef.current) return;
           setDatos({ ...DATOS_VACIOS, nombre: textoDe(meta.full_name), usuario: textoDe(meta.username), pais: textoDe(meta.country) });
           setGuardado(DATOS_VACIOS);
         }
+        primeraCarga.current = false;
         setEstado("listo");
-      } catch {
-        if (vivo) setEstado("listo");
+      } catch (e) {
+        if (!vivoRef.current) return;
+        if (silenciosa && estadoRef.current === "listo") return;
+        setEstado("error");
+        // Analítica propia (Administración → Usuarios): a cuántos les pasa, sin ningún dato del perfil.
+        trackEvent("perfil_carga_fallida", "Perfil: no se pudieron cargar los datos", {
+          metadata: { motivo: esErrorDeSesion(e) ? "sesion" : "red", modo: obligatorio ? "obligatorio" : "tarjeta" },
+        });
+      } finally {
+        leyendo.current = false;
       }
-    })();
+    },
+    [uid, obligatorio, retornoCorreo]
+  );
+
+  useEffect(() => {
+    vivoRef.current = true;
+    primeraCarga.current = true;
+    void cargar(false);
     return () => {
-      vivo = false;
+      vivoRef.current = false;
     };
-  }, [uid, obligatorio, retornoCorreo]);
+  }, [cargar]);
+
+  // Se vuelve a leer al iniciar sesión, al renovarse la sesión o al cambiar los datos de la cuenta, y al volver a la tienda
+  // (ya con la sesión renovada) o a esta pantalla (`recargar`). Si falló, enseguida; si no, como mucho cada RELEER_CADA_MS.
+  const releer = useCallback(() => {
+    if (!vivoRef.current) return;
+    if (estadoRef.current === "error" || Date.now() - ultimaLectura.current >= RELEER_CADA_MS) void cargar(estadoRef.current !== "error");
+  }, [cargar]);
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((evento, sesion) => {
+      if (!["SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(evento) || sesion?.user?.id !== uid) return;
+      // Fuera del aviso de Supabase (dentro no se puede consultar la base de datos).
+      setTimeout(releer, 0);
+    });
+    const dejar = alVolverALaTienda(releer);
+    return () => {
+      data.subscription.unsubscribe();
+      dejar();
+    };
+  }, [uid, releer]);
+  const primeraRecarga = useRef(true);
+  useEffect(() => {
+    if (primeraRecarga.current) {
+      primeraRecarga.current = false;
+      return;
+    }
+    releer();
+  }, [recargar, releer]);
 
   // «Mi perfil» desplegado en Mi cuenta: Blue no aparece (y vuelve al plegarlo o al salir de la tarjeta).
   useEffect(() => {
@@ -567,8 +675,9 @@ export default function PerfilPublico({
   const completo = pendientes.length === 0 && !primerError;
   const guardadoCompleto = perfilCompleto(guardado);
   const hayCambios = (Object.keys(DATOS_VACIOS) as (keyof DatosPerfil)[]).some((k) => datos[k].trim() !== guardado[k].trim());
-  // En Mi cuenta se puede guardar a medias; en «Completa tu perfil», solo completo.
-  const puedeGuardar = (obligatorio ? completo : hayCambios && !primerError) && !guardando && !subiendoFoto;
+  hayCambiosRef.current = hayCambios;
+  // En Mi cuenta se puede guardar a medias; en «Completa tu perfil», solo completo. Nunca sin haber leído bien los datos.
+  const puedeGuardar = estado === "listo" && (obligatorio ? completo : hayCambios && !primerError) && !guardando && !subiendoFoto;
   const esEspana = datos.pais === PAIS_ESPANA;
   const edad = datos.fecha ? edadDeFecha(datos.fecha) : null;
 
@@ -768,6 +877,59 @@ export default function PerfilPublico({
 
   if (estado === "no-disponible") return null;
   if (estado === "cargando") return <CargaMarca texto="Cargando tu perfil…" />;
+  // No se han podido leer los datos: ni formulario vacío ni «Guardar» (se sobrescribirían con vacíos). Los botones de la
+  // cuenta siguen a mano.
+  if (estado === "error") {
+    return (
+      <View nativeID="perfil-error" style={{ gap: 14, alignItems: "center" }}>
+        <View
+          style={{
+            width: "100%",
+            maxWidth: 460,
+            borderRadius: 20,
+            borderWidth: 1.5,
+            borderColor: P.line,
+            backgroundColor: "#FFFFFF",
+            paddingVertical: 18,
+            paddingHorizontal: 16,
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <Ionicons name="cloud-offline-outline" size={30} color={P.muted} />
+          <Text accessibilityRole="alert" style={{ color: P.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
+            No hemos podido cargar tus datos
+          </Text>
+          <Text style={{ color: P.muted, fontWeight: "700", fontSize: 14, lineHeight: 20, textAlign: "center" }}>
+            Tus datos siguen guardados. Comprueba la conexión y vuelve a intentarlo.
+          </Text>
+          <Pressable
+            nativeID="perfil-reintentar"
+            onPress={() => {
+              trackEvent("perfil_carga_reintentada", "Perfil: reintentar la carga");
+              void cargar(false);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Reintentar"
+            style={({ pressed }) => ({
+              marginTop: 4,
+              minHeight: 48,
+              minWidth: 180,
+              paddingHorizontal: 24,
+              borderRadius: 999,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: P.accent,
+              opacity: pressed ? 0.88 : 1,
+            })}
+          >
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Reintentar</Text>
+          </Pressable>
+        </View>
+        {!obligatorio && cuenta ? <View style={{ width: "100%", maxWidth: 460 }}>{cuenta}</View> : null}
+      </View>
+    );
+  }
 
   const web = Platform.OS === "web";
   const opcionesPais = datos.pais && !PAISES.includes(datos.pais) ? [datos.pais, ...PAISES] : PAISES;

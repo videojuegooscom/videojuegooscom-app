@@ -110,7 +110,9 @@
  *   pago_direccion_perfil); sin las columnas (migración 20261102120000) no sale nada de esto. TELÉFONO (opcional, Mi perfil,
  *   dueño 2026-11-13): contador y chip «Con teléfono» que filtra, etiqueta «Con teléfono» en cada fila (nunca el número en el
  *   listado) y, de 30 días, quién lo guarda y quién paga con él ya rellenado (perfil_telefono_guardado /
- *   pago_telefono_perfil); sin la columna (migración 20261113120000) no sale nada de esto. Si la tabla aún no existe
+ *   pago_telefono_perfil); sin la columna (migración 20261113120000) no sale nada de esto. CARGA DE «MI PERFIL» (2026-11-14):
+ *   de 30 días, a cuántos no se les pudieron leer los datos (sesión caducada o sin conexión) y cuántos pulsaron «Reintentar»
+ *   (perfil_carga_fallida / perfil_carga_reintentada). Si la tabla aún no existe
  *   esta parte no se enseña y el resto funciona igual. La edad sale de la fecha de nacimiento
  *   (no se enseña la fecha). Lee hasta 5.000 perfiles.
  * - Cada fila es pulsable: lleva a la "ficha de cliente"
@@ -221,6 +223,9 @@ const EVENTOS_PERFIL = [
   // Teléfono: quién lo guarda (en Mi perfil o al comprar) y quién paga con el del perfil ya rellenado (nunca el número).
   "perfil_telefono_guardado",
   "pago_telefono_perfil",
+  // «Mi perfil» no ha podido leer sus datos (sesión caducada o sin conexión) y quién pulsa «Reintentar» (nunca los datos).
+  "perfil_carga_fallida",
+  "perfil_carga_reintentada",
 ] as const;
 
 // Perfil → «Mis seguimientos» (app/(tabs)/perfil.tsx): quién lo abre y si lo hace deslizando o tocando la pestaña.
@@ -682,6 +687,8 @@ export default function AdminUsers() {
     pagoConDireccion: number;
     telefonoGuardado: number;
     pagoConTelefono: number;
+    cargaFallida: number;
+    cargaReintentada: number;
   } | null>(null);
   // Moderación del Foro: comentarios de noticias eliminados (ocultos, contados en la base de datos). null = no se ha podido
   // leer. (Los mensajes del Foro eliminados se borran: no quedan en ninguna tabla que contar.)
@@ -876,6 +883,8 @@ export default function AdminUsers() {
           pagoConDireccion: personas("pago_direccion_perfil"),
           telefonoGuardado: personas("perfil_telefono_guardado"),
           pagoConTelefono: personas("pago_telefono_perfil"),
+          cargaFallida: personas("perfil_carga_fallida"),
+          cargaReintentada: personas("perfil_carga_reintentada"),
         });
       }
 
@@ -1485,6 +1494,11 @@ export default function AdminUsers() {
                   {embudoPerfil.pagoConTelefono}
                 </Detalle>
               ) : null}
+              {/* «Mi perfil» sin poder leer los datos (sesión caducada o sin conexión): no se enseña vacío ni deja guardar. */}
+              <Detalle nativeID="admin-perfiles-carga">
+                «Mi perfil» sin poder cargar los datos (30 días): les pasó a {embudoPerfil.cargaFallida} · pulsaron «Reintentar»{" "}
+                {embudoPerfil.cargaReintentada}
+              </Detalle>
             </View>
           ) : null}
         </Seccion>

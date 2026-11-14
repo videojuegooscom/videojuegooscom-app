@@ -18,6 +18,9 @@
  *   getSession) para el login y registro.
  * - Tras autenticar, consulta la tabla "profiles" (columna "role") para saber
  *   si la cuenta es "admin" o "user" y así decidir qué se muestra.
+ * - Sesión que cambia sola (2026-11-14): si Supabase la quita (SIGNED_OUT, p. ej. al no poder renovarla) se vuelve al
+ *   acceso; si entra otra cuenta (SIGNED_IN) se vuelve a mirar; y al volver a esta pestaña «Mi perfil» se relee
+ *   (prop `recargar` de components/PerfilPublico.tsx).
  * - El registro guarda nombre, usuario y país como metadata del usuario en
  *   Supabase (options.data en signUp).
  * - Toda la interfaz sigue el tema claro global: fondo blanco, azul claro
@@ -98,7 +101,7 @@
  * - constants/theme.ts → TAMANOS, TACTIL, CAMPO y COLORES_TEXTO.
  */
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -791,13 +794,35 @@ export default function PerfilScreen() {
   }, [hydrateSessionState]);
 
   // Cambio de correo confirmado (Mi perfil → «Inicio de sesión y seguridad»): al renovarse la sesión, se ve el nuevo.
+  // Y la sesión que cambia sola (2026-11-14): si Supabase la quita (p. ej. no pudo renovarla), la pantalla deja de enseñar
+  // «Mi perfil» de una sesión que ya no existe; si entra otra cuenta, se vuelve a mirar todo.
+  const usuarioActual = useRef<string | null>(null);
+  usuarioActual.current = sessionUserId;
+  const estadoAcceso = useRef(state);
+  estadoAcceso.current = state;
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((evento, sesion) => {
       const nuevo = sesion?.user?.email;
       if ((evento === "USER_UPDATED" || evento === "TOKEN_REFRESHED") && nuevo) setSessionEmail(normalizeEmail(nuevo));
+      if (evento === "SIGNED_OUT" && usuarioActual.current) {
+        setSessionEmail(null);
+        setSessionUserId(null);
+        setSessionRole("guest");
+      }
+      // (Al entrar desde esta misma pantalla ya lo hace signIn: no se repite mientras se está entrando.)
+      if (evento === "SIGNED_IN" && sesion?.user?.id && sesion.user.id !== usuarioActual.current && estadoAcceso.current === "idle") {
+        // Fuera del aviso de Supabase (dentro no se puede consultar la base de datos).
+        setTimeout(() => {
+          if (estadoAcceso.current === "idle" && sesion.user.id !== usuarioActual.current) void hydrateSessionState();
+        }, 0);
+      }
     });
     return () => data.subscription.unsubscribe();
-  }, []);
+  }, [hydrateSessionState]);
+
+  // Al volver a Mi cuenta desde otra pestaña, «Mi perfil» se vuelve a leer (components/PerfilPublico.tsx, sin «Cargando…»).
+  const [recargarPerfil, setRecargarPerfil] = useState(0);
+  useFocusEffect(useCallback(() => setRecargarPerfil((n) => n + 1), []));
 
   // «Comprar ya» sin sesión deja aquí la ficha a la que volver: en cuanto hay sesión (al iniciar
   // sesión o al crear la cuenta) se vuelve a esa ficha. La marca caduca a los 30 minutos.
@@ -1146,7 +1171,13 @@ export default function PerfilScreen() {
                       {okMsg ? <InfoMessage text={okMsg} tone="success" /> : null}
                     </>
                   ) : null}
-                  <PerfilPublico uid={sessionUserId} correo={sessionEmail} cuenta={accionesCuenta} onDisponible={setPerfilDisponible} />
+                  <PerfilPublico
+                    uid={sessionUserId}
+                    correo={sessionEmail}
+                    cuenta={accionesCuenta}
+                    onDisponible={setPerfilDisponible}
+                    recargar={recargarPerfil}
+                  />
                 </SectionCard>
               ) : null}
               {!isLogged || !sessionUserId || perfilDisponible === false ? (
