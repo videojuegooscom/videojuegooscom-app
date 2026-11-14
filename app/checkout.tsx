@@ -105,7 +105,7 @@ import MarcaAnimada from "../components/marca/MarcaAnimada";
 import SmartImage from "../components/SmartImage";
 import { abrirChatEquipo } from "../components/ProductChatThread";
 import { calcularEnvio, cargarDatosEnvio, cargarTarifas, fmtKg, hayEnviosDePago, limpiarCodigoPostal, pesoDeCompra, type ZonaEnvio } from "../lib/envio";
-import { supabase } from "../lib/supabase";
+import { olvidarFilaPerfil, supabase } from "../lib/supabase";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
 import { trackEvent } from "../lib/analytics";
 import { CAMPO } from "../constants/theme";
@@ -1000,6 +1000,7 @@ export default function CheckoutScreen() {
         try {
           const nuevoTel = limpiarTelefono(phone);
           const { error } = await supabase.from("perfiles_cliente").update({ telefono: nuevoTel }).eq("user_id", perfilTel.uid);
+          olvidarFilaPerfil();
           if (!error) {
             setPerfilTel((t) => ({ ...t, valor: nuevoTel }));
             await trackEvent("perfil_telefono_guardado", "Perfil: teléfono guardado", { path: "/checkout", metadata: { nuevo: true, desde: "pago" } });
@@ -1032,6 +1033,7 @@ export default function CheckoutScreen() {
           // La primera es la predeterminada: también va a las columnas de siempre (lo que ya leen el pago y Administración).
           if (primera) Object.assign(cambios, { codigo_postal: nueva.codigoPostal, localidad: nueva.localidad, direccion: nueva.direccion, piso: null });
           const { error } = await supabase.from("perfiles_cliente").update(cambios).eq("user_id", perfilTel.uid);
+          olvidarFilaPerfil();
           if (!error) {
             const total = (lista?.length ?? 0) + 1;
             setPerfilDir((d) => ({ ...d, lista: d.lista ? [...d.lista, nueva] : d.lista, tieneUna: true }));

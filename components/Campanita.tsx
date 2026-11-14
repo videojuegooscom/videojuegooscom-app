@@ -171,8 +171,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { supabase } from "../lib/supabase";
-import { getAnalyticsConsent, marcarOrigenRegistro, marcarOrigenVender, trackEvent } from "../lib/analytics";
+import { rolDeUsuario, supabase } from "../lib/supabase";
+import { getAnalyticsConsent, marcarOrigenRegistro, marcarOrigenVender, trackEvent, trasPrimeraPintura } from "../lib/analytics";
 import { alCambiarAvisosPrecio, marcarBajadaAvisada, misAvisosPrecio, misMeGustaServidor, precioReferenciaAviso } from "../lib/interaccion";
 import { sinEmojis } from "../lib/admin/products.utils";
 import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaConocimiento } from "../lib/conocimiento";
@@ -869,6 +869,9 @@ export default function Campanita() {
   // Solo el admin: pedidos y reparaciones en curso que llevan 48 h o más sin ningún cambio (para que no se olviden).
   const [olvidados, setOlvidados] = useState<{ pedidos: number; reparaciones: number }>({ pedidos: 0, reparaciones: 0 });
   const isAdminRef = useRef(false);
+  const arranqueHechoRef = useRef(false);
+  // La cuenta del último aviso de Supabase (undefined = aún ninguno), para no releer todo con avisos repetidos.
+  const uidAvisadoRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     isAdminRef.current = isAdmin;
   }, [isAdmin]);
@@ -1039,12 +1042,7 @@ export default function Campanita() {
         setIsAdmin(false);
         return;
       }
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .maybeSingle<{ role: string | null }>();
-      setIsAdmin(String(profile?.role ?? "").trim().toLowerCase() === "admin");
+      setIsAdmin((await rolDeUsuario(user.id).catch(() => null)) === "admin");
     } catch {
       setIsLoggedIn(false);
       setIsAdmin(false);
@@ -1346,6 +1344,12 @@ export default function Campanita() {
 
   // Solo el admin: ventas de artículos de VeoAura que aún no se han confirmado a VeoAura.
   const refreshSalida = useCallback(async () => {
+    // Un cliente nunca la ve (RLS le cuenta 0): ni se pregunta (carga rápida, 2026-11-14). Al saberse que es el
+    // administrador, la mira el efecto de isAdmin (más abajo).
+    if (!isAdminRef.current) {
+      setSalidaPendiente(0);
+      return;
+    }
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session?.user) {
@@ -1513,11 +1517,12 @@ export default function Campanita() {
   useEffect(() => {
     if (!isAdmin) return;
     refreshOlvidados();
+    refreshSalida();
     const t = setInterval(() => {
       if (typeof document === "undefined" || document.visibilityState !== "hidden") refreshOlvidados();
     }, 10 * 60 * 1000);
     return () => clearInterval(t);
-  }, [isAdmin, refreshOlvidados]);
+  }, [isAdmin, refreshOlvidados, refreshSalida]);
 
   // Perfil → Seguimientos ha enseñado las novedades: se quitan los avisos sin volver a pedir nada. Y cada 2 minutos (con la
   // pestaña visible) se miran los cambios de la tienda.
@@ -1557,12 +1562,20 @@ export default function Campanita() {
   useEffect(() => alCambiarAvisosPrecio(() => refreshBajadas()), [refreshBajadas]);
 
   useEffect(() => {
-    refreshAuth();
-    refreshChats();
-    refreshLikes();
-    refreshNovedades();
-    refreshNoticias();
-    refreshAvisosTienda();
+    // Carga rápida (mejora 7, 2026-11-14): lo de Blue se lee cuando la pantalla ya está pintada (con el navegador libre o,
+    // como mucho, a los 1,5 s), para que las consultas de los productos de la pantalla salgan primero.
+    // Una sola vez por montaje: si este efecto se vuelve a preparar (cambia alguna de sus funciones, p. ej. al cambiar de
+    // pantalla), no se repite todo el arranque (en Inicio salían las mismas 6 consultas dos veces).
+    const cancelarArranque = trasPrimeraPintura(() => {
+      if (arranqueHechoRef.current) return;
+      arranqueHechoRef.current = true;
+      refreshAuth();
+      refreshChats();
+      refreshLikes();
+      refreshNovedades();
+      refreshNoticias();
+      refreshAvisosTienda();
+    });
     // refreshNoticiasNuevas() al montar lo hace el efecto de la ruta (más abajo).
 
     const hasDocument = typeof document !== "undefined";
@@ -1591,8 +1604,19 @@ export default function Campanita() {
 
     // Solo al entrar, salir o cambiar la cuenta: con cada renovación del token (TOKEN_REFRESHED) no se relee nada (sesión
     // estable, 2026-11-14: esas relecturas pedían otra vez la sesión y alimentaban el bucle de renovaciones).
-    const { data: authSub } = supabase.auth.onAuthStateChange((evento) => {
-      if (evento === "TOKEN_REFRESHED") return;
+    // Tampoco con INITIAL_SESSION (el aviso que Supabase da nada más suscribirse, con la sesión ya guardada): lo acaba de
+    // leer todo el arranque de arriba y se repetían las mismas 8 consultas (carga rápida, mejora 7 del 2026-11-14).
+    // Ni con el SIGNED_IN que Supabase repite al recuperar la sesión guardada de la MISMA cuenta (solo cuenta un cambio de
+    // cuenta de verdad: entrar, salir o entrar con otra).
+    const { data: authSub } = supabase.auth.onAuthStateChange((evento, sesion) => {
+      // El primer aviso (sea INITIAL_SESSION o el SIGNED_IN de recuperarla, según cuál llegue antes) es la sesión con la
+      // que se abrió la tienda: ya la lee el arranque.
+      const uid = sesion?.user?.id ?? null;
+      const primero = uidAvisadoRef.current === undefined;
+      const mismaCuenta = uid === uidAvisadoRef.current;
+      uidAvisadoRef.current = uid;
+      if (primero || evento === "TOKEN_REFRESHED" || evento === "INITIAL_SESSION") return;
+      if (evento === "SIGNED_IN" && mismaCuenta) return;
       refreshAuth();
       refreshChats();
       refreshNoticiasNuevas();
@@ -1608,6 +1632,7 @@ export default function Campanita() {
     });
 
     return () => {
+      cancelarArranque();
       clearInterval(interval);
       if (hasDocument && onVisibilityChange) document.removeEventListener("visibilitychange", onVisibilityChange);
       authSub?.subscription?.unsubscribe?.();

@@ -131,11 +131,11 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { supabase } from "../../lib/supabase";
+import { filaPerfilCliente, rolDeUsuario, supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/theme";
 import { sinEmojis } from "../../lib/admin/products.utils";
 import { contarVistaProducto, fijarAvisoPrecio, fijarMeGusta, misAvisosPrecio } from "../../lib/interaccion";
-import { marcarOrigenRegistro, trackEvent, trackEventThrottled } from "../../lib/analytics";
+import { marcarOrigenRegistro, medirCargaPantalla, trackEvent, trackEventThrottled } from "../../lib/analytics";
 import { productosReservadosPorOtros, RESERVA_MINUTOS, reservarProducto } from "../../lib/reservas";
 import {
   cargarTarifas,
@@ -515,14 +515,8 @@ async function detectAdmin(): Promise<boolean> {
     const userId = sessionData.session?.user?.id;
     if (!userId) return false;
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", userId)
-      .maybeSingle<{ role: string | null }>();
-
-    if (error) throw error;
-    return (data?.role ?? "") === "admin";
+    // Compartida con Blue y la analítica (lib/supabase.ts → rolDeUsuario): una sola consulta al abrir.
+    return (await rolDeUsuario(userId)) === "admin";
   } catch {
     return false;
   }
@@ -728,7 +722,8 @@ export default function ProductoScreen() {
         const uid = s.session?.user?.id;
         if (uid) {
           // select("*"): una sola petición que no falla aunque falte alguna columna del perfil.
-          const { data } = await supabase.from("perfiles_cliente").select("*").eq("user_id", uid).maybeSingle();
+          // (Compartida con «Completa tu perfil» si las dos la piden a la vez: lib/supabase.ts → filaPerfilCliente.)
+          const { data } = await filaPerfilCliente(uid);
           if (vivo && data) {
             const fila = data as Record<string, unknown>;
             const lista = direccionesDeFila(fila);
@@ -897,6 +892,12 @@ export default function ProductoScreen() {
     loadProduct();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
+
+  // Carga rápida (mejora 7): la primera pantalla útil es la ficha ya pintada con su producto (una vez por visita).
+  const fichaLista = !loading && !!p;
+  useEffect(() => {
+    if (fichaLista) medirCargaPantalla("producto");
+  }, [fichaLista]);
 
   // «Desliza para actualizar»: precio, ficha, fotos… al día sin volver a la pantalla de carga.
   const recarga = useRecarga();
@@ -1402,6 +1403,8 @@ export default function ProductoScreen() {
                       uri={selectedImageUrl}
                       alt={p.title}
                       ancho={isWide ? 700 : 420}
+                      // Carga rápida: la foto principal es la primera de la ficha (ya y con prioridad alta).
+                      priority="high"
                       style={{
                         width: "100%",
                         height: isWide ? 520 : isTablet ? 360 : 260,

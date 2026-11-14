@@ -342,7 +342,12 @@
  *    el PS Portal), Switch → solo su mando (ni la funda de Switch 2 ni juegos), mando o PS4 sin accesorios → nada; en la
  *    cesta «Añadir» de 44 px suma sin salir y deja de sugerirse; solo portadas; analítica con ids y la tarjeta «Parecidos y
  *    complementos (30 días)» de Administración → Analítica; 360, 390 y 1280 sin desbordes ni errores de JavaScript.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC]
+ *  - RAPI) Carga más rápida (2026-11-14, mejora 7, sin migración): la tienda servida en https (como Vercel) para que las
+ *    fotos pasen por el optimizador (siguen llegando falsas); en Inicio, Catálogo y la ficha, fotos pequeñas (nunca la
+ *    original), lazy/async fuera de la pantalla y la primera con prioridad alta, hueco reservado y sin saltos (CLS),
+ *    Inicio sin consultas repetidas, «rendimiento_carga» una vez por visita sin datos de nadie (nada si se rechazó),
+ *    «Velocidad de la tienda (30 días)» en Administración → Analítica y 360, 390 y 1280 sin desbordes. Imprime las cifras.
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC|RAPI]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -1022,6 +1027,8 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (estado.catalogoFB && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
       const select = url.searchParams.get("select") ?? "*";
       estado.consultasCatalogo = [...(estado.consultasCatalogo ?? []), `${select} · ${decodeURIComponent(url.search)}`];
+      // Red lenta (sección RAPI: el esqueleto de la oferta mientras llega).
+      if (estado.retrasoCatalogo) await new Promise((fin) => setTimeout(fin, estado.retrasoCatalogo));
       let filas = estado.catalogoFB;
       for (const [campo, filtro] of url.searchParams) {
         if (["select", "order", "limit", "offset", "or"].includes(campo)) continue;
@@ -15440,8 +15447,302 @@ async function seccionPAREC() {
   }
 }
 
+// ===== RAPI) Carga más rápida (dueño, 2026-11-14, mejora 7; sin migración): la tienda se sirve como en Vercel (https, para
+// que SmartImage use el optimizador /_vercel/image; las fotos siguen llegando falsas, pruebas/sin-fotos-reales.mjs) y en
+// Inicio, Catálogo y la ficha a 390 px se mide y se comprueba: las tarjetas piden la foto pequeña (nunca la original), las
+// fotos fuera de la pantalla esperan (loading="lazy", decoding="async") y la primera no (fetchpriority alta), sin saltos de
+// diseño (hueco reservado), Inicio no repite consultas, «rendimiento_carga» una vez por visita sin datos de nadie (nada si
+// se rechazó la analítica), la tarjeta «Velocidad de la tienda (30 días)» de Administración → Analítica, sin errores de
+// JavaScript y sin desbordes a 360, 390 y 1280. Imprime las cifras («RAPI medida …») para el antes/después. ===============
+async function seccionRAPI() {
+  const TIENDA = "https://tienda.prueba";
+  const CATS = [
+    { id: "c0000000-0000-4000-8000-0000000000b5", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true },
+    { id: "c0000000-0000-4000-8000-0000000000b6", slug: "nintendo-switch", name: "Nintendo Switch", sort_order: 1, is_active: true },
+    { id: "c0000000-0000-4000-8000-0000000000b7", slug: "xbox", name: "Xbox", sort_order: 2, is_active: true },
+  ];
+  const ID = (n) => `f0000000-0000-4000-8000-0000000000${String(n).padStart(2, "0")}`;
+  const PRODUCTOS = Array.from({ length: 24 }, (_, i) => {
+    const cat = CATS[i % 3];
+    return {
+      id: ID(i + 1), title: `${cat.name} artículo ${i + 1}`, description: "Revisado por la tienda.", price_eur: 40 + i * 15, status: "PUBLISHED",
+      is_active: true, condition: "GOOD", category_id: cat.id, category: { id: cat.id, name: cat.name, slug: cat.slug },
+      created_at: new Date(Date.UTC(2026, 10, 1, i)).toISOString(), updated_at: "2026-11-14T10:00:00Z", novedad_en: new Date(Date.UTC(2026, 10, 1, i)).toISOString(),
+      view_count: i, images: [], like_count: 0, reference: null,
+    };
+  });
+  // Fotos con la dirección real del almacén público (la que SmartImage manda al optimizador); nunca salen del navegador.
+  const fotosCatalogo = PRODUCTOS.map((p, i) => ({ id: `rm${i}`, product_id: p.id, kind: "image", public_url: `https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/rapi/${i}.jpg`, file_name: `${i}.jpg`, sort_order: 0, is_cover: true, duration_seconds: null }));
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const nuevoEstado = (extra = {}) => ({ filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS, fotosCatalogo, ...extra });
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const PANTALLAS = [
+    { pantalla: "inicio", ruta: "/" },
+    { pantalla: "catalogo", ruta: "/catalogo" },
+    { pantalla: "producto", ruta: `/producto/${ID(1)}` },
+  ];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 40) => {
+    for (let i = 0; i < veces && !(await cond()); i++) await p.waitForTimeout(250);
+  };
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+
+  // La tienda compilada servida en https://tienda.prueba (como Vercel); /api responde vacío. Se mide cada página: cuándo
+  // se ve la primera foto de un producto dentro de la pantalla (cargada), los saltos de diseño (layout-shift) y lo que pide.
+  const abrir = async (ctx, ruta) => {
+    await ctx.route(`${TIENDA}/**`, (r) => {
+      const camino = new URL(r.request().url()).pathname;
+      if (camino.startsWith("/api/")) return r.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      const archivo = camino === "/" ? join(raiz, "index.html") : buscar(camino);
+      if (!archivo) return r.fulfill({ status: 404, contentType: "text/plain", body: "No encontrado" });
+      return r.fulfill({ status: 200, contentType: TIPOS[extname(archivo)] ?? "application/octet-stream", body: readFileSync(archivo) });
+    });
+    await ctx.addInitScript(() => {
+      window.__rapi = { util: null, cls: 0, saltos: [] };
+      try {
+        new PerformanceObserver((l) => {
+          for (const e of l.getEntries()) {
+            if (e.hadRecentInput) continue;
+            window.__rapi.cls += e.value;
+            // Qué se ha movido (para encontrar el salto): la etiqueta, su id y el principio de su texto.
+            window.__rapi.saltos.push({
+              v: Math.round(e.value * 1000) / 1000,
+              t: Math.round(e.startTime),
+              que: (e.sources ?? []).map((s) => `${s.node?.nodeName ?? "?"}#${s.node?.id ?? ""} «${String(s.node?.innerText ?? s.node?.textContent ?? "").slice(0, 30).replace(/\s+/g, " ")}» ${Math.round(s.previousRect.top)}→${Math.round(s.currentRect.top)}`),
+            });
+          }
+        }).observe({ type: "layout-shift", buffered: true });
+      } catch {
+        // sin el observador
+      }
+      const mirar = () => {
+        for (const i of document.querySelectorAll("img")) {
+          const src = decodeURIComponent(i.currentSrc || i.src || "");
+          if (!/product-media/.test(src) || !i.complete || !i.naturalWidth) continue;
+          const b = i.getBoundingClientRect();
+          if (b.width > 0 && b.bottom > 0 && b.top < innerHeight) {
+            window.__rapi.util = Math.round(performance.now());
+            return;
+          }
+        }
+        requestAnimationFrame(mirar);
+      };
+      requestAnimationFrame(mirar);
+    });
+    const p = await ctx.newPage();
+    p.errores = [];
+    p.fotos = [];
+    p.consultas = [];
+    p.js = 0;
+    p.on("pageerror", (e) => p.errores.push(`error JS: ${e.message.slice(0, 160)}`));
+    p.on("console", (m) => {
+      if (m.type() === "error" && !/Failed to load resource|net::ERR_FAILED|status of 40\d/.test(m.text())) p.errores.push(`consola: ${m.text().slice(0, 160)}`);
+    });
+    p.on("request", (q) => {
+      const u = new URL(q.url());
+      if (q.resourceType() === "image" && /product-media/.test(decodeURIComponent(u.href))) {
+        p.fotos.push(u.pathname === "/_vercel/image" ? { w: Number(u.searchParams.get("w")), url: u.searchParams.get("url") } : { w: null, url: u.href });
+      }
+      if (u.hostname.endsWith(".supabase.co") && /\/(rest|auth)\/v1\//.test(u.pathname)) p.consultas.push(`${q.method()} ${u.pathname}${u.search}`);
+    });
+    p.on("response", async (res) => {
+      if (res.url().startsWith(TIENDA) && /\.js(\?|$)/.test(res.url())) p.js += (await res.body().catch(() => Buffer.alloc(0))).length;
+    });
+    await p.goto(TIENDA + ruta, { waitUntil: "load", timeout: 60000 });
+    await esperar(p, () => p.evaluate(() => window.__rapi.util !== null), 80);
+    await p.waitForTimeout(2500);
+    return p;
+  };
+  const medida = async (p) => {
+    const m = await p.evaluate(() => ({
+      util: window.__rapi.util,
+      cls: Math.round(window.__rapi.cls * 1000) / 1000,
+      saltos: window.__rapi.saltos.filter((s) => s.v >= 0.01),
+      // Quién pide cada foto (img = una etiqueta <img>; otro = una precarga o un fetch).
+      quien: performance
+        .getEntriesByType("resource")
+        .filter((e) => /product-media/.test(decodeURIComponent(e.name)))
+        .reduce((a, e) => ({ ...a, [e.initiatorType]: (a[e.initiatorType] ?? 0) + 1 }), {}),
+    }));
+    const lecturas = p.consultas.filter((c) => /^(GET|HEAD) /.test(c) && !/\/auth\/v1\//.test(c));
+    const repetidas = [...new Set(lecturas.filter((c, i) => lecturas.indexOf(c) !== i))];
+    return { ...m, fotos: p.fotos.length, originales: p.fotos.filter((f) => f.w === null).length, anchos: [...new Set(p.fotos.map((f) => f.w ?? "original"))].sort().join("/"), consultas: lecturas.length, repetidas, jsKB: Math.round(p.js / 1024) };
+  };
+  // Las fotos de productos en la página: dónde quedan y cómo se piden.
+  const fotosEnPagina = (p) =>
+    p.evaluate(() =>
+      [...document.querySelectorAll("img")]
+        // Con src (pedida) o aún esperando a acercarse a la pantalla (data-src, sin pedir).
+        .filter((i) => /product-media/.test(decodeURIComponent(i.getAttribute("src") || i.getAttribute("data-src") || "")))
+        .map((i) => {
+          const b = i.getBoundingClientRect();
+          const caja = i.parentElement?.getBoundingClientRect();
+          let w = null;
+          try {
+            const u = new URL(i.getAttribute("src") || i.getAttribute("data-src"), location.href);
+            if (u.pathname === "/_vercel/image") w = Number(u.searchParams.get("w"));
+          } catch {
+            // dirección rara
+          }
+          return { w, ancho: Math.round(b.width), top: Math.round(b.top + scrollY), izq: Math.round(b.left), alto: Math.round(caja?.height ?? 0), visible: b.bottom > 0 && b.top < innerHeight && b.width > 0, loading: i.getAttribute("loading"), decoding: i.getAttribute("decoding"), prioridad: i.getAttribute("fetchpriority") };
+        })
+    );
+
+  // RAPI1) Inicio, Catálogo y la ficha a 390 px: cifras, fotos pequeñas, lazy fuera de la pantalla, la primera con
+  // prioridad, sin saltos de diseño, sin consultas repetidas y «rendimiento_carga» una vez sin datos de nadie.
+  for (const { pantalla, ruta } of PANTALLAS) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrir(ctx, ruta);
+    const m = await medida(p);
+    console.log(`RAPI medida (${pantalla}, 390): ${JSON.stringify(m)}`);
+    ok(m.util !== null, `RAPI (${pantalla}): se ve la primera foto de un producto (${m.util} ms)`);
+    ok(m.fotos > 0 && m.originales === 0, `RAPI (${pantalla}): las fotos se piden al optimizador, nunca la original (${m.fotos} fotos, ${m.originales} originales, anchos ${m.anchos})`);
+    const enPagina = await fotosEnPagina(p);
+    // Tamaño justo: el que pide no pasa del primer tamaño del optimizador que cubre 2 × el ancho en pantalla.
+    const justo = (ancho) => [320, 480, 640, 960, 1280].find((t) => t >= 2 * ancho) ?? 1280;
+    const grandes = enPagina.filter((f) => f.w && f.ancho > 0 && f.w > justo(f.ancho));
+    ok(enPagina.some((f) => f.w) && grandes.length === 0, `RAPI (${pantalla}): cada foto pide ≈ 2 × lo que se ve (${enPagina.map((f) => `${f.ancho}→${f.w}`).join(" ")})`);
+    const alto = await p.evaluate(() => innerHeight);
+    const anchoV = await p.evaluate(() => innerWidth);
+    // Lejos de la pantalla: muy por debajo, o en un carrusel, fuera por la derecha.
+    const lejos = enPagina.filter((f) => f.top > alto * 1.2 || f.izq > anchoV * 1.2);
+    const primera = enPagina.filter((f) => f.visible).sort((a, b) => a.top - b.top)[0];
+    if (pantalla !== "producto") ok(lejos.length > 0 && lejos.every((f) => f.loading === "lazy" && f.decoding === "async"), `RAPI (${pantalla}): las fotos de más abajo esperan a verse (lazy y async: ${lejos.filter((f) => f.loading === "lazy").length}/${lejos.length})`);
+    ok(!!primera && primera.loading !== "lazy" && primera.prioridad === "high", `RAPI (${pantalla}): la primera foto visible no espera y va con prioridad alta (${JSON.stringify(primera ?? null)})`);
+    ok(enPagina.length > 0 && enPagina.every((f) => f.alto > 0), `RAPI (${pantalla}): cada foto tiene su hueco reservado antes de llegar`);
+    ok(m.cls < 0.05, `RAPI (${pantalla}): sin saltos de diseño visibles (CLS ${m.cls})`);
+    ok(m.repetidas.length === 0, `RAPI (${pantalla}): no repite consultas a Supabase al arrancar (${m.consultas} lecturas; repetidas: ${m.repetidas.join(" | ") || "ninguna"})`);
+    if (pantalla !== "producto") ok(m.fotos < PRODUCTOS.length, `RAPI (${pantalla}): al entrar no se bajan todas las fotos (${m.fotos} de ${PRODUCTOS.length} productos)`);
+    await esperar(p, async () => evento(estado, "rendimiento_carga").length > 0);
+    const ev = evento(estado, "rendimiento_carga");
+    const md = ev[0]?.metadata ?? {};
+    ok(ev.length === 1 && md.pantalla === pantalla && md.ancho === "movil" && Number.isInteger(md.ms) && md.ms > 0, `RAPI (${pantalla}): se mide rendimiento_carga una vez (${JSON.stringify(ev.map((e) => e.metadata))})`);
+    ok(Object.keys(md).every((k) => ["ms", "pantalla", "ancho", "conexion"].includes(k)) && !/cliente@example|Ana|ana_g|11111111/.test(JSON.stringify(md)), `RAPI (${pantalla}): sin datos de nadie (solo ms, pantalla, ancho y conexión)`);
+    ok(p.errores.length === 0, `RAPI1 (${pantalla}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    if (pantalla === "catalogo") {
+      // Al bajar, las fotos de abajo llegan (nada se queda sin foto).
+      const pedidasAntes = p.fotos.length;
+      for (let i = 0; i < 12; i++) {
+        await p.mouse.wheel(0, 700);
+        await p.waitForTimeout(150);
+      }
+      await p.waitForTimeout(1200);
+      const ultima = await p.evaluate(() => {
+        const imgs = [...document.querySelectorAll("img")].filter((i) => /product-media/.test(decodeURIComponent(i.getAttribute("src") || i.getAttribute("data-src") || "")));
+        const u = imgs[imgs.length - 1];
+        return u ? { src: !!u.getAttribute("src"), cargada: u.complete && u.naturalWidth > 0, visible: u.getBoundingClientRect().top < innerHeight } : null;
+      });
+      ok(!!ultima?.src && ultima.cargada && p.fotos.length > pedidasAntes, `RAPI (catalogo): al bajar llegan las fotos de abajo (${pedidasAntes} → ${p.fotos.length}; la última ${JSON.stringify(ultima)})`);
+      await capturar(p, "RAPI1-catalogo-abajo-390");
+    }
+    if (pantalla === "inicio") {
+      await p.reload({ waitUntil: "load" });
+      await p.waitForTimeout(3000);
+      ok(evento(estado, "rendimiento_carga").length === 1, `RAPI: al recargar en la misma visita no se vuelve a mandar (${evento(estado, "rendimiento_carga").length})`);
+    }
+    await capturar(p, `RAPI1-${pantalla}-390`);
+    await ctx.close();
+  }
+
+  // RAPI5) Red lenta en Inicio (390 y 1280): mientras llega la oferta se ve su esqueleto (la foto con la mascota y líneas
+  // suaves) del alto de la tarjeta, y cuando llega no salta nada (CLS).
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const estado = nuevoEstado({ retrasoCatalogo: 2500 });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const pEsq = abrir(ctx, "/");
+    // Mientras tanto (antes de que llegue la oferta), la captura del esqueleto.
+    const paginas = () => ctx.pages();
+    for (let i = 0; i < 40 && !paginas().length; i++) await new Promise((fin) => setTimeout(fin, 100));
+    const p0 = paginas()[0];
+    await p0.getByLabel("Cargando oferta destacada…").first().waitFor({ timeout: 20000 }).catch(() => {});
+    const esq = await p0.evaluate(() => {
+      const e = document.querySelector('[aria-label="Cargando oferta destacada…"]');
+      return e ? Math.round(e.getBoundingClientRect().height) : 0;
+    });
+    await p0.locator('[aria-label="Cargando oferta destacada…"]').first().scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p0, `RAPI5-esqueleto-${nombre}`);
+    const p = await pEsq;
+    await p.evaluate(() => scrollTo(0, 0));
+    const m = await medida(p);
+    ok(esq > 200, `RAPI (${nombre}): mientras llega la oferta se ve su esqueleto con el alto de la tarjeta (${esq} px)`);
+    ok(m.cls < 0.05, `RAPI (${nombre}): con la red lenta tampoco salta nada al llegar la oferta (CLS ${m.cls}${m.saltos.length ? `: ${JSON.stringify(m.saltos)}` : ""})`);
+    ok(p.errores.length === 0, `RAPI5 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RAPI2) Sin analítica aceptada no sale nada. En el ordenador, «ordenador».
+  {
+    const estado = nuevoEstado({ aceptaAnalitica: false });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrir(ctx, "/catalogo");
+    await p.waitForTimeout(1500);
+    ok(evento(estado, "rendimiento_carga").length === 0 && (estado.eventosEnviados ?? []).length === 0, "RAPI: con la analítica rechazada no se manda nada");
+    await ctx.close();
+  }
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, ESCRITORIO);
+    const p = await abrir(ctx, "/catalogo");
+    await esperar(p, async () => evento(estado, "rendimiento_carga").length > 0);
+    const md = evento(estado, "rendimiento_carga")[0]?.metadata;
+    ok(md?.ancho === "ordenador" && md?.pantalla === "catalogo", `RAPI (1280): en el ordenador se apunta «ordenador» (${JSON.stringify(md ?? null)})`);
+    console.log(`RAPI medida (catalogo, 1280): ${JSON.stringify(await medida(p))}`);
+    await ctx.close();
+  }
+
+  // RAPI3) 360, 390 y 1280: Inicio, Catálogo y la ficha sin desbordes ni errores.
+  for (const { nombre, vista } of VISTAS) {
+    for (const { pantalla, ruta } of PANTALLAS) {
+      const estado = nuevoEstado();
+      const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+      const p = await abrir(ctx, ruta);
+      const d = await sinDesborde(p);
+      ok(d.a <= d.v + 1, `RAPI (${pantalla}, ${nombre}): no se sale por los lados (${d.a}/${d.v})`);
+      ok(p.errores.length === 0, `RAPI3 (${pantalla}, ${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      if (nombre !== "390") await capturar(p, `RAPI3-${pantalla}-${nombre}`);
+      await ctx.close();
+    }
+  }
+
+  // RAPI4) Administración → Analítica (390 y 1280): «Velocidad de la tienda (30 días)» con la mediana y el percentil 75 por
+  // pantalla y por móvil/ordenador.
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+  const ev = (pantalla, ancho, lista) => lista.map((ms) => ({ event_name: "rendimiento_carga", metadata: { ms, pantalla, ancho }, created_at: "2026-11-13T10:00:00Z", session_id: "x", step_label: "Rendimiento" }));
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const estado = {
+      filas: perfilAdmin, guardados: [], embudo: [], categorias: CATS, catalogoFB: PRODUCTOS,
+      eventos: [...ev("inicio", "movil", [1000, 1200, 1400, 2000]), ...ev("inicio", "ordenador", [800, 900]), ...ev("catalogo", "movil", [1500]), ...ev("producto", "tableta", [1100, 1300, 1700])],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-velocidad").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const texto = (sel) => p.locator(sel).innerText({ timeout: 3000 }).then((t) => t.replace(/[-]/g, "").replace(/\s+/g, " ").trim()).catch(() => "");
+    const ini = await texto("#analitica-velocidad-inicio-movil");
+    ok(/Inicio · Móvil/.test(ini) && /mediana 1,2 s/.test(ini) && /p75 1,4 s/.test(ini) && /4 visitas/.test(ini), `RAPI (${nombre}): Inicio en el móvil, mediana y percentil 75 (${ini})`);
+    const io = await texto("#analitica-velocidad-inicio-ordenador");
+    ok(/Inicio · Ordenador/.test(io) && /mediana 0,8 s/.test(io) && /p75 0,9 s/.test(io) && /2 visitas/.test(io), `RAPI (${nombre}): Inicio en el ordenador (${io})`);
+    const pt = await texto("#analitica-velocidad-producto-tableta");
+    ok(/Ficha · Tableta/.test(pt) && /mediana 1,3 s/.test(pt) && /p75 1,7 s/.test(pt), `RAPI (${nombre}): la ficha en tableta (${pt})`);
+    ok(/1 visita\b/.test(await texto("#analitica-velocidad-catalogo-movil")) && (await p.locator("#analitica-velocidad-catalogo-ordenador").count()) === 0, `RAPI (${nombre}): solo salen las combinaciones con visitas`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `RAPI (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#analitica-velocidad").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `RAPI4-analitica-${nombre}`);
+    ok(p.errores.length === 0, `RAPI4 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "RAPI") await seccionRAPI();
   if (SOLO === "PAREC") await seccionPAREC();
   if (SOLO === "SEGP") await seccionSEGP();
   if (SOLO === "FCONF") await seccionFCONF();
@@ -16541,6 +16842,7 @@ try {
   await seccionFCONF();
   await seccionSEGP();
   await seccionPAREC();
+  await seccionRAPI();
   await seccionCAMPOS16();
   }
 } catch (e) {

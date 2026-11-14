@@ -72,8 +72,8 @@ import {
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "../lib/supabase";
-import { trackEvent, trackEventThrottled } from "../lib/analytics";
+import { rolDeUsuario, supabase } from "../lib/supabase";
+import { medirCargaPantalla, trackEvent, trackEventThrottled } from "../lib/analytics";
 import Barramagic, {
   SugerenciasCatalogo,
   buscarProductos,
@@ -303,14 +303,8 @@ async function detectAdmin(): Promise<boolean> {
     const userId = sessionData.session?.user?.id;
     if (!userId) return false;
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", userId)
-      .maybeSingle<{ role: string | null }>();
-
-    if (error) throw error;
-    return (data?.role ?? "") === "admin";
+    // Compartida con Blue y la analítica (lib/supabase.ts → rolDeUsuario): una sola consulta al abrir.
+    return (await rolDeUsuario(userId)) === "admin";
   } catch {
     return false;
   }
@@ -672,7 +666,7 @@ export default function CatalogoScreen() {
 
   const productCards = useMemo(
     () =>
-      items.map((p) => (
+      items.map((p, i) => (
         // La misma tarjeta que Inicio y Servicios (components/CategoryProductsShelf.tsx). Solo el administrador ve,
         // en texto y sin recuadro, el estado interno del artículo.
         <TarjetaProducto
@@ -682,6 +676,8 @@ export default function CatalogoScreen() {
           imagenUrl={p.imageUrl}
           isMobile={isMobile}
           compact={compactCards}
+          // Carga rápida: las fotos de la primera fila se piden ya y con prioridad; las demás, al acercarse.
+          prioridad={i < Math.max(1, cols)}
           onPress={() => pushRoute(`/producto/${p.id}` as Href)}
           extra={
             isAdmin ? (
@@ -692,8 +688,13 @@ export default function CatalogoScreen() {
           }
         />
       )),
-    [items, isAdmin, isMobile, compactCards]
+    [items, isAdmin, isMobile, compactCards, cols]
   );
+
+  // Carga rápida (mejora 7): cuánto tarda en verse la primera pantalla útil (las primeras tarjetas), una vez por visita.
+  useEffect(() => {
+    if (items.length > 0) medirCargaPantalla("catalogo");
+  }, [items.length]);
 
   const currentFilters: ListFilters = useMemo(
     () => ({
