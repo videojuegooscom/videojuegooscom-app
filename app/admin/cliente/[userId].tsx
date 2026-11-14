@@ -38,6 +38,9 @@
  * una pestaña nueva (api/factura.ts con «ver=1», enlace firmado de 60 s) para revisar cómo ha quedado.
  * Teléfono (dueño, 2026-11-13): en «Datos del perfil», el teléfono opcional de Mi perfil (#ficha-perfil-telefono) con «Copiar»
  * (#ficha-copiar-telefono, 44 px; «Copiado» un momento); sin la columna (migración 20261113120000) no sale la fila.
+ * Direcciones (dueño, 2026-11-14): con 2 o más guardadas (hasta 3: Casa, Trabajo, Familiar), «Direcciones guardadas» dice
+ * cuántas y con qué etiquetas (#ficha-perfil-direcciones) y cada una sale entera en su fila, con la predeterminada marcada
+ * (#ficha-perfil-direccion-<etiqueta>); con una, «Dirección de envío» como antes. Sin la columna (20261114120000), como antes.
  * Dispositivos (dueño, 2026-11-12): «Última conexión» en la cabecera y la sección «Dispositivos» con cada uno (tipo y
  * navegador, «App instalada», primera y última vez, inicios de sesión), de la tabla cliente_dispositivos (migración
  * 20261112120000; la escribe lib/supabase.ts → registrarDispositivo). Sin IP ni ubicación. Sin la migración, no sale nada.
@@ -116,7 +119,7 @@ import { haceCuanto, supabase } from "../../../lib/supabase";
 import CargaMarca from "../../../components/marca/CargaMarca";
 import SmartImage from "../../../components/SmartImage";
 import { ORIGENES_MEJORA, type OrigenMejora } from "../../../components/ReviewModal";
-import { datosDeFila, direccionEnUnaLinea } from "../../../components/PerfilPublico";
+import { datosDeFila, direccionEnUnaLinea, direccionesDeFila, textoEtiqueta } from "../../../components/PerfilPublico";
 import { openExternalLink } from "../../../lib/openExternalLink";
 import { useGestoPestanas } from "../../../lib/admin/products.components";
 
@@ -570,6 +573,8 @@ export default function ClienteFicha() {
     direccion: string | null;
     // Teléfono (opcional) de Mi perfil (vacío si no lo ha puesto); null = sin la columna todavía.
     telefono: string | null;
+    // Hasta 3 direcciones (Casa, Trabajo, Familiar); null = sin la columna todavía (migración 20261114120000).
+    direcciones: { id: string; etiqueta: string; linea: string; predeterminada: boolean }[] | null;
   } | null>(null);
 
   // Dispositivos desde los que entra y su última conexión (tabla cliente_dispositivos). null = la tabla aún no existe.
@@ -779,6 +784,13 @@ export default function ClienteFicha() {
           actualizado: (p.updated_at ?? "").trim(),
           direccion: "codigo_postal" in p ? direccionEnUnaLinea(datosDeFila(p)) : null,
           telefono: "telefono" in p ? datosDeFila(p).telefono : null,
+          direcciones:
+            direccionesDeFila(p)?.map((d) => ({
+              id: d.etiqueta,
+              etiqueta: textoEtiqueta(d.etiqueta),
+              linea: direccionEnUnaLinea(d),
+              predeterminada: d.predeterminada,
+            })) ?? null,
         });
       } else {
         setPerfil(null);
@@ -1230,13 +1242,21 @@ export default function ClienteFicha() {
                               ["Provincia", perfil.provincia],
                               ["Edad", perfil.edad !== null ? `${perfil.edad} años` : ""],
                               // Dirección de envío (opcional) de Mi perfil: la que rellena sus pedidos.
-                              ...(perfil.direccion !== null ? [["Dirección de envío", perfil.direccion]] : []),
+                              // Con 2 o más (hasta 3: Casa, Trabajo, Familiar), cuántas y cada una entera; la predeterminada, marcada.
+                              ...(perfil.direcciones && perfil.direcciones.length >= 2
+                                ? [
+                                    ["Direcciones guardadas", `${perfil.direcciones.length}: ${perfil.direcciones.map((d) => d.etiqueta).join(", ")}`, "ficha-perfil-direcciones"],
+                                    ...perfil.direcciones.map((d) => [`${d.etiqueta}${d.predeterminada ? " (predeterminada)" : ""}`, d.linea, `ficha-perfil-direccion-${d.id}`]),
+                                  ]
+                                : perfil.direccion !== null
+                                  ? [["Dirección de envío", perfil.direccion]]
+                                  : []),
                               // Teléfono (opcional) de Mi perfil, con «Copiar».
                               ...(perfil.telefono !== null ? [["Teléfono", perfil.telefono]] : []),
-                            ].map(([etiqueta, valor]) => (
+                            ].map(([etiqueta, valor, id]) => (
                               <View
                                 key={etiqueta}
-                                nativeID={etiqueta === "Teléfono" ? "ficha-perfil-telefono" : undefined}
+                                nativeID={etiqueta === "Teléfono" ? "ficha-perfil-telefono" : id}
                                 style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: COLORS.border }}
                               >
                                 <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 15 }}>{etiqueta}</Text>

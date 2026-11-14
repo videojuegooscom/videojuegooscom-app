@@ -17,6 +17,10 @@
  *   perfil) y localidad, dirección (calle o avenida y número de portal, o «s/n») y piso/puerta/letra. Si se empieza, tiene
  *   que estar entera; nunca impide tener el perfil completo. Rellena el pago (app/checkout.tsx). Columnas codigo_postal,
  *   localidad, direccion y piso (migración 20261102120000_perfiles_direccion.sql); sin ellas no se ofrece.
+ *   Hasta 3 direcciones (dueño, 2026-11-14, «Comprar en menos pasos»): tres huecos fijos Casa, Trabajo y Familiar (44 px;
+ *   tocar uno la enseña o la añade), «Usar por defecto al comprar» (★) y «Quitar esta dirección». La lista va a la columna
+ *   direcciones (jsonb, migración 20261114120000_perfil_direcciones.sql) y la predeterminada sigue también en las columnas
+ *   de siempre. Sin esa columna, solo una dirección, como antes. direccionesDeFila la usan el pago y Administración.
  *   «Teléfono (opcional)» (solo en Mi cuenta, dueño 2026-11-13), debajo del correo: teclado de teléfono, 16 px, de 9 a 15
  *   cifras (espacios y un «+» al principio); nunca impide tener el perfil completo. Rellena el pago (app/checkout.tsx) y se
  *   ve, con «Copiar», en la ficha del cliente (Administración). Columna telefono (migración 20261113120000_perfil_telefono.sql);
@@ -70,7 +74,7 @@ import { trackEvent } from "../lib/analytics";
 import { pickMediaFilesWeb, reducirImagenWeb } from "../lib/admin/products.utils";
 import CargaMarca from "./marca/CargaMarca";
 import SmartImage from "./SmartImage";
-import { CAMPO } from "../constants/theme";
+import { CAMPO, TACTIL, colorTextoAzul } from "../constants/theme";
 
 const P = {
   text: "#0B2138",
@@ -240,6 +244,80 @@ export function direccionEnUnaLinea(d: Pick<DatosPerfil, "direccion" | "piso" | 
   return [calle, lugar].filter(Boolean).join(" · ");
 }
 
+// --- Hasta 3 direcciones (dueño, 2026-11-14, «Comprar en menos pasos»; migración 20261114120000_perfil_direcciones.sql) ---
+export type EtiquetaDireccion = "casa" | "trabajo" | "familiar";
+export const MAX_DIRECCIONES = 3;
+export const ETIQUETAS_DIRECCION: { id: EtiquetaDireccion; texto: string; icono: "home-outline" | "briefcase-outline" | "people-outline" }[] = [
+  { id: "casa", texto: "Casa", icono: "home-outline" },
+  { id: "trabajo", texto: "Trabajo", icono: "briefcase-outline" },
+  { id: "familiar", texto: "Familiar", icono: "people-outline" },
+];
+export const textoEtiqueta = (e: EtiquetaDireccion) => ETIQUETAS_DIRECCION.find((x) => x.id === e)?.texto ?? "Casa";
+export type DireccionGuardada = Pick<DatosPerfil, "codigoPostal" | "localidad" | "direccion" | "piso"> & {
+  etiqueta: EtiquetaDireccion;
+  predeterminada: boolean;
+};
+const tieneDireccion = (d: Pick<DatosPerfil, "direccion" | "codigoPostal">) => !!d.direccion.trim() && !!d.codigoPostal.trim();
+const DIRECCION_VACIA: DireccionGuardada = { etiqueta: "casa", codigoPostal: "", localidad: "", direccion: "", piso: "", predeterminada: true };
+const camposDe = (d: Pick<DatosPerfil, "codigoPostal" | "localidad" | "direccion" | "piso"> | null | undefined) => ({
+  codigoPostal: d?.codigoPostal ?? "",
+  localidad: d?.localidad ?? "",
+  direccion: d?.direccion ?? "",
+  piso: d?.piso ?? "",
+});
+const CAMPOS_DIRECCION = ["codigoPostal", "localidad", "direccion", "piso"] as const;
+
+/** Una predeterminada (la primera si no hay ninguna marcada), etiquetas sin repetir y como mucho 3. */
+export function normalizarDirecciones(lista: DireccionGuardada[]): DireccionGuardada[] {
+  const vistas = new Set<EtiquetaDireccion>();
+  const r: DireccionGuardada[] = [];
+  for (const d of lista) {
+    if (r.length >= MAX_DIRECCIONES || vistas.has(d.etiqueta) || !tieneDireccion(d)) continue;
+    vistas.add(d.etiqueta);
+    r.push({ ...d });
+  }
+  const pred = Math.max(0, r.findIndex((d) => d.predeterminada));
+  return r.map((d, i) => ({ ...d, predeterminada: i === pred }));
+}
+
+/**
+ * Las direcciones guardadas de una fila de perfiles_cliente. null = la columna aún no existe (sin la migración: solo la
+ * dirección de siempre). Sin lista pero con la dirección de siempre, esa es «Casa», la predeterminada.
+ */
+export function direccionesDeFila(fila: Record<string, unknown>): DireccionGuardada[] | null {
+  if (!("direcciones" in fila)) return null;
+  const crudo = Array.isArray(fila.direcciones) ? (fila.direcciones as unknown[]) : [];
+  const lista = normalizarDirecciones(
+    crudo
+      .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+      .map((x) => ({
+        etiqueta: (["casa", "trabajo", "familiar"].includes(String(x.etiqueta)) ? x.etiqueta : "casa") as EtiquetaDireccion,
+        codigoPostal: textoDe(x.codigo_postal),
+        localidad: textoDe(x.localidad),
+        direccion: textoDe(x.direccion),
+        piso: textoDe(x.piso),
+        predeterminada: x.predeterminada === true,
+      }))
+  );
+  if (lista.length) return lista;
+  const antigua = datosDeFila(fila);
+  return tieneDireccion(antigua)
+    ? [{ etiqueta: "casa", codigoPostal: antigua.codigoPostal, localidad: antigua.localidad, direccion: antigua.direccion, piso: antigua.piso, predeterminada: true }]
+    : [];
+}
+
+/** Para guardar en la columna (jsonb): los mismos nombres que las columnas de la dirección de siempre. */
+export function direccionesParaGuardar(lista: DireccionGuardada[]) {
+  return normalizarDirecciones(lista).map((d) => ({
+    etiqueta: d.etiqueta,
+    codigo_postal: d.codigoPostal.trim().toUpperCase(),
+    localidad: d.localidad.trim(),
+    direccion: d.direccion.trim(),
+    piso: d.piso.trim() || null,
+    predeterminada: d.predeterminada,
+  }));
+}
+
 // Datos obligatorios que aún faltan (la foto es opcional).
 function faltan(d: DatosPerfil): string[] {
   const lista: string[] = [];
@@ -263,7 +341,17 @@ export function perfilCompleto(d: DatosPerfil): boolean {
 
 // --- lectura y avisos compartidos --------------------------------------------------------------------------------
 
-type Lectura = { disponible: false } | { disponible: true; conFoto: boolean; conDireccion: boolean; conTelefono: boolean; datos: DatosPerfil | null };
+type Lectura =
+  | { disponible: false }
+  | {
+      disponible: true;
+      conFoto: boolean;
+      conDireccion: boolean;
+      conTelefono: boolean;
+      // null = sin la columna de las 3 direcciones (migración 20261114120000 sin aplicar).
+      direcciones: DireccionGuardada[] | null;
+      datos: DatosPerfil | null;
+    };
 
 /** De una fila de perfiles_cliente (lo que haya) a los datos del formulario. */
 export function datosDeFila(fila: Record<string, unknown>): DatosPerfil {
@@ -322,8 +410,15 @@ async function leerPerfil(uid: string): Promise<Lectura> {
 }
 
 function lecturaDeFila(fila: Record<string, unknown> | null): Lectura {
-  if (!fila) return { disponible: true, conFoto: true, conDireccion: true, conTelefono: true, datos: null };
-  return { disponible: true, conFoto: "foto_url" in fila, conDireccion: "codigo_postal" in fila, conTelefono: "telefono" in fila, datos: datosDeFila(fila) };
+  if (!fila) return { disponible: true, conFoto: true, conDireccion: true, conTelefono: true, direcciones: [], datos: null };
+  return {
+    disponible: true,
+    conFoto: "foto_url" in fila,
+    conDireccion: "codigo_postal" in fila,
+    conTelefono: "telefono" in fila,
+    direcciones: direccionesDeFila(fila),
+    datos: datosDeFila(fila),
+  };
 }
 
 // --- usuario y foto para el Foro ----------------------------------------------------------------------------------
@@ -547,6 +642,15 @@ export default function PerfilPublico({
   const [conDireccion, setConDireccion] = useState(true);
   // ¿Existe ya la columna del teléfono? (migración 20261113120000_perfil_telefono.sql)
   const [conTelefono, setConTelefono] = useState(true);
+  // Hasta 3 direcciones (migración 20261114120000_perfil_direcciones.sql; sin ella, solo la de siempre). `direcciones` es la
+  // lista que se está editando: la que tiene la etiqueta `editando` se escribe en los campos de siempre (datos) y las demás
+  // se quedan como estaban. `direccionesGuardadas`, lo que hay en la base de datos.
+  const [conDirecciones, setConDirecciones] = useState(true);
+  const [direcciones, setDirecciones] = useState<DireccionGuardada[]>([DIRECCION_VACIA]);
+  const [direccionesGuardadas, setDireccionesGuardadas] = useState<DireccionGuardada[]>([]);
+  const [editando, setEditando] = useState<EtiquetaDireccion>("casa");
+  // Se ha intentado pasar a otra dirección con la que se ve a medias (aviso debajo de los chips).
+  const [avisoCambio, setAvisoCambio] = useState(false);
   const [datos, setDatos] = useState<DatosPerfil>(DATOS_VACIOS);
   const [guardado, setGuardado] = useState<DatosPerfil>(DATOS_VACIOS);
   const [guardando, setGuardando] = useState(false);
@@ -585,9 +689,17 @@ export default function PerfilPublico({
         setConFoto(l.conFoto);
         setConDireccion(l.conDireccion);
         setConTelefono(l.conTelefono);
+        setConDirecciones(l.direcciones !== null);
+        const lista = l.direcciones ?? [];
+        const pred = lista.find((d) => d.predeterminada) ?? lista[0];
+        setDirecciones(lista.length ? lista : [DIRECCION_VACIA]);
+        setDireccionesGuardadas(lista);
+        setEditando(pred?.etiqueta ?? "casa");
         if (l.datos) {
-          setDatos(l.datos);
-          setGuardado(l.datos);
+          // Con la lista, los campos de siempre enseñan la predeterminada (es la que también está en las columnas de siempre).
+          const leidos = pred ? { ...l.datos, ...camposDe(pred) } : l.datos;
+          setDatos(leidos);
+          setGuardado(leidos);
           // Completo: en Mi cuenta se enseña plegado (se abre al tocarlo), salvo al volver de un enlace del correo.
           if (primeraCarga.current && !obligatorio && perfilCompleto(l.datos) && !retornoCorreo) setAbierto(false);
         } else {
@@ -680,7 +792,19 @@ export default function PerfilPublico({
   const pendientes = faltan(datos);
   const completo = pendientes.length === 0 && !primerError;
   const guardadoCompleto = perfilCompleto(guardado);
-  const hayCambios = (Object.keys(DATOS_VACIOS) as (keyof DatosPerfil)[]).some((k) => datos[k].trim() !== guardado[k].trim());
+  // Varias direcciones (solo en Mi cuenta y con la columna): la lista con lo que se está escribiendo en la que se edita.
+  const variasDirecciones = !obligatorio && conDireccion && conDirecciones;
+  const listaActual = useMemo(
+    () => direcciones.map((d) => (d.etiqueta === editando ? { ...d, ...camposDe(datos) } : d)),
+    [direcciones, editando, datos]
+  );
+  const huellaLista = (l: DireccionGuardada[]) => JSON.stringify(direccionesParaGuardar(l));
+  const cambiosEnDirecciones = variasDirecciones && huellaLista(listaActual) !== huellaLista(direccionesGuardadas);
+  const hayCambios =
+    cambiosEnDirecciones ||
+    (Object.keys(DATOS_VACIOS) as (keyof DatosPerfil)[]).some(
+      (k) => !(variasDirecciones && (CAMPOS_DIRECCION as readonly string[]).includes(k)) && datos[k].trim() !== guardado[k].trim()
+    );
   hayCambiosRef.current = hayCambios;
   // En Mi cuenta se puede guardar a medias; en «Completa tu perfil», solo completo. Nunca sin haber leído bien los datos.
   const puedeGuardar = estado === "listo" && (obligatorio ? completo : hayCambios && !primerError) && !guardando && !subiendoFoto;
@@ -704,6 +828,52 @@ export default function PerfilPublico({
       return nuevo;
     });
   }, []);
+
+  // --- Varias direcciones: tres huecos fijos (Casa, Trabajo, Familiar); tocar uno lo enseña o lo añade. Se marca la
+  // predeterminada y se quita (se guarda todo con «Guardar perfil», como el resto). Para pasar a otra, la que se ve tiene
+  // que estar entera o vacía.
+  const direccionAMedias = CAMPOS_DIRECCION.some((k) => !!errores[k]);
+  const irADireccion = (etiqueta: EtiquetaDireccion) => {
+    if (etiqueta === editando) return;
+    if (direccionAMedias) {
+      setAvisoCambio(true);
+      return;
+    }
+    setAviso(null);
+    setAvisoCambio(false);
+    let lista = listaActual.map((d) => ({ ...d }));
+    let destino = lista.find((d) => d.etiqueta === etiqueta);
+    if (!destino) {
+      if (lista.filter(tieneDireccion).length >= MAX_DIRECCIONES) return;
+      destino = { ...DIRECCION_VACIA, etiqueta, predeterminada: false };
+      lista.push(destino);
+    }
+    // La que se deja vacía no se queda en la lista.
+    lista = lista.filter((d) => d.etiqueta === etiqueta || tieneDireccion(d));
+    if (!lista.some((d) => d.predeterminada && tieneDireccion(d))) {
+      const primera = lista.find(tieneDireccion) ?? destino;
+      lista = lista.map((d) => ({ ...d, predeterminada: d.etiqueta === primera.etiqueta }));
+    }
+    setDirecciones(lista);
+    setEditando(etiqueta);
+    const campos = camposDe(destino);
+    setDatos((d) => ({ ...d, ...campos }));
+  };
+  const hacerPredeterminada = () => {
+    setAviso(null);
+    setDirecciones((l) => l.map((d) => ({ ...d, predeterminada: d.etiqueta === editando })));
+  };
+  const quitarDireccion = () => {
+    setAviso(null);
+    let lista = listaActual.filter((d) => d.etiqueta !== editando && tieneDireccion(d));
+    if (!lista.length) lista = [DIRECCION_VACIA];
+    if (!lista.some((d) => d.predeterminada)) lista = lista.map((d, i) => ({ ...d, predeterminada: i === 0 }));
+    const siguiente = lista.find((d) => d.predeterminada) ?? lista[0];
+    setDirecciones(lista);
+    setEditando(siguiente.etiqueta);
+    const campos = camposDe(siguiente);
+    setDatos((d) => ({ ...d, ...campos }));
+  };
 
   // Foto: se elige, se recorta (RecortarFoto: encuadre cuadrado de 320 px en JPEG) y se sube a la carpeta del cliente; se
   // guarda con «Guardar perfil».
@@ -774,7 +944,14 @@ export default function PerfilPublico({
     };
     const direccionAntes = direccionEnUnaLinea(guardado);
     const telefonoAntes = guardado.telefono;
-    const fila = (conDir: boolean, conTel: boolean = false) => ({
+    // Varias direcciones: la lista entera va a «direcciones» y la predeterminada, a las columnas de siempre.
+    let final: DireccionGuardada[] | null = variasDirecciones
+      ? normalizarDirecciones(listaActual.map((d) => (d.etiqueta === editando ? { ...d, ...camposDe(limpio) } : d)))
+      : null;
+    const principal = final ? (final.find((d) => d.predeterminada) ?? null) : null;
+    if (final) Object.assign(limpio, camposDe(principal));
+    const editada = final ? (final.find((d) => d.etiqueta === editando) ?? null) : null;
+    const fila = (conDir: boolean, conTel: boolean = false, conDirs: boolean = false) => ({
       user_id: uid,
       nombre: limpio.nombre || null,
       usuario: limpio.usuario || null,
@@ -791,27 +968,37 @@ export default function PerfilPublico({
           }
         : {}),
       ...(conTel ? { telefono: limpio.telefono || null } : {}),
+      ...(conDirs && final ? { direcciones: direccionesParaGuardar(final) } : {}),
     });
     // Las columnas de la dirección y la del teléfono solo se mandan si hay algo que guardar o que borrar: así quien no las
     // usa (p. ej. en «Completa tu perfil») no pide columnas que quizá aún no existen.
-    const enviarDireccion = conDireccion && (!!direccionEnUnaLinea(limpio) || !!direccionAntes);
+    const enviarDireccion = conDireccion && (!!direccionEnUnaLinea(limpio) || !!direccionAntes || (!!final && (final.length > 0 || direccionesGuardadas.length > 0)));
     const enviarTelefono = conTelefono && (!!limpio.telefono || !!telefonoAntes);
+    let enviarDirecciones = !!final && enviarDireccion;
     try {
-      let { error } = await supabase.from("perfiles_cliente").upsert(fila(enviarDireccion, enviarTelefono), { onConflict: "user_id" });
+      let { error } = await supabase.from("perfiles_cliente").upsert(fila(enviarDireccion, enviarTelefono, enviarDirecciones), { onConflict: "user_id" });
       // Aún sin las columnas de la dirección o del teléfono (migración sin aplicar): se guarda lo demás y deja de ofrecerse.
       let sinDireccion = false;
       let sinTelefono = false;
       const mensajeError = () => String((error as { message?: string } | null)?.message ?? "");
+      // Sin la columna de las 3 direcciones: se guarda la predeterminada en las columnas de siempre y deja de ofrecerse.
+      if (error && enviarDirecciones && faltaEsquema(error) && /direcciones/.test(mensajeError())) {
+        setConDirecciones(false);
+        enviarDirecciones = false;
+        ({ error } = await supabase.from("perfiles_cliente").upsert(fila(enviarDireccion, enviarTelefono, false), { onConflict: "user_id" }));
+      }
       if (error && enviarTelefono && faltaEsquema(error) && /telefono/.test(mensajeError())) {
         setConTelefono(false);
         sinTelefono = true;
-        ({ error } = await supabase.from("perfiles_cliente").upsert(fila(enviarDireccion, false), { onConflict: "user_id" }));
+        ({ error } = await supabase.from("perfiles_cliente").upsert(fila(enviarDireccion, false, enviarDirecciones), { onConflict: "user_id" }));
       }
       if (error && enviarDireccion && faltaEsquema(error) && /codigo_postal|localidad|direccion|piso/.test(mensajeError())) {
         setConDireccion(false);
         sinDireccion = true;
-        ({ error } = await supabase.from("perfiles_cliente").upsert(fila(false, enviarTelefono && !sinTelefono), { onConflict: "user_id" }));
+        enviarDirecciones = false;
+        ({ error } = await supabase.from("perfiles_cliente").upsert(fila(false, enviarTelefono && !sinTelefono, false), { onConflict: "user_id" }));
       }
+      if (!enviarDirecciones) final = null;
       if (sinDireccion) {
         limpio.codigoPostal = "";
         limpio.localidad = "";
@@ -847,8 +1034,17 @@ export default function PerfilPublico({
       } catch {
         // no pasa nada
       }
-      setDatos(limpio);
       setGuardado(limpio);
+      if (final) {
+        // Se sigue viendo la dirección que se estaba editando (o la predeterminada si se vació).
+        const visible = editada ?? principal;
+        setDatos({ ...limpio, ...camposDe(visible) });
+        setDirecciones(final.length ? final : [DIRECCION_VACIA]);
+        setDireccionesGuardadas(final);
+        setEditando(visible?.etiqueta ?? "casa");
+      } else {
+        setDatos(limpio);
+      }
       perfilesForo.delete(uid); // el Foro vuelve a pedir su usuario y su foto
       setAviso({
         tipo: "ok",
@@ -864,8 +1060,15 @@ export default function PerfilPublico({
         trackEvent("perfil_telefono_guardado", "Perfil: teléfono guardado", { metadata: { nuevo: !telefonoAntes, desde: "perfil" } });
       }
       // Analítica propia (Administración → Usuarios): quién añade o cambia su dirección de envío (nunca la dirección).
+      // Con varias direcciones, cuántas hay y con qué etiquetas (nunca la dirección).
       const direccionAhora = direccionEnUnaLinea(limpio);
-      if (direccionAhora && direccionAhora !== direccionAntes) {
+      if (final) {
+        if (final.length && huellaLista(final) !== huellaLista(direccionesGuardadas)) {
+          trackEvent("perfil_direccion_guardada", "Perfil: dirección guardada", {
+            metadata: { nueva: final.length > direccionesGuardadas.length, direcciones: final.length, etiquetas: final.map((d) => d.etiqueta) },
+          });
+        }
+      } else if (direccionAhora && direccionAhora !== direccionAntes) {
         trackEvent("perfil_direccion_guardada", "Perfil: dirección guardada", { metadata: { nueva: !direccionAntes } });
       }
       avisarPerfilGuardado();
@@ -1072,8 +1275,58 @@ export default function PerfilPublico({
             <Ionicons name="location-outline" size={18} color={P.accent} />
             <Text style={{ color: P.text, fontWeight: "900", fontSize: 15.5 }}>Dirección de envío</Text>
           </View>
-          <Text style={{ color: P.muted, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>Opcional · tus pedidos se rellenan solos</Text>
+          <Text style={{ color: P.muted, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
+            {variasDirecciones ? "Opcional · hasta 3 · tus pedidos se rellenan solos" : "Opcional · tus pedidos se rellenan solos"}
+          </Text>
         </View>
+        {/* Hasta 3 direcciones: Casa, Trabajo y Familiar (★ la predeterminada); tocar una la enseña o la añade. */}
+        {variasDirecciones ? (
+          // Las tres en una fila (a partes iguales, también a 360 px), como un selector segmentado.
+          <View nativeID="perfil-direcciones" accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 6 }}>
+            {ETIQUETAS_DIRECCION.map((et) => {
+              const d = listaActual.find((x) => x.etiqueta === et.id);
+              const llena = !!d && tieneDireccion(d);
+              const activa = editando === et.id;
+              const pred = !!d && d.predeterminada && llena;
+              return (
+                <Pressable
+                  key={et.id}
+                  nativeID={`perfil-direccion-${et.id}`}
+                  onPress={() => irADireccion(et.id)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: activa }}
+                  accessibilityLabel={`${et.texto}${pred ? " (predeterminada)" : llena ? "" : ": añadir"}`}
+                  style={({ pressed }) => ({
+                    flex: 1,
+                    minWidth: 0,
+                    minHeight: TACTIL.minimo,
+                    paddingHorizontal: 6,
+                    borderRadius: 999,
+                    borderWidth: 1.5,
+                    borderColor: activa ? P.accent : P.line,
+                    backgroundColor: activa ? "#EAF6FD" : "#FFFFFF",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 4,
+                    opacity: pressed ? 0.75 : 1,
+                  })}
+                >
+                  <Ionicons name={llena || activa ? et.icono : "add"} size={16} color={activa ? P.accent : P.muted} />
+                  <Text numberOfLines={1} style={{ color: activa ? P.text : P.muted, fontWeight: "800", fontSize: 14, flexShrink: 1 }}>
+                    {et.texto}
+                  </Text>
+                  {pred ? <Ionicons name="star" size={12} color="#F59E0B" /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+        {variasDirecciones && avisoCambio && direccionAMedias ? (
+          <Text nativeID="perfil-direcciones-aviso" accessibilityRole="alert" style={{ color: P.danger, fontWeight: "800", fontSize: 14, textAlign: "center", lineHeight: 19 }}>
+            Termina esta dirección (o vacíala) antes de pasar a otra.
+          </Text>
+        ) : null}
         {/* Cada dato a lo ancho, como el resto del perfil: así una localidad larga («Cuarte de Huerva») se lee entera. */}
         <View style={{ flexDirection: "row" }}>
           {campoDireccion("codigoPostal", "Código postal", "Código postal", {
@@ -1100,6 +1353,37 @@ export default function PerfilPublico({
         <View style={{ flexDirection: "row" }}>
           {campoDireccion("piso", "Piso, puerta y letra (opcional)", "Piso, puerta y letra", { max: 40, autoComplete: "address-line2", mayusculas: "characters" })}
         </View>
+        {variasDirecciones && tieneDireccion(datos) ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 14 }}>
+            {listaActual.filter(tieneDireccion).length > 1 ? (
+              <Pressable
+                nativeID="perfil-direccion-predeterminada"
+                onPress={hacerPredeterminada}
+                accessibilityRole="checkbox"
+                aria-checked={!!listaActual.find((d) => d.etiqueta === editando)?.predeterminada}
+                accessibilityLabel="Usar por defecto al comprar"
+                style={({ pressed }) => ({ minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+              >
+                <Ionicons
+                  name={listaActual.find((d) => d.etiqueta === editando)?.predeterminada ? "checkbox" : "square-outline"}
+                  size={22}
+                  color={listaActual.find((d) => d.etiqueta === editando)?.predeterminada ? P.accent : P.muted}
+                />
+                <Text style={{ color: P.text, fontWeight: "800", fontSize: 14 }}>Usar por defecto al comprar</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              nativeID="perfil-direccion-quitar"
+              onPress={quitarDireccion}
+              accessibilityRole="button"
+              accessibilityLabel={`Quitar la dirección ${textoEtiqueta(editando)}`}
+              style={({ pressed }) => ({ minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", gap: 5, opacity: pressed ? 0.7 : 1 })}
+            >
+              <Ionicons name="trash-outline" size={17} color={colorTextoAzul(14)} />
+              <Text style={{ color: colorTextoAzul(14), fontWeight: "800", fontSize: 14 }}>Quitar esta dirección</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
     ) : null;
 

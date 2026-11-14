@@ -58,6 +58,14 @@
  * el pedido se guarda en su perfil («perfil_telefono_guardado», desde «pago»). Sin la columna (migración
  * 20261113120000_perfil_telefono.sql) ni sesión, no se ofrece y el pago funciona igual (dueño, 2026-11-13).
  *
+ * Comprar en menos pasos (dueño, 2026-11-14, mejora 2): «Comprar ya» llega con ?comprar=<id> y se paga SOLO ese artículo
+ * («Compra rápida: solo este artículo…»; lo demás se queda en la cesta), con los datos del perfil ya puestos («comprar_ya»).
+ * Si falta algún dato, un aviso dice para qué se pide («Para entregarte el pedido necesitamos…») y, con sesión, que se
+ * puede guardar en el perfil. Con 2 o más direcciones en «Mi perfil» (hasta 3: Casa, Trabajo, Familiar; columna
+ * direcciones, migración 20261114120000_perfil_direcciones.sql), «Tus direcciones» deja elegir una con un toque (44 px);
+ * pagar con una guardada se mide con «pago_direccion_guardada» (solo la etiqueta). Una dirección nueva se ofrece guardarla
+ * («Guardar en mi perfil esta dirección», si cabe: hasta 3). Sin la columna, como antes (una sola dirección).
+ *
  * Envío (dueño, 2026-11-04): se calcula solo con las tarifas de Administración → Tarifas de envío (lib/envio.ts):
  * entrega en mano o, a domicilio, por el código postal y el importe. Al guardar el pedido lo calcula también la base de
  * datos con la misma regla (es lo que vale). Si la tienda no envía a esa zona desde la web, se pide escribir antes.
@@ -101,7 +109,16 @@ import { supabase } from "../lib/supabase";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
 import { trackEvent } from "../lib/analytics";
 import { CAMPO } from "../constants/theme";
-import { datosDeFila, limpiarTelefono } from "../components/PerfilPublico";
+import {
+  ETIQUETAS_DIRECCION,
+  MAX_DIRECCIONES,
+  datosDeFila,
+  direccionesDeFila,
+  direccionesParaGuardar,
+  limpiarTelefono,
+  type DireccionGuardada,
+  type EtiquetaDireccion,
+} from "../components/PerfilPublico";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -224,8 +241,10 @@ type PagoTarjeta = { disponible: boolean; modo: "prueba" | "real" | null; klarna
 
 // Las formas de pago de la página de Stripe, en una fila discreta («Tarjeta · Apple Pay · Bizum · Klarna»), solo con lo
 // que se ofrece.
+// Apple Pay y Google Pay van con la tarjeta: la página de Stripe los enseña (activos en su panel, comprobado el 2026-11-14)
+// según el dispositivo (Safari en Apple, Chrome o Android).
 function metodosPago(p: PagoTarjeta): string {
-  const m = ["Tarjeta", "Apple Pay"];
+  const m = ["Tarjeta", "Apple Pay", "Google Pay"];
   if (p.bizum) m.push("Bizum");
   if (p.klarna) m.push("Klarna");
   return m.join(" · ");
@@ -378,6 +397,13 @@ function safeStr(v: unknown) {
   return String(v ?? "").trim();
 }
 
+// Una dirección del perfil en el campo «Dirección» del pago («Calle Mayor 5, 2º B»).
+function lineaDeDireccion(d: { direccion: string; piso: string }) {
+  return [d.direccion.trim(), d.piso.trim()].filter(Boolean).join(", ");
+}
+const mismaDireccion = (d: DireccionGuardada, linea: string, cp: string) =>
+  lineaDeDireccion(d).toLowerCase() === linea.trim().toLowerCase() && d.codigoPostal.trim().toUpperCase() === cp.trim().toUpperCase();
+
 function isValidEmail(email: string) {
   const s = email.trim();
   if (!s) return false;
@@ -479,7 +505,17 @@ export default function CheckoutScreen() {
   const [avisoPago, setAvisoPago] = useState<string | null>(null);
   // Saliendo hacia la página de Stripe (el botón se queda cargando hasta que el navegador cambia de página).
   const [redirigiendo, setRedirigiendo] = useState(false);
-  const params = useLocalSearchParams<{ pago?: string; sesion?: string; pedido?: string }>();
+  const params = useLocalSearchParams<{ pago?: string; sesion?: string; pedido?: string; comprar?: string }>();
+  // «Comprar ya» (app/producto/[id].tsx → /checkout?comprar=<id>): se paga SOLO ese artículo; lo demás de la cesta se
+  // queda en la cesta (restoCesta) para después.
+  const comprarRef = useRef(typeof params.comprar === "string" ? params.comprar : "");
+  const restoCestaRef = useRef<CartItem[] | null>(null);
+  const [compraRapida, setCompraRapida] = useState<{ resto: number } | null>(null);
+  // Direcciones guardadas en «Mi perfil» (hasta 3; null = sin la columna) y si ya tiene la de siempre: para el selector
+  // y para ofrecer «Guardar en mi perfil» con una dirección nueva.
+  const [perfilDir, setPerfilDir] = useState<{ ok: boolean; lista: DireccionGuardada[] | null; tieneUna: boolean }>({ ok: false, lista: null, tieneUna: false });
+  const [direccionTocada, setDireccionTocada] = useState(false);
+  const [guardarDir, setGuardarDir] = useState(true);
 
   const bootedRef = useRef(false);
   // Guarda síncrona contra dos toques seguidos, como defensa extra: el botón ya se desactiva con
@@ -553,8 +589,26 @@ export default function CheckoutScreen() {
     return lista;
   }, [fullName, email, phone, address1, postalCode, city, entrega, faltaCodigo]);
   const camposMal = campos.filter((c) => !c.ok);
+  // Los datos que aún están vacíos (el aviso de arriba explica para qué se piden).
+  const faltanParaEntregar = camposMal.filter((c) => c.vacio).map((c) => c.clave);
   // «Guardar en mi perfil»: con sesión, perfil con columna del teléfono y sin teléfono guardado, al escribir uno válido.
   const ofreceGuardarTel = perfilTel.ok && !perfilTel.valor && isValidPhone(phone) && limpiarTelefono(phone).length >= 6 && limpiarTelefono(phone).length <= 20;
+  // Direcciones del perfil: la que coincide con lo escrito (se marca en el selector) y si se ofrece guardar una nueva (con
+  // sitio en el perfil: hasta 3 con la columna nueva; sin ella, solo si aún no tiene ninguna).
+  const direccionCoincide = entrega === "envio" ? (perfilDir.lista?.find((d) => mismaDireccion(d, address1, postalCode)) ?? null) : null;
+  const direccionNuevaValida =
+    entrega === "envio" &&
+    safeStr(address1).length >= 6 &&
+    safeStr(address1).length <= 120 &&
+    /^\d{5}$/.test(limpiarCodigoPostal(postalCode)) &&
+    safeStr(city).length >= 2 &&
+    safeStr(city).length <= 60;
+  const ofreceGuardarDir =
+    !!perfilTel.uid &&
+    perfilDir.ok &&
+    direccionNuevaValida &&
+    !direccionCoincide &&
+    (perfilDir.lista ? perfilDir.lista.length < MAX_DIRECCIONES : !perfilDir.tieneUna);
 
   // La tienda no envía a esa zona desde la web: se pide escribir antes (ver el aviso de la entrega).
   const formOk = items.length > 0 && envio.disponible && !bloqueoSoloMano && camposMal.length === 0;
@@ -687,11 +741,24 @@ export default function CheckoutScreen() {
       if (stored.length !== loaded.length || stored.some((it, i) => it !== loaded[i])) {
         await saveCart(stored);
       }
-      setItems(stored);
+      // «Comprar ya»: solo ese artículo (si sigue en la cesta y reservado); el resto se queda para después.
+      const rapido = comprarRef.current ? stored.find((it) => it.id === comprarRef.current) : undefined;
+      if (rapido) {
+        const resto = stored.filter((it) => it !== rapido);
+        restoCestaRef.current = resto;
+        setCompraRapida({ resto: resto.length });
+        setItems([rapido]);
+        trackEvent("comprar_ya", "Comprar ya: pago directo", { path: "/checkout", metadata: { resto: resto.length } });
+      } else {
+        restoCestaRef.current = null;
+        setItems(stored);
+      }
       if (stored.length) {
         trackEvent("begin_checkout", "Inicio de compra", {
           path: "/checkout",
-          metadata: { items: stored.length, total: stored.reduce((a, it) => a + it.priceEUR * it.qty, 0) },
+          metadata: rapido
+            ? { items: 1, total: rapido.priceEUR * rapido.qty, comprarYa: true }
+            : { items: stored.length, total: stored.reduce((a, it) => a + it.priceEUR * it.qty, 0) },
         });
       }
     } catch (e: any) {
@@ -733,11 +800,17 @@ export default function CheckoutScreen() {
           setTelDesdePerfil(true);
           trackEvent("pago_telefono_perfil", "Pago: teléfono del perfil usado", { path: "/checkout" });
         }
-        if (p.direccion && p.codigoPostal) {
-          const linea = [p.direccion, p.piso].filter(Boolean).join(", ");
-          setAddress1((v) => v || linea);
-          setPostalCode((v) => v || p.codigoPostal);
-          if (p.localidad) setCity((v) => v || p.localidad);
+        // Hasta 3 direcciones (columna direcciones; sin ella, null): se rellena con la predeterminada (la misma que las
+        // columnas de siempre) y, con 2 o más, se puede elegir otra con un toque.
+        const fila = (data ?? {}) as Record<string, unknown>;
+        const lista = data ? direccionesDeFila(fila) : null;
+        setPerfilDir({ ok: !!data && "codigo_postal" in fila, lista, tieneUna: !!(p.direccion && p.codigoPostal) });
+        const pred = lista?.find((d) => d.predeterminada);
+        const dir = pred ?? (p.direccion && p.codigoPostal ? p : null);
+        if (dir) {
+          setAddress1((v) => v || lineaDeDireccion(dir));
+          setPostalCode((v) => v || dir.codigoPostal);
+          if (dir.localidad) setCity((v) => v || dir.localidad);
           setDesdePerfil(true);
           trackEvent("pago_direccion_perfil", "Pago: dirección del perfil", { path: "/checkout" });
         }
@@ -935,6 +1008,39 @@ export default function CheckoutScreen() {
           // sin guardar en el perfil: el pedido sigue adelante
         }
       }
+      // Dirección usada en el pago: de las guardadas (cuál, sin la dirección) o, con «Guardar en mi perfil», una nueva.
+      if (numero && direccionCoincide) {
+        trackEvent("pago_direccion_guardada", "Pago: dirección guardada usada", {
+          path: "/checkout",
+          metadata: { etiqueta: direccionCoincide.etiqueta, predeterminada: direccionCoincide.predeterminada, elegida: direccionTocada, guardadas: perfilDir.lista?.length ?? 0 },
+        });
+      }
+      if (numero && ofreceGuardarDir && guardarDir) {
+        try {
+          const lista = perfilDir.lista;
+          const primera = !lista || lista.length === 0;
+          const libre = (ETIQUETAS_DIRECCION.find((e) => !lista?.some((d) => d.etiqueta === e.id))?.id ?? "casa") as EtiquetaDireccion;
+          const nueva: DireccionGuardada = {
+            etiqueta: libre,
+            codigoPostal: limpiarCodigoPostal(postalCode),
+            localidad: safeStr(city),
+            direccion: safeStr(address1),
+            piso: "",
+            predeterminada: primera,
+          };
+          const cambios: Record<string, unknown> = lista ? { direcciones: direccionesParaGuardar([...lista, nueva]) } : {};
+          // La primera es la predeterminada: también va a las columnas de siempre (lo que ya leen el pago y Administración).
+          if (primera) Object.assign(cambios, { codigo_postal: nueva.codigoPostal, localidad: nueva.localidad, direccion: nueva.direccion, piso: null });
+          const { error } = await supabase.from("perfiles_cliente").update(cambios).eq("user_id", perfilTel.uid);
+          if (!error) {
+            const total = (lista?.length ?? 0) + 1;
+            setPerfilDir((d) => ({ ...d, lista: d.lista ? [...d.lista, nueva] : d.lista, tieneUna: true }));
+            await trackEvent("perfil_direccion_guardada", "Perfil: dirección guardada", { path: "/checkout", metadata: { nueva: true, desde: "pago", direcciones: total } });
+          }
+        } catch {
+          // sin guardar en el perfil: el pedido sigue adelante
+        }
+      }
       // Si el pedido lleva artículos de VeoAura, el servidor avisa a VeoAura para que no los
       // venda también en la tienda física (api/escaparate-retorno.ts). No se espera. Se despierta
       // también con un pedido repetido: si la primera respuesta se perdió, nadie lo había hecho, y
@@ -957,7 +1063,11 @@ export default function CheckoutScreen() {
 
       // 2) Con el pedido registrado, la cesta se vacía y se muestra la confirmación (con la referencia, sin el número
       //    interno). Si no se pudo guardar, la cesta se queda como estaba para volver a intentarlo.
-      if (numero) await saveCart([]);
+      // Con «Comprar ya», lo demás que había en la cesta se queda allí.
+      if (numero) {
+        await saveCart(restoCestaRef.current ?? []);
+        restoCestaRef.current = null;
+      }
       // 3) Con tarjeta: a la página de pago de Stripe (con el total que pone el servidor). Si no se puede abrir, el pedido
       //    ya está guardado y la confirmación ofrece volver a intentarlo o hablarlo por el chat.
       if (tarjeta && numero) {
@@ -988,7 +1098,7 @@ export default function CheckoutScreen() {
       setSubmitting(false);
       enviandoRef.current = false;
     }
-  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, shipping, envio.zona, buildTextoPedido, pagoTarjeta, ofreceGuardarTel, guardarTel, perfilTel.uid]);
+  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, shipping, envio.zona, buildTextoPedido, pagoTarjeta, ofreceGuardarTel, guardarTel, perfilTel.uid, direccionCoincide, direccionTocada, perfilDir.lista, ofreceGuardarDir, guardarDir]);
 
   // --- Confirmación y «No se ha hecho el pago» (dueño, 2026-11-11: «intuitiva, práctica y profesional») ---------------
   // Siempre dice qué ha pasado (título), con qué pedido (su referencia VZ-…) y qué no se ha cobrado; UNA sola píldora azul
@@ -1251,6 +1361,16 @@ export default function CheckoutScreen() {
             {/* Resumen pedido: cada artículo con su miniatura (foto entera sobre blanco, tamaño pequeño). */}
             <View nativeID="pago-resumen" style={{ gap: 10, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#E3EAF2" }}>
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Resumen</Text>
+              {compraRapida ? (
+                <View nativeID="pago-compra-rapida" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <Ionicons name="flash-outline" size={16} color={COLORS.accent} />
+                  <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 13, textAlign: "center", flexShrink: 1, lineHeight: 18 }}>
+                    {compraRapida.resto > 0
+                      ? `Compra rápida: solo este artículo. ${compraRapida.resto === 1 ? "El otro de tu cesta sigue" : `Los otros ${compraRapida.resto} de tu cesta siguen`} allí.`
+                      : "Compra rápida: solo este artículo, sin pasar por la cesta."}
+                  </Text>
+                </View>
+              ) : null}
 
               {items.map((it) => (
                 <View key={it.id} nativeID={`pago-articulo-${it.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 }}>
@@ -1336,6 +1456,20 @@ export default function CheckoutScreen() {
                   ? "Te lo entregamos en mano en Cuarte de Huerva. Te avisamos por el chat de la tienda cuando esté listo."
                   : "En Zaragoza te lo llevamos el mismo día. Al resto de España sale en 1-2 días y llega en 72 horas como máximo."}
               </Text>
+              {/* Faltan datos: para qué se piden (y, con sesión, que se pueden guardar en el perfil para la próxima vez). */}
+              {faltanParaEntregar.length ? (
+                <View
+                  nativeID="pago-faltan-datos"
+                  style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 14, backgroundColor: COLORS.accent2, borderWidth: 1, borderColor: COLORS.accentBorder }}
+                >
+                  <Ionicons name="information-circle-outline" size={20} color={COLORS.accent} style={{ marginTop: 1 }} />
+                  <Text style={{ color: COLORS.text, fontSize: 14, lineHeight: 20, flexShrink: 1 }}>
+                    <Text style={{ fontWeight: "900" }}>Para entregarte el pedido necesitamos {listaCampos(faltanParaEntregar)}.</Text> Solo los usamos para
+                    el envío y para avisarte de cómo va tu pedido.
+                    {perfilTel.uid && (perfilTel.ok || perfilDir.ok) ? " Marca «Guardar en mi perfil» y la próxima vez saldrán ya rellenados." : ""}
+                  </Text>
+                </View>
+              ) : null}
               {!envio.disponible ? (
                 <View nativeID="pago-zona-sin-envio" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
                   <Ionicons name="alert-circle-outline" size={18} color={COLORS.danger} />
@@ -1401,6 +1535,54 @@ export default function CheckoutScreen() {
               ) : null}
               {entrega === "envio" ? (
                 <>
+                  {/* Con 2 o más direcciones en «Mi perfil»: elegir una con un toque (rellena dirección, código postal y ciudad). */}
+                  {perfilDir.lista && perfilDir.lista.length >= 2 ? (
+                    <View nativeID="pago-direcciones" accessibilityRole="radiogroup" accessibilityLabel="Tus direcciones" style={{ alignItems: "center", gap: 6 }}>
+                      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 13, textAlign: "center" }}>Tus direcciones</Text>
+                      <View style={{ flexDirection: "row", gap: 6, alignSelf: "stretch", width: "100%", maxWidth: 460, marginHorizontal: "auto" }}>
+                        {perfilDir.lista.map((d) => {
+                          const et = ETIQUETAS_DIRECCION.find((x) => x.id === d.etiqueta) ?? ETIQUETAS_DIRECCION[0];
+                          const activa = direccionCoincide?.etiqueta === d.etiqueta;
+                          return (
+                            <Pressable
+                              key={d.etiqueta}
+                              nativeID={`pago-direccion-${d.etiqueta}`}
+                              onPress={() => {
+                                setAddress1(lineaDeDireccion(d));
+                                setPostalCode(d.codigoPostal);
+                                setCity(d.localidad);
+                                setDireccionTocada(true);
+                              }}
+                              accessibilityRole="radio"
+                              accessibilityState={{ selected: activa }}
+                              accessibilityLabel={`${et.texto}${d.predeterminada ? " (predeterminada)" : ""}: ${lineaDeDireccion(d)}, ${d.codigoPostal} ${d.localidad}`}
+                              style={({ pressed }) => ({
+                                flex: 1,
+                                minWidth: 0,
+                                minHeight: 44,
+                                paddingHorizontal: 6,
+                                borderRadius: 999,
+                                borderWidth: 1.5,
+                                borderColor: activa ? COLORS.accent : COLORS.border,
+                                backgroundColor: activa ? COLORS.accent2 : "#FFFFFF",
+                                flexDirection: "row",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: 4,
+                                opacity: pressed ? 0.75 : 1,
+                              })}
+                            >
+                              <Ionicons name={et.icono} size={16} color={activa ? COLORS.accent : COLORS.muted} />
+                              <Text numberOfLines={1} style={{ color: activa ? COLORS.text : COLORS.muted, fontWeight: "800", fontSize: 14, flexShrink: 1 }}>
+                                {et.texto}
+                              </Text>
+                              {d.predeterminada ? <Ionicons name="star" size={12} color="#F59E0B" /> : null}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ) : null}
                   {desdePerfil ? (
                     <View nativeID="pago-direccion-perfil" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
                       <Ionicons name="location-outline" size={16} color={COLORS.accent} />
@@ -1436,6 +1618,19 @@ export default function CheckoutScreen() {
                       <Field nativeID="pago-campo-ciudad" inputRef={refCampo("ciudad")} marcado={marcado("ciudad")} label="Ciudad" value={city} onChangeText={setCity} placeholder="Zaragoza" />
                     </View>
                   </View>
+                  {ofreceGuardarDir ? (
+                    <Pressable
+                      nativeID="pago-guardar-direccion"
+                      onPress={() => setGuardarDir((v) => !v)}
+                      accessibilityRole="checkbox"
+                      aria-checked={guardarDir}
+                      accessibilityLabel="Guardar esta dirección en mi perfil"
+                      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 })}
+                    >
+                      <Ionicons name={guardarDir ? "checkbox" : "square-outline"} size={24} color={guardarDir ? COLORS.accent : COLORS.muted} />
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14, flexShrink: 1 }}>Guardar en mi perfil esta dirección</Text>
+                    </Pressable>
+                  ) : null}
                 </>
               ) : null}
 

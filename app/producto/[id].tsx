@@ -36,7 +36,8 @@
  * app/checkout.tsx (misma clave de AsyncStorage, CART_KEY), duplicada aquí
  * en vez de importada, igual que el resto de pantallas de este proyecto.
  * "Comprar ya" añade el producto y lleva directo a checkout, saltándose la
- * cesta, como el botón equivalente de otras tiendas online.
+ * cesta, como el botón equivalente de otras tiendas online. Desde el 2026-11-14 (mejora 2 «Comprar en menos pasos»)
+ * abre /checkout?comprar=<id>: se paga SOLO este artículo (lo demás sigue en la cesta) con los datos del perfil ya puestos.
  *
  * Imagen ampliada: al tocar la foto principal se abre
  * components/ImageLightbox.tsx, un visor a pantalla completa con zoom
@@ -1007,7 +1008,9 @@ export default function ProductoScreen() {
       );
 
       if (mode === "buyNow") {
-        replaceRoute("/checkout" as Href);
+        // Directo al pago con SOLO este artículo (lo demás de la cesta se queda allí) y los datos del perfil ya puestos.
+        // push (no replace): «atrás» vuelve a esta ficha.
+        pushRoute(`/checkout?comprar=${encodeURIComponent(p.id)}` as Href);
       } else {
         pushRoute("/cesta" as Href);
       }

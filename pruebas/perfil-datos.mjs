@@ -250,6 +250,14 @@
  *    al volver a la tienda ≤ 2 renovaciones en 10 s, la sesión sigue guardada, el token renovado no vale más de 60 min y se
  *    mide «reloj desfasado» (solo minutos); un 429 de /token no cierra la sesión ni se insiste; 6 renovaciones seguidas →
  *    ≤ 2 a la red («bucle frenado»); Blue no relee con TOKEN_REFRESHED (sí con SIGNED_IN); Usuarios cuenta las dos cosas.
+ *  - CR) Comprar en menos pasos (2026-11-14, mejora 2, migración 20261114120000): «Comprar ya» en la ficha lleva a
+ *    /checkout?comprar=<id> con SOLO ese artículo (el otro sigue en la cesta tras pedir) y nombre, teléfono y dirección
+ *    predeterminada ya puestos («comprar_ya», sin datos); si faltan datos, «Para entregarte el pedido necesitamos…» y, al
+ *    escribirlos, «Guardar en mi perfil esta dirección» (marcada, 44 px) la guarda como «Casa»; Mi perfil con 3 direcciones
+ *    (Casa, Trabajo, Familiar; chips de 44 px; sin 4.ª; a medias no deja cambiar; predeterminada a las columnas de siempre;
+ *    quitar una); en el pago «Tus direcciones» rellena la elegida («pago_direccion_guardada» con etiqueta y «elegida»); sin
+ *    la columna, como antes; Usuarios («2+ direcciones», etiquetas, uso) y la ficha (cada dirección entera); a 360, 390 y
+ *    1280 px sin desbordes y campos a 16 px.
  *  - DV) Dispositivos y última conexión (2026-11-12, migración 20261112120000): con sesión, la tienda apunta «iPhone ·
  *    Safari» (solo ese nombre: sin el identificador completo, IP ni ubicación) y no lo repite antes de 15 minutos (ni al
  *    recargar ni al volver a la pestaña); pasados, lo pone al día sin sumar inicios; sin la tabla, una sola petición y sin
@@ -305,7 +313,7 @@
  *    primero, «Marcar leída» de 44 px); Seguridad con el aviso rojo, la moderación en cifras y «Quitar silencio»; letra
  *    ≥ 12 px, táctiles de 44 px separados 8 px, nada se sale y en el ordenador centrada y de 960 px como mucho. Las
  *    secciones E, F, M, ME, CO, DI, SE, C8, P, RE y DV abren la pestaña que les toca (?tab=participacion|ideas|seguridad).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -1239,6 +1247,11 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
           estado.telefono400 = (estado.telefono400 ?? 0) + 1;
           return json({ code: "PGRST204", message: "Could not find the 'telefono' column of 'perfiles_cliente' in the schema cache" }, 400);
         }
+        // Sin la migración de las 3 direcciones (sección CR): esa columna no existe, como la base de datos.
+        if (estado.sinColumnaDirecciones && "direcciones" in cuerpo) {
+          estado.direcciones400 = (estado.direcciones400 ?? 0) + 1;
+          return json({ code: "PGRST204", message: "Could not find the 'direcciones' column of 'perfiles_cliente' in the schema cache" }, 400);
+        }
         estado.guardados.push({ cuerpo, url: peticion.url(), prefer: peticion.headers()["prefer"] ?? "" });
         if (estado.respuestaGuardar) return json(estado.respuestaGuardar.cuerpo, estado.respuestaGuardar.status);
         // Como la base de datos: queda guardado (lo vuelve a leer «Completa tu perfil»).
@@ -1252,7 +1265,11 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
           estado.telefono400 = (estado.telefono400 ?? 0) + 1;
           return json({ code: "PGRST204", message: "Could not find the 'telefono' column of 'perfiles_cliente' in the schema cache" }, 400);
         }
-        const quien = (url.searchParams.get("user_id") ?? "").replace(/^eq\./, "");
+        if (estado.sinColumnaDirecciones && "direcciones" in cuerpo) {
+          estado.direcciones400 = (estado.direcciones400 ?? 0) + 1;
+          return json({ code: "PGRST204", message: "Could not find the 'direcciones' column of 'perfiles_cliente' in the schema cache" }, 400);
+        }
+        const quien =(url.searchParams.get("user_id") ?? "").replace(/^eq\./, "");
         estado.actualizados = [...(estado.actualizados ?? []), { cuerpo, quien }];
         estado.filas = (estado.filas ?? []).map((f) => (f.user_id === quien ? { ...f, ...cuerpo } : f));
         return r.fulfill({ status: 204, headers: CORS, body: "" });
@@ -8343,7 +8360,7 @@ async function seccionPT() {
     await p.waitForTimeout(600);
     ok((estado.pago.consultas ?? []).some((a) => /^Bearer \S+/.test(a)), "PT: el pago pregunta al servidor con la sesión (para saber si es el administrador)");
     ok(/^Pagar · 100,00€$/.test(await texto(p, "#pago-tarjeta")) && (await p.locator("#pago-otras-formas").count()) === 1 && (await p.locator("#pago-sin-tarjeta").count()) === 0, `PT: con el pago disponible, «Pagar» con el total y «Otras formas de pago» plegado (${await texto(p, "#pago-tarjeta")})`);
-    ok(/^Pago seguro con Stripe$/.test(await texto(p, "#pago-seguro")) && /^Tarjeta · Apple Pay$/.test(await texto(p, "#pago-metodos")), `PT: «Pago seguro con Stripe» y, sin Klarna ni Bizum en el servidor, solo «Tarjeta · Apple Pay» (${await texto(p, "#pago-metodos")})`);
+    ok(/^Pago seguro con Stripe$/.test(await texto(p, "#pago-seguro")) && /^Tarjeta · Apple Pay · Google Pay$/.test(await texto(p, "#pago-metodos")), `PT: «Pago seguro con Stripe» y, sin Klarna ni Bizum en el servidor, solo «Tarjeta · Apple Pay · Google Pay» (${await texto(p, "#pago-metodos")})`);
     ok(/Modo de prueba de Stripe \(solo lo ve el administrador\): no se cobra nada\. Tarjeta de prueba 4242 4242 4242 4242/.test(await texto(p, "#pago-modo-prueba")), "PT: en modo prueba lo dice, con la tarjeta de prueba");
     await rellenar(p);
     {
@@ -8445,8 +8462,8 @@ async function seccionPT() {
   // con Klarna o sin él; sin él, no se promete (lo comprueba PT1).
   await bloque("PT1b Bizum en la página de pago", async () => {
     for (const [klarna, esperado] of [
-      [true, /^Tarjeta · Apple Pay · Bizum · Klarna$/],
-      [false, /^Tarjeta · Apple Pay · Bizum$/],
+      [true, /^Tarjeta · Apple Pay · Google Pay · Bizum · Klarna$/],
+      [false, /^Tarjeta · Apple Pay · Google Pay · Bizum$/],
     ]) {
       const estado = { filas: perfilDe(CLIENTE), guardados: [], productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real", klarna, bizum: true } };
       const ctx = await contexto(navegador, CLIENTE, "user", estado);
@@ -8471,7 +8488,7 @@ async function seccionPT() {
     await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(600);
     ok((await p.locator("#pago-modo-prueba").count()) === 0, "PT: con la clave real no sale el aviso de prueba");
-    ok(/^Tarjeta · Apple Pay · Klarna$/.test(await texto(p, "#pago-metodos")), `PT: con Klarna en el servidor (sin Bizum), lo nombra en la fila de formas de pago (${await texto(p, "#pago-metodos")})`);
+    ok(/^Tarjeta · Apple Pay · Google Pay · Klarna$/.test(await texto(p, "#pago-metodos")), `PT: con Klarna en el servidor (sin Bizum), lo nombra en la fila de formas de pago (${await texto(p, "#pago-metodos")})`);
     await rellenar(p);
     await p.locator("#pago-tarjeta").click();
     await p.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 }).catch(() => {});
@@ -13338,6 +13355,375 @@ async function seccionSES2() {
   }
 }
 
+// ===== CR) Comprar en menos pasos (dueño, 2026-11-14, mejora 2; migración 20261114120000_perfil_direcciones.sql): «Comprar ya»
+// lleva al pago con SOLO ese artículo (lo demás sigue en la cesta) y los datos del perfil puestos; si falta algo, se explica
+// para qué y se ofrece «Guardar en mi perfil»; hasta 3 direcciones en Mi perfil (Casa, Trabajo, Familiar; no hay 4.ª) y en el
+// pago se elige una con un toque; Administración cuenta las direcciones y el uso; sin la columna todo funciona como antes;
+// a 360, 390 y 1280 px sin desbordes y con los campos a 16 px. Sesión y datos simulados. ======================================
+async function seccionCR() {
+  const base = { user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", foto_url: null };
+  const legado = { codigo_postal: "50410", localidad: "Cuarte de Huerva", direccion: "Calle Mayor 5", piso: "3º B" };
+  const sinDir = { codigo_postal: null, localidad: null, direccion: null, piso: null };
+  const D = {
+    casa: { etiqueta: "casa", codigo_postal: "50410", localidad: "Cuarte de Huerva", direccion: "Calle Mayor 5", piso: "3º B", predeterminada: true },
+    trabajo: { etiqueta: "trabajo", codigo_postal: "50001", localidad: "Zaragoza", direccion: "Avenida Goya 10", piso: null, predeterminada: false },
+    familiar: { etiqueta: "familiar", codigo_postal: "50003", localidad: "Zaragoza", direccion: "Calle Alfonso I 3", piso: "1º", predeterminada: false },
+  };
+  const tres = [D.casa, D.trabajo, D.familiar];
+  const ID = "00000000-0000-4000-8000-0000000000c1";
+  const OTRO_ART = "00000000-0000-4000-8000-0000000000c2";
+  const CESTA = [{ id: ID, title: "PlayStation 5 Slim", subtitle: "Consolas", priceEUR: 100, qty: 1, imageUrl: null }];
+  const conCesta = (ctx, articulos = CESTA) =>
+    ctx.addInitScript((a) => {
+      try {
+        if (!sessionStorage.getItem("vz-prueba-cesta")) {
+          sessionStorage.setItem("vz-prueba-cesta", "1");
+          localStorage.setItem("videojuegoos_cart_v1", JSON.stringify(a.map((x) => ({ ...x, reservedUntil: Date.now() + 14 * 60000 }))));
+        }
+      } catch {
+        // sin almacenamiento
+      }
+    }, articulos);
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  const abrirPerfil = async (p) => {
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
+    if ((await p.locator("#perfil-cabecera").getAttribute("aria-expanded").catch(() => "true")) !== "true") await p.locator("#perfil-cabecera").click();
+    await p.waitForTimeout(400);
+  };
+  const guardar = (p) => p.getByRole("button", { name: "Guardar perfil" });
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const aDomicilio = (p) => p.getByRole("radio", { name: /Envío a domicilio/ }).click({ timeout: 30000 }).catch(() => {});
+  const valor = (p, sel) => p.locator(sel).inputValue().catch(() => "");
+  const sinDatos = (estado) => !/Calle Mayor|Avenida Goya|Alfonso|600 ?123|50410|Cuarte/.test(JSON.stringify(estado.eventosEnviados ?? []));
+  // Letra de todos los campos con teclado visibles y alto de los chips (44 px como mínimo).
+  const letraCampos = (p, sel) =>
+    p.evaluate((s) => [...document.querySelectorAll(`${s} input, ${s} textarea`)].filter((e) => e.offsetParent).map((e) => parseFloat(getComputedStyle(e).fontSize)), sel);
+  const altos = (p, sel) => p.evaluate((s) => [...document.querySelectorAll(s)].map((e) => Math.round(e.getBoundingClientRect().height)), sel);
+  // Los 3 chips en UNA fila y con su nombre entero (sin cortar con «…»).
+  const chipsEnFila = (p, sel) =>
+    p.evaluate((s) => {
+      const chips = [...document.querySelectorAll(`${s} [role=radio]`)];
+      const tops = new Set(chips.map((c) => Math.round(c.getBoundingClientRect().top)));
+      const cortados = chips.flatMap((c) => [...c.querySelectorAll("div")].filter((t) => t.children.length === 0 && t.scrollWidth > t.clientWidth + 1)).length;
+      return { n: chips.length, filas: tops.size, cortados };
+    }, sel);
+
+  // CR1) «Comprar ya» en la ficha: al pago con SOLO ese artículo (el otro sigue en la cesta) y los datos del perfil puestos.
+  {
+    const estado = {
+      filas: [{ ...base, ...legado, telefono: "600 123 456", direcciones: tres }],
+      guardados: [],
+      aceptaAnalitica: true,
+      tarifas: [],
+      pedidoNumero: 101,
+      producto: {
+        id: ID, title: "PlayStation 5 Slim", description: "Consola revisada.", price_eur: 100, status: "PUBLISHED", is_active: true,
+        category_id: null, images: [], updated_at: "2026-11-14T10:00:00Z", created_at: "2026-11-14T10:00:00Z", condition: "USED",
+        like_count: 0, reference: null, caracteristicas: null, mantenimiento: null, category: null,
+      },
+      fotosProducto: [],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx, [{ id: OTRO_ART, title: "Mando DualSense", subtitle: "Accesorios", priceEUR: 50, qty: 1, imageUrl: null }]);
+    const p = await pagina(ctx, `/producto/${ID}`);
+    const boton = p.getByRole("button", { name: /^Comprar ya/ }).first();
+    await boton.waitFor({ timeout: 30000 }).catch(() => {});
+    await boton.click().catch(() => {});
+    await p.waitForURL(/\/checkout\?comprar=/, { timeout: 20000 }).catch(() => {});
+    ok(/\/checkout\?comprar=00000000-0000-4000-8000-0000000000c1/.test(p.url()), `CR: «Comprar ya» lleva directo al pago con ese artículo (${p.url().replace(BASE, "")})`);
+    await p.locator("#pago-compra-rapida").waitFor({ timeout: 20000 }).catch(() => {});
+    await aDomicilio(p);
+    await p.locator("#pago-direccion-perfil").waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const rapida = (await p.locator("#pago-compra-rapida").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/Compra rápida: solo este artículo\. El otro de tu cesta sigue allí\./.test(rapida), `CR: dice que es una compra rápida y que lo demás sigue en la cesta (${rapida || "no sale"})`);
+    ok((await p.locator(`#pago-articulo-${ID}`).count()) === 1 && (await p.locator(`#pago-articulo-${OTRO_ART}`).count()) === 0, "CR: en el resumen solo sale ese artículo");
+    const datos = {
+      nombre: await valor(p, "#pago-campo-nombre input"),
+      tel: await valor(p, "#pago-campo-telefono input"),
+      dir: await valor(p, "#pago-campo-direccion input"),
+      cp: await valor(p, "#pago-campo-cp input"),
+      ciudad: await valor(p, "#pago-campo-ciudad input"),
+    };
+    ok(datos.nombre === "Ana" && datos.tel === "600 123 456" && datos.dir === "Calle Mayor 5, 3º B" && datos.cp === "50410" && datos.ciudad === "Cuarte de Huerva", `CR: con nombre, teléfono y la dirección predeterminada ya rellenados (${JSON.stringify(datos)})`);
+    ok((await p.locator("#pago-faltan-datos").count()) === 0 && (await p.locator("#pago-confirmar-boton").getAttribute("aria-disabled")) !== "true", "CR: no falta nada: se puede pagar sin escribir");
+    await esperar(p, () => evento(estado, "comprar_ya").length > 0);
+    const ev = evento(estado, "comprar_ya")[0];
+    ok(evento(estado, "comprar_ya").length === 1 && ev?.metadata?.resto === 1 && sinDatos(estado), `CR: la analítica cuenta «comprar_ya» una vez, sin datos personales (${JSON.stringify(ev?.metadata ?? null)})`);
+    await capturar(p, "CR1-comprar-ya-390");
+    await p.locator("#pago-confirmar-boton").click();
+    await esperar(p, () => (estado.pedidosCreados ?? []).length > 0);
+    await p.waitForTimeout(600);
+    const pedido = estado.pedidosCreados?.[0];
+    ok(JSON.stringify(pedido?.p_productos ?? []) === JSON.stringify([ID]) && pedido?.p_datos?.direccion === "Calle Mayor 5, 3º B", `CR: el pedido lleva solo ese artículo y la dirección (${JSON.stringify(pedido?.p_productos ?? null)})`);
+    const cesta = await p.evaluate(() => JSON.parse(localStorage.getItem("videojuegoos_cart_v1") ?? "[]").map((x) => x.id));
+    ok(cesta.length === 1 && cesta[0] === OTRO_ART, `CR: tras pedir, el otro artículo sigue en la cesta (${JSON.stringify(cesta)})`);
+    await esperar(p, () => evento(estado, "pago_direccion_guardada").length > 0);
+    const evd = evento(estado, "pago_direccion_guardada")[0];
+    ok(evd?.metadata?.etiqueta === "casa" && evd?.metadata?.elegida === false && evd?.metadata?.predeterminada === true && sinDatos(estado), `CR: se mide «pago con dirección guardada» con su etiqueta, sin la dirección (${JSON.stringify(evd?.metadata ?? null)})`);
+    ok(p.errores.filter((e) => e.startsWith("error JS")).length === 0, `CR1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CR2) Faltan datos: el aviso explica para qué y, al escribirlos, «Guardar en mi perfil» (marcada) guarda la dirección.
+  {
+    const estado = { filas: [{ ...base, ...sinDir, telefono: null, direcciones: [] }], guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: [], pedidoNumero: 101 };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await aDomicilio(p);
+    await p.locator("#pago-faltan-datos").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const aviso = (await p.locator("#pago-faltan-datos").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/Para entregarte el pedido necesitamos teléfono, dirección y 2 más\./.test(aviso) && /Solo los usamos para el envío y para avisarte de cómo va tu pedido\./.test(aviso), `CR: si faltan datos, explica para qué se piden (${aviso || "no sale"})`);
+    ok(/Marca «Guardar en mi perfil» y la próxima vez saldrán ya rellenados\./.test(aviso), "CR: y que se pueden guardar en el perfil");
+    await capturar(p, "CR2-faltan-datos-390");
+    await p.getByPlaceholder("600 000 000").fill("600 111 222");
+    await p.locator("#pago-campo-direccion input").fill("Calle Delicias 20, 4º A");
+    await p.locator("#pago-campo-cp input").fill("50017");
+    await p.locator("#pago-campo-ciudad input").fill("Zaragoza");
+    await p.locator("#pago-guardar-direccion").waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.locator("#pago-faltan-datos").count()) === 0, "CR: con todo escrito, el aviso se va");
+    const casilla = await p.evaluate(() => {
+      const e = document.getElementById("pago-guardar-direccion");
+      return e ? { texto: e.innerText.replace(/[-]/g, "").replace(/\s+/g, " ").trim(), marcada: e.getAttribute("aria-checked"), alto: Math.round(e.getBoundingClientRect().height) } : null;
+    });
+    ok(/^\W*Guardar en mi perfil esta dirección$/.test(casilla?.texto ?? "") && casilla.marcada === "true" && casilla.alto >= 44, `CR: ofrece «Guardar en mi perfil esta dirección», marcada y táctil (${JSON.stringify(casilla)})`);
+    await p.locator("#pago-guardar-direccion").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "CR2-guardar-direccion-390");
+    await p.locator("#pago-confirmar-boton").click();
+    await esperar(p, () => (estado.actualizados ?? []).some((a) => "direcciones" in a.cuerpo));
+    const cambio = (estado.actualizados ?? []).find((a) => "direcciones" in a.cuerpo);
+    const lista = cambio?.cuerpo?.direcciones ?? [];
+    ok(
+      cambio?.quien === CLIENTE.id && lista.length === 1 && lista[0].etiqueta === "casa" && lista[0].predeterminada === true && lista[0].direccion === "Calle Delicias 20, 4º A" && cambio.cuerpo.codigo_postal === "50017" && cambio.cuerpo.localidad === "Zaragoza",
+      `CR: al pedir guarda la dirección en SU perfil como «Casa» predeterminada (${JSON.stringify(cambio ?? null)})`
+    );
+    ok((estado.actualizados ?? []).some((a) => a.cuerpo.telefono === "600 111 222"), "CR: y el teléfono, como siempre");
+    await esperar(p, () => evento(estado, "perfil_direccion_guardada").length > 0);
+    const ev = evento(estado, "perfil_direccion_guardada")[0];
+    ok(ev?.metadata?.desde === "pago" && ev?.metadata?.direcciones === 1 && !/Delicias|50017/.test(JSON.stringify(estado.eventosEnviados ?? [])), `CR: la analítica cuenta la dirección guardada desde el pago, sin la dirección (${JSON.stringify(ev?.metadata ?? null)})`);
+    ok(p.errores.filter((e) => e.startsWith("error JS")).length === 0, `CR2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CR3) Mi perfil: hasta 3 direcciones con etiqueta (Casa, Trabajo, Familiar), sin 4.ª; no deja pasar a otra a medias; la
+  // predeterminada también va a las columnas de siempre.
+  {
+    const estado = { filas: [{ ...base, ...legado, telefono: null, direcciones: null }], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.locator("#perfil-direcciones").waitFor({ timeout: 15000 }).catch(() => {});
+    const chips = await p.locator("#perfil-direcciones [role=radio]").count();
+    ok(chips === 3 && (await p.locator("#perfil-direccion-casa").count()) === 1 && (await p.locator("#perfil-direccion-trabajo").count()) === 1 && (await p.locator("#perfil-direccion-familiar").count()) === 1, `CR: Mi perfil ofrece 3 direcciones: Casa, Trabajo y Familiar (${chips})`);
+    ok((await valor(p, "#perfil-direccion")) === "Calle Mayor 5", "CR: la dirección de siempre es «Casa»");
+    const alt = await altos(p, "#perfil-direcciones [role=radio]");
+    ok(alt.every((h) => h >= 44), `CR: los chips miden 44 px o más (${alt.join(", ")})`);
+    // Trabajo, a medias: no deja pasar a otra.
+    await p.locator("#perfil-direccion-trabajo").click();
+    ok((await valor(p, "#perfil-direccion")) === "" && (await valor(p, "#perfil-codigoPostal")) === "", "CR: «Trabajo» empieza vacía");
+    await p.locator("#perfil-direccion").fill("Avenida Goya 10");
+    await p.locator("#perfil-direccion-familiar").click();
+    ok(/Termina esta dirección \(o vacíala\) antes de pasar a otra\./.test(await p.evaluate(() => document.body.innerText)) && (await valor(p, "#perfil-direccion")) === "Avenida Goya 10", "CR: a medias, avisa y no cambia de dirección");
+    await p.locator("#perfil-codigoPostal").fill("50001");
+    await p.locator("#perfil-localidad").fill("Zaragoza");
+    await p.locator("#perfil-direccion-familiar").click();
+    await p.locator("#perfil-codigoPostal").fill("50003");
+    await p.locator("#perfil-localidad").fill("Zaragoza");
+    await p.locator("#perfil-direccion").fill("Calle Alfonso I 3");
+    await p.locator("#perfil-direccion-predeterminada").click();
+    ok((await p.locator("#perfil-direccion-predeterminada").getAttribute("aria-checked")) === "true", "CR: «Usar por defecto al comprar» marca la que se ve");
+    const letras = await letraCampos(p, "#perfil-direccion-envio");
+    ok(letras.length >= 4 && letras.every((f) => f >= 16), `CR: los campos de la dirección a 16 px o más (${letras.join(", ")})`);
+    ok((await p.getByText(/Añadir/).count()) === 0 && (await p.locator("#perfil-direcciones [role=radio]").count()) === 3, "CR: con 3 no hay forma de añadir una 4.ª");
+    await p.locator("#perfil-direcciones").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "CR3-perfil-direcciones-390");
+    await guardar(p).click();
+    await esperar(p, () => estado.guardados.length > 0);
+    const cuerpo = estado.guardados[0]?.cuerpo ?? {};
+    const l = cuerpo.direcciones ?? [];
+    ok(l.length === 3 && l.map((d) => d.etiqueta).join(",") === "casa,trabajo,familiar" && l.filter((d) => d.predeterminada).map((d) => d.etiqueta).join() === "familiar", `CR: guarda las 3 con su etiqueta y «Familiar» como predeterminada (${JSON.stringify(l.map((d) => [d.etiqueta, d.predeterminada]))})`);
+    ok(cuerpo.direccion === "Calle Alfonso I 3" && cuerpo.codigo_postal === "50003" && cuerpo.localidad === "Zaragoza", `CR: la predeterminada va también a las columnas de siempre (${cuerpo.direccion})`);
+    await esperar(p, () => evento(estado, "perfil_direccion_guardada").length > 0);
+    const ev = evento(estado, "perfil_direccion_guardada")[0];
+    ok(ev?.metadata?.direcciones === 3 && JSON.stringify(ev?.metadata?.etiquetas) === JSON.stringify(["casa", "trabajo", "familiar"]) && sinDatos(estado), `CR: la analítica cuenta 3 direcciones y sus etiquetas, sin la dirección (${JSON.stringify(ev?.metadata ?? null)})`);
+    // Al volver a entrar: las 3, con la predeterminada a la vista.
+    const q = await pagina(ctx, "/perfil");
+    await abrirPerfil(q);
+    await q.locator("#perfil-direcciones").waitFor({ timeout: 15000 }).catch(() => {});
+    ok((await valor(q, "#perfil-direccion")) === "Calle Alfonso I 3" && /predeterminada/.test((await q.locator("#perfil-direccion-familiar").getAttribute("aria-label")) ?? ""), "CR: al volver se ve la predeterminada (Familiar) marcada");
+    // Quitar una: se queda en 2.
+    await q.locator("#perfil-direccion-trabajo").click();
+    await q.locator("#perfil-direccion-quitar").click();
+    await guardar(q).click();
+    await esperar(q, () => estado.guardados.length > 1);
+    ok((estado.guardados[1]?.cuerpo?.direcciones ?? []).map((d) => d.etiqueta).join(",") === "casa,familiar", `CR: «Quitar esta dirección» la quita (${JSON.stringify((estado.guardados[1]?.cuerpo?.direcciones ?? []).map((d) => d.etiqueta))})`);
+    ok(p.errores.length === 0 && q.errores.length === 0, `CR3: sin errores de JavaScript (${p.errores[0] ?? q.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CR3b) Mi perfil a 360, 390 y 1280 px con 3 direcciones: sin desbordes; capturas.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = { filas: [{ ...base, ...legado, telefono: "600 123 456", direcciones: tres }], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.locator("#perfil-direcciones").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator("#perfil-direccion-trabajo").click().catch(() => {});
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `CR (${nombre}): Mi cuenta con 3 direcciones no se ensancha (${d.a}/${d.v})`);
+    const fila = await chipsEnFila(p, "#perfil-direcciones");
+    ok(fila.n === 3 && fila.filas === 1 && fila.cortados === 0, `CR (${nombre}): Casa, Trabajo y Familiar en una fila y sin cortar (${JSON.stringify(fila)})`);
+    const letras = await letraCampos(p, "#perfil-direccion-envio");
+    ok(letras.every((f) => f >= 16), `CR (${nombre}): campos a 16 px o más (${letras.join(", ")})`);
+    await p.locator("#perfil-direcciones").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `CR-perfil-${nombre}`);
+    ok(p.errores.length === 0, `CR (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CR4) En el pago, «Tus direcciones» (chips de 44 px) rellena la dirección elegida; se mide la elegida.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = { filas: [{ ...base, ...legado, telefono: "600 123 456", direcciones: tres }], guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: [], pedidoNumero: 101 };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await aDomicilio(p);
+    await p.locator("#pago-direcciones").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(400);
+    const alt = await altos(p, "#pago-direcciones [role=radio]");
+    ok(alt.length === 3 && alt.every((h) => h >= 44), `CR (${nombre}): el pago ofrece las 3 direcciones en chips de 44 px (${alt.join(", ")})`);
+    const fila = await chipsEnFila(p, "#pago-direcciones");
+    ok(fila.filas === 1 && fila.cortados === 0, `CR (${nombre}): en una fila y sin cortar (${JSON.stringify(fila)})`);
+    await p.locator("#pago-direccion-trabajo").click();
+    await p.waitForTimeout(200);
+    const datos = { dir: await valor(p, "#pago-campo-direccion input"), cp: await valor(p, "#pago-campo-cp input"), ciudad: await valor(p, "#pago-campo-ciudad input") };
+    ok(datos.dir === "Avenida Goya 10" && datos.cp === "50001" && datos.ciudad === "Zaragoza", `CR (${nombre}): tocar «Trabajo» rellena su dirección (${JSON.stringify(datos)})`);
+    ok((await p.locator("#pago-guardar-direccion").count()) === 0, `CR (${nombre}): con una guardada no ofrece guardarla otra vez`);
+    const letras = await letraCampos(p, "#pago-desplazamiento");
+    ok(letras.length >= 5 && letras.every((f) => f >= 16), `CR (${nombre}): los campos del pago a 16 px o más (${letras.join(", ")})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `CR (${nombre}): «Finalizar compra» no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#pago-direcciones").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `CR-pago-${nombre}`);
+    if (nombre === "390") {
+      await p.locator("#pago-confirmar-boton").click();
+      await esperar(p, () => (estado.pedidosCreados ?? []).length > 0 && evento(estado, "pago_direccion_guardada").length > 0);
+      const ev = evento(estado, "pago_direccion_guardada")[0];
+      ok(estado.pedidosCreados?.[0]?.p_datos?.direccion === "Avenida Goya 10" && ev?.metadata?.etiqueta === "trabajo" && ev?.metadata?.elegida === true && sinDatos(estado), `CR: el pedido lleva la elegida y se mide «elegida en el selector» (${JSON.stringify(ev?.metadata ?? null)})`);
+    }
+    ok(p.errores.length === 0, `CR (${nombre}): el pago sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CR5) Sin la columna (migración sin aplicar): una sola dirección como antes, sin chips, y todo funciona sin errores.
+  {
+    const estado = { filas: [{ ...base, ...legado, telefono: "600 123 456" }], guardados: [], productosVacios: true, tarifas: [], pedidoNumero: 101 };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.locator("#perfil-direccion").waitFor({ timeout: 15000 }).catch(() => {});
+    ok((await p.locator("#perfil-direcciones").count()) === 0 && (await valor(p, "#perfil-direccion")) === "Calle Mayor 5", "CR: sin la columna, Mi perfil enseña una sola dirección, como antes");
+    await p.locator("#perfil-direccion").fill("Calle Mayor 7");
+    await guardar(p).click();
+    await esperar(p, () => estado.guardados.length > 0);
+    ok(!("direcciones" in (estado.guardados[0]?.cuerpo ?? {})) && estado.guardados[0]?.cuerpo?.direccion === "Calle Mayor 7", "CR: y guarda sin pedir la columna nueva");
+    const q = await pagina(ctx, "/checkout");
+    await aDomicilio(q);
+    await q.locator("#pago-direccion-perfil").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await q.locator("#pago-direcciones").count()) === 0 && (await valor(q, "#pago-campo-direccion input")) === "Calle Mayor 7, 3º B", "CR: en el pago, la dirección de siempre y sin selector");
+    ok(p.errores.length === 0 && q.errores.length === 0, `CR5: sin errores de JavaScript (${p.errores[0] ?? q.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CR5b) Sin fila y sin la columna: la primera vez se intenta, falla, guarda lo demás y deja de ofrecer varias.
+  {
+    const estado = { filas: [], guardados: [], sinColumnaDirecciones: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.locator("#perfil-direcciones").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator('#perfil-datos [aria-label="Usuario"]').first().fill("ana_g").catch(() => {});
+    await p.locator("#perfil-codigoPostal").fill("50001");
+    await p.locator("#perfil-localidad").fill("Zaragoza");
+    await p.locator("#perfil-direccion").fill("Avenida Goya 10");
+    await guardar(p).click();
+    await esperar(p, () => estado.guardados.length > 0);
+    await p.waitForTimeout(500);
+    ok(estado.direcciones400 === 1 && estado.guardados.length === 1 && !("direcciones" in (estado.guardados[0]?.cuerpo ?? {})) && estado.guardados[0]?.cuerpo?.direccion === "Avenida Goya 10", `CR: sin la columna, guarda la dirección en las columnas de siempre (${estado.direcciones400 ?? 0} intento fallido, ${estado.guardados.length} guardado)`);
+    ok((await p.locator("#perfil-direcciones").count()) === 0 && p.errores.length === 0, "CR: y deja de ofrecer varias, sin errores de JavaScript");
+    await ctx.close();
+  }
+
+  // CR6) Administración: Usuarios (2+ direcciones, etiquetas, «Comprar ya» y pagos con dirección guardada) y la ficha.
+  {
+    const OTRO = { ...CLIENTE, id: "33333333-3333-4333-8333-333333333333", email: "otro@example.com" };
+    const TERCERO = { ...CLIENTE, id: "44444444-4444-4444-8444-444444444444", email: "tercero@example.com" };
+    const ev = (event_name, user_id, metadata = {}) => ({ event_name, user_id, session_id: `s-${user_id}`, metadata });
+    const fila = (id, nombre, usuario, direcciones) => ({ ...base, user_id: id, nombre, usuario, updated_at: "2026-11-14T10:00:00Z", ...legado, telefono: null, direcciones });
+    const usuario = (u) => ({ user_id: u.id, email: u.email, role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 });
+    const montar = () => ({
+      guardados: [],
+      filas: [fila(CLIENTE.id, "Ana", "ana_g", tres), fila(OTRO.id, "Otro", "otro", [D.casa, D.trabajo]), fila(TERCERO.id, "Tercero", "tercero", [D.casa])],
+      usuarios: [usuario(CLIENTE), usuario(OTRO), usuario(TERCERO)],
+      eventos: [
+        ev("comprar_ya", CLIENTE.id, { resto: 0 }),
+        ev("comprar_ya", CLIENTE.id, { resto: 1 }),
+        ev("comprar_ya", OTRO.id, { resto: 0 }),
+        ev("pago_direccion_guardada", CLIENTE.id, { etiqueta: "casa", elegida: false }),
+        ev("pago_direccion_guardada", OTRO.id, { etiqueta: "trabajo", elegida: true }),
+      ],
+    });
+    for (const { nombre, vista } of VISTAS) {
+      const estado = montar();
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, "/admin/users?tab=participacion");
+      await p.locator("#admin-perfiles").waitFor({ timeout: 30000 }).catch(() => {});
+      const cifra = (await p.locator("#usuarios-perfil-varias").innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+      ok(/^2 2\+ direcciones$/.test(cifra), `CR (${nombre}): Usuarios cuenta los clientes con 2 o más direcciones (${cifra || "no sale"})`);
+      const dirs = (await p.locator("#admin-perfiles-direcciones").innerText().catch(() => "")).replace(/\s+/g, " ");
+      ok(/Casa 3 · Trabajo 2 · Familiar 1 · clientes con 2 o más 2/.test(dirs), `CR (${nombre}): y cuántas hay de cada etiqueta (${dirs || "no sale"})`);
+      const uso = (await p.locator("#admin-perfiles-comprar-ya").innerText().catch(() => "")).replace(/\s+/g, " ");
+      ok(/«Comprar ya» 3 veces \(2 personas\) · pagos con una dirección guardada 2 \(elegida en el selector 1\)/.test(uso), `CR (${nombre}): y el uso de «Comprar ya» y de la dirección guardada (${uso || "no sale"})`);
+      await p.locator("#usuarios-pestana-clientes").click();
+      await p.locator("#usuarios-lista").waitFor({ timeout: 10000 }).catch(() => {});
+      const todo = (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
+      ok(/3 direcciones: Casa, Trabajo, Familiar/.test(todo) && /2 direcciones: Casa, Trabajo/.test(todo) && !/Avenida Goya|Alfonso/.test(todo), `CR (${nombre}): cada fila dice cuántas direcciones y sus etiquetas, sin la dirección`);
+      await p.getByText("2+ direcciones (2)", { exact: true }).click();
+      await p.waitForTimeout(400);
+      const filtrado = (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
+      ok(filtrado.includes(CLIENTE.email) && filtrado.includes(OTRO.email) && !filtrado.includes(TERCERO.email), `CR (${nombre}): el chip «2+ direcciones» filtra la lista`);
+      const d = await sinDesborde(p);
+      ok(d.a <= d.v + 1 && p.errores.length === 0, `CR (${nombre}): Usuarios no se ensancha y sin errores (${d.a}/${d.v}; ${p.errores[0] ?? "sin errores"})`);
+      await capturar(p, `CR-usuarios-${nombre}`);
+      // Ficha del cliente: las 3 enteras, la predeterminada marcada.
+      const f = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}`);
+      await f.locator("#ficha-perfil-direcciones").waitFor({ timeout: 30000 }).catch(() => {});
+      const resumen = (await f.locator("#ficha-perfil-direcciones").innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+      const casa = (await f.locator("#ficha-perfil-direccion-casa").innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+      const fam = (await f.locator("#ficha-perfil-direccion-familiar").innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+      ok(/^Direcciones guardadas 3: Casa, Trabajo, Familiar$/.test(resumen), `CR (${nombre}): la ficha dice cuántas y cuáles (${resumen || "no sale"})`);
+      ok(/^Casa \(predeterminada\) Calle Mayor 5, 3º B · 50410 Cuarte de Huerva$/.test(casa) && /^Familiar Calle Alfonso I 3, 1º · 50003 Zaragoza$/.test(fam), `CR (${nombre}): y cada dirección entera (${casa} | ${fam})`);
+      const df = await sinDesborde(f);
+      ok(df.a <= df.v + 1 && f.errores.length === 0, `CR (${nombre}): la ficha no se ensancha y sin errores (${df.a}/${df.v}; ${f.errores[0] ?? "sin errores"})`);
+      await f.locator("#ficha-perfil-direcciones").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(f, `CR-ficha-${nombre}`);
+      await ctx.close();
+    }
+  }
+}
+
 // ===== CAMPOS16) Todo recuadro donde sale el teclado (input, textarea, contenteditable) lleva letra de 16 px o más (con menos,
 // Safari del iPhone hace zoom al tocarlo; constants/theme.ts: CAMPO.letra). Recorre cliente (sin y con sesión) y Administración,
 // con los formularios que se pueden abrir con un toque. Lista los que fallen con su selector. ===================================
@@ -13426,6 +13812,7 @@ try {
   if (SOLO === "CAMPOS16") await seccionCAMPOS16();
   if (SOLO === "SES") await seccionSES();
   if (SOLO === "SES2") await seccionSES2();
+  if (SOLO === "CR") await seccionCR();
   if (SOLO === "TEL") await seccionTEL();
   if (SOLO === "TM5") await seccionTM5();
   if (SOLO === "TM4") await seccionTM4();
@@ -14512,6 +14899,7 @@ try {
   await seccionTEL();
   await seccionSES();
   await seccionSES2();
+  await seccionCR();
   await seccionCAMPOS16();
   }
 } catch (e) {
