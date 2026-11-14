@@ -75,6 +75,10 @@
  *   «Crear cuenta gratis» y cuentas creadas después (lib/analytics.ts → marcarOrigenRegistro).
  * - Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px y grises desde
  *   COLORES_TEXTO.secundario (antes 12/12,5 px y gris 0,48), sin tocar los gráficos ni los datos.
+ * - «Búsquedas (30 días)» (#analitica-busquedas, mejora 3 del 2026-11-14): lee los eventos busqueda,
+ *   busqueda_sin_resultados, busqueda_sugerencia_tocada y catalogo_filtro de components/Barramagic.tsx y
+ *   app/catalogo.tsx (siempre 30 días): lo más buscado, lo que no dio resultados (lo que piden y no hay), sinónimos y
+ *   correcciones usados, sugerencias tocadas y el uso de los filtros de precio y estado. Texto normalizado, sin datos.
  * - app/admin/index.tsx → tarjeta "Visitas y métricas" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("analytics") en el Stack.
  */
@@ -690,6 +694,95 @@ export default function AdminAnalytics() {
               cortados: Number(r.cortados) || 0,
             }))
       );
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Búsquedas (mejora 3, 2026-11-14): los últimos 30 días, aparte de las fechas de arriba. Solo eventos propios de quien
+  // aceptó la analítica (lib/analytics.ts), con el texto normalizado y sin datos personales.
+  const [busquedas, setBusquedas] = useState<{
+    total: number;
+    top: { texto: string; n: number; resultados: number }[];
+    sinResultados: { texto: string; n: number; sugerencia: string | null }[];
+    nSinResultados: number;
+    sinonimo: number;
+    correccion: number;
+    sugerenciasTocadas: number;
+    desde: { inicio: number; catalogo: number };
+    filtros: { precio: number; estado: number; quitados: number; borrados: number };
+    estados: { valor: string; n: number }[];
+    tramos: { tramo: string; n: number }[];
+  } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data, error } = await supabase
+        .from("analytics_events")
+        .select("event_name, metadata")
+        .in("event_name", ["busqueda", "busqueda_sin_resultados", "busqueda_sugerencia_tocada", "catalogo_filtro"])
+        .gte("created_at", desde)
+        .order("created_at", { ascending: false })
+        .limit(5000);
+      if (!vivo) return;
+      if (error || !Array.isArray(data)) {
+        setBusquedas(null);
+        return;
+      }
+      type Fila = { event_name: string; metadata: Record<string, unknown> | null };
+      const filas = data as Fila[];
+      const texto = (m: Record<string, unknown> | null) => (typeof m?.texto === "string" ? m.texto : "");
+      const contar = <T,>(lista: T[], clave: (x: T) => string) => {
+        const mapa = new Map<string, { n: number; ultimo: T }>();
+        for (const x of lista) {
+          const k = clave(x);
+          if (!k) continue;
+          const v = mapa.get(k);
+          mapa.set(k, { n: (v?.n ?? 0) + 1, ultimo: v?.ultimo ?? x });
+        }
+        return [...mapa.entries()].sort((a, b) => b[1].n - a[1].n);
+      };
+      const hechas = filas.filter((f) => f.event_name === "busqueda");
+      const vacias = filas.filter((f) => f.event_name === "busqueda_sin_resultados");
+      const filtros = filas.filter((f) => f.event_name === "catalogo_filtro");
+      const NOMBRES_ESTADO: Record<string, string> = { NEW: "Nuevo", USED: "Segunda mano", LIKE_NEW: "Como nuevo", GOOD: "Bueno", FAIR: "Regular", PARTS: "Para piezas" };
+      const tramo = (m: Record<string, unknown> | null) => {
+        const min = Number(m?.min ?? 1);
+        const max = m?.max == null ? null : Number(m.max);
+        return `${min} € – ${max == null ? "1000 € o más" : `${max} €`}`;
+      };
+      setBusquedas({
+        total: hechas.length,
+        top: contar(hechas, (f) => texto(f.metadata))
+          .slice(0, 10)
+          .map(([k, v]) => ({ texto: k, n: v.n, resultados: Number(v.ultimo.metadata?.resultados ?? 0) })),
+        sinResultados: contar(vacias, (f) => texto(f.metadata))
+          .slice(0, 10)
+          .map(([k, v]) => ({ texto: k, n: v.n, sugerencia: typeof v.ultimo.metadata?.sugerencia === "string" ? (v.ultimo.metadata.sugerencia as string) : null })),
+        nSinResultados: vacias.length,
+        sinonimo: hechas.filter((f) => f.metadata?.sinonimo === true).length,
+        correccion: hechas.filter((f) => f.metadata?.correccion === true).length,
+        sugerenciasTocadas: filas.filter((f) => f.event_name === "busqueda_sugerencia_tocada").length,
+        desde: { inicio: hechas.filter((f) => f.metadata?.origen === "inicio").length, catalogo: hechas.filter((f) => f.metadata?.origen === "catalogo").length },
+        filtros: {
+          precio: filtros.filter((f) => f.metadata?.filtro === "precio" && f.metadata?.accion == null).length,
+          estado: filtros.filter((f) => f.metadata?.filtro === "estado" && f.metadata?.accion == null).length,
+          quitados: filtros.filter((f) => f.metadata?.accion === "quitar").length,
+          borrados: filtros.filter((f) => f.metadata?.accion === "borrar").length,
+        },
+        estados: contar(
+          filtros.filter((f) => f.metadata?.filtro === "estado" && f.metadata?.accion == null),
+          (f) => String(f.metadata?.valor ?? "")
+        ).map(([k, v]) => ({ valor: NOMBRES_ESTADO[k] ?? k, n: v.n })),
+        tramos: contar(
+          filtros.filter((f) => f.metadata?.filtro === "precio" && f.metadata?.accion == null),
+          (f) => tramo(f.metadata)
+        )
+          .slice(0, 5)
+          .map(([k, v]) => ({ tramo: k, n: v.n })),
+      });
     })();
     return () => {
       vivo = false;
@@ -1669,6 +1762,71 @@ export default function AdminAnalytics() {
                       Blue IA → «Hablar con el equipo» fuera de horario: {coreFunnel.fueraHorarioAviso}{" "}
                       {coreFunnel.fueraHorarioAviso === 1 ? "sesión" : "sesiones"} · siguen con Blue: {coreFunnel.fueraHorarioBlue} ·
                       escriben igualmente: {coreFunnel.fueraHorarioEscribe}
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Búsquedas (30 días)"
+              subtitle="Lo que buscan los clientes en Inicio y en el catálogo, lo que no encuentran (productos que piden y no hay) y el uso de los filtros de precio y estado. Siempre los últimos 30 días; solo visitantes que aceptaron la analítica y sin datos personales."
+            >
+              {!busquedas ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se han podido cargar las búsquedas.</Text>
+              ) : (
+                <View nativeID="analitica-busquedas" style={{ gap: 10 }}>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="search-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-busquedas-resumen" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      {busquedas.total} {busquedas.total === 1 ? "búsqueda" : "búsquedas"} (Inicio {busquedas.desde.inicio} · catálogo {busquedas.desde.catalogo}) ·
+                      sin resultados {busquedas.nSinResultados} · con sinónimo {busquedas.sinonimo} · con corrección {busquedas.correccion} ·
+                      sugerencias tocadas {busquedas.sugerenciasTocadas}
+                    </Text>
+                  </View>
+                  <View style={{ gap: 6 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Lo más buscado</Text>
+                    {busquedas.top.length ? (
+                      <View nativeID="analitica-busquedas-top" style={{ gap: 8 }}>
+                        {busquedas.top.map((b) => (
+                          <BarRow
+                            key={b.texto}
+                            label={`«${b.texto}» · ${b.resultados} ${b.resultados === 1 ? "resultado" : "resultados"}`}
+                            value={b.n}
+                            maxValue={busquedas.top[0]?.n ?? 1}
+                            color={COLORS.accentDark}
+                          />
+                        ))}
+                      </View>
+                    ) : (
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Todavía no hay búsquedas en estos 30 días.</Text>
+                    )}
+                  </View>
+                  <View style={{ gap: 6 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Sin resultados (lo que piden y no tienes)</Text>
+                    {busquedas.sinResultados.length ? (
+                      <View nativeID="analitica-busquedas-sin-resultados" style={{ gap: 8 }}>
+                        {busquedas.sinResultados.map((b) => (
+                          <BarRow
+                            key={b.texto}
+                            label={`«${b.texto}»${b.sugerencia ? ` · se le propuso «${b.sugerencia}»` : ""}`}
+                            value={b.n}
+                            maxValue={busquedas.sinResultados[0]?.n ?? 1}
+                            color={COLORS.warning}
+                          />
+                        ))}
+                      </View>
+                    ) : (
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Ninguna búsqueda se ha quedado sin resultados.</Text>
+                    )}
+                  </View>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="options-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-busquedas-filtros" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Filtros: precio {busquedas.filtros.precio}
+                      {busquedas.tramos.length ? ` (${busquedas.tramos.map((t) => `${t.tramo} ×${t.n}`).join(" · ")})` : ""} · estado {busquedas.filtros.estado}
+                      {busquedas.estados.length ? ` (${busquedas.estados.map((e) => `${e.valor} ×${e.n}`).join(" · ")})` : ""} · quitados{" "}
+                      {busquedas.filtros.quitados} · «Borrar filtros» {busquedas.filtros.borrados}
                     </Text>
                   </View>
                 </View>

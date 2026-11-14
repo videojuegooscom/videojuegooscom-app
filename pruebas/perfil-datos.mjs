@@ -313,7 +313,15 @@
  *    primero, «Marcar leída» de 44 px); Seguridad con el aviso rojo, la moderación en cifras y «Quitar silencio»; letra
  *    ≥ 12 px, táctiles de 44 px separados 8 px, nada se sale y en el ordenador centrada y de 960 px como mucho. Las
  *    secciones E, F, M, ME, CO, DI, SE, C8, P, RE y DV abren la pestaña que les toca (?tab=participacion|ideas|seguridad).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR]
+ *  - FBU) Filtros y búsqueda (2026-11-14, mejora 3; «FB» ya era Facturas desde Blue IA): «play 5», «ps5» y «PlayStation 5»
+ *    dan lo mismo; «mandos switch» → mandos de Switch (Joy-Con incluidos); «plaistation» → PlayStation (con corrección); el
+ *    índice ligero se pide una vez y sin fotos (ni ilike); sugerencias desde 2 letras (≤ 6, 44 px, con categoría) que se
+ *    tocan y, en el ordenador, flechas e Intro; sin resultados «No hemos encontrado…», «¿Querías decir «playstation»?» y «Ver
+ *    todo el catálogo» (también en Inicio); barra de precio (arrastrar y soltar con el dedo, RePág, 44 × 44, deslizador
+ *    para el lector) en ?precio_min=/?precio_max=; estado solo con los que hay, ?estado=bueno, recargar, «Quitar» y «Borrar
+ *    filtros»; la analítica (busqueda, busqueda_sin_resultados, busqueda_sugerencia_tocada, catalogo_filtro; nada si se
+ *    rechazó) y Administración → Analítica → «Búsquedas (30 días)», a 360, 390 y 1280 px.
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -977,6 +985,31 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       estado.consultasDisponibles = [...(estado.consultasDisponibles ?? []), decodeURIComponent(url.search)];
       return json(estado.disponiblesCategoria);
     }
+    // Catálogo con productos ficticios (sección FBU), como PostgREST: filtros eq/in/gte/lte, solo las columnas pedidas,
+    // una fila con «vnd.pgrst.object» y el total en Content-Range. Se apunta cada consulta (para ver qué se pide).
+    if (estado.catalogoFB && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
+      const select = url.searchParams.get("select") ?? "*";
+      estado.consultasCatalogo = [...(estado.consultasCatalogo ?? []), `${select} · ${decodeURIComponent(url.search)}`];
+      let filas = estado.catalogoFB;
+      for (const [campo, filtro] of url.searchParams) {
+        if (["select", "order", "limit", "offset", "or"].includes(campo)) continue;
+        const [op, ...resto] = filtro.split(".");
+        const v = resto.join(".");
+        if (op === "eq") filas = filas.filter((f) => String(f[campo]) === v);
+        else if (op === "in") filas = filas.filter((f) => v.replace(/^\(|\)$/g, "").split(",").map((x) => x.replace(/^"|"$/g, "")).includes(String(f[campo])));
+        else if (op === "gte") filas = filas.filter((f) => Number(f[campo]) >= Number(v));
+        else if (op === "lte") filas = filas.filter((f) => Number(f[campo]) <= Number(v));
+      }
+      filas = [...filas].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+      const cols = select.split(",");
+      const proyecta = (f) => (cols.includes("*") ? f : Object.fromEntries(cols.map((c) => [c, f[c] ?? null])));
+      if (/vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "")) return filas[0] ? json(proyecta(filas[0])) : json({ code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" }, 406);
+      const desde = Number(url.searchParams.get("offset") ?? 0);
+      const limite = url.searchParams.get("limit");
+      const pagina = limite ? filas.slice(desde, desde + Number(limite)) : filas;
+      return json(pagina.map(proyecta), 200, { "content-range": `${pagina.length ? `${desde}-${desde + pagina.length - 1}` : "*"}/${filas.length}`, "access-control-expose-headers": "*" });
+    }
+    if (estado.catalogoFB && /\/rest\/v1\/(product_media|product_likes|product_reviews)$/.test(url.pathname) && metodo === "GET") return json([]);
     // Catálogo sin productos (sección Y): sin pedirlos a la base de datos real (que rechaza la sesión de prueba).
     if (estado.productosVacios && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
       return json([], 200, { "content-range": "*/0", "access-control-expose-headers": "*" });
@@ -2865,7 +2898,8 @@ async function seccionY() {
     const panel = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " | ");
     ok(!/Plataforma/i.test(panel), "Y: dentro de la categoría no se ofrece «Plataforma»");
     ok(/Estado \| Todos \| Como nuevo \| Bueno/i.test(panel) && !/\| Nuevo \|/.test(panel) && !/Segunda mano/.test(panel) && !/Regular|Para piezas/.test(panel), `Y: el estado solo ofrece lo que hay (todo es de segunda mano: «Como nuevo» y «Bueno») (${(panel.match(/Estado \|.*?\| Precio/i) ?? [""])[0]})`);
-    ok(/Precio \| Cualquier precio \| 100–300 € \| Más de 300 €/i.test(panel) && !/Hasta 25 €|25–100 €/.test(panel), `Y: y solo los precios con productos (${(panel.match(/Precio \|.*?\| Ordenar/i) ?? [""])[0]})`);
+    // Desde la mejora 3 (2026-11-14) el precio es una barra de 1 a 1000 € (sección FBU); sale porque hay dos precios distintos.
+    ok(/Precio \| Precio: 1 € – 1000 € o más/i.test(panel) && (await p.locator("#catalogo-precio-max").count()) === 1, `Y: y la barra de precio (hay dos precios distintos) (${(panel.match(/Precio \|.*?\| Ordenar/i) ?? [""])[0]})`);
     ok((cliente.consultasDisponibles ?? []).some((c) => /category_id=eq\.c0000000-0000-4000-8000-0000000000a1/.test(c) && /is_active=eq\.true/.test(c) && /status=eq\.PUBLISHED/.test(c)), "Y: lo que hay se mira en esa categoría y solo con lo publicado");
     await capturar(p, "Y4-categoria-filtros");
     await p.getByText("Bueno", { exact: true }).first().click();
@@ -13807,8 +13841,394 @@ async function seccionCAMPOS16() {
   }
 }
 
+// ===== FBU) Filtros y búsqueda (dueño, 2026-11-14, mejora 3): búsqueda tolerante (sinónimos, plurales, errores de
+// escritura) por relevancia en el catálogo y en el buscador de Inicio, sugerencias al escribir (44 px, teclado en el
+// ordenador), «¿Querías decir…?», barra de precio de 1 a 1000 € y estado en la dirección (?precio_min=&precio_max=&estado=),
+// chips con «Quitar» y «Borrar filtros», la analítica propia y Administración → Analítica → «Búsquedas (30 días)», a 360,
+// 390 y 1280 px. Productos y categorías FICTICIOS (nada llega a la base de datos real). =============================
+async function seccionFBU() {
+  const CATS = [
+    { id: "c0000000-0000-4000-8000-0000000000f5", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true },
+    { id: "c0000000-0000-4000-8000-0000000000f4", slug: "playstation-4", name: "PlayStation 4", sort_order: 1, is_active: true },
+    { id: "c0000000-0000-4000-8000-0000000000f6", slug: "nintendo-switch", name: "Nintendo Switch", sort_order: 2, is_active: true },
+    { id: "c0000000-0000-4000-8000-0000000000f7", slug: "portatiles", name: "Portátiles", sort_order: 3, is_active: true },
+  ];
+  const [PS5, PS4, SW, PC] = CATS.map((c) => c.id);
+  const art = (n, title, category_id, condition, price_eur, dias) => ({
+    id: `f0000000-0000-4000-8000-0000000000${String(n).padStart(2, "0")}`,
+    title, description: "Revisado y con garantía de la tienda.", price_eur, status: "PUBLISHED", is_active: true, condition, category_id,
+    created_at: new Date(Date.UTC(2026, 10, 1 + dias)).toISOString(), view_count: n, images: [],
+  });
+  const PRODUCTOS = [
+    art(1, "PlayStation 5 Slim 1 TB", PS5, "GOOD", 450, 9),
+    art(2, "Mando DualSense blanco PS5", PS5, "LIKE_NEW", 55, 8),
+    art(3, "PS5 Digital Edition", PS5, "GOOD", 380, 7),
+    art(4, "Mando Pro Controller Nintendo Switch", SW, "GOOD", 45, 6),
+    art(5, "Joy-Con pareja rojo y azul", SW, "FAIR", 35, 5),
+    art(6, "Nintendo Switch OLED", SW, "LIKE_NEW", 260, 4),
+    art(7, "PlayStation 4 Pro 1 TB", PS4, "GOOD", 190, 3),
+    art(8, "Portátil HP 15 pulgadas", PC, "GOOD", 320, 2),
+    art(9, "Xbox Series S 512 GB", null, "GOOD", 210, 1),
+  ];
+  const TITULOS = PRODUCTOS.map((p) => p.title);
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const nuevoEstado = (extra = {}) => ({ filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS, ...extra });
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  // Los títulos de la lista, en el orden en que salen (cada uno una vez).
+  const vistos = (p) =>
+    p.evaluate((ts) => {
+      const t = document.body.innerText;
+      return ts.filter((x) => t.includes(x)).sort((a, b) => t.indexOf(a) - t.indexOf(b));
+    }, TITULOS);
+  const esperarLista = (p) =>
+    p.waitForFunction((ts) => ts.some((x) => document.body.innerText.includes(x)) || /No hemos encontrado|No hay productos/.test(document.body.innerText), TITULOS, { timeout: 30000 }).catch(() => {});
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const letraCampos = (p) => p.evaluate(() => [...document.querySelectorAll("input, textarea")].filter((e) => e.offsetParent).map((e) => parseFloat(getComputedStyle(e).fontSize)));
+  const parametros = (p) => Object.fromEntries(new URL(p.url()).searchParams);
+
+  // FBU1) Sinónimos y abreviaturas: «play 5», «ps5» y «PlayStation 5» dan los mismos productos (y en el mismo orden).
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const resultados = {};
+    for (const q of ["play 5", "ps5", "PlayStation 5"]) {
+      const p = await pagina(ctx, `/catalogo?query=${encodeURIComponent(q)}`);
+      await esperarLista(p);
+      await p.waitForTimeout(600);
+      resultados[q] = await vistos(p);
+      ok(p.errores.length === 0, `FBU: «${q}» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await p.close();
+    }
+    const a = JSON.stringify(resultados["play 5"]);
+    ok(a === JSON.stringify(resultados["ps5"]) && a === JSON.stringify(resultados["PlayStation 5"]), `FBU: «play 5», «ps5» y «PlayStation 5» dan lo mismo (${a} · ${JSON.stringify(resultados["ps5"])} · ${JSON.stringify(resultados["PlayStation 5"])})`);
+    ok(
+      ["PlayStation 5 Slim 1 TB", "Mando DualSense blanco PS5", "PS5 Digital Edition"].every((t) => resultados["ps5"].includes(t)) && !resultados["ps5"].includes("PlayStation 4 Pro 1 TB"),
+      `FBU: son los de PS5 (y no la PS4) (${JSON.stringify(resultados["ps5"])})`
+    );
+    const ev = evento(estado, "busqueda");
+    ok(ev.some((e) => e.metadata?.texto === "play 5" && e.metadata?.sinonimo === true && e.metadata?.resultados === 3 && e.metadata?.origen === "catalogo"), `FBU: la analítica mide «play 5» con sinónimo y 3 resultados (${JSON.stringify(ev.map((e) => e.metadata))})`);
+    ok((estado.consultasCatalogo ?? []).every((c) => !/ilike/.test(c)), "FBU: ya no se busca con ilike (se busca en el índice ligero)");
+    const indices = (estado.consultasCatalogo ?? []).filter((c) => /^id,title,description,price_eur,condition/.test(c));
+    ok(indices.length === 3, `FBU: el índice se pide una vez por página abierta (${indices.length} en 3 páginas)`);
+    ok(indices.every((c) => !/images|public_url/.test(c.split(" · ")[0])), "FBU: el índice no pide fotos");
+
+    // Plurales y palabras de la categoría: «mandos switch» encuentra los mandos de Switch (también los Joy-Con), no la consola.
+    const p = await pagina(ctx, `/catalogo?query=${encodeURIComponent("mandos switch")}`);
+    await esperarLista(p);
+    await p.waitForTimeout(600);
+    const mandos = await vistos(p);
+    ok(mandos.includes("Mando Pro Controller Nintendo Switch") && mandos.includes("Joy-Con pareja rojo y azul") && !mandos.includes("Nintendo Switch OLED") && !mandos.includes("Mando DualSense blanco PS5"), `FBU: «mandos switch» → los mandos de Switch (${JSON.stringify(mandos)})`);
+    await p.close();
+
+    // Errores de escritura: «plaistation» encuentra PlayStation (y se mide «con corrección»).
+    const p2 = await pagina(ctx, `/catalogo?query=plaistation`);
+    await esperarLista(p2);
+    await p2.waitForTimeout(600);
+    const plai = await vistos(p2);
+    ok(plai.includes("PlayStation 5 Slim 1 TB") && plai.includes("PlayStation 4 Pro 1 TB") && !plai.includes("Nintendo Switch OLED"), `FBU: «plaistation» encuentra PlayStation (${JSON.stringify(plai)})`);
+    ok(plai.indexOf("PlayStation 5 Slim 1 TB") >= 0 && evento(estado, "busqueda").some((e) => e.metadata?.texto === "plaistation" && e.metadata?.correccion === true), "FBU: y se mide como búsqueda con corrección");
+    await capturar(p2, "FBU1-plaistation-390");
+    await p2.close();
+    await ctx.close();
+  }
+
+  // FBU2) Sugerencias mientras se escribe (390 px): desde 2 letras, como mucho 6, de 44 px o más y que se tocan bien.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/catalogo");
+    await esperarLista(p);
+    const campo = p.locator("#catalogo-buscador-filtros input").first();
+    await campo.click();
+    await campo.fill("m");
+    await p.waitForTimeout(600);
+    ok((await p.locator("#catalogo-sugerencias").count()) === 0, "FBU: con 1 letra no salen sugerencias");
+    await campo.fill("mand");
+    await p.locator("#catalogo-sugerencia-0").waitFor({ timeout: 10000 }).catch(() => {});
+    const filas = await p.evaluate(() => [...document.querySelectorAll('[id^="catalogo-sugerencia-"]')].map((e) => ({ t: e.innerText.replace(/\n/g, " | "), h: Math.round(e.getBoundingClientRect().height), w: Math.round(e.getBoundingClientRect().width) })));
+    ok(filas.length >= 2 && filas.length <= 6 && filas.every((f) => /Mando|Joy-Con/.test(f.t)), `FBU: «mand» sugiere los mandos (${filas.length}: ${filas.map((f) => f.t).join(" ; ")})`);
+    ok(filas.every((f) => f.h >= 44), `FBU: cada sugerencia mide 44 px o más (${filas.map((f) => f.h).join(", ")})`);
+    ok(filas.some((f) => /Nintendo Switch|PlayStation 5/.test(f.t)), "FBU: con la categoría debajo del título");
+    const lista = await p.locator("#catalogo-sugerencias").boundingBox();
+    const tarjetas = await p.evaluate(() => Math.round(document.querySelector("#catalogo-buscador-filtros")?.getBoundingClientRect().bottom ?? 0));
+    ok(!!lista && lista.x >= 0 && lista.x + lista.width <= 390 + 0.5 && lista.y >= tarjetas, `FBU: las sugerencias salen debajo del buscador, dentro de la pantalla (${JSON.stringify(lista)})`);
+    ok((await letraCampos(p)).every((f) => f >= 16), `FBU: el buscador a 16 px o más (${(await letraCampos(p)).join(", ")})`);
+    await capturar(p, "FBU2-sugerencias-390");
+    const sinD = await sinDesborde(p);
+    ok(sinD.a <= sinD.v + 1, `FBU: con las sugerencias la página no se ensancha (${sinD.a}/${sinD.v})`);
+    await campo.fill("mandos");
+    await p.waitForTimeout(700);
+    const indices = (estado.consultasCatalogo ?? []).filter((c) => /^id,title,description,price_eur,condition/.test(c));
+    ok(indices.length === 1, `FBU: escribiendo varias cosas en la misma página, el índice se pide una sola vez (${indices.length})`);
+    const primera = filas[0]?.t ?? "";
+    await p.locator("#catalogo-sugerencia-0").click();
+    await p.waitForURL(/\/producto\/f0000000-/, { timeout: 15000 }).catch(() => {});
+    ok(/\/producto\/f0000000-/.test(p.url()), `FBU: tocar una sugerencia abre el producto (${new URL(p.url()).pathname} · ${primera.slice(0, 40)})`);
+    await esperar(p, () => evento(estado, "busqueda_sugerencia_tocada").length > 0);
+    const toc = evento(estado, "busqueda_sugerencia_tocada")[0];
+    ok(toc?.metadata?.texto === "mandos" && toc?.metadata?.posicion === 1 && toc?.metadata?.origen === "catalogo", `FBU: se mide la sugerencia tocada (${JSON.stringify(toc?.metadata ?? null)})`);
+    await ctx.close();
+  }
+
+  // FBU2b) En el ordenador, las sugerencias se eligen con las flechas e Intro abre la elegida.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, ESCRITORIO);
+    const p = await pagina(ctx, "/catalogo");
+    await esperarLista(p);
+    const campo = p.locator("#catalogo-buscador-filtros input").first();
+    await campo.click();
+    await campo.type("switch", { delay: 30 });
+    await p.locator("#catalogo-sugerencia-0").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(300);
+    await campo.press("ArrowDown");
+    await campo.press("ArrowDown");
+    await p.waitForTimeout(200);
+    const marcada = await p.evaluate(() => [...document.querySelectorAll('[id^="catalogo-sugerencia-"]')].findIndex((e) => e.getAttribute("data-resaltada") === "1"));
+    ok(marcada === 1, `FBU: con dos flechas abajo queda elegida la 2.ª sugerencia (${marcada})`);
+    await capturar(p, "FBU2b-sugerencias-teclado-1280");
+    const titulo = await p.locator("#catalogo-sugerencia-1").innerText().catch(() => "");
+    await campo.press("Enter");
+    await p.waitForURL(/\/producto\/f0000000-/, { timeout: 15000 }).catch(() => {});
+    ok(/\/producto\/f0000000-/.test(p.url()), `FBU: Intro abre la sugerencia elegida (${new URL(p.url()).pathname} · ${titulo.split("\n")[0]})`);
+    await ctx.close();
+  }
+
+  // FBU3) Sin resultados: «No hemos encontrado «x»», «¿Querías decir «playstation»?» (lleva a sus productos) y «Ver todo el catálogo».
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/catalogo?query=pleistatoin`);
+    await esperarLista(p);
+    await p.locator("#catalogo-quisiste-decir").waitFor({ timeout: 10000 }).catch(() => {});
+    const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " | ");
+    ok(/No hemos encontrado «pleistatoin»/.test(t), "FBU: sin resultados dice «No hemos encontrado «pleistatoin»»");
+    ok(/¿Querías decir «playstation»\?/.test(t), `FBU: y propone «¿Querías decir «playstation»?» (${(t.match(/¿Querías decir[^|]*/) ?? ["no sale"])[0]})`);
+    ok((await p.locator("#catalogo-ver-todo").count()) === 1 && /Ver todo el catálogo/.test(await p.locator("#catalogo-ver-todo").innerText()), "FBU: con «Ver todo el catálogo»");
+    const altos = await p.evaluate(() => ["#catalogo-quisiste-decir", "#catalogo-ver-todo"].map((s) => Math.round(document.querySelector(s)?.getBoundingClientRect().height ?? 0)));
+    ok(altos.every((h) => h >= 44), `FBU: los dos de 44 px o más (${altos.join(", ")})`);
+    await esperar(p, () => evento(estado, "busqueda_sin_resultados").length > 0);
+    const sr = evento(estado, "busqueda_sin_resultados")[0];
+    ok(sr?.metadata?.texto === "pleistatoin" && sr?.metadata?.sugerencia === "playstation", `FBU: se mide la búsqueda sin resultados y lo que se le propuso (${JSON.stringify(sr?.metadata ?? null)})`);
+    await capturar(p, "FBU3-sin-resultados-390");
+    await p.locator("#catalogo-quisiste-decir").click();
+    await p.waitForFunction(() => document.body.innerText.includes("PlayStation 4 Pro 1 TB"), null, { timeout: 15000 }).catch(() => {});
+    ok(parametros(p).query === "playstation" && (await vistos(p)).includes("PlayStation 4 Pro 1 TB"), `FBU: tocarla busca «playstation» (${new URL(p.url()).search})`);
+    await p.goto(BASE + "/catalogo?query=pleistatoin", { waitUntil: "load" });
+    await p.locator("#catalogo-ver-todo").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator("#catalogo-ver-todo").click();
+    await p.waitForFunction(() => document.body.innerText.includes("Xbox Series S 512 GB"), null, { timeout: 15000 }).catch(() => {});
+    ok(!parametros(p).query && (await vistos(p)).length === PRODUCTOS.length, `FBU: «Ver todo el catálogo» enseña los ${PRODUCTOS.length} productos (${(await vistos(p)).length})`);
+    ok(p.errores.length === 0, `FBU3: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FBU3b) El buscador de Inicio: «play 5» enseña la PS5 y una búsqueda que no existe propone la corrección.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    const campo = p.locator("#buscador-flotante input").first();
+    await campo.waitFor({ timeout: 30000 }).catch(() => {});
+    await campo.click();
+    await campo.fill("play 5");
+    await p.locator("#buscador-sugerencia-0").waitFor({ timeout: 15000 }).catch(() => {});
+    const panel = (await p.locator("#buscador-resultados").innerText().catch(() => "")).replace(/\n/g, " | ");
+    ok(/PlayStation 5 Slim 1 TB/.test(panel) && /PS5 Digital Edition/.test(panel) && !/PlayStation 4/.test(panel), `FBU: Inicio, «play 5» → los de PS5 (${panel.slice(0, 160)})`);
+    await campo.fill("pleistatoin");
+    await p.locator("#buscador-quisiste-decir").waitFor({ timeout: 15000 }).catch(() => {});
+    const panel2 = (await p.locator("#buscador-resultados").innerText().catch(() => "")).replace(/\n/g, " | ");
+    ok(/No hemos encontrado «pleistatoin»/.test(panel2) && /¿Querías decir «playstation»\?/.test(panel2) && /Ver todo el catálogo/.test(panel2), `FBU: Inicio, sin resultados propone «playstation» y «Ver todo el catálogo» (${panel2.slice(0, 200)})`);
+    await capturar(p, "FBU3b-inicio-corrige-390");
+    await p.locator("#buscador-quisiste-decir").click();
+    await p.locator("#buscador-sugerencia-0").waitFor({ timeout: 15000 }).catch(() => {});
+    ok((await campo.inputValue()) === "playstation" && (await p.locator("#buscador-sugerencia-0").count()) === 1, `FBU: tocarla escribe «playstation» y salen sus productos (${await campo.inputValue()})`);
+    await p.locator("#buscador-sugerencia-0").click();
+    await p.waitForURL(/\/producto\/f0000000-/, { timeout: 15000 }).catch(() => {});
+    await esperar(p, () => evento(estado, "busqueda_sugerencia_tocada").length > 0 && evento(estado, "busqueda").length > 0);
+    ok(evento(estado, "busqueda_sugerencia_tocada").some((e) => e.metadata?.origen === "inicio") && evento(estado, "busqueda").some((e) => e.metadata?.origen === "inicio"), `FBU: en Inicio se mide la búsqueda y la sugerencia tocada (${JSON.stringify(evento(estado, "busqueda").map((e) => e.metadata))})`);
+    await ctx.close();
+  }
+
+  // FBU4) Barra de precio (390 px): arrastrar y soltar filtra y queda en la dirección; el teclado también; «1000 € o más».
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/catalogo");
+    await esperarLista(p);
+    await p.locator("#catalogo-filtros").click();
+    await p.locator("#catalogo-precio-max").waitFor({ timeout: 15000 }).catch(() => {});
+    // El panel sube deslizándose: se espera a que esté quieto antes de medir dónde está el tirador.
+    await p.waitForTimeout(900);
+    const t0 = await p.locator("#catalogo-precio-texto").innerText().catch(() => "");
+    ok(t0 === "Precio: 1 € – 1000 € o más", `FBU: la barra empieza en «Precio: 1 € – 1000 € o más» (${t0})`);
+    const panelEstado = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " | ");
+    ok(/Estado \| Todos \| Como nuevo \| Bueno \| Regular/i.test(panelEstado) && !/\| Nuevo \|/.test(panelEstado) && !/Para piezas/.test(panelEstado), `FBU: el estado solo ofrece los que hay en la tienda (${(panelEstado.match(/Estado \|.*?\| Precio/i) ?? [""])[0]})`);
+    const tirador = await p.locator("#catalogo-precio-max").boundingBox();
+    ok(!!tirador && tirador.width >= 44 && tirador.height >= 44, `FBU: cada tirador se toca en 44 × 44 px (${Math.round(tirador?.width ?? 0)} × ${Math.round(tirador?.height ?? 0)})`);
+    await capturar(p, "FBU4-precio-panel-390");
+    // Arrastrar el máximo hacia la izquierda (con el dedo).
+    const cdp = await ctx.newCDPSession(p);
+    const x0 = tirador.x + tirador.width / 2;
+    const y0 = tirador.y + tirador.height / 2;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x0, y: y0 }] });
+    for (let i = 1; i <= 10; i++) {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x0 - i * 14, y: y0 }] });
+      await p.waitForTimeout(16);
+    }
+    const durante = await p.locator("#catalogo-precio-texto").innerText().catch(() => "");
+    ok(!parametros(p).precio_max && durante !== t0, `FBU: mientras se arrastra solo cambia el texto (${durante}), aún no filtra`);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await p.waitForTimeout(800);
+    const max = Number(parametros(p).precio_max);
+    const t1 = await p.locator("#catalogo-precio-texto").innerText().catch(() => "");
+    ok(max > 1 && max < 1000 && t1 === `Precio: 1 € – ${max} €`, `FBU: al soltar filtra y queda en la dirección (?precio_max=${max} · ${t1})`);
+    // Teclado: el mínimo sube 50 € con RePág (y se aplica medio segundo después).
+    await p.locator("#catalogo-precio-min").focus();
+    await p.keyboard.press("PageUp");
+    await p.waitForTimeout(900);
+    ok(parametros(p).precio_min === "51", `FBU: con el teclado (RePág) el mínimo pasa a 51 € (${new URL(p.url()).search})`);
+    const rol = await p.locator("#catalogo-precio-min").evaluate((e) => [e.getAttribute("role"), e.getAttribute("aria-valuenow"), e.getAttribute("aria-label")].join(" · "));
+    ok(/slider · 51 · Precio mínimo/.test(rol), `FBU: el lector de pantalla lo lee como deslizador «Precio mínimo», 51 (${rol})`);
+    await p.getByText(/^Ver \d+ productos?$|^Ver productos$/).last().click();
+    await p.waitForTimeout(800);
+    const lista = await vistos(p);
+    const dentro = PRODUCTOS.filter((x) => x.price_eur >= 51 && x.price_eur <= max).map((x) => x.title);
+    ok(lista.length === dentro.length && dentro.every((x) => lista.includes(x)), `FBU: la lista solo tiene lo de 51 € a ${max} € (${lista.length} de ${dentro.length}: ${JSON.stringify(lista)})`);
+    const chip = await p.locator("#catalogo-chip-precio").innerText().catch(() => "");
+    ok(chip.includes(`Precio: 51 € – ${max} €`), `FBU: y su chip «Precio: 51 € – ${max} €» (${chip})`);
+    await esperar(p, () => evento(estado, "catalogo_filtro").some((e) => e.metadata?.filtro === "precio"));
+    ok(evento(estado, "catalogo_filtro").some((e) => e.metadata?.filtro === "precio" && e.metadata?.min === 51), `FBU: se mide el filtro de precio (${JSON.stringify(evento(estado, "catalogo_filtro").map((e) => e.metadata))})`);
+    await capturar(p, "FBU4-precio-chip-390");
+    ok(p.errores.length === 0, `FBU4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FBU5) Estado, la dirección al recargar, «Quitar» y «Borrar filtros».
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/catalogo?precio_max=300");
+    await esperarLista(p);
+    await p.locator("#catalogo-filtros").click();
+    await p.getByText("Ordenar por", { exact: true }).first().waitFor({ timeout: 15000 }).catch(() => {});
+    await p.getByText("Bueno", { exact: true }).first().click();
+    await p.waitForTimeout(500);
+    ok(parametros(p).estado === "bueno" && parametros(p).precio_max === "300", `FBU: elegir «Bueno» lo pone en la dirección sin perder el precio (${new URL(p.url()).search})`);
+    await p.getByText(/^Ver \d+ productos?$|^Ver productos$/).last().click();
+    await p.waitForTimeout(800);
+    const buenos = PRODUCTOS.filter((x) => x.condition === "GOOD" && x.price_eur <= 300).map((x) => x.title);
+    const l1 = await vistos(p);
+    ok(l1.length === buenos.length && buenos.every((x) => l1.includes(x)), `FBU: solo los de estado «Bueno» hasta 300 € (${JSON.stringify(l1)})`);
+    await p.reload({ waitUntil: "load" });
+    await esperarLista(p);
+    await p.waitForTimeout(600);
+    const chips = (await p.locator("#catalogo-filtros-activos").innerText().catch(() => "")).replace(/\n/g, " | ");
+    ok(/Estado: Bueno/.test(chips) && /Precio: 1 € – 300 €/.test(chips) && /Borrar filtros/.test(chips), `FBU: al recargar siguen los filtros, con sus chips (${chips})`);
+    ok(JSON.stringify(await vistos(p)) === JSON.stringify(l1), "FBU: y la misma lista");
+    const altos = await p.evaluate(() => [...document.querySelectorAll('#catalogo-filtros-activos [role="button"]')].map((e) => Math.round(e.getBoundingClientRect().height)));
+    ok(altos.length === 3 && altos.every((h) => h >= 44), `FBU: los chips y «Borrar filtros» miden 44 px o más (${altos.join(", ")})`);
+    ok((await p.locator("#catalogo-chip-estado").getAttribute("aria-label")) === "Quitar Estado: Bueno", "FBU: cada chip dice «Quitar…» al lector de pantalla");
+    await capturar(p, "FBU5-chips-390");
+    await p.locator("#catalogo-chip-estado").click();
+    await p.waitForTimeout(700);
+    ok(!parametros(p).estado && parametros(p).precio_max === "300", `FBU: «Quitar» el estado deja el precio (${new URL(p.url()).search})`);
+    await p.locator("#catalogo-borrar-filtros").click();
+    await p.waitForTimeout(700);
+    ok(!new URL(p.url()).search && (await p.locator("#catalogo-filtros-activos").count()) === 0, `FBU: «Borrar filtros» los quita todos (${new URL(p.url()).search || "sin parámetros"})`);
+    await p.waitForFunction((n) => document.body.innerText.includes("Xbox Series S 512 GB"), PRODUCTOS.length, { timeout: 10000 }).catch(() => {});
+    ok((await vistos(p)).length === PRODUCTOS.length, "FBU: y vuelve todo el catálogo");
+    const f = evento(estado, "catalogo_filtro").map((e) => e.metadata);
+    ok(f.some((m) => m.filtro === "estado" && m.valor === "GOOD") && f.some((m) => m.filtro === "estado" && m.accion === "quitar") && f.some((m) => m.filtro === "todos" && m.accion === "borrar"), `FBU: se miden el estado, el «Quitar» y el «Borrar filtros» (${JSON.stringify(f)})`);
+    ok(p.errores.length === 0, `FBU5: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FBU6) A 360, 390 y 1280 px: nada se ensancha, campos a 16 px y el panel de filtros con la barra de precio.
+  for (const { nombre, vista } of [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ]) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await pagina(ctx, "/catalogo?query=mandos&estado=bueno&precio_min=20&precio_max=500");
+    await esperarLista(p);
+    await p.waitForTimeout(700);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `FBU (${nombre}): con búsqueda y filtros la página no se ensancha (${d.a}/${d.v})`);
+    const chips = await p.evaluate(() => [...document.querySelectorAll('#catalogo-filtros-activos [role="button"]')].map((e) => { const r = e.getBoundingClientRect(); return { h: Math.round(r.height), fuera: r.left < 0 || r.right > window.innerWidth + 0.5 }; }));
+    ok(chips.length === 4 && chips.every((c) => c.h >= 44 && !c.fuera), `FBU (${nombre}): 3 chips y «Borrar filtros», de 44 px y dentro de la pantalla (${JSON.stringify(chips)})`);
+    ok((await letraCampos(p)).every((x) => x >= 16), `FBU (${nombre}): campos a 16 px o más (${(await letraCampos(p)).join(", ")})`);
+    await capturar(p, `FBU6-catalogo-${nombre}`);
+    await p.locator("#catalogo-filtros").click();
+    await p.locator("#catalogo-precio").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const barra = await p.evaluate(() => { const r = document.getElementById("catalogo-precio")?.getBoundingClientRect(); const m = document.getElementById("catalogo-precio-max")?.getBoundingClientRect(); return r && m ? { izq: Math.round(r.left), der: Math.round(r.right), tir: Math.round(m.right), v: window.innerWidth } : null; });
+    ok(!!barra && barra.izq >= 0 && barra.der <= barra.v && barra.tir <= barra.der + 1, `FBU (${nombre}): la barra de precio y sus tiradores caben (${JSON.stringify(barra)})`);
+    const txt = await p.locator("#catalogo-precio-texto").innerText().catch(() => "");
+    ok(txt === "Precio: 20 € – 500 €", `FBU (${nombre}): la barra sale con lo de la dirección (${txt})`);
+    const d2 = await sinDesborde(p);
+    ok(d2.a <= d2.v + 1, `FBU (${nombre}): con el panel abierto tampoco se ensancha (${d2.a}/${d2.v})`);
+    await capturar(p, `FBU6-panel-${nombre}`);
+    ok(p.errores.length === 0, `FBU6 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FBU7) Administración → Analítica: «Búsquedas (30 días)» con lo más buscado, lo que no dio resultados y los filtros.
+  {
+    const ahora = new Date().toISOString();
+    const ev = (event_name, metadata) => ({ event_name, metadata, created_at: ahora });
+    const eventos = [
+      ev("busqueda", { texto: "ps5", resultados: 3, sinonimo: false, correccion: false, origen: "catalogo" }),
+      ev("busqueda", { texto: "ps5", resultados: 3, sinonimo: false, correccion: false, origen: "inicio" }),
+      ev("busqueda", { texto: "play 5", resultados: 3, sinonimo: true, correccion: false, origen: "catalogo" }),
+      ev("busqueda", { texto: "zelda", resultados: 0, sinonimo: false, correccion: false, origen: "catalogo" }),
+      ev("busqueda_sin_resultados", { texto: "zelda", sugerencia: null, origen: "catalogo" }),
+      ev("busqueda_sin_resultados", { texto: "zelda", sugerencia: null, origen: "inicio" }),
+      ev("busqueda_sugerencia_tocada", { texto: "mand", posicion: 1, origen: "catalogo" }),
+      ev("catalogo_filtro", { filtro: "precio", min: 20, max: 300 }),
+      ev("catalogo_filtro", { filtro: "estado", valor: "GOOD" }),
+      ev("catalogo_filtro", { filtro: "todos", accion: "borrar" }),
+    ];
+    for (const { nombre, vista } of [{ nombre: "390", vista: {} }, { nombre: "360", vista: { viewport: { width: 360, height: 740 } } }, { nombre: "1280", vista: ESCRITORIO }]) {
+      const estado = { filas: [], guardados: [], embudo: [], eventos };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, "/admin/analytics");
+      await p.locator("#analitica-busquedas").waitFor({ timeout: 30000 }).catch(() => {});
+      const t = (await p.locator("#analitica-busquedas").innerText().catch(() => "")).replace(/\n/g, " | ");
+      ok(/4 búsquedas \(Inicio 1 · catálogo 3\)/.test(t) && /sin resultados 2/.test(t) && /con sinónimo 1/.test(t) && /sugerencias tocadas 1/.test(t), `FBU (${nombre}): Analítica resume las búsquedas (${t.slice(0, 200)})`);
+      ok(/«ps5» · 3 resultados \| 2/.test(t), `FBU (${nombre}): lo más buscado, «ps5» 2 veces`);
+      ok(/Sin resultados \(lo que piden y no tienes\) \| «zelda» \| 2/.test(t), `FBU (${nombre}): y lo que no dio resultados, «zelda» 2 veces`);
+      ok(/Filtros: precio 1 \(20 € – 300 € ×1\) · estado 1 \(Bueno ×1\)/.test(t) && /«Borrar filtros» 1/.test(t), `FBU (${nombre}): el uso de los filtros de precio y estado (${(t.match(/Filtros:[^|]*/) ?? [""])[0]})`);
+      const d = await sinDesborde(p);
+      ok(d.a <= d.v + 1, `FBU (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+      await p.locator("#analitica-busquedas").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `FBU7-analitica-${nombre}`);
+      ok(p.errores.length === 0, `FBU7 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+
+  // FBU8) Quien rechazó la analítica: busca igual, pero no se manda ningún evento.
+  {
+    const estado = nuevoEstado({ aceptaAnalitica: false });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/catalogo?query=ps5`);
+    await esperarLista(p);
+    await p.waitForTimeout(1200);
+    ok((await vistos(p)).length === 3 && !(estado.eventosEnviados ?? []).length, `FBU: con la analítica rechazada busca igual y no se mide nada (${(estado.eventosEnviados ?? []).length} eventos)`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "FBU") await seccionFBU();
   if (SOLO === "CAMPOS16") await seccionCAMPOS16();
   if (SOLO === "SES") await seccionSES();
   if (SOLO === "SES2") await seccionSES2();
@@ -14900,6 +15320,7 @@ try {
   await seccionSES();
   await seccionSES2();
   await seccionCR();
+  await seccionFBU();
   await seccionCAMPOS16();
   }
 } catch (e) {

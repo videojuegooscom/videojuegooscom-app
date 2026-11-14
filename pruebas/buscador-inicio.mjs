@@ -8,8 +8,10 @@
  *  B) «Blog»: ofrece «Blog» (lleva a /blog); con Intro va directo a /blog.
  *  C) «consola»: salen los dos productos (título y precio con céntimos) y, MÁS ABAJO, la sección «Catálogo»;
  *     tocar un producto abre su ficha; con Intro se abre /catalogo?query=consola.
- *  D) Algo que no existe: «No hay productos para…», «Preguntar a Blue IA» (lleva a /blue-ia?q=…) y «Avísame cuando
- *     llegue» (solo aquí: no sale si hay productos ni si encaja una sección como «Blog»).
+ *  D) Algo que no existe: «No hemos encontrado…» (2026-11-14), «Ver todo el catálogo», «Preguntar a Blue IA» (lleva a
+ *     /blue-ia?q=…) y «Avísame cuando llegue» (solo aquí: no sale si hay productos ni si encaja una sección como «Blog»).
+ * Desde la mejora 3 la búsqueda se hace en la tienda con un índice ligero (sin fotos y sin «ilike»): aquí se simula ese
+ * índice; los sinónimos, errores de escritura y la barra de precio los prueba la sección FBU de perfil-datos.mjs.
  *  H) Sin sesión, «Avísame cuando llegue» lleva a iniciar sesión (/perfil?aviso=…) y no crea nada.
  *  I) Con sesión (SIMULADA), «Avísame cuando llegue» crea el aviso con lo escrito (la escritura se corta y se simula),
  *     confirma en el panel y el panel se cierra solo; también se prueba el límite de 10 avisos y un error.
@@ -84,10 +86,21 @@ const capturar = (p, nombre) => (SALIDA ? p.screenshot({ path: join(SALIDA, `${n
 const P1 = "00000000-0000-4000-8000-0000000000c1";
 const P2 = "00000000-0000-4000-8000-0000000000c2";
 const PRODUCTOS = [
-  { id: P1, title: "Consola Prueba Uno", price_eur: 120, images: [] },
-  { id: P2, title: "Consola Prueba Dos", price_eur: 89.5, images: [] },
+  { id: P1, title: "Consola Prueba Uno", description: "", price_eur: 120, condition: "GOOD", category_id: null, created_at: "2026-11-02T00:00:00Z", view_count: 0, status: "PUBLISHED", images: [] },
+  { id: P2, title: "Consola Prueba Dos", description: "", price_eur: 89.5, condition: "GOOD", category_id: null, created_at: "2026-11-01T00:00:00Z", view_count: 0, status: "PUBLISHED", images: [] },
 ];
-const buscadas = []; // textos que la tienda ha buscado en la base de datos
+// Desde la mejora 3 (2026-11-14) la búsqueda es tolerante y se hace en la tienda con un índice ligero de productos
+// (components/Barramagic.tsx → cargarIndiceBusqueda): se pide sin fotos, una vez, y ya no hay «ilike» a la base de datos.
+const COLUMNAS_INDICE = /^id,title,description,price_eur,condition/;
+const productosSimulados = (url) => {
+  const select = url.searchParams.get("select") ?? "";
+  const ids = (url.searchParams.get("id") ?? "").replace(/^in\.\(|\)$/g, "").split(",").map((x) => x.replace(/"/g, "")).filter(Boolean);
+  const filas = ids.length ? PRODUCTOS.filter((p) => ids.includes(p.id)) : PRODUCTOS;
+  const cols = select.split(",");
+  return JSON.stringify(filas.map((f) => Object.fromEntries(cols.map((c) => [c, f[c] ?? null]))));
+};
+const buscadas = []; // búsquedas con «ilike» a la base de datos (ya no debe haber ninguna)
+const indices = []; // veces que se ha pedido el índice de búsqueda
 const creados = []; // textos de «Avísame cuando llegue» que la tienda ha intentado crear (simulado: no se escribe nada)
 const respuestaAviso = { status: 201, cuerpo: "" }; // lo que «responde» la base de datos simulada al crear un aviso
 const USUARIO_FALSO = { id: "11111111-1111-4111-8111-111111111111", aud: "authenticated", role: "authenticated", email: "cliente@example.com", app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" };
@@ -132,15 +145,12 @@ async function contexto(navegador, sesion = false) {
     if (!["GET", "HEAD"].includes(peticion.method())) return r.abort();
     const o = url.searchParams.get("or") ?? "";
     if (url.pathname.endsWith("/products") && /ilike/.test(o)) {
-      const texto = (o.match(/title\.ilike\.%(.*?)%/) ?? [])[1] ?? "";
-      buscadas.push(decodeURIComponent(texto));
-      const filas = /consola/i.test(texto) ? PRODUCTOS : [];
-      return r.fulfill({
-        status: 200,
-        contentType: "application/json",
-        headers: { "content-range": filas.length ? `0-${filas.length - 1}/${filas.length}` : "*/0" },
-        body: JSON.stringify(filas),
-      });
+      buscadas.push(decodeURIComponent(o));
+      return r.fulfill({ status: 200, contentType: "application/json", headers: { ...CORS, "content-range": "*/0" }, body: "[]" });
+    }
+    if (url.pathname.endsWith("/products") && (COLUMNAS_INDICE.test(url.searchParams.get("select") ?? "") || /^in\./.test(url.searchParams.get("id") ?? ""))) {
+      if (COLUMNAS_INDICE.test(url.searchParams.get("select") ?? "")) indices.push(url.searchParams.get("select"));
+      return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: productosSimulados(url) });
     }
     if (url.pathname.endsWith("/product_media") && /00000000-0000-4000-8000-0000000000c/.test(url.search)) {
       return r.fulfill({ status: 200, contentType: "application/json", body: "[]" });
@@ -188,10 +198,10 @@ try {
     const p = await nueva(ctx);
     await escribir(p, "Inicio de sesión");
     const panel = p.locator("#buscador-resultados");
-    ok((await panel.getByText("No hay productos para «Inicio de sesión»").count()) === 1, "A: sin productos, el panel lo dice («No hay productos para «Inicio de sesión»»)");
+    ok((await panel.getByText("No hemos encontrado «Inicio de sesión».").count()) === 1, "A: sin productos, el panel lo dice («No hemos encontrado «Inicio de sesión».»)");
     const fila = panel.getByRole("link", { name: /Iniciar sesión/ });
     ok((await fila.count()) === 1, "A: ofrece la opción «Iniciar sesión»");
-    ok((await y(panel.getByText("No hay productos para"))) < (await y(fila)), "A: la opción sale debajo del aviso");
+    ok((await y(panel.getByText("No hemos encontrado"))) < (await y(fila)), "A: la opción sale debajo del aviso");
     ok((await panel.getByText(/Avísame cuando llegue/).count()) === 0, "A: no ofrece «Avísame cuando llegue» (encaja una sección)");
     await capturar(p, "A-inicio-de-sesion");
     await fila.click();
@@ -264,8 +274,10 @@ try {
     const p = await nueva(ctx);
     await escribir(p, "zzzxx");
     const panel = p.locator("#buscador-resultados");
-    ok((await panel.getByText("No hay productos para «zzzxx»").count()) === 1, "D: «No hay productos para «zzzxx»»");
-    ok((await panel.getByRole("link", { name: /Iniciar sesión|Blog|Catálogo/ }).count()) === 0, "D: y ninguna sección que no encaje");
+    ok((await panel.getByText("No hemos encontrado «zzzxx».").count()) === 1, "D: «No hemos encontrado «zzzxx».»");
+    ok((await panel.getByRole("link", { name: /Iniciar sesión|Blog|^Catálogo/ }).count()) === 0, "D: y ninguna sección que no encaje");
+    ok((await panel.getByRole("link", { name: "Ver todo el catálogo" }).count()) === 1, "D: ofrece «Ver todo el catálogo»");
+    ok((await panel.getByText(/¿Querías decir/).count()) === 0, "D: sin «¿Querías decir…?» si nada se parece");
     const preguntar = panel.getByRole("link", { name: /Preguntar a Blue IA/ });
     ok((await preguntar.count()) === 1, "D: ofrece «Preguntar a Blue IA»");
     const avisar = panel.getByRole("link", { name: /Avísame cuando llegue: zzzxx/ });
@@ -388,8 +400,8 @@ try {
       const peticion = r.request();
       if (!["GET", "HEAD"].includes(peticion.method())) return r.abort();
       const url = new URL(peticion.url());
-      if (url.pathname.endsWith("/products") && /ilike/.test(url.searchParams.get("or") ?? "")) {
-        return r.fulfill({ status: 200, contentType: "application/json", headers: { "content-range": "0-1/2" }, body: JSON.stringify(PRODUCTOS) });
+      if (url.pathname.endsWith("/products") && (COLUMNAS_INDICE.test(url.searchParams.get("select") ?? "") || /^in\./.test(url.searchParams.get("id") ?? ""))) {
+        return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: productosSimulados(url) });
       }
       if (url.pathname.endsWith("/product_media") && /00000000-0000-4000-8000-0000000000c/.test(url.search)) return r.fulfill({ status: 200, contentType: "application/json", body: "[]" });
       return r.continue();
@@ -404,7 +416,8 @@ try {
     await escritorio.close();
   }
 
-  ok(buscadas.length > 0 && buscadas.every((t) => t.length >= 2), `la tienda solo buscó con 2 letras o más (${buscadas.length} búsquedas)`);
+  ok(buscadas.length === 0, `ya no se busca con «ilike» en la base de datos (${buscadas.length})`);
+  ok(indices.length > 0 && indices.every((s) => !/images|public_url/.test(s)), `el índice de búsqueda se pidió sin fotos (${indices.length} veces, una por página abierta)`);
   await ctx.close();
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
