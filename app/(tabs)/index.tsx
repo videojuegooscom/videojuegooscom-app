@@ -27,6 +27,8 @@
  *   (Separador) con aire; "Oferta de la semana" brilla (TituloOferta).
  * - "Recién llegado": carrusel con lo último que ha entrado a la tienda
  *   (components/CategoryProductsShelf.tsx, modo "novedades").
+ * - "Vistos recientemente" (mejora 9, 2026-11-14): justo debajo, lo último que se ha mirado en este dispositivo
+ *   (VistosRecientemente del mismo archivo), solo con 3 o más a la venta; «Quitar» y «Borrar historial».
  * - El botón "Vender ahora" lleva a la página app/vender.tsx (formulario de VenderAhoraModal),
  *   que guarda la solicitud en Supabase (tabla "sell_requests") para
  *   revisarla luego en el admin. La antigua franja "Noticias Flash" ya no
@@ -96,7 +98,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { FloatingBarramagic } from "../../components/Barramagic";
-import CategoryProductsShelf from "../../components/CategoryProductsShelf";
+import CategoryProductsShelf, { VistosRecientemente } from "../../components/CategoryProductsShelf";
 import {
   OPACIDAD_PORTADA_DEFECTO,
   PROPORCION_RECUADRO_INICIO,
@@ -2072,6 +2074,10 @@ export default function HomeScreen() {
           {/* Recién llegado: lo último que ha entrado (también lo que llega de VeoAura).
               Si no hay nada, no se pinta, ni su separador. */}
           <CategoryProductsShelf modo="novedades" titulo="Recién llegado" pie={<Separador isMobile={isMobile} />} />
+
+          {/* Vistos recientemente (mejora 9): solo con 3 o más vistos a la venta en este dispositivo y si no son justo los
+              de «Recién llegado». Debajo de la oferta y de la primera sección: no empuja la primera pantalla. */}
+          <VistosRecientemente pie={<Separador isMobile={isMobile} />} />
 
           <View ref={categoriasRef} testID="seccion-categorias" onLayout={handleCategoriesLayout} style={{ gap: 10 }}>
             <SectionTitle title="Categorías" isMobile={isMobile} />
