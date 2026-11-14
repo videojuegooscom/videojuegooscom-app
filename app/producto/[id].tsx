@@ -157,7 +157,7 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
-import { BotonComparar, CompletaTuCompra, ProductosParecidos, useAlturaBarraComparar } from "../../components/CategoryProductsShelf";
+import { BotonComparar, CompletaTuCompra, ProductosParecidos, registrarVisto, useAlturaBarraComparar } from "../../components/CategoryProductsShelf";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -860,6 +860,8 @@ export default function ProductoScreen() {
       // La ficha se pinta ya: lo que sigue (admin, visitas, analítica) llega
       // después sin bloquear.
       setLoading(false);
+      // «Vistos recientemente» de Inicio (solo en este dispositivo): lo que está a la venta pasa a ser el primero.
+      if (mapped.status === "PUBLICADA" && mapped.isActive) void registrarVisto(mapped.id);
 
       adminPromise.then((adminFlag) => {
         if (seq !== reqSeqRef.current) return;

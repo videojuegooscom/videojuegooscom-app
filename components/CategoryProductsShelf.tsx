@@ -63,6 +63,11 @@
  * (BotonComparar) y la barra flotante de abajo (BarraComparar, en el Catálogo y las fichas) que lleva a app/comparar.tsx.
  * Se mide como comparar_anadido / comparar_quitado (solo ids) en Administración → Analítica → «Comparador (30 días)».
  *
+ * «Vistos recientemente» (mejora 9, dueño 2026-11-14; abajo del todo): historial SOLO del dispositivo (registrarVisto desde
+ * la ficha; el último primero, sin repetidos, como mucho 12) y el estante de Inicio (VistosRecientemente: solo con 3 o más
+ * a la venta, «Quitar» por producto y «Borrar historial»). Se mide como vistos_mostrado, visto_tocado, visto_quitado y
+ * vistos_borrados (solo ids y cuántos) en Administración → Analítica → «Vistos recientemente (30 días)».
+ *
  * Tamaños (2026-11-12, grupo 3): nombres a 13 px como mínimo, precios pequeños (menos de 17 px) en el azul de texto
  * #0A78B4 (constants/theme.ts) y flechas con 44 px de zona táctil.
  *
@@ -495,6 +500,7 @@ export default function CategoryProductsShelf({
   onTocar,
   sinMovimiento,
   nativeID,
+  onQuitar,
 }: {
   modo?: ShelfModo;
   titulo?: string;
@@ -507,6 +513,8 @@ export default function CategoryProductsShelf({
   /** Sin el movimiento automático (en la ficha, el cliente decide cuándo mirar). */
   sinMovimiento?: boolean;
   nativeID?: string;
+  /** «Vistos recientemente» (Inicio): un «Quitar» de 44 px bajo cada tarjeta. */
+  onQuitar?: (id: string) => void;
 } = {}) {
   const [cargados, setProducts] = useState<ShelfProduct[] | null>(null);
   const products = productosFijos ?? cargados;
@@ -629,7 +637,8 @@ export default function CategoryProductsShelf({
           scrollEventThrottle={16}
           contentContainerStyle={{ gap: CARD_GAP, paddingRight: 4 }}
         >
-          {products.map((p, i) => (
+          {products.map((p, i) => {
+            const tarjeta = (
             <Pressable
               key={p.id}
               nativeID={nativeID ? `${nativeID}-${p.id}` : undefined}
@@ -697,7 +706,25 @@ export default function CategoryProductsShelf({
                 {fmtEUR(p.priceEUR)}
               </Text>
             </Pressable>
-          ))}
+            );
+            if (!onQuitar) return tarjeta;
+            // «Vistos recientemente»: «Quitar» (44 px) debajo de la tarjeta, fuera del enlace, con el mismo fondo.
+            return (
+              <View key={p.id} style={{ width: CARD_WIDTH, borderRadius: 16, backgroundColor: COLORS.tile, justifyContent: "space-between" }}>
+                {tarjeta}
+                <Pressable
+                  nativeID={nativeID ? `${nativeID}-quitar-${p.id}` : undefined}
+                  onPress={() => onQuitar(p.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Quitar ${p.title} de vistos recientemente`}
+                  style={({ pressed }) => ({ minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
+                >
+                  <Ionicons name="close" size={15} color={COLORES_TEXTO.secundario} />
+                  <Text style={{ color: COLORES_TEXTO.secundario, fontWeight: "800", fontSize: TAMANOS.minimo }}>Quitar</Text>
+                </Pressable>
+              </View>
+            );
+          })}
         </ScrollView>
 
         {canScrollLeft ? (
@@ -1419,6 +1446,201 @@ export function BarraComparar() {
         </View>
       </View>
     </View>
+  );
+}
+
+// --- «Vistos recientemente» en Inicio (mejora 9, aprobada por el dueño el 2026-11-14: «solo con historial suficiente») -----
+// Al abrir la ficha de un producto a la venta se apunta SOLO en el dispositivo (AsyncStorage = localStorage en la web; sin
+// cuenta) su id y la hora: el último visto primero, sin repetidos y como mucho 12. Inicio enseña el estante solo con 3 o
+// más que sigan a la venta (están en el índice ligero de la búsqueda); lo retirado o vendido se quita solo del historial.
+// Analítica propia sin datos de nadie: vistos_mostrado (n), visto_tocado (id y posición), visto_quitado (id) y
+// vistos_borrados (n), en Administración → Analítica → «Vistos recientemente (30 días)».
+export const VISTOS_MAX = 12;
+export const VISTOS_MIN = 3;
+const VISTOS_KEY = "videojuegoszaragoza:vistos_v1";
+export type VistoReciente = { id: string; en: number };
+
+// Un objeto nuevo en cada cambio (useSyncExternalStore), como el comparador.
+type EstadoVistos = { lista: VistoReciente[]; leido: boolean };
+let vistos: EstadoVistos = { lista: [], leido: false };
+const oyentesVistos = new Set<() => void>();
+let lecturaVistos: Promise<void> | null = null;
+
+function cambiarVistos(lista: VistoReciente[], guardar: boolean) {
+  vistos = { lista, leido: true };
+  for (const f of [...oyentesVistos]) f();
+  if (guardar) AsyncStorage.setItem(VISTOS_KEY, JSON.stringify(lista)).catch(() => {});
+}
+function suscribirVistos(f: () => void) {
+  oyentesVistos.add(f);
+  return () => {
+    oyentesVistos.delete(f);
+  };
+}
+const fotoVistos = () => vistos;
+
+/** Lo guardado tal cual se lee: solo ids con buena forma, sin repetidos (se queda el primero, el más reciente) y 12. */
+function limpiarVistos(v: unknown): VistoReciente[] {
+  if (!Array.isArray(v)) return [];
+  const out: VistoReciente[] = [];
+  for (const x of v) {
+    if (!x || typeof x !== "object") continue;
+    const r = x as Record<string, unknown>;
+    const id = String(r.id ?? "").trim();
+    if (!/^[0-9A-Za-z-]{1,64}$/.test(id) || out.some((o) => o.id === id)) continue;
+    const en = Number(r.en);
+    out.push({ id, en: Number.isFinite(en) ? en : 0 });
+    if (out.length >= VISTOS_MAX) break;
+  }
+  return out;
+}
+
+function leerVistos(): Promise<void> {
+  if (!lecturaVistos) {
+    lecturaVistos = (async () => {
+      let lista: VistoReciente[] = [];
+      try {
+        const raw = await AsyncStorage.getItem(VISTOS_KEY);
+        lista = limpiarVistos(raw ? JSON.parse(raw) : []);
+      } catch {
+        // Sin almacenamiento (modo privado…): no hay historial y no pasa nada.
+      }
+      cambiarVistos(lista, false);
+    })();
+  }
+  return lecturaVistos;
+}
+
+/** La ficha (app/producto/[id].tsx) al abrir un producto a la venta: pasa a ser el primero del historial. */
+export async function registrarVisto(id: string) {
+  if (!/^[0-9A-Za-z-]{1,64}$/.test(id)) return;
+  await leerVistos();
+  if (vistos.lista[0]?.id === id) return;
+  cambiarVistos([{ id, en: Date.now() }, ...vistos.lista.filter((v) => v.id !== id)].slice(0, VISTOS_MAX), true);
+}
+
+export function quitarVisto(id: string) {
+  const nueva = vistos.lista.filter((v) => v.id !== id);
+  if (nueva.length === vistos.lista.length) return;
+  cambiarVistos(nueva, true);
+  void trackEvent("visto_quitado", "Inicio: visto recientemente quitado", { path: "/", metadata: { id, n: nueva.length } });
+}
+
+export function borrarVistos() {
+  const n = vistos.lista.length;
+  if (!n) return;
+  cambiarVistos([], true);
+  void trackEvent("vistos_borrados", "Inicio: historial de vistos borrado", { path: "/", metadata: { n } });
+}
+
+/** El historial del dispositivo (se repinta con cada cambio, también al volver de una ficha). */
+export function useVistos(): EstadoVistos {
+  const estado = React.useSyncExternalStore(suscribirVistos, fotoVistos, fotoVistos);
+  useEffect(() => {
+    void leerVistos();
+  }, []);
+  return estado;
+}
+
+/**
+ * El estante «Vistos recientemente» de Inicio (app/(tabs)/index.tsx, tras «Recién llegado»): el mismo carrusel discreto
+ * (sin movimiento automático) con «Quitar» en cada tarjeta y «Borrar historial» debajo. No sale con menos de 3 vistos a la
+ * venta ni si todos son justo los que ya enseña «Recién llegado» al lado. `pie` va debajo solo si se pinta.
+ */
+export function VistosRecientemente({ pie }: { pie?: React.ReactNode }) {
+  const { lista, leido } = useVistos();
+  const [productos, setProductos] = useState<ShelfProduct[] | null>(null);
+  const portadas = useRef(new Map<string, string | null>());
+  const medido = useRef(false);
+  const clave = lista.map((v) => v.id).join(",");
+
+  useEffect(() => {
+    if (!leido) return;
+    let vivo = true;
+    (async () => {
+      const ids = clave ? clave.split(",") : [];
+      if (ids.length < VISTOS_MIN) {
+        setProductos([]);
+        return;
+      }
+      const indice = await cargarIndiceBusqueda(false);
+      if (!vivo) return;
+      if (!indice) {
+        setProductos([]);
+        return;
+      }
+      const porId = new Map(indice.productos.filter(publicado).map((p) => [p.id, p]));
+      const aLaVenta = ids.filter((id) => porId.has(id));
+      // Lo retirado o vendido sale solo del historial del dispositivo.
+      if (aLaVenta.length !== ids.length && vistos.lista.length === ids.length) {
+        cambiarVistos(vistos.lista.filter((v) => porId.has(v.id)), true);
+        return;
+      }
+      if (aLaVenta.length < VISTOS_MIN) {
+        setProductos([]);
+        return;
+      }
+      // Si son justo los mismos que «Recién llegado» (el estante de al lado; misma consulta en memoria), no se repiten.
+      const novedades = await getShelfProductsCached("novedades").catch(() => [] as ShelfProduct[]);
+      const enNovedades = new Set(novedades.map((p) => p.id));
+      if (aLaVenta.every((id) => enNovedades.has(id))) {
+        if (vivo) setProductos([]);
+        return;
+      }
+      const faltan = aLaVenta.filter((id) => !portadas.current.has(id));
+      if (faltan.length) {
+        const nuevas = await portadasDeProductos(faltan).catch(() => new Map<string, string>());
+        for (const id of faltan) portadas.current.set(id, nuevas.get(id) ?? null);
+      }
+      if (!vivo) return;
+      setProductos(
+        aLaVenta.map((id) => {
+          const p = porId.get(id)!;
+          return { id, title: p.titulo.trim() || "Producto", priceEUR: p.precio, image: portadas.current.get(id) ?? null };
+        })
+      );
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [clave, leido]);
+
+  const n = productos?.length ?? 0;
+  useEffect(() => {
+    if (n >= VISTOS_MIN && !medido.current) {
+      medido.current = true;
+      void trackEvent("vistos_mostrado", "Inicio: vistos recientemente", { path: "/", metadata: { n } });
+    }
+  }, [n]);
+
+  const tocar = useCallback((id: string, posicion: number) => {
+    void trackEvent("visto_tocado", "Inicio: visto recientemente tocado", { path: "/", metadata: { id, posicion } });
+  }, []);
+
+  if (!productos || productos.length < VISTOS_MIN) return null;
+  return (
+    <CategoryProductsShelf
+      nativeID="inicio-vistos"
+      titulo="Vistos recientemente"
+      productos={productos}
+      onTocar={tocar}
+      onQuitar={quitarVisto}
+      sinMovimiento
+      pie={
+        <>
+          <Pressable
+            nativeID="inicio-vistos-borrar"
+            onPress={borrarVistos}
+            accessibilityRole="button"
+            accessibilityLabel="Borrar el historial de vistos recientemente"
+            style={({ pressed }) => ({ alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center", paddingHorizontal: 12, opacity: pressed ? 0.6 : 1 })}
+          >
+            <Text style={{ color: COLORES_TEXTO.secundario, fontWeight: "800", fontSize: TAMANOS.minimo, textDecorationLine: "underline" }}>Borrar historial</Text>
+          </Pressable>
+          {pie}
+        </>
+      }
+    />
   );
 }
 

@@ -353,7 +353,11 @@
  *    (sigue tras recargar); /comparar?ids= con 2 y 3 (precio más bajo, estado, categoría, entrega, revisado y garantía
  *    SOLO si están marcados), retirado («Ya no está a la venta» y quitar), añadir a la cesta, enlace compartible y vacío;
  *    analítica sin datos de nadie (nada si se rechazó) y la tarjeta «Comparador (30 días)»; 360, 390 y 1280 sin desbordes.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC|RAPI|COMPA]
+ *  - VISTOS) «Vistos recientemente» en Inicio (2026-11-14, mejora 9, sin migración): la ficha lo apunta en el dispositivo
+ *    (último primero, sin repetidos, como mucho 12); con 2 no sale, con 3 sí; retirado fuera (y del historial); no si son
+ *    justo los de «Recién llegado»; «Quitar» y «Borrar historial» de 44 px; tocar abre la ficha; la oferta no se mueve;
+ *    analítica con ids y cuántos (nada si se rechazó) y la tarjeta «Vistos recientemente (30 días)»; 360, 390 y 1280.
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC|RAPI|COMPA|VISTOS]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -16169,8 +16173,286 @@ async function seccionCOMPA() {
   }
 }
 
+// ===== VISTOS) «Vistos recientemente» en Inicio (dueño, 2026-11-14, mejora 9; sin migración): la ficha apunta en el
+// dispositivo lo que se abre (el último primero, sin repetidos, como mucho 12); Inicio enseña el estante solo con 3 o más a
+// la venta (con 2 no sale; lo retirado se quita solo), no si son justo los de «Recién llegado», con «Quitar» y «Borrar
+// historial» de 44 px; tocar abre la ficha; no mueve la oferta ni la primera pantalla; analítica solo con ids y cuántos (nada
+// si se rechazó) y la tarjeta «Vistos recientemente (30 días)» de Administración → Analítica; 360, 390 y 1280. ============
+async function seccionVISTOS() {
+  const CATS = [
+    { id: "c0000000-0000-4000-8000-0000000000c5", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true },
+    { id: "c0000000-0000-4000-8000-0000000000c6", slug: "nintendo-switch", name: "Nintendo Switch", sort_order: 1, is_active: true },
+  ];
+  const ID = (n) => `d1000000-0000-4000-8000-0000000000${String(n).padStart(2, "0")}`;
+  // 20 artículos (el 15, retirado); «Recién llegado» enseña los 12 más nuevos a la venta (20…8 sin el 15): del 1 al 7 no.
+  const PRODUCTOS = Array.from({ length: 20 }, (_, i) => {
+    const n = i + 1;
+    const cat = CATS[n % 2];
+    return {
+      id: ID(n), title: `${cat.name} visto ${n}`, description: "Revisado por la tienda.", price_eur: 30 + n * 10, status: "PUBLISHED", is_active: n !== 15,
+      condition: "GOOD", category_id: cat.id, category: { id: cat.id, name: cat.name, slug: cat.slug }, created_at: new Date(Date.UTC(2026, 10, 1, n)).toISOString(),
+      updated_at: "2026-11-14T10:00:00Z", novedad_en: new Date(Date.UTC(2026, 10, 1, n)).toISOString(), view_count: n, images: [], like_count: 0, reference: null,
+      revisado: false, garantia_meses: null, solo_entrega_mano: false,
+    };
+  });
+  const T = Object.fromEntries(PRODUCTOS.map((p) => [p.id, p.title]));
+  const fotosCatalogo = PRODUCTOS.map((p, i) => ({ id: `vi${i}`, product_id: p.id, kind: "image", public_url: `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/vistos/${i}.jpg`, file_name: `${i}.jpg`, sort_order: 0, is_cover: true, duration_seconds: null }));
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const nuevoEstado = (extra = {}) => ({ filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS, fotosCatalogo, ...extra });
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const CLAVE = "videojuegoszaragoza:vistos_v1";
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !(await cond()); i++) await p.waitForTimeout(250);
+  };
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const guardados = (p) => p.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? "[]").map((x) => x.id), CLAVE);
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/[-]/g, "").replace(/\s+/g, " ").trim()).catch(() => "");
+  // Historial ya guardado en el dispositivo (una vez por pestaña: al navegar en la misma pestaña no se vuelve a poner).
+  const conVistos = (ctx, ids) =>
+    ctx.addInitScript(([k, l]) => {
+      try {
+        if (!sessionStorage.getItem("vz-prueba-vistos")) {
+          sessionStorage.setItem("vz-prueba-vistos", "1");
+          localStorage.setItem(k, JSON.stringify(l));
+        }
+      } catch {
+        // sin almacenamiento
+      }
+    }, [CLAVE, ids.map((id, i) => ({ id, en: Date.now() - i * 60000 }))]);
+  const tarjetas = (p) => p.evaluate(() => [...document.querySelectorAll('[id^="inicio-vistos-d1000000"]')].map((e) => e.id.slice("inicio-vistos-".length)));
+  // Inicio listo: la oferta y «Recién llegado» pintados (y un momento para que el estante de vistos decida).
+  const listo = async (p) => {
+    await p.locator(".vz-oferta-brillo").first().waitFor({ timeout: 40000 }).catch(() => {});
+    await p.getByText("Recién llegado", { exact: true }).first().waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#inicio-vistos").waitFor({ timeout: 4000 }).catch(() => {});
+    await p.waitForTimeout(700);
+  };
+  const abrirInicio = async (ctx) => {
+    const p = await pagina(ctx, "/");
+    await listo(p);
+    return p;
+  };
+  const irA = async (p, ruta) => {
+    await p.goto(BASE + ruta, { waitUntil: "load", timeout: 60000 });
+    if (ruta === "/") await listo(p);
+    else await p.locator("#ficha-comprar-ya").first().waitFor({ timeout: 40000 }).catch(() => {});
+  };
+  const posiciones = (p) =>
+    p.evaluate(() => {
+      const top = (e) => (e ? Math.round(e.getBoundingClientRect().top) : null);
+      const recien = [...document.querySelectorAll('[role="heading"]')].find((e) => e.textContent?.trim() === "Recién llegado");
+      return { oferta: top(document.querySelector(".vz-oferta-brillo")), recien: top(recien), vistos: top(document.getElementById("inicio-vistos")), alto: innerHeight };
+    });
+  const sinDatos = (estado) => !/cliente@example|Ana|ana_g/.test(JSON.stringify((estado.eventosEnviados ?? []).filter((e) => /^visto/.test(e.event_name)).map((e) => e.metadata)));
+
+  // VISTOS1) 390: con 2 vistos no sale; al abrir una 3.ª ficha se apunta la primera y sale con el último primero, sin mover la
+  // oferta ni «Recién llegado» y por debajo de la primera pantalla; volver a una ficha ya vista la sube sin repetirla; tocar
+  // una tarjeta abre su ficha; «Quitar» (44 px) la quita y con 2 el estante se va. Analítica con ids y cuántos.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conVistos(ctx, [ID(2), ID(1)]);
+    const p = await abrirInicio(ctx);
+    const sin = await posiciones(p);
+    ok((await p.locator("#inicio-vistos").count()) === 0 && sin.oferta !== null && sin.recien !== null, `VISTOS: con 2 vistos no sale el estante (${JSON.stringify(sin)})`);
+    await capturar(p, "VISTOS1-dos-no-sale-390");
+    await irA(p, `/producto/${ID(3)}`);
+    await esperar(p, async () => (await guardados(p)).length === 3);
+    ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(3), ID(2), ID(1)]), `VISTOS: al abrir la ficha se apunta la primera (${(await guardados(p)).map((i) => T[i]).join(" | ")})`);
+    await irA(p, "/");
+    ok(JSON.stringify(await tarjetas(p)) === JSON.stringify([ID(3), ID(2), ID(1)]), `VISTOS: con 3 sale, el último visto primero (${(await tarjetas(p)).map((i) => T[i]).join(" | ")})`);
+    ok(/Vistos recientemente/.test(await texto(p, "#inicio-vistos")), "VISTOS: con su título «Vistos recientemente»");
+    const con = await posiciones(p);
+    ok(con.oferta === sin.oferta && con.recien === sin.recien, `VISTOS: la oferta y «Recién llegado» quedan donde estaban (${JSON.stringify(sin)} → ${JSON.stringify(con)})`);
+    ok(con.vistos !== null && con.vistos > con.recien && con.vistos >= con.alto, `VISTOS: va tras «Recién llegado», fuera de la primera pantalla (${con.vistos} / alto ${con.alto})`);
+    const toques = await p.evaluate(() => [...document.querySelectorAll('[id^="inicio-vistos-quitar-"], #inicio-vistos-borrar')].map((e) => ({ id: e.id, h: Math.round(e.getBoundingClientRect().height), w: Math.round(e.getBoundingClientRect().width), t: e.textContent.trim() })));
+    ok(toques.length === 4 && toques.every((x) => x.h >= 44 && x.w >= 44) && toques.filter((x) => /Quitar/.test(x.t)).length === 3 && /Borrar historial/.test(toques[3].t), `VISTOS: «Quitar» en cada tarjeta y «Borrar historial», de 44 px (${JSON.stringify(toques)})`);
+    await esperar(p, () => evento(estado, "vistos_mostrado").length > 0);
+    const mo = evento(estado, "vistos_mostrado").map((e) => e.metadata);
+    ok(mo.length === 1 && mo[0]?.n === 3 && Object.keys(mo[0]).join(",") === "n", `VISTOS: se mide vistos_mostrado una vez con cuántos (${JSON.stringify(mo)})`);
+    await p.locator("#inicio-vistos").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(400);
+    await capturar(p, "VISTOS1-tres-390");
+    // Volver a una ficha ya vista: sube la primera, sin repetirse.
+    await irA(p, `/producto/${ID(2)}`);
+    await esperar(p, async () => (await guardados(p))[0] === ID(2));
+    ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(2), ID(3), ID(1)]), `VISTOS: sin repetidos (la que se vuelve a ver sube la primera) (${(await guardados(p)).map((i) => T[i]).join(" | ")})`);
+    await irA(p, "/");
+    ok(JSON.stringify(await tarjetas(p)) === JSON.stringify([ID(2), ID(3), ID(1)]), "VISTOS: y así sale en Inicio");
+    // Tocar una tarjeta abre su ficha.
+    await p.locator(`#inicio-vistos-${ID(3)}`).click();
+    await p.waitForURL(new RegExp(`/producto/${ID(3)}`), { timeout: 15000 }).catch(() => {});
+    ok(p.url().endsWith(`/producto/${ID(3)}`), `VISTOS: tocar una tarjeta abre su ficha (${p.url().replace(BASE, "")})`);
+    await esperar(p, () => evento(estado, "visto_tocado").length > 0);
+    const to = evento(estado, "visto_tocado").map((e) => e.metadata);
+    ok(to.length === 1 && to[0]?.id === ID(3) && to[0]?.posicion === 2, `VISTOS: se mide visto_tocado (id y posición) (${JSON.stringify(to)})`);
+    await esperar(p, async () => (await guardados(p))[0] === ID(3));
+    // «Quitar»: con 3, al quitar uno el estante se va (quedan 2).
+    await irA(p, "/");
+    await p.locator(`#inicio-vistos-quitar-${ID(1)}`).click();
+    await esperar(p, async () => (await guardados(p)).length === 2);
+    await p.waitForTimeout(400);
+    ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(3), ID(2)]) && (await p.locator("#inicio-vistos").count()) === 0, `VISTOS: «Quitar» lo quita del historial y con 2 el estante se va (${(await guardados(p)).map((i) => T[i]).join(" | ")})`);
+    await esperar(p, () => evento(estado, "visto_quitado").length > 0);
+    const qu = evento(estado, "visto_quitado").map((e) => e.metadata);
+    ok(qu.length === 1 && qu[0]?.id === ID(1) && qu[0]?.n === 2, `VISTOS: se mide visto_quitado (${JSON.stringify(qu)})`);
+    ok(sinDatos(estado), "VISTOS: la analítica solo lleva ids y cuántos (sin datos de nadie)");
+    ok(p.errores.length === 0, `VISTOS1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VISTOS2) «Borrar historial» con 4: el estante se va y el dispositivo queda sin nada; «Quitar» con 4 deja 3 y sigue.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conVistos(ctx, [ID(1), ID(2), ID(3), ID(4), ID(5)]);
+    const p = await abrirInicio(ctx);
+    await p.locator(`#inicio-vistos-quitar-${ID(5)}`).click();
+    await esperar(p, async () => (await tarjetas(p)).length === 4);
+    ok(JSON.stringify(await tarjetas(p)) === JSON.stringify([ID(1), ID(2), ID(3), ID(4)]), `VISTOS: con 5, «Quitar» deja 4 y el estante sigue (${(await tarjetas(p)).length})`);
+    await p.locator("#inicio-vistos-borrar").click();
+    await esperar(p, async () => (await guardados(p)).length === 0);
+    await p.waitForTimeout(400);
+    ok((await guardados(p)).length === 0 && (await p.locator("#inicio-vistos").count()) === 0, "VISTOS: «Borrar historial» lo vacía y el estante se va");
+    await esperar(p, () => evento(estado, "vistos_borrados").length > 0);
+    const bo = evento(estado, "vistos_borrados").map((e) => e.metadata);
+    ok(bo.length === 1 && bo[0]?.n === 4, `VISTOS: se mide vistos_borrados con cuántos (${JSON.stringify(bo)})`);
+    await p.reload({ waitUntil: "load" });
+    await listo(p);
+    ok((await p.locator("#inicio-vistos").count()) === 0, "VISTOS: tras recargar sigue sin historial");
+    ok(p.errores.length === 0, `VISTOS2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VISTOS3) Como mucho 12: con 12 guardados, abrir otra ficha la pone la primera y se va la más antigua.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const doce = Array.from({ length: 12 }, (_, i) => ID(i + 1));
+    await conVistos(ctx, doce);
+    const p = await pagina(ctx, `/producto/${ID(13)}`);
+    await p.locator("#ficha-comprar-ya").first().waitFor({ timeout: 40000 }).catch(() => {});
+    await esperar(p, async () => (await guardados(p))[0] === ID(13));
+    const g = await guardados(p);
+    ok(g.length === 12 && g[0] === ID(13) && !g.includes(ID(12)) && g[11] === ID(11), `VISTOS: como mucho 12 (el nuevo primero y se va el más antiguo) (${g.length}: ${g.map((i) => i.slice(-2)).join(",")})`);
+    await irA(p, "/");
+    ok((await tarjetas(p)).length === 12, `VISTOS: Inicio enseña los 12 (${(await tarjetas(p)).length})`);
+    ok(p.errores.length === 0, `VISTOS3: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VISTOS4) Lo retirado no sale y se quita solo del historial; con 2 a la venta (y uno retirado) no sale.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conVistos(ctx, [ID(15), ID(1), ID(2), ID(3)]);
+    const p = await abrirInicio(ctx);
+    ok(JSON.stringify(await tarjetas(p)) === JSON.stringify([ID(1), ID(2), ID(3)]), `VISTOS: el retirado no sale (${(await tarjetas(p)).map((i) => T[i]).join(" | ")})`);
+    await esperar(p, async () => (await guardados(p)).length === 3);
+    ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(1), ID(2), ID(3)]), "VISTOS: y se quita solo del historial del dispositivo");
+    await ctx.close();
+    const ctx2 = await contexto(navegador, CLIENTE, "user", nuevoEstado());
+    await conVistos(ctx2, [ID(15), ID(1), ID(2)]);
+    const p2 = await abrirInicio(ctx2);
+    ok((await p2.locator("#inicio-vistos").count()) === 0, "VISTOS: con 2 a la venta y uno retirado no sale");
+    ok(p2.errores.length === 0, `VISTOS4: sin errores de JavaScript (${p2.errores[0] ?? "ninguno"})`);
+    await ctx2.close();
+  }
+
+  // VISTOS5) Si todos son justo los que enseña «Recién llegado» al lado, no se repiten; con uno distinto, sí sale.
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", nuevoEstado());
+    await conVistos(ctx, [ID(20), ID(19), ID(18)]);
+    const p = await abrirInicio(ctx);
+    ok((await p.locator("#inicio-vistos").count()) === 0 && (await p.locator(`[id="inicio-vistos-${ID(20)}"]`).count()) === 0, "VISTOS: si son justo los de «Recién llegado», no sale");
+    await ctx.close();
+    const ctx2 = await contexto(navegador, CLIENTE, "user", nuevoEstado());
+    await conVistos(ctx2, [ID(20), ID(19), ID(1)]);
+    const p2 = await abrirInicio(ctx2);
+    ok(JSON.stringify(await tarjetas(p2)) === JSON.stringify([ID(20), ID(19), ID(1)]), "VISTOS: con uno que no está en «Recién llegado», sí sale (los 3)");
+    await ctx2.close();
+  }
+
+  // VISTOS6) Con la analítica rechazada sale igual y no se manda nada.
+  {
+    const estado = nuevoEstado({ aceptaAnalitica: false });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conVistos(ctx, [ID(1), ID(2), ID(3), ID(4)]);
+    const p = await abrirInicio(ctx);
+    await p.locator(`#inicio-vistos-quitar-${ID(4)}`).click();
+    await p.waitForTimeout(800);
+    ok((await tarjetas(p)).length === 3 && !(estado.eventosEnviados ?? []).some((e) => /^visto/.test(e.event_name)), "VISTOS: con la analítica rechazada funciona igual y no se mide nada");
+    await ctx.close();
+  }
+
+  // VISTOS7) 360, 390 y 1280: la oferta en el mismo sitio con y sin el estante, sin desbordes ni errores; capturas.
+  for (const { nombre, vista } of VISTAS) {
+    const ctx0 = await contexto(navegador, CLIENTE, "user", nuevoEstado(), vista);
+    const p0 = await abrirInicio(ctx0);
+    const sin = await posiciones(p0);
+    await ctx0.close();
+    const ctx = await contexto(navegador, CLIENTE, "user", nuevoEstado(), vista);
+    await conVistos(ctx, [ID(1), ID(2), ID(3), ID(4), ID(5)]);
+    const p = await abrirInicio(ctx);
+    const con = await posiciones(p);
+    ok((await tarjetas(p)).length === 5, `VISTOS (${nombre}): sale el estante con los 5`);
+    ok(con.oferta === sin.oferta && con.recien === sin.recien && con.vistos > con.recien, `VISTOS (${nombre}): no empuja la oferta ni «Recién llegado» (${JSON.stringify(sin)} → ${JSON.stringify(con)})`);
+    if (nombre !== "1280") ok(con.vistos >= con.alto, `VISTOS (${nombre}): fuera de la primera pantalla (${con.vistos} / ${con.alto})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `VISTOS (${nombre}): Inicio no se ensancha (${d.a}/${d.v})`);
+    const dentro = await p.evaluate(() => {
+      const e = document.getElementById("inicio-vistos");
+      const r = e?.getBoundingClientRect();
+      return r ? { l: Math.round(r.left), r: Math.round(r.right), v: innerWidth } : null;
+    });
+    ok(!!dentro && dentro.l >= 0 && dentro.r <= dentro.v, `VISTOS (${nombre}): el estante cabe a lo ancho (${JSON.stringify(dentro)})`);
+    await p.evaluate(() => document.getElementById("inicio-vistos")?.scrollIntoView({ block: "center" }));
+    await p.waitForTimeout(600);
+    await capturar(p, `VISTOS7-inicio-${nombre}`);
+    ok(p.errores.length === 0, `VISTOS7 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VISTOS8) Administración → Analítica (390 y 1280): «Vistos recientemente (30 días)» con veces mostrado, toques, quitados y
+  // borrados, y lo más revisitado (con su título y en orden).
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const ev = (n, k, metadata = {}) => Array.from({ length: k }, () => ({ event_name: n, metadata, created_at: "2026-11-13T10:00:00Z", session_id: "x", step_label: n }));
+    const estado = {
+      filas: perfilAdmin, guardados: [], embudo: [], categorias: CATS, catalogoFB: PRODUCTOS,
+      eventos: [
+        ...ev("vistos_mostrado", 5, { n: 4 }), ...ev("visto_tocado", 3, { id: ID(1), posicion: 1 }), ...ev("visto_tocado", 1, { id: ID(2), posicion: 2 }),
+        ...ev("visto_quitado", 2, { id: ID(3), n: 3 }), ...ev("vistos_borrados", 1, { n: 4 }), ...ev("comparar_abierto", 2, { n: 2, ids: [ID(1)] }),
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-vistos").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const uso = await texto(p, "#analitica-vistos-uso");
+    ok(/Mostrado 5 veces · 4 toques/.test(uso), `VISTOS (${nombre}): Analítica cuenta las veces mostrado y los toques (${uso})`);
+    const qb = await texto(p, "#analitica-vistos-quitados");
+    ok(/Productos quitados 2 · historiales borrados 1/.test(qb), `VISTOS (${nombre}): y los quitados y borrados (${qb})`);
+    const top = await texto(p, "#analitica-vistos-top");
+    ok(new RegExp(`${T[ID(1)]} 3 veces`).test(top) && new RegExp(`${T[ID(2)]} 1 vez`).test(top) && top.indexOf(T[ID(2)]) > top.indexOf(T[ID(1)]), `VISTOS (${nombre}): lo más revisitado, con su título y en orden (${top})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `VISTOS (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#analitica-vistos").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `VISTOS8-analitica-${nombre}`);
+    ok(p.errores.length === 0, `VISTOS8 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "VISTOS") await seccionVISTOS();
   if (SOLO === "COMPA") await seccionCOMPA();
   if (SOLO === "RAPI") await seccionRAPI();
   if (SOLO === "PAREC") await seccionPAREC();
@@ -17274,6 +17556,7 @@ try {
   await seccionPAREC();
   await seccionRAPI();
   await seccionCOMPA();
+  await seccionVISTOS();
   await seccionCAMPOS16();
   }
 } catch (e) {
