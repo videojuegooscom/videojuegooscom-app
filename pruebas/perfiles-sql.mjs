@@ -108,6 +108,10 @@
  *    quita el suyo; otro cliente no lo ve ni lo cambia, un visitante nada, el administrador lo lee y lo cuenta; las políticas
  *    siguen siendo 3; el Foro no lo da; la privacidad lo dice una vez; se aplica dos veces (con sus «pruebas de las
  *    pruebas»: sin la comprobación entra «abc»; con una regla abierta otro cliente lo ve).
+ *  - Hasta 3 direcciones en «Mi perfil» (20261114120000_perfil_direcciones.sql): columna jsonb con su comprobación (lista de
+ *    como mucho 3 objetos y 3.000 caracteres; lo demás, 23514); el cliente guarda 3 y no una 4.ª, las quita; otro cliente
+ *    no las ve ni las cambia, un visitante nada, el administrador las lee y cuenta quién tiene 2 o más; las políticas siguen
+ *    siendo 3; el Foro no las da; se aplica dos veces (con su «prueba de la prueba»: sin la comprobación entra una 4.ª).
  *  - Avisos de productos a VeoAura (20261113130000_escaparate_salida_productos.sql): tabla nueva y aditiva; solo el
  *    administrador la lee (un cliente y un visitante, nada) y desde el navegador nadie escribe ni cambia; una fila por
  *    producto; estado y detalle con su comprobación; no toca escaparate_salida; se aplica dos veces (con su «prueba de la
@@ -3048,6 +3052,65 @@ try {
     const espiaT = await como(cT3, "authenticated", U2, `select telefono from public.perfiles_cliente where user_id = '${U1}'`);
     ok(espiaT.ok && espiaT.filas.length === 1, `(control) con una regla de lectura abierta, otro cliente ve el teléfono de U1: la prueba SÍ lo detecta (${espiaT.filas?.length ?? espiaT.mensaje})`);
     await cT3.end();
+  }
+
+  // Hasta 3 direcciones en «Mi perfil» (20261114120000_perfil_direcciones.sql): una columna jsonb con su comprobación (lista
+  // de como mucho 3 objetos) y las reglas de siempre (el cliente lo suyo, el administrador lee todo, un visitante nada, el
+  // Foro no la da). Con sus pruebas de las pruebas.
+  {
+    const DIRS = readFileSync("supabase/migrations/20261114120000_perfil_direcciones.sql", "utf8");
+    const ESQUEMA_D = "create table public.chat_messages (id uuid primary key default gen_random_uuid(), user_id uuid not null default auth.uid(), body text);";
+    const cDi = await nuevaBase("vz_aislada_direcciones", MIGRACION + ESQUEMA_D + PUBLICOS + DIRS);
+    let repetidaDi = true;
+    try {
+      await cDi.query(DIRS);
+    } catch (e) {
+      repetidaDi = false;
+      console.log(String(e.message));
+    }
+    const columnaDi = (await cDi.query("select data_type from information_schema.columns where table_schema = 'public' and table_name = 'perfiles_cliente' and column_name = 'direcciones'")).rows[0]?.data_type;
+    const checkDi = Number((await cDi.query("select count(*) as n from pg_constraint where conname = 'perfiles_cliente_direcciones_check'")).rows[0].n);
+    const politicasDi = (await cDi.query("select policyname from pg_policies where schemaname = 'public' and tablename = 'perfiles_cliente' order by 1")).rows.map((r) => r.policyname);
+    ok(repetidaDi && columnaDi === "jsonb" && checkDi === 1, `Direcciones: añade la columna (jsonb) con su comprobación y se puede aplicar dos veces (${columnaDi}; ${checkDi})`);
+    ok(politicasDi.length === 3, `Direcciones: no toca los permisos (siguen las 3 políticas: ${politicasDi.join(", ")})`);
+    const dir = (etiqueta, pred) => ({ etiqueta, codigo_postal: "50410", localidad: "Cuarte de Huerva", direccion: "Calle Mayor 5", piso: "2º B", predeterminada: pred });
+    const lista = (n) => JSON.stringify(["casa", "trabajo", "familiar", "casa"].slice(0, n).map((e, i) => dir(e, i === 0))).replace(/'/g, "''");
+    const guardarDi = await como(cDi, "authenticated", U1, `insert into public.perfiles_cliente (user_id, nombre, direcciones) values ('${U1}', 'Ana', '${lista(3)}'::jsonb)`, { confirmar: true });
+    ok(guardarDi.ok, `Direcciones: un cliente guarda 3 direcciones con etiqueta (${guardarDi.mensaje ?? "ok"})`);
+    const cuartaDi = await como(cDi, "authenticated", U1, `update public.perfiles_cliente set direcciones = '${lista(4)}'::jsonb where user_id = (select auth.uid())`);
+    ok(!cuartaDi.ok && cuartaDi.codigo === "23514", `Direcciones: una 4.ª no entra (${cuartaDi.codigo ?? "entra"})`);
+    const malasDi = [];
+    for (const v of [`'{"etiqueta":"casa"}'`, `'"casa"'`, `'[1, 2]'`, `'[{"a":1}, "texto"]'`, `'[{"direccion":"${"x".repeat(3100)}"}]'`]) {
+      const r = await como(cDi, "authenticated", U1, `update public.perfiles_cliente set direcciones = ${v}::jsonb where user_id = (select auth.uid())`);
+      malasDi.push(r.ok ? `entra(${v.slice(0, 20)})` : r.codigo);
+    }
+    ok(malasDi.every((x) => x === "23514"), `Direcciones: rechaza lo que no es una lista de objetos o es enorme (${malasDi.join(", ")})`);
+    const vaciaDi = await como(cDi, "authenticated", U1, "update public.perfiles_cliente set direcciones = '[]'::jsonb where user_id = (select auth.uid())", { confirmar: true });
+    const nulaDi = await como(cDi, "authenticated", U1, "update public.perfiles_cliente set direcciones = null where user_id = (select auth.uid())", { confirmar: true });
+    ok(vaciaDi.ok && nulaDi.ok, "Direcciones: se pueden quitar todas (lista vacía o sin dato)");
+    await cDi.query(`update public.perfiles_cliente set direcciones = '${lista(2)}'::jsonb where user_id = '${U1}'`);
+    await cDi.query(`insert into public.perfiles_cliente (user_id, nombre, direcciones) values ('${U2}', 'Luis', '${lista(1)}'::jsonb)`);
+    const otroLeeDi = await como(cDi, "authenticated", U2, `select direcciones from public.perfiles_cliente where user_id = '${U1}'`);
+    ok(otroLeeDi.ok && otroLeeDi.filas.length === 0, "Direcciones: otro cliente no ve las de nadie");
+    const otroCambiaDi = await como(cDi, "authenticated", U2, `update public.perfiles_cliente set direcciones = '[]'::jsonb where user_id = '${U1}'`, { confirmar: true });
+    ok(otroCambiaDi.ok && otroCambiaDi.cuantas === 0, "Direcciones: otro cliente no cambia las de nadie");
+    const anonDi = await como(cDi, "anon", null, "select direcciones from public.perfiles_cliente");
+    ok(!anonDi.ok && anonDi.codigo === "42501", `Direcciones: un visitante tampoco (${anonDi.codigo})`);
+    const adminDi = await como(cDi, "authenticated", ADMIN, "select count(*) filter (where jsonb_array_length(coalesce(direcciones, '[]'::jsonb)) >= 2)::int as dos, count(*)::int as n from public.perfiles_cliente");
+    ok(adminDi.ok && adminDi.filas[0].dos === 1 && adminDi.filas[0].n === 2, "Direcciones: el administrador las lee y cuenta quién tiene 2 o más (Usuarios)");
+    await cDi.query(`update public.perfiles_cliente set usuario = 'ana_g' where user_id = '${U1}'`);
+    await cDi.query(`insert into public.chat_messages (user_id, body) values ('${U1}', 'hola')`);
+    const foroDi = await como(cDi, "anon", null, `select * from public.perfiles_publicos(array['${U1}']::uuid[])`);
+    ok(foroDi.ok && foroDi.filas.length === 1 && Object.keys(foroDi.filas[0]).sort().join(",") === "foto_url,user_id,usuario", "Direcciones: el Foro sigue dando solo usuario y foto");
+    await cDi.end();
+
+    // PRUEBA DE LA PRUEBA: sin la comprobación, entra una 4.ª dirección.
+    const sinCheckDi = DIRS.replace(/do \$\$[\s\S]*?end \$\$;/, "");
+    ok(sinCheckDi !== DIRS, "(control) se ha podido quitar la comprobación de las direcciones en la copia de prueba");
+    const cDi2 = await nuevaBase("vz_aislada_direcciones_sin_check", MIGRACION + sinCheckDi);
+    await cDi2.query(`insert into public.perfiles_cliente (user_id, nombre) values ('${U1}', 'Ana')`);
+    ok((await como(cDi2, "authenticated", U1, `update public.perfiles_cliente set direcciones = '${lista(4)}'::jsonb where user_id = (select auth.uid())`)).ok, "(control) sin la comprobación entra una 4.ª dirección: la prueba SÍ lo detecta");
+    await cDi2.end();
   }
 
   // Avisos de productos a VeoAura (20261113130000_escaparate_salida_productos.sql): tabla nueva y aditiva; solo el administrador la

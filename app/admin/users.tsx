@@ -114,7 +114,10 @@
  *   de 30 días, a cuántos no se les pudieron leer los datos (sesión caducada o sin conexión) y cuántos pulsaron «Reintentar»
  *   (perfil_carga_fallida / perfil_carga_reintentada). SESIÓN ESTABLE (2026-11-14): de 30 días, cuántas veces se vio el
  *   reloj del dispositivo desfasado y cuántas se frenó un bucle de renovación del token o un 429 (sesion_reloj_desfasado /
- *   sesion_bucle_frenado, solo recuentos). Si la tabla aún no existe
+ *   sesion_bucle_frenado, solo recuentos). HASTA 3 DIRECCIONES (2026-11-14, columna direcciones, migración 20261114120000):
+ *   contador y chip «2+ direcciones» que filtra, «3 direcciones: Casa, Trabajo, Familiar» en cada fila (nunca la dirección),
+ *   cuántas hay de cada etiqueta y, de 30 días, «Comprar ya» (veces y personas) y pagos con una dirección guardada (y
+ *   cuántos la eligieron en el selector) (comprar_ya / pago_direccion_guardada). Sin la columna no sale. Si la tabla aún no existe
  *   esta parte no se enseña y el resto funciona igual. La edad sale de la fecha de nacimiento
  *   (no se enseña la fecha). Lee hasta 5.000 perfiles.
  * - Cada fila es pulsable: lleva a la "ficha de cliente"
@@ -152,6 +155,7 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import SmartImage from "../../components/SmartImage";
 import { ORIGENES_MEJORA, SUGERENCIAS_RESENA, type OrigenMejora } from "../../components/ReviewModal";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/theme";
+import { direccionesDeFila, textoEtiqueta, type DireccionGuardada } from "../../components/PerfilPublico";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 type Ancho = number | `${number}%`;
@@ -202,10 +206,15 @@ type PerfilRow = {
   piso: string;
   // Teléfono (opcional; migración 20261113120000_perfil_telefono.sql).
   telefono: string;
+  // Hasta 3 direcciones (migración 20261114120000_perfil_direcciones.sql; null = sin la columna).
+  direcciones: DireccionGuardada[] | null;
 };
 
 // Filtro por estado del perfil.
-type EstadoPerfil = "completo" | "pendiente" | "foto" | "direccion" | "telefono";
+type EstadoPerfil = "completo" | "pendiente" | "foto" | "direccion" | "telefono" | "varias";
+
+// Tiene 2 o más direcciones guardadas.
+const conVariasDirecciones = (p: PerfilRow | undefined) => !!p && (p.direcciones?.length ?? 0) >= 2;
 
 // Tiene una dirección de envío entera (la que rellena el pago).
 const conDireccionDeEnvio = (p: PerfilRow | undefined) => !!p && !!p.direccion && !!p.codigo_postal;
@@ -232,6 +241,10 @@ const EVENTOS_PERFIL = [
   // desfasado o frenó un bucle de renovaciones (o un 429). Sin datos de nadie: solo se cuentan.
   "sesion_reloj_desfasado",
   "sesion_bucle_frenado",
+  // Comprar en menos pasos (2026-11-14): quién llega al pago con «Comprar ya» y quién paga con una dirección guardada
+  // (solo la etiqueta: Casa, Trabajo o Familiar; nunca la dirección).
+  "comprar_ya",
+  "pago_direccion_guardada",
 ] as const;
 
 // Perfil → «Mis seguimientos» (app/(tabs)/perfil.tsx): quién lo abre y si lo hace deslizando o tocando la pestaña.
@@ -678,6 +691,8 @@ export default function AdminUsers() {
   const [direccionColumnas, setDireccionColumnas] = useState(false);
   // ¿Existe ya la columna del teléfono? (también se sabe por las filas)
   const [telefonoColumna, setTelefonoColumna] = useState(false);
+  // ¿Existe ya la columna de las 3 direcciones? (también se sabe por las filas)
+  const [direccionesColumna, setDireccionesColumna] = useState(false);
   const [filtroProvincia, setFiltroProvincia] = useState<string | null>(null);
   const [filtroPais, setFiltroPais] = useState<string | null>(null);
   const [filtroTramo, setFiltroTramo] = useState<string | null>(null);
@@ -697,6 +712,12 @@ export default function AdminUsers() {
     cargaReintentada: number;
     relojDesfasado: number;
     bucleFrenado: number;
+    // Comprar en menos pasos: personas y veces con «Comprar ya» y pagos con una dirección guardada (y cuántos la eligieron
+    // en el selector en vez de la predeterminada).
+    comprarYaPersonas: number;
+    comprarYaVeces: number;
+    pagoDireccionGuardada: number;
+    pagoDireccionElegida: number;
   } | null>(null);
   // Moderación del Foro: comentarios de noticias eliminados (ocultos, contados en la base de datos). null = no se ha podido
   // leer. (Los mensajes del Foro eliminados se borran: no quedan en ninguna tabla que contar.)
@@ -895,6 +916,12 @@ export default function AdminUsers() {
           cargaReintentada: personas("perfil_carga_reintentada"),
           relojDesfasado: ((eventosRes.data ?? []) as { event_name: string }[]).filter((e) => e.event_name === "sesion_reloj_desfasado").length,
           bucleFrenado: ((eventosRes.data ?? []) as { event_name: string }[]).filter((e) => e.event_name === "sesion_bucle_frenado").length,
+          comprarYaPersonas: personas("comprar_ya"),
+          comprarYaVeces: ((eventosRes.data ?? []) as { event_name: string }[]).filter((e) => e.event_name === "comprar_ya").length,
+          pagoDireccionGuardada: ((eventosRes.data ?? []) as { event_name: string }[]).filter((e) => e.event_name === "pago_direccion_guardada").length,
+          pagoDireccionElegida: ((eventosRes.data ?? []) as { event_name: string; metadata: { elegida?: unknown } | null }[]).filter(
+            (e) => e.event_name === "pago_direccion_guardada" && e.metadata?.elegida === true
+          ).length,
         });
       }
 
@@ -905,6 +932,7 @@ export default function AdminUsers() {
         const mapa: Record<string, PerfilRow> = {};
         setDireccionColumnas(((perfilesRes.data ?? []) as Record<string, unknown>[]).some((r) => "codigo_postal" in r));
         setTelefonoColumna(((perfilesRes.data ?? []) as Record<string, unknown>[]).some((r) => "telefono" in r));
+        setDireccionesColumna(((perfilesRes.data ?? []) as Record<string, unknown>[]).some((r) => "direcciones" in r));
         for (const r of (perfilesRes.data ?? []) as Record<string, unknown>[]) {
           const id = String(r.user_id ?? "");
           if (!id) continue;
@@ -923,6 +951,7 @@ export default function AdminUsers() {
             direccion: t(r.direccion),
             piso: t(r.piso),
             telefono: t(r.telefono),
+            direcciones: direccionesDeFila(r),
           };
         }
         setPerfiles(mapa);
@@ -1071,7 +1100,11 @@ export default function AdminUsers() {
     const conFoto = delosUsuarios.filter((p) => !!p.foto_url).length;
     const conDireccion = delosUsuarios.filter((p) => conDireccionDeEnvio(p)).length;
     const conTelefono = delosUsuarios.filter((p) => conTelefonoDePerfil(p)).length;
-    return { conAlgo, completos, pendientes, conFoto, conDireccion, conTelefono, porProvincia, porPais, porTramo, media };
+    const conVarias = delosUsuarios.filter((p) => conVariasDirecciones(p)).length;
+    // Cuántas direcciones hay guardadas con cada etiqueta (solo recuentos).
+    const porEtiqueta = { casa: 0, trabajo: 0, familiar: 0 };
+    for (const p of delosUsuarios) for (const d of p.direcciones ?? []) porEtiqueta[d.etiqueta] += 1;
+    return { conAlgo, completos, pendientes, conFoto, conDireccion, conTelefono, conVarias, porEtiqueta, porProvincia, porPais, porTramo, media };
   }, [users, perfiles]);
 
   const hayFiltros = !!filtroProvincia || !!filtroPais || !!filtroTramo || !!filtroEstado || soloActivos;
@@ -1098,6 +1131,7 @@ export default function AdminUsers() {
       if (filtroEstado === "foto" && !p?.foto_url) return false;
       if (filtroEstado === "direccion" && !conDireccionDeEnvio(p)) return false;
       if (filtroEstado === "telefono" && !conTelefonoDePerfil(p)) return false;
+      if (filtroEstado === "varias" && !conVariasDirecciones(p)) return false;
       if (tramo) {
         const e = p ? edadDe(p.fecha_nacimiento) : null;
         if (e === null || e < tramo.min || e > tramo.max) return false;
@@ -1193,6 +1227,7 @@ export default function AdminUsers() {
                       ["foto", `Con foto (${resumenPerfiles.conFoto})`],
                       ...(direccionColumnas ? ([["direccion", `Con dirección (${resumenPerfiles.conDireccion})`]] as [EstadoPerfil, string][]) : []),
                       ...(telefonoColumna ? ([["telefono", `Con teléfono (${resumenPerfiles.conTelefono})`]] as [EstadoPerfil, string][]) : []),
+                      ...(direccionesColumna ? ([["varias", `2+ direcciones (${resumenPerfiles.conVarias})`]] as [EstadoPerfil, string][]) : []),
                     ] as [EstadoPerfil, string][]
                   ).map(([id, label]) => (
                     <Chip key={id} nativeID={`usuarios-filtro-${id}`} label={label} activo={filtroEstado === id} onPress={() => setFiltroEstado((v) => (v === id ? null : id))} />
@@ -1373,7 +1408,18 @@ export default function AdminUsers() {
                       )
                     ) : null}
                     {conApp.has(u.user_id) ? <Etiqueta icon="phone-portrait-outline" texto="App" color={COLORS.text} /> : null}
-                    {direccionColumnas && conDireccionDeEnvio(p) ? <Etiqueta icon="home-outline" texto="Con dirección" color={COLORS.text} /> : null}
+                    {direccionColumnas && conDireccionDeEnvio(p) ? (
+                      direccionesColumna && (p?.direcciones?.length ?? 0) >= 2 ? (
+                        // Cuántas y con qué etiquetas (nunca la dirección en el listado).
+                        <Etiqueta
+                          icon="home-outline"
+                          texto={`${p?.direcciones?.length} direcciones: ${(p?.direcciones ?? []).map((d) => textoEtiqueta(d.etiqueta)).join(", ")}`}
+                          color={COLORS.text}
+                        />
+                      ) : (
+                        <Etiqueta icon="home-outline" texto="Con dirección" color={COLORS.text} />
+                      )
+                    ) : null}
                     {telefonoColumna && conTelefonoDePerfil(p) ? <Etiqueta icon="call-outline" texto="Con teléfono" color={COLORS.text} /> : null}
                     <View
                       accessibilityLabel={datosParticipacion.map(([, n, , largo]) => `${n} ${largo}`).join(", ")}
@@ -1469,6 +1515,7 @@ export default function AdminUsers() {
                 { key: "provincias", valor: String(resumenPerfiles.porProvincia.length), etiqueta: "Provincias" },
                 ...(direccionColumnas ? [{ key: "direccion", valor: String(resumenPerfiles.conDireccion), etiqueta: "Con dirección", filtro: "direccion" as EstadoPerfil }] : []),
                 ...(telefonoColumna ? [{ key: "telefono", valor: String(resumenPerfiles.conTelefono), etiqueta: "Con teléfono", filtro: "telefono" as EstadoPerfil }] : []),
+                ...(direccionesColumna ? [{ key: "varias", valor: String(resumenPerfiles.conVarias), etiqueta: "2+ direcciones", filtro: "varias" as EstadoPerfil }] : []),
               ];
               const ancho: Ancho = isMobile ? (lista.length % 3 === 0 ? "30%" : "45%") : lista.length > 6 ? "20%" : "30%";
               return lista.map((c) => (
@@ -1504,6 +1551,19 @@ export default function AdminUsers() {
                   {embudoPerfil.pagoConTelefono}
                 </Detalle>
               ) : null}
+              {/* Hasta 3 direcciones: cuántas hay con cada etiqueta (datos de la base de datos, solo recuentos). */}
+              {direccionesColumna ? (
+                <Detalle nativeID="admin-perfiles-direcciones">
+                  Direcciones guardadas: Casa {resumenPerfiles.porEtiqueta.casa} · Trabajo {resumenPerfiles.porEtiqueta.trabajo} · Familiar{" "}
+                  {resumenPerfiles.porEtiqueta.familiar} · clientes con 2 o más {resumenPerfiles.conVarias}
+                </Detalle>
+              ) : null}
+              {/* Comprar en menos pasos (30 días, analítica propia): «Comprar ya» directo al pago y pagos con una dirección
+                  guardada (y cuántos la eligieron en «Tus direcciones» en vez de la predeterminada). */}
+              <Detalle nativeID="admin-perfiles-comprar-ya">
+                Comprar en menos pasos (30 días): «Comprar ya» {embudoPerfil.comprarYaVeces} veces ({embudoPerfil.comprarYaPersonas} personas) · pagos con
+                una dirección guardada {embudoPerfil.pagoDireccionGuardada} (elegida en el selector {embudoPerfil.pagoDireccionElegida})
+              </Detalle>
               {/* «Mi perfil» sin poder leer los datos (sesión caducada o sin conexión): no se enseña vacío ni deja guardar. */}
               <Detalle nativeID="admin-perfiles-carga">
                 «Mi perfil» sin poder cargar los datos (30 días): les pasó a {embudoPerfil.cargaFallida} · pulsaron «Reintentar»{" "}
