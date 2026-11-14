@@ -347,7 +347,13 @@
  *    original), lazy/async fuera de la pantalla y la primera con prioridad alta, hueco reservado y sin saltos (CLS),
  *    Inicio sin consultas repetidas, «rendimiento_carga» una vez por visita sin datos de nadie (nada si se rechazó),
  *    «Velocidad de la tienda (30 días)» en Administración → Analítica y 360, 390 y 1280 sin desbordes. Imprime las cifras.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC|RAPI]
+ *  - COMPA) Comparar 2-3 productos (2026-11-14, mejora 8, sin migración): «Comparar» de 44 px en las tarjetas del catálogo
+ *    y en la ficha; como mucho 3 (el 4.º, aviso amable); barra flotante con miniaturas, «Quitar» y «Comparar (N)» desde
+ *    2, que no tapa «Comprar ya» / «Añadir a la cesta» ni a Blue y sube el «Volver» flotante; se guarda en el dispositivo
+ *    (sigue tras recargar); /comparar?ids= con 2 y 3 (precio más bajo, estado, categoría, entrega, revisado y garantía
+ *    SOLO si están marcados), retirado («Ya no está a la venta» y quitar), añadir a la cesta, enlace compartible y vacío;
+ *    analítica sin datos de nadie (nada si se rechazó) y la tarjeta «Comparador (30 días)»; 360, 390 y 1280 sin desbordes.
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC|RAPI|COMPA]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -15740,8 +15746,432 @@ async function seccionRAPI() {
   }
 }
 
+// ===== COMPA) Comparar 2-3 productos (dueño, 2026-11-14, mejora 8; sin migración): «Comparar» de 44 px en las tarjetas del
+// catálogo y en la ficha, como mucho 3 (el 4.º, aviso amable), guardado en el dispositivo (sigue tras recargar); barra
+// flotante abajo con miniaturas («Quitar»), la X que vacía y «Comparar (N)» activo desde 2, que no tapa «Comprar ya» ni
+// «Añadir a la cesta» (se esconde mientras estén en su sitio) ni a Blue, sube el «Volver» flotante del catálogo y deja su
+// hueco al final de la ficha; /comparar?ids= con 2 y 3 productos (precio más bajo, estado, categoría, entrega estimada con
+// o sin código postal, «Revisado» y «Garantía» SOLO si están marcados), producto retirado («Ya no está a la venta» y se
+// quita), «Añadir a la cesta», enlace compartible y sin nada elegido; analítica solo con ids (nada si se rechazó) y la
+// tarjeta «Comparador (30 días)» de Administración → Analítica. 360, 390 y 1280 sin desbordes ni errores. ==============
+async function seccionCOMPA() {
+  const CATS = [
+    { id: "c0000000-0000-4000-8000-0000000000a5", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true },
+    { id: "c0000000-0000-4000-8000-0000000000a6", slug: "nintendo-switch", name: "Nintendo Switch", sort_order: 1, is_active: true },
+  ];
+  const [PS5, SW] = CATS;
+  const ID = (n) => `e0000000-0000-4000-8000-0000000000${String(n).padStart(2, "0")}`;
+  const art = (n, title, cat, price_eur, extra = {}) => ({
+    id: ID(n), title, description: "Consola de prueba.", price_eur, status: "PUBLISHED", is_active: true, condition: "GOOD",
+    category_id: cat.id, category: { id: cat.id, name: cat.name, slug: cat.slug }, created_at: new Date(Date.UTC(2026, 10, 1 + n)).toISOString(),
+    updated_at: "2026-11-14T10:00:00Z", view_count: n, images: [], like_count: 0, reference: null, revisado: false, garantia_meses: null,
+    solo_entrega_mano: false, ...extra,
+  });
+  const PRODUCTOS = [
+    art(1, "Playstation 5 Slim Con Lector", PS5, 450, { revisado: true, garantia_meses: 12 }),
+    art(2, "Mando ps5 con caja en color blanco cromado", PS5, 60),
+    art(3, "Gafas VR ps5 sin caja", PS5, 240, { solo_entrega_mano: true }),
+    art(4, "PS5 Digital Edition", PS5, 380, { condition: "LIKE_NEW" }),
+    art(5, "Playstation 5 Pro 2TB Nueva a Estrenar", PS5, 700, { condition: "NEW" }),
+    art(7, "Consola Nintendo Switch Oled", SW, 190, { condition: "NEW", garantia_meses: 6 }),
+    art(14, "Mando antiguo retirado", PS5, 25, { is_active: false }),
+  ];
+  const T = Object.fromEntries(PRODUCTOS.map((p) => [p.id, p.title]));
+  const fotosCatalogo = PRODUCTOS.map((p, i) => ({ id: `pm${i}`, product_id: p.id, kind: "image", public_url: `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/compa/${i}.jpg`, file_name: `${i}.jpg`, sort_order: 0, is_cover: true, duration_seconds: null }));
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const nuevoEstado = (extra = {}) => ({ filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS, fotosCatalogo, ...extra });
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const CLAVE = "videojuegoszaragoza:comparar_v1";
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !(await cond()); i++) await p.waitForTimeout(250);
+  };
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const guardados = (p) => p.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? "[]").map((x) => x.id), CLAVE);
+  const caja = (p, sel) =>
+    p.evaluate((s) => {
+      const e = document.querySelector(s);
+      if (!e) return null;
+      const r = e.getBoundingClientRect();
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right), alto: Math.round(r.height), ancho: Math.round(r.width) };
+    }, sel);
+  // El texto visible, sin los iconos (Ionicons usa caracteres de uso privado).
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/[-]/g, "").replace(/\s+/g, " ").trim()).catch(() => "");
+  const conComparados = (ctx, lista) =>
+    ctx.addInitScript(([k, l]) => {
+      try {
+        if (!sessionStorage.getItem("vz-prueba-comparar")) {
+          sessionStorage.setItem("vz-prueba-comparar", "1");
+          localStorage.setItem(k, JSON.stringify(l));
+        }
+      } catch {
+        // sin almacenamiento
+      }
+    }, [CLAVE, lista]);
+  const comoGuardado = (n) => {
+    const p = PRODUCTOS.find((x) => x.id === ID(n));
+    return { id: p.id, titulo: p.title, precio: p.price_eur, imagen: null };
+  };
+  const enCesta = (p) => p.evaluate(() => JSON.parse(localStorage.getItem("videojuegoos_cart_v1") ?? "[]").map((x) => x.id));
+  const sinDatos = (estado) => !/cliente@example|Ana|ana_g|50001/.test(JSON.stringify((estado.eventosEnviados ?? []).filter((e) => /^comparar_/.test(e.event_name)).map((e) => e.metadata)));
+  const abrirCatalogo = async (ctx) => {
+    const p = await pagina(ctx, "/catalogo");
+    await p.locator(`#comparar-${ID(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    return p;
+  };
+  const abrirComparar = async (ctx, ids) => {
+    const p = await pagina(ctx, ids === null ? "/comparar" : `/comparar?ids=${ids.join(",")}`);
+    await p.waitForFunction(() => !!document.querySelector('#comparar-tabla, #comparar-vacio, #comparar-error'), null, { timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    return p;
+  };
+  const columnas = (p) => p.evaluate(() => [...document.querySelectorAll('[id^="comparar-col-"]')].map((e) => e.id.slice("comparar-col-".length)));
+  const idsUrl = (p) => (new URL(p.url()).searchParams.get("ids") ?? "").split(",").filter(Boolean);
+
+  // COMPA1) Catálogo (360, 390 y 1280): «Comparar» de 44 px bajo cada tarjeta; con 1 la barra dice «Elige otro» y «Comparar
+  // (1)» no se puede tocar; con 3 sí; el 4.º no entra (aviso amable); la barra cabe sin salirse y el «Volver» flotante queda
+  // encima de ella; se guarda en el dispositivo y sigue al recargar; tocar una miniatura la quita; «Comparar (2)» abre
+  // /comparar?ids=… Analítica comparar_anadido / comparar_quitado solo con id, origen y cuántos.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await abrirCatalogo(ctx);
+    const botones = await p.evaluate(() => [...document.querySelectorAll('[id^="comparar-e0000000"]')].map((e) => ({ t: e.innerText.trim(), alto: Math.round(e.getBoundingClientRect().height), ancho: Math.round(e.getBoundingClientRect().width), rol: e.getAttribute("role") })));
+    ok(botones.length === 6 && botones.every((b) => /Comparar/.test(b.t) && b.alto >= 44 && b.ancho >= 44 && b.rol === "checkbox"), `COMPA (${nombre}): «Comparar» de 44 px (casilla) bajo cada tarjeta del catálogo (${JSON.stringify(botones.slice(0, 2))} · ${botones.length})`);
+    ok((await p.locator("#comparar-barra").count()) === 0, `COMPA (${nombre}): sin nada elegido no hay barra`);
+    await p.locator(`#comparar-${ID(1)}`).click();
+    await p.locator("#comparar-barra").waitFor({ timeout: 5000 }).catch(() => {});
+    ok((await p.locator(`#comparar-${ID(1)}`).getAttribute("aria-checked")) === "true" && /Comparando/.test(await texto(p, `#comparar-${ID(1)}`)), `COMPA (${nombre}): al tocarlo queda marcado («Comparando»)`);
+    ok(/Elige otro producto para comparar/.test(await texto(p, "#comparar-barra-pista")) && (await p.locator("#comparar-barra-ir").getAttribute("aria-disabled")) === "true", `COMPA (${nombre}): con 1, la barra pide otro y «Comparar (1)» no se puede tocar`);
+    await capturar(p, `COMPA1-catalogo-uno-${nombre}`);
+    await p.locator(`#comparar-${ID(2)}`).click();
+    await p.locator(`#comparar-${ID(4)}`).click();
+    await esperar(p, async () => (await guardados(p)).length === 3);
+    ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(1), ID(2), ID(4)]), `COMPA (${nombre}): se guardan los 3 en el dispositivo, en orden (${(await guardados(p)).map((i) => T[i]).join(" | ")})`);
+    ok(/Comparar \(3\)/.test(await texto(p, "#comparar-barra-ir")) && (await p.locator("#comparar-barra-ir").getAttribute("aria-disabled")) !== "true", `COMPA (${nombre}): «Comparar (3)» ya se puede tocar`);
+    await p.locator(`#comparar-${ID(5)}`).click();
+    await p.locator("#comparar-barra-aviso").waitFor({ timeout: 5000 }).catch(() => {});
+    // La barra crece con el aviso: el «Volver» sube con ella en cuanto la barra se mide (un momento).
+    await p.waitForTimeout(400);
+    ok(/hasta 3 productos/.test(await texto(p, "#comparar-barra-aviso")) && (await guardados(p)).length === 3 && (await p.locator(`#comparar-${ID(5)}`).getAttribute("aria-checked")) === "false", `COMPA (${nombre}): el 4.º no entra y sale un aviso amable (${await texto(p, "#comparar-barra-aviso")})`);
+    // Barra: todo dentro de la pantalla, de 44 px, y sin que nada fijo quede encima o debajo.
+    const barra = await caja(p, "#comparar-barra");
+    const piezas = await p.evaluate(() => [...document.querySelectorAll('#comparar-barra [role="button"]')].map((e) => ({ id: e.id, l: Math.round(e.getBoundingClientRect().left), r: Math.round(e.getBoundingClientRect().right), h: Math.round(e.getBoundingClientRect().height), w: Math.round(e.getBoundingClientRect().width) })));
+    const vw = await p.evaluate(() => window.innerWidth);
+    ok(!!barra && barra.bottom >= (await p.evaluate(() => window.innerHeight)) - 1 && piezas.length === 5 && piezas.every((x) => x.l >= 0 && x.r <= vw && x.h >= 44 && x.w >= 44), `COMPA (${nombre}): la barra va abajo, cabe entera y todo se toca con 44 px (${JSON.stringify(piezas)})`);
+    const volver = await caja(p, "#boton-atras-flotante");
+    ok(!!volver && !!barra && volver.bottom <= barra.top, `COMPA (${nombre}): el «Volver» flotante sube y queda encima de la barra (${JSON.stringify(volver)} / barra desde ${barra?.top})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `COMPA (${nombre}): el catálogo no se ensancha (${d.a}/${d.v})`);
+    await capturar(p, `COMPA1-catalogo-tres-${nombre}`);
+    await esperar(p, async () => evento(estado, "comparar_anadido").length >= 3);
+    const an = evento(estado, "comparar_anadido").map((e) => e.metadata);
+    ok(an.length === 3 && an.every((m) => m.origen === "catalogo" && Object.keys(m).sort().join(",") === "id,n,origen") && an.map((m) => m.n).join(",") === "1,2,3", `COMPA (${nombre}): se mide comparar_anadido con id, origen y cuántos (${JSON.stringify(an)})`);
+    if (nombre === "390") {
+      // Persistencia: al recargar siguen los 3 (tarjetas marcadas y barra).
+      await p.reload({ waitUntil: "load" });
+      await p.locator("#comparar-barra").waitFor({ timeout: 30000 }).catch(() => {});
+      await p.locator(`#comparar-${ID(1)}`).waitFor({ timeout: 30000 }).catch(() => {});
+      await p.waitForTimeout(500);
+      const miniaturas = await p.evaluate(() => [...document.querySelectorAll('[id^="comparar-barra-e0000000"]')].map((e) => e.id.slice("comparar-barra-".length)));
+      ok(JSON.stringify(miniaturas) === JSON.stringify([ID(1), ID(2), ID(4)]) && (await p.locator(`#comparar-${ID(4)}`).getAttribute("aria-checked")) === "true", `COMPA: tras recargar sigue la comparación (${miniaturas.map((i) => T[i]).join(" | ")})`);
+      await p.locator(`#comparar-barra-${ID(2)}`).click();
+      await esperar(p, async () => (await guardados(p)).length === 2);
+      ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(1), ID(4)]) && (await p.locator(`#comparar-barra-${ID(2)}`).count()) === 0, "COMPA: tocar una miniatura de la barra la quita");
+      await esperar(p, () => evento(estado, "comparar_quitado").length > 0);
+      const q = evento(estado, "comparar_quitado")[0]?.metadata;
+      ok(q?.id === ID(2) && q?.origen === "barra" && q?.n === 2, `COMPA: se mide comparar_quitado (${JSON.stringify(q ?? null)})`);
+      await p.locator("#comparar-barra-ir").click();
+      await p.waitForURL(/\/comparar/, { timeout: 10000 }).catch(() => {});
+      await p.locator("#comparar-tabla").waitFor({ timeout: 20000 }).catch(() => {});
+      ok(JSON.stringify(idsUrl(p)) === JSON.stringify([ID(1), ID(4)]) && JSON.stringify(await columnas(p)) === JSON.stringify([ID(1), ID(4)]), `COMPA: «Comparar (2)» abre /comparar con los 2 (${p.url().replace(BASE, "")})`);
+      ok((await p.locator("#comparar-barra").count()) === 0, "COMPA: en /comparar no sale la barra");
+      // La X de la barra vacía la comparación (y la barra se va).
+      const c = await abrirCatalogo(ctx);
+      await c.locator("#comparar-barra-vaciar").click();
+      await esperar(c, async () => (await guardados(c)).length === 0);
+      ok((await guardados(c)).length === 0 && (await c.locator("#comparar-barra").count()) === 0, "COMPA: la X de la barra vacía la comparación y la barra se va");
+      await esperar(c, () => evento(estado, "comparar_quitado").some((e) => e.metadata?.vaciada === true));
+      ok(evento(estado, "comparar_quitado").some((e) => e.metadata?.vaciada === true && e.metadata?.quitados === 2), "COMPA: y se mide como comparación vaciada");
+      ok(c.errores.length === 0, `COMPA1 (vaciar): sin errores de JavaScript (${c.errores[0] ?? "ninguno"})`);
+      await c.close();
+    }
+    ok(sinDatos(estado), `COMPA (${nombre}): la analítica solo lleva ids de producto (sin datos de nadie)`);
+    ok(p.errores.length === 0, `COMPA1 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // COMPA2) Ficha (360, 390 y 1280), con el mando ya elegido: «Comparar con otros productos» de 44 px lo añade («En tu
+  // comparación») y ofrece «Ver la comparación (2)». Bajando la ficha de arriba abajo, la barra nunca está encima de
+  // «Comprar ya» / «Añadir a la cesta» (se esconde mientras estén en su sitio) ni de Blue; al final, «Volver atrás» queda
+  // por encima de la barra. Con 3 elegidos, el 4.º no entra y el aviso sale bajo el botón.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await conComparados(ctx, [comoGuardado(2)]);
+    const p = await pagina(ctx, `/producto/${ID(1)}`);
+    await p.locator("#ficha-comparar-boton").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const b = await caja(p, "#ficha-comparar-boton");
+    ok(!!b && b.alto >= 44 && (await p.locator("#ficha-comparar-boton").getAttribute("aria-checked")) === "false", `COMPA (${nombre}): en la ficha, «Comparar con otros productos» de 44 px (${JSON.stringify(b)})`);
+    await p.locator("#ficha-comparar-boton").click();
+    await esperar(p, async () => (await guardados(p)).length === 2);
+    ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(2), ID(1)]) && /En tu comparación/.test(await texto(p, "#ficha-comparar-boton")), `COMPA (${nombre}): lo añade a la comparación («En tu comparación»)`);
+    ok(/Ver la comparación \(2\)/.test(await texto(p, "#ficha-comparar-ver")) && ((await caja(p, "#ficha-comparar-ver"))?.alto ?? 0) >= 44, `COMPA (${nombre}): y ofrece «Ver la comparación (2)» de 44 px`);
+    await esperar(p, () => evento(estado, "comparar_anadido").length > 0);
+    ok(evento(estado, "comparar_anadido")[0]?.metadata?.origen === "ficha", "COMPA: se mide comparar_anadido desde la ficha");
+    await p.locator("#comparar-barra").waitFor({ state: "attached", timeout: 5000 }).catch(() => {});
+    // Recorre la ficha de arriba abajo y mira en cada paso la barra, los botones de comprar y Blue.
+    const pasos = await p.evaluate(async () => {
+      const boton = document.getElementById("ficha-comprar-ya");
+      let s = boton?.parentElement ?? null;
+      while (s && !(s.scrollHeight > s.clientHeight + 10 && /auto|scroll/.test(getComputedStyle(s).overflowY))) s = s.parentElement;
+      const desplazable = s ?? document.scrollingElement;
+      const caja = (e) => (e ? e.getBoundingClientRect() : null);
+      const cruza = (a, b) => !!a && !!b && a.width > 0 && b.width > 0 && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const out = [];
+      const max = desplazable.scrollHeight - desplazable.clientHeight;
+      for (let y = 0; y <= max + 100; y += 90) {
+        desplazable.scrollTop = Math.min(y, max);
+        await new Promise((r) => setTimeout(r, 260));
+        const barra = document.getElementById("comparar-barra");
+        const rb = caja(barra);
+        const visible = !!barra && barra.getAttribute("data-tapa") === "0" && getComputedStyle(barra).opacity === "1";
+        const tapaCompra = ["ficha-comprar-ya", "ficha-anadir-cesta"].some((id) => cruza(rb, caja(document.getElementById(id))));
+        const blue = document.querySelector('[aria-label="Abrir Blue, el asistente de la tienda"]');
+        const tapaBlue = cruza(rb, caja(blue));
+        out.push({ y: desplazable.scrollTop, visible, tapaCompra, tapaBlue });
+        if (desplazable.scrollTop >= max) break;
+      }
+      const atras = [...document.querySelectorAll('[aria-label="Volver atrás"]')].pop();
+      const ra = caja(atras);
+      const rb = caja(document.getElementById("comparar-barra"));
+      return { out, finAtras: ra ? Math.round(ra.bottom) : null, finBarra: rb ? Math.round(rb.top) : null };
+    });
+    const malos = pasos.out.filter((x) => x.visible && (x.tapaCompra || x.tapaBlue));
+    ok(pasos.out.length > 3 && malos.length === 0, `COMPA (${nombre}): bajando la ficha, la barra nunca tapa «Comprar ya», «Añadir a la cesta» ni a Blue (${pasos.out.length} pasos; mal en ${JSON.stringify(malos.slice(0, 3))})`);
+    ok(pasos.out.some((x) => x.visible) && (pasos.out.some((x) => !x.visible) || !pasos.out.some((x) => x.tapaCompra)), `COMPA (${nombre}): la barra se ve en la ficha y se esconde solo cuando los botones de comprar estarían debajo (${pasos.out.map((x) => (x.visible ? "v" : "-")).join("")})`);
+    ok(pasos.finAtras !== null && pasos.finBarra !== null && pasos.finAtras <= pasos.finBarra + 1, `COMPA (${nombre}): al final, «Volver atrás» queda por encima de la barra (${pasos.finAtras} / ${pasos.finBarra})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `COMPA (${nombre}): la ficha no se ensancha (${d.a}/${d.v})`);
+    await capturar(p, `COMPA2-ficha-final-${nombre}`);
+    await p.evaluate(() => document.getElementById("ficha-comparar-boton")?.scrollIntoView({ block: "center" }));
+    await p.waitForTimeout(400);
+    await capturar(p, `COMPA2-ficha-boton-${nombre}`);
+    if (nombre === "390") {
+      await p.locator("#ficha-comparar-ver").click();
+      await p.waitForURL(/\/comparar/, { timeout: 10000 }).catch(() => {});
+      ok(JSON.stringify(idsUrl(p)) === JSON.stringify([ID(2), ID(1)]), `COMPA: «Ver la comparación» abre /comparar con los 2 (${p.url().replace(BASE, "")})`);
+    }
+    ok(p.errores.length === 0, `COMPA2 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conComparados(ctx, [comoGuardado(2), comoGuardado(3), comoGuardado(4)]);
+    const p = await pagina(ctx, `/producto/${ID(5)}`);
+    await p.locator("#ficha-comparar-boton").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    await p.locator("#ficha-comparar-boton").click();
+    await p.locator("#ficha-comparar-aviso").waitFor({ timeout: 5000 }).catch(() => {});
+    ok(/hasta 3 productos/.test(await texto(p, "#ficha-comparar-aviso")) && (await guardados(p)).length === 3 && (await p.locator("#ficha-comparar-boton").getAttribute("aria-checked")) === "false", "COMPA: en la ficha, con 3 elegidos el 4.º no entra y el aviso sale bajo el botón");
+    await p.evaluate(() => document.getElementById("ficha-comparar-boton")?.scrollIntoView({ block: "center" }));
+    await p.waitForTimeout(400);
+    await capturar(p, "COMPA2-ficha-lleno-390");
+    ok(p.errores.length === 0, `COMPA2 (lleno): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // COMPA3) /comparar con 2 (la PS5 Slim, revisada y con 12 meses, y la Digital, sin marcar) y con 3 (más la Switch, con 6
+  // meses), a 360, 390 y 1280: columnas en orden y en una fila dentro de la pantalla, precio (el más bajo señalado), estado,
+  // categoría, entrega estimada sin código postal (las dos), «Revisado» y «Garantía» solo donde están marcados, botones de
+  // 44 px, título de la página y comparar_abierto (cuántos y cuáles). Sin ninguno marcado, no sale la fila de revisión.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await abrirComparar(ctx, [ID(1), ID(4)]);
+    ok(JSON.stringify(await columnas(p)) === JSON.stringify([ID(1), ID(4)]), `COMPA (${nombre}): /comparar con 2 productos, en orden (${(await columnas(p)).map((i) => T[i]).join(" | ")})`);
+    ok((await texto(p, `#comparar-precio-${ID(1)}`)) === "450,00€" && /^380,00€ Precio más bajo$/.test(await texto(p, `#comparar-precio-${ID(4)}`)) && (await p.locator(`#comparar-mas-barato-${ID(1)}`).count()) === 0, `COMPA (${nombre}): precios con céntimos y el más bajo señalado (${await texto(p, `#comparar-precio-${ID(4)}`)})`);
+    ok((await texto(p, `#comparar-estado-${ID(1)}`)) === "Segunda mano · Bueno" && (await texto(p, `#comparar-estado-${ID(4)}`)) === "Segunda mano · Como nuevo", `COMPA (${nombre}): el estado, como en la ficha`);
+    ok((await texto(p, `#comparar-categoria-${ID(1)}`)) === "PlayStation 5", `COMPA (${nombre}): la categoría`);
+    const entrega = await texto(p, "#comparar-entrega-todos");
+    ok(/^Zaragoza y Cuarte: llega /.test(entrega) && /Resto de España: llega entre /.test(entrega) && (await p.locator(`#comparar-entrega-${ID(1)}`).count()) === 0, `COMPA (${nombre}): sin código postal, la entrega estimada de Zaragoza y del resto de España, una vez para los dos (${entrega})`);
+    ok((await p.locator(`#comparar-revisado-${ID(1)}`).count()) === 1 && (await texto(p, `#comparar-garantia-${ID(1)}`)) === "Garantía de 12 meses", `COMPA (${nombre}): «Revisado por nuestro equipo» y «Garantía de 12 meses» en la PS5 Slim (marcada)`);
+    ok((await p.locator(`#comparar-revisado-${ID(4)}`).count()) === 0 && (await p.locator(`#comparar-garantia-${ID(4)}`).count()) === 0 && (await texto(p, `#comparar-confianza-${ID(4)}`)) === "", `COMPA (${nombre}): en la Digital (sin marcar), nada`);
+    const toques = await p.evaluate(() => [...document.querySelectorAll('[id^="comparar-anadir-e"], [id^="comparar-ver-"], [id^="comparar-quitar-"], #comparar-compartir, #comparar-anadir-otro')].map((e) => Math.round(e.getBoundingClientRect().height)));
+    ok(toques.length === 8 && toques.every((h) => h >= 44), `COMPA (${nombre}): «Añadir a la cesta», «Ver», «Quitar», «Añadir otro» y «Compartir» de 44 px (${toques.join(", ")})`);
+    ok(/^Comparar productos \| /.test(await p.title()), `COMPA (${nombre}): título de la página «Comparar productos | …» (${await p.title()})`);
+    let d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `COMPA (${nombre}): con 2, la página no se ensancha (${d.a}/${d.v})`);
+    await esperar(p, () => evento(estado, "comparar_abierto").length > 0);
+    const ab = evento(estado, "comparar_abierto");
+    ok(ab.length === 1 && ab[0].metadata?.n === 2 && JSON.stringify(ab[0].metadata?.ids) === JSON.stringify([ID(1), ID(4)]), `COMPA (${nombre}): se mide comparar_abierto una vez (cuántos y cuáles) (${JSON.stringify(ab.map((e) => e.metadata))})`);
+    await capturar(p, `COMPA3-dos-${nombre}`);
+    await p.close();
+
+    const p3 = await abrirComparar(ctx, [ID(1), ID(4), ID(7)]);
+    const cols = await p3.evaluate(() => [...document.querySelectorAll('[id^="comparar-col-"]')].map((e) => { const r = e.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), w: Math.round(r.width) }; }));
+    const vw = await p3.evaluate(() => window.innerWidth);
+    ok(cols.length === 3 && cols.every((c) => c.l >= 0 && c.r <= vw && c.w >= 90) && new Set(cols.map((c) => c.t)).size === 1, `COMPA (${nombre}): con 3, las 3 columnas en una fila y dentro de la pantalla (${JSON.stringify(cols)})`);
+    ok((await texto(p3, `#comparar-estado-${ID(7)}`)) === "Nuevo" && (await texto(p3, `#comparar-categoria-${ID(7)}`)) === "Nintendo Switch" && /^190,00€ Precio más bajo$/.test(await texto(p3, `#comparar-precio-${ID(7)}`)), `COMPA (${nombre}): la Switch nueva, la más barata de las 3`);
+    ok((await texto(p3, `#comparar-garantia-${ID(7)}`)) === "Garantía de 6 meses" && (await p3.locator(`#comparar-revisado-${ID(7)}`).count()) === 0, `COMPA (${nombre}): la Switch con su garantía (marcada) y sin «Revisado» (no marcado)`);
+    ok((await p3.locator("#comparar-anadir-otro").count()) === 0, `COMPA (${nombre}): con 3 ya no se ofrece «Añadir otro producto»`);
+    const quitarTops = await p3.evaluate(() => [...document.querySelectorAll('[id^="comparar-quitar-"]')].map((e) => Math.round(e.getBoundingClientRect().top)));
+    ok(quitarTops.length === 3 && new Set(quitarTops).size === 1, `COMPA (${nombre}): los «Quitar» quedan a la misma altura aunque los títulos midan distinto (${quitarTops.join(", ")})`);
+    d = await sinDesborde(p3);
+    ok(d.a <= d.v + 1, `COMPA (${nombre}): con 3, la página no se ensancha (${d.a}/${d.v})`);
+    await capturar(p3, `COMPA3-tres-${nombre}`);
+    await p3.evaluate(() => document.getElementById("comparar-fila-acciones")?.scrollIntoView({ block: "center" }));
+    await p3.waitForTimeout(400);
+    await capturar(p3, `COMPA3-tres-abajo-${nombre}`);
+    ok(p3.errores.length === 0, `COMPA3 (${nombre}): sin errores de JavaScript (${p3.errores[0] ?? "ninguno"})`);
+    await p3.close();
+
+    if (nombre === "390") {
+      const p0 = await abrirComparar(ctx, [ID(4), ID(2)]);
+      ok((await p0.locator("#comparar-fila-confianza").count()) === 0 && (await columnas(p0)).length === 2, "COMPA: sin nada marcado, no sale la fila «Revisión y garantía»");
+      await p0.close();
+      // Lo que solo se entrega en mano (las gafas) lo dice en su columna; la PS5, sus plazos.
+      const pm = await abrirComparar(ctx, [ID(1), ID(3)]);
+      const em = await texto(pm, `#comparar-entrega-${ID(3)}`);
+      ok(/^Solo entrega en mano en Zaragoza o Cuarte de Huerva$/.test(em) && /^Zaragoza y Cuarte: llega /.test(await texto(pm, `#comparar-entrega-${ID(1)}`)) && (await pm.locator("#comparar-entrega-todos").count()) === 0, `COMPA: con uno solo en mano, la entrega va por columnas (${em})`);
+      await capturar(pm, "COMPA3-solo-mano-390");
+      await pm.close();
+    }
+    ok(sinDatos(estado), `COMPA (${nombre}): la analítica de /comparar solo lleva ids`);
+    await ctx.close();
+  }
+
+  // COMPA4) Con código postal en el perfil (50001): «Llega …» y «Código postal 50001 (de tu perfil)», sin el código en la
+  // analítica.
+  {
+    const estado = nuevoEstado({ filas: [{ ...perfil[0], codigo_postal: "50001" }] });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrirComparar(ctx, [ID(1), ID(4)]);
+    await p.waitForTimeout(800);
+    const e = await texto(p, "#comparar-entrega-todos");
+    ok(/^Llega (hoy|mañana, lunes)$/.test(e) && /Código postal 50001 \(de tu perfil\)/.test(await texto(p, "#comparar-fila-entrega")), `COMPA: con el código postal del perfil, la entrega de Zaragoza (${e})`);
+    ok(sinDatos(estado), "COMPA: el código postal no va a la analítica");
+    await capturar(p, "COMPA4-entrega-cp-390");
+    ok(p.errores.length === 0, `COMPA4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // COMPA5) Producto retirado y otro que ya no existe: «Ya no está a la venta» (con el nombre guardado), sin «Añadir»; se
+  // quita y la dirección cambia. «Añadir a la cesta» desde /comparar lleva a la cesta con el producto y se mide.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrirComparar(ctx, [ID(1), ID(14), ID(30)]);
+    ok(JSON.stringify(await columnas(p)) === JSON.stringify([ID(1), ID(14), ID(30)]), "COMPA: el retirado y el que ya no existe salen en su columna");
+    ok((await texto(p, `#comparar-precio-${ID(14)}`)) === "Ya no está a la venta" && (await texto(p, `#comparar-precio-${ID(30)}`)) === "Ya no está a la venta", "COMPA: «Ya no está a la venta» en los dos");
+    ok((await p.locator(`#comparar-anadir-${ID(14)}`).count()) === 0 && (await p.locator(`#comparar-anadir-${ID(30)}`).count()) === 0 && (await p.locator(`#comparar-anadir-${ID(1)}`).count()) === 1, "COMPA: sin «Añadir a la cesta» en lo que no se vende");
+    ok((await p.locator(`#comparar-mas-barato-${ID(14)}`).count()) === 0 && (await p.locator(`#comparar-mas-barato-${ID(1)}`).count()) === 0, "COMPA: el precio más bajo solo cuenta lo que se vende");
+    await capturar(p, "COMPA5-retirado-390");
+    await p.locator(`#comparar-quitar-${ID(14)}`).click();
+    await esperar(p, async () => (await columnas(p)).length === 2);
+    ok(JSON.stringify(await columnas(p)) === JSON.stringify([ID(1), ID(30)]) && JSON.stringify(idsUrl(p)) === JSON.stringify([ID(1), ID(30)]), `COMPA: «Quitar» lo quita de la página y de la dirección (${p.url().replace(BASE, "")})`);
+    ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(1), ID(30)]), "COMPA: y de lo guardado en el dispositivo");
+    await esperar(p, () => evento(estado, "comparar_quitado").length > 0);
+    ok(evento(estado, "comparar_quitado")[0]?.metadata?.origen === "comparar", "COMPA: se mide comparar_quitado desde /comparar");
+    await p.locator(`#comparar-anadir-${ID(1)}`).click();
+    await p.waitForURL(/\/cesta/, { timeout: 10000 }).catch(() => {});
+    await esperar(p, async () => (await enCesta(p)).includes(ID(1)), 40);
+    ok(/\/cesta/.test(p.url()) && (await enCesta(p)).includes(ID(1)), `COMPA: «Añadir a la cesta» lleva a la cesta con el producto (${(await enCesta(p)).map((i) => T[i]).join(" | ")})`);
+    await esperar(p, () => evento(estado, "comparar_anadir_cesta").length > 0);
+    const ec = evento(estado, "comparar_anadir_cesta").map((e) => e.metadata);
+    ok(ec.length === 1 && ec[0]?.id === ID(1) && Object.keys(ec[0]).join(",") === "id", `COMPA: se mide comparar_anadir_cesta (solo el id) (${JSON.stringify(ec)})`);
+    ok(p.errores.length === 0, `COMPA5: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // COMPA6) Enlace compartible: en otro dispositivo (sin nada guardado) /comparar?ids=… enseña esos y pasan a ser su
+  // comparación (la barra del catálogo los trae); /comparar sin ?ids= usa lo guardado y lo pone en la dirección; sin nada
+  // elegido, explica qué hacer y lleva al catálogo.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrirComparar(ctx, [ID(7), ID(1)]);
+    ok(JSON.stringify(await columnas(p)) === JSON.stringify([ID(7), ID(1)]), "COMPA: el enlace compartido enseña sus productos");
+    await esperar(p, async () => (await guardados(p)).length === 2);
+    ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(7), ID(1)]), "COMPA: y pasan a ser la comparación de ese dispositivo");
+    await p.close();
+    const c = await abrirCatalogo(ctx);
+    await c.locator("#comparar-barra").waitFor({ timeout: 8000 }).catch(() => {});
+    const mini = await c.evaluate(() => [...document.querySelectorAll('[id^="comparar-barra-e0000000"]')].map((e) => e.id.slice("comparar-barra-".length)));
+    ok(JSON.stringify(mini) === JSON.stringify([ID(7), ID(1)]), "COMPA: la barra del catálogo los trae");
+    await c.close();
+    const s = await abrirComparar(ctx, null);
+    await esperar(s, async () => idsUrl(s).length === 2);
+    ok(JSON.stringify(idsUrl(s)) === JSON.stringify([ID(7), ID(1)]) && JSON.stringify(await columnas(s)) === JSON.stringify([ID(7), ID(1)]), `COMPA: /comparar sin ?ids= usa lo guardado y lo pone en la dirección (${s.url().replace(BASE, "")})`);
+    ok(s.errores.length === 0, `COMPA6: sin errores de JavaScript (${s.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+
+    const ctx2 = await contexto(navegador, CLIENTE, "user", nuevoEstado());
+    const v = await abrirComparar(ctx2, null);
+    ok((await v.locator("#comparar-vacio").count()) === 1 && /Aún no has elegido productos/.test(await texto(v, "#comparar-vacio")), "COMPA: sin nada elegido, explica qué hacer");
+    await v.locator("#comparar-ir-catalogo").click();
+    await v.waitForURL(/\/catalogo/, { timeout: 10000 }).catch(() => {});
+    ok(/\/catalogo/.test(v.url()), "COMPA: y «Ir al catálogo» lleva al catálogo");
+    await ctx2.close();
+  }
+
+  // COMPA7) Con la analítica rechazada se compara igual y no se manda nada.
+  {
+    const estado = nuevoEstado({ aceptaAnalitica: false });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await abrirCatalogo(ctx);
+    await p.locator(`#comparar-${ID(1)}`).click();
+    await p.locator(`#comparar-${ID(4)}`).click();
+    await p.locator("#comparar-barra-ir").click();
+    await p.waitForURL(/\/comparar/, { timeout: 10000 }).catch(() => {});
+    await p.locator("#comparar-tabla").waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok((await columnas(p)).length === 2 && !(estado.eventosEnviados ?? []).some((e) => /^comparar_/.test(e.event_name)), "COMPA: con la analítica rechazada se compara igual y no se mide nada");
+    await ctx.close();
+  }
+
+  // COMPA8) Administración → Analítica (390 y 1280): «Comparador (30 días)» con veces abierto, media de productos, añadidos a
+  // la cesta, elegidos y quitados, y lo que más se compara (con su título y en orden).
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const ev = (n, k, metadata = {}) => Array.from({ length: k }, () => ({ event_name: n, metadata, created_at: "2026-11-13T10:00:00Z", session_id: "x", step_label: n }));
+    const estado = {
+      filas: perfilAdmin, guardados: [], embudo: [], categorias: CATS, catalogoFB: PRODUCTOS,
+      eventos: [
+        ...ev("comparar_abierto", 2, { n: 2, ids: [ID(1), ID(4)] }), ...ev("comparar_abierto", 2, { n: 3, ids: [ID(1), ID(4), ID(7)] }),
+        ...ev("comparar_anadir_cesta", 2, { id: ID(4) }), ...ev("comparar_anadido", 7, { id: ID(1), origen: "catalogo", n: 1 }),
+        ...ev("comparar_quitado", 3, { id: ID(2), origen: "barra", n: 1 }), ...ev("parecidos_mostrado", 5),
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-comparador").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const uso = await texto(p, "#analitica-comparador-uso");
+    ok(/Abierto 4 veces · media de 2,5 productos comparados · añadidos a la cesta desde ahí 2/.test(uso), `COMPA (${nombre}): Analítica cuenta las veces abierto, la media y los añadidos a la cesta (${uso})`);
+    ok(/Productos elegidos para comparar 7 · quitados 3/.test(await texto(p, "#analitica-comparador-elegidos")), `COMPA (${nombre}): y los elegidos y quitados (${await texto(p, "#analitica-comparador-elegidos")})`);
+    const top = await texto(p, "#analitica-comparador-top");
+    ok(/Playstation 5 Slim Con Lector 4 veces/.test(top) && /PS5 Digital Edition 4 veces/.test(top) && /Consola Nintendo Switch Oled 2 veces/.test(top) && top.indexOf("Switch Oled") > top.indexOf("Digital"), `COMPA (${nombre}): lo que más se compara, con su título y en orden (${top})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `COMPA (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#analitica-comparador").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `COMPA8-analitica-${nombre}`);
+    ok(p.errores.length === 0, `COMPA8 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "COMPA") await seccionCOMPA();
   if (SOLO === "RAPI") await seccionRAPI();
   if (SOLO === "PAREC") await seccionPAREC();
   if (SOLO === "SEGP") await seccionSEGP();
@@ -16843,6 +17273,7 @@ try {
   await seccionSEGP();
   await seccionPAREC();
   await seccionRAPI();
+  await seccionCOMPA();
   await seccionCAMPOS16();
   }
 } catch (e) {

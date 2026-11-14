@@ -65,6 +65,11 @@
  * ninguno, no sale) y, bajo los botones de comprar, como mucho 3 mandos o accesorios de la misma familia SOLO si es una
  * consola. Se miden parecidos_mostrado / parecido_tocado y complemento_mostrado / _tocado (Administración → Analítica).
  *
+ * «Comparar con otros productos» (mejora 8, 2026-11-14; components/CategoryProductsShelf.tsx → BotonComparar): bajo el
+ * aviso de precio, una casilla de 44 px que lo añade a la comparación (como mucho 3, en el dispositivo). La barra de
+ * abajo (BarraComparar) se esconde mientras «Comprar ya» / «Añadir a la cesta» (ficha-comprar-ya, ficha-anadir-cesta)
+ * estén donde iría ella, y la ficha termina con su hueco. Lleva a app/comparar.tsx.
+ *
  * Cabecera: solo el botón "←" queda fijo arriba; el título y el subtítulo
  * del producto viven dentro del ScrollView (son lo primero que se ve) y
  * desaparecen al hacer scroll como el resto del contenido, en vez de
@@ -152,7 +157,7 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
-import { CompletaTuCompra, ProductosParecidos } from "../../components/CategoryProductsShelf";
+import { BotonComparar, CompletaTuCompra, ProductosParecidos, useAlturaBarraComparar } from "../../components/CategoryProductsShelf";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -652,6 +657,7 @@ export default function ProductoScreen() {
   const isTablet = widthSafe >= 700 && widthSafe < 1080;
   const isWide = widthSafe >= 1080;
   const pagePadding = isMobile ? 12 : 16;
+  const alturaBarraComparar = useAlturaBarraComparar();
 
   // ?guia=1: la guía de Blue (components/Campanita.tsx) enseña esta ficha; esa demostración no cuenta como visita.
   const params = useLocalSearchParams<{ id?: string; guia?: string }>();
@@ -1731,6 +1737,7 @@ export default function ProductoScreen() {
                 <View style={{ gap: 10, width: "100%", maxWidth: 460 }}>
                   {/* Acción principal: una sola, clara. La secundaria, con contorno. */}
                   <Pressable
+                    nativeID="ficha-comprar-ya"
                     onPress={() => addToCart("buyNow")}
                     disabled={!canBuy || cartBusy}
                     accessibilityRole="button"
@@ -1752,6 +1759,7 @@ export default function ProductoScreen() {
                   </Pressable>
 
                   <Pressable
+                    nativeID="ficha-anadir-cesta"
                     onPress={() => addToCart("cart")}
                     disabled={!canBuy || cartBusy}
                     accessibilityRole="button"
@@ -1799,6 +1807,11 @@ export default function ProductoScreen() {
                   {/* «Avísame si baja de precio» (solo con cuenta): en lo que se puede comprar. */}
                   {p.status === "PUBLICADA" && p.isActive ? <AvisoPrecioFicha productId={p.id} precio={p.priceEUR} /> : null}
 
+                  {/* «Comparar con otros productos» (mejora 8): hasta 3, en este dispositivo; la barra de abajo lleva a /comparar. */}
+                  {p.status === "PUBLICADA" && p.isActive ? (
+                    <BotonComparar producto={{ id: p.id, titulo: p.title, precio: p.priceEUR, imagen: p.imageUrl }} origen="ficha" variante="ficha" />
+                  ) : null}
+
                   {/* «Completa tu compra» (mejora 6): solo en consolas, como mucho 3 mandos o accesorios de su familia. */}
                   {p.status === "PUBLICADA" && p.isActive ? <CompletaTuCompra bases={[p.id]} origen="ficha" /> : null}
                 </View>
@@ -1842,6 +1855,8 @@ export default function ProductoScreen() {
               <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 16 }}>Volver atrás</Text>
             </Pressable>
           </View>
+          {/* Hueco de la barra de «Comparar» (si se ve): el final de la ficha no queda debajo de ella. */}
+          {alturaBarraComparar ? <View style={{ height: alturaBarraComparar }} /> : null}
           </View>
         </ScrollView>
       )}

@@ -49,7 +49,8 @@
  *   (hoja inferior en móvil) con todos los filtros, orden y "Quitar filtros".
  * - components/Barramagic.tsx → buscador (modo "input").
  * - components/CategoryProductsShelf.tsx → la tarjeta y la rejilla (TarjetaProducto, RejillaTarjetas), las mismas
- *   de Inicio y Servicios.
+ *   de Inicio y Servicios. Cada tarjeta lleva debajo «Comparar» (mejora 8, 2026-11-14: hasta 3 productos, barra
+ *   flotante abajo y app/comparar.tsx); la lista deja abajo el hueco de esa barra (useAlturaBarraComparar).
  * - app/producto/[id].tsx → a donde se navega al pulsar una tarjeta.
  * - app/(tabs)/index.tsx → los accesos por categoría de la home enlazan aquí
  *   con el parámetro ?cat=.
@@ -90,7 +91,7 @@ import CabeceraMarca from "../components/CabeceraMarca";
 import PortadasCategoria, { enterasInicioDe, esCategoriaServicios, faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
 import { useRecarga } from "../components/TirarParaActualizar";
 import { crearAvisoBusqueda } from "../components/Campanita";
-import { RejillaTarjetas, TarjetaProducto } from "../components/CategoryProductsShelf";
+import { RejillaTarjetas, TarjetaProducto, useAlturaBarraComparar } from "../components/CategoryProductsShelf";
 import CatalogFilters, {
   Chip,
   PRECIO_MAX,
@@ -481,6 +482,7 @@ export default function CatalogoScreen() {
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
+  const alturaBarraComparar = useAlturaBarraComparar();
 
   const params = useLocalSearchParams<{ cat?: string; categoria?: string; query?: string; estado?: string; precio_min?: string; precio_max?: string }>();
   const rawCat =
@@ -679,6 +681,8 @@ export default function CatalogoScreen() {
           // Carga rápida: las fotos de la primera fila se piden ya y con prioridad; las demás, al acercarse.
           prioridad={i < Math.max(1, cols)}
           onPress={() => pushRoute(`/producto/${p.id}` as Href)}
+          // «Comparar» (mejora 8): debajo de cada tarjeta, fuera del enlace.
+          comparar={{ id: p.id, titulo: p.title, precio: p.priceEUR, imagen: p.imageUrl }}
           extra={
             isAdmin ? (
               <Text style={{ color: adminStatusColor(p.status), fontWeight: "800", fontSize: 11.5, marginTop: 4, textAlign: "center" }}>
@@ -939,8 +943,8 @@ export default function CatalogoScreen() {
 
       <ScrollView
         // 96 abajo: la última fila de productos y el botón "cargar más" quedan por encima
-        // del asistente flotante Blue (72 px en la esquina inferior).
-        contentContainerStyle={{ paddingBottom: 96 }}
+        // del asistente flotante Blue (72 px en la esquina inferior). Con la barra de «Comparar», además su alto.
+        contentContainerStyle={{ paddingBottom: 96 + alturaBarraComparar }}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}

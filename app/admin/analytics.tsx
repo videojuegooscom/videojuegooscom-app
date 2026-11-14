@@ -90,6 +90,9 @@
  * - «Parecidos y complementos (30 días)» (#analitica-parecidos, mejora 6 del 2026-11-14): eventos parecidos_mostrado,
  *   parecido_tocado, complemento_mostrado (ficha o cesta), complemento_tocado y complemento_anadido de
  *   components/CategoryProductsShelf.tsx (solo ids de producto) y los 5 productos que más se añaden desde ahí.
+ * - «Comparador (30 días)» (#analitica-comparador, mejora 8 «Comparar 2-3 productos» del 2026-11-14): eventos
+ *   comparar_abierto (n e ids), comparar_anadir_cesta (app/comparar.tsx), comparar_anadido y comparar_quitado
+ *   (components/CategoryProductsShelf.tsx); veces abierto, media de productos, añadidos a la cesta y los 5 más comparados.
  * - «Velocidad de la tienda (30 días)» (#analitica-velocidad, mejora 7 «Carga más rápida» del 2026-11-14): evento
  *   rendimiento_carga (lib/analytics.ts → medirCargaPantalla, una vez por visita: ms hasta la primera pantalla útil de
  *   Inicio, Catálogo o la ficha, ancho por tramos y tipo de conexión; sin datos de nadie). Mediana y percentil 75 por
@@ -965,6 +968,62 @@ export default function AdminAnalytics() {
         mostradosFicha: mostrados.filter((f) => f.metadata?.origen === "ficha").length,
         mostradosCesta: mostrados.filter((f) => f.metadata?.origen === "cesta").length,
         masAnadidos: ids.map((id) => ({ id, titulo: titulos.get(id) ?? "Producto retirado", n: n.get(id) ?? 0 })),
+      });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Comparador (mejora 8, 2026-11-14): en 30 días, veces que se abre /comparar, cuántos productos se comparan de media,
+  // cuántos se añaden a la cesta desde ahí, cuántos se eligen y se quitan, y los productos que más se comparan (ids de
+  // comparar_abierto; los títulos se piden aparte). Sin datos de nadie.
+  const [comparador, setComparador] = useState<{
+    abiertos: number;
+    media: number | null;
+    cesta: number;
+    anadidos: number;
+    quitados: number;
+    top: { id: string; titulo: string; n: number }[];
+  } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const NOMBRES = ["comparar_abierto", "comparar_anadir_cesta", "comparar_anadido", "comparar_quitado"];
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data, error } = await supabase
+        .from("analytics_events")
+        .select("event_name, metadata")
+        .in("event_name", NOMBRES)
+        .gte("created_at", desde)
+        .limit(5000);
+      if (!vivo) return;
+      if (error || !Array.isArray(data)) {
+        setComparador(null);
+        return;
+      }
+      const filas = (data as { event_name: string; metadata: Record<string, unknown> | null }[]).filter((f) => NOMBRES.includes(f.event_name));
+      const abiertos = filas.filter((f) => f.event_name === "comparar_abierto");
+      const cuantos = abiertos.map((f) => Number(f.metadata?.n)).filter((x) => Number.isFinite(x) && x > 0);
+      const veces = new Map<string, number>();
+      for (const f of abiertos) {
+        const lista = Array.isArray(f.metadata?.ids) ? (f.metadata?.ids as unknown[]) : [];
+        for (const id of lista) if (typeof id === "string") veces.set(id, (veces.get(id) ?? 0) + 1);
+      }
+      const ids = [...veces.keys()].sort((a, b) => (veces.get(b) ?? 0) - (veces.get(a) ?? 0)).slice(0, 5);
+      const titulos = new Map<string, string>();
+      if (ids.length) {
+        const { data: prods } = await supabase.from("products").select("id,title").in("id", ids);
+        for (const p of (prods ?? []) as { id: string; title: string }[]) titulos.set(p.id, p.title);
+      }
+      if (!vivo) return;
+      setComparador({
+        abiertos: abiertos.length,
+        media: cuantos.length ? cuantos.reduce((s, x) => s + x, 0) / cuantos.length : null,
+        cesta: filas.filter((f) => f.event_name === "comparar_anadir_cesta").length,
+        anadidos: filas.filter((f) => f.event_name === "comparar_anadido").length,
+        quitados: filas.filter((f) => f.event_name === "comparar_quitado").length,
+        top: ids.map((id) => ({ id, titulo: titulos.get(id) ?? "Producto retirado", n: veces.get(id) ?? 0 })),
       });
     })();
     return () => {
@@ -2169,6 +2228,47 @@ export default function AdminAnalytics() {
                     ) : (
                       parecidos.masAnadidos.map((f) => (
                         <View key={f.id} nativeID={`analitica-complemento-${f.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700", flex: 1 }}>{f.titulo}</Text>
+                          <Text style={{ color: COLORES_TEXTO.azulTexto, fontSize: TAMANOS.minimo, fontWeight: "900" }}>
+                            {f.n} {f.n === 1 ? "vez" : "veces"}
+                          </Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Comparador (30 días)"
+              subtitle="«Comparar» en el catálogo y en la ficha (hasta 3 productos, guardados solo en el dispositivo): veces que se abre la comparación, cuántos productos se comparan de media, cuántos se añaden a la cesta desde ahí y lo que más se compara. Solo ids de producto, sin datos de nadie; solo visitantes que aceptaron la analítica."
+            >
+              {!comparador ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se ha podido cargar el comparador.</Text>
+              ) : (
+                <View nativeID="analitica-comparador" style={{ gap: 10 }}>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="git-compare-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-comparador-uso" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Abierto {comparador.abiertos} {comparador.abiertos === 1 ? "vez" : "veces"} · media de{" "}
+                      {comparador.media === null ? "—" : comparador.media.toFixed(1).replace(".", ",")} productos comparados · añadidos a la cesta desde ahí{" "}
+                      {comparador.cesta}
+                    </Text>
+                  </View>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="checkbox-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-comparador-elegidos" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Productos elegidos para comparar {comparador.anadidos} · quitados {comparador.quitados}
+                    </Text>
+                  </View>
+                  <View nativeID="analitica-comparador-top" style={{ gap: 6 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Lo que más se compara</Text>
+                    {comparador.top.length === 0 ? (
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Aún no se ha comparado nada.</Text>
+                    ) : (
+                      comparador.top.map((f) => (
+                        <View key={f.id} nativeID={`analitica-comparado-${f.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                           <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700", flex: 1 }}>{f.titulo}</Text>
                           <Text style={{ color: COLORES_TEXTO.azulTexto, fontSize: TAMANOS.minimo, fontWeight: "900" }}>
                             {f.n} {f.n === 1 ? "vez" : "veces"}

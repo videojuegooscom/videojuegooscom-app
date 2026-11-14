@@ -15,13 +15,18 @@
  * que lo muestran (Políticas, Noticias y su ficha) terminan con 96 px de relleno para que no tape su último contenido,
  * y «Contratar servicio» deja su propia franja. Lo comprueba la prueba TM3 de pruebas/perfil-datos.mjs.
  *
- * Conectado con: app/_layout.tsx (lo monta), components/Campanita.tsx (se aparta de él).
+ * Barra de «Comparar» (mejora 8, 2026-11-14): en el catálogo, con productos elegidos para comparar, el botón sube lo
+ * que mide esa barra (components/CategoryProductsShelf.tsx → useAlturaBarraComparar) para no quedar encima de ella.
+ *
+ * Conectado con: app/_layout.tsx (lo monta), components/Campanita.tsx (se aparta de él),
+ * components/CategoryProductsShelf.tsx (BarraComparar).
  */
 import React from "react";
 import { Platform, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAlturaBarraComparar } from "./CategoryProductsShelf";
 
 const RUTAS = /^\/(catalogo|servicios|politicas\/|blog|noticias)/;
 
@@ -39,13 +44,15 @@ function volver() {
 
 export default function BotonAtrasAlcance() {
   const pathname = usePathname() ?? "";
+  const alturaBarraComparar = useAlturaBarraComparar();
   if (Platform.OS !== "web" || !RUTAS.test(pathname)) return null;
-  return <BotonAtrasFlotante onPress={volver} />;
+  return <BotonAtrasFlotante onPress={volver} subir={alturaBarraComparar} />;
 }
 
 // El mismo botón con su propia acción: «Contratar servicio» lo pone con la suya (dueño, 2026-11-09: «el botón para
 // volver, abajo a la derecha, para tocarlo con el dedo gordo»), que cuenta en Analítica si se fue sin enviar.
-export function BotonAtrasFlotante({ onPress }: { onPress: () => void }) {
+// subir: lo que ocupa abajo otra barra fija (la de «Comparar»), que ya incluye la zona segura.
+export function BotonAtrasFlotante({ onPress, subir = 0 }: { onPress: () => void; subir?: number }) {
   const insets = useSafeAreaInsets();
   return (
     <Pressable
@@ -56,7 +63,7 @@ export function BotonAtrasFlotante({ onPress }: { onPress: () => void }) {
       style={({ pressed }) => ({
         position: "fixed" as "absolute",
         right: 14,
-        bottom: 16 + Math.round(insets.bottom),
+        bottom: subir > 0 ? 12 + subir : 16 + Math.round(insets.bottom),
         width: 52,
         height: 52,
         borderRadius: 26,
