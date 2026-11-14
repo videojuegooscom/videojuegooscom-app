@@ -60,6 +60,8 @@
  *   app/modal.tsx, app/reset-password.tsx → rutas públicas fuera de las
  *   pestañas.
  * - app/admin/_layout.tsx → todas las rutas /admin.
+ * - app/comparar.tsx → «Comparar 2-3 productos» (/comparar?ids=…); su barra flotante (BarraComparar de
+ *   components/CategoryProductsShelf.tsx) se monta aquí una vez, como el «Volver» flotante.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Platform, View, type ViewStyle } from "react-native";
@@ -70,6 +72,7 @@ import { Ionicons } from "@expo/vector-icons";
 import BotonAtrasAlcance from "../components/BotonAtrasAlcance";
 import BrandLoadingScreen, { BIENVENIDA_MS, BIENVENIDA_RELLENO_ID } from "../components/BrandLoadingScreen";
 import Campanita from "../components/Campanita";
+import { BarraComparar } from "../components/CategoryProductsShelf";
 import CookieConsentBanner from "../components/CookieConsentBanner";
 import LineaPensadoraEfectoSiri from "../components/lineapensadoraefectosiri";
 import { PerfilObligatorio } from "../components/PerfilPublico";
@@ -393,6 +396,7 @@ export default function RootLayout() {
         <Stack.Screen name="checkout" />
         <Stack.Screen name="vender" />
         <Stack.Screen name="quienes-somos" />
+        <Stack.Screen name="comparar" />
         <Stack.Screen name="reset-password" />
 
         {/* Políticas (envíos, devoluciones, privacidad, términos) y Blog */}
@@ -430,6 +434,9 @@ export default function RootLayout() {
 
       {/* «Volver» a mano del pulgar derecho en las páginas de lectura. */}
       <BotonAtrasAlcance />
+
+      {/* «Comparar» (mejora 8): barra flotante de abajo en el Catálogo y las fichas, solo con algo elegido. */}
+      <BarraComparar />
 
       {/* «Desliza para actualizar» con la mascota, en toda la tienda (cada pantalla dice qué recarga). */}
       <TirarParaActualizar />

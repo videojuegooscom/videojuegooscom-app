@@ -58,6 +58,11 @@
  * solo bajan las portadas pequeñas de lo que se enseña. Analítica propia: parecidos_mostrado, parecido_tocado,
  * complemento_mostrado, complemento_tocado y complemento_anadido (ids de producto), en Administración → Analítica.
  *
+ * «Comparar 2-3 productos» (mejora 8, dueño 2026-11-14; abajo del todo): la lista de lo que se compara (solo en el
+ * dispositivo, como mucho 3; useComparar, alternarComparar…), el «Comparar» de las tarjetas del catálogo y de la ficha
+ * (BotonComparar) y la barra flotante de abajo (BarraComparar, en el Catálogo y las fichas) que lleva a app/comparar.tsx.
+ * Se mide como comparar_anadido / comparar_quitado (solo ids) en Administración → Analítica → «Comparador (30 días)».
+ *
  * Tamaños (2026-11-12, grupo 3): nombres a 13 px como mínimo, precios pequeños (menos de 17 px) en el azul de texto
  * #0A78B4 (constants/theme.ts) y flechas con 44 px de zona táctil.
  *
@@ -70,14 +75,18 @@
  * - app/producto/[id].tsx → destino de cada tarjeta.
  * - app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx → pantallas que lo montan (la cesta, también «Completa tu compra»).
  * - app/producto/[id].tsx → «Productos parecidos» y «Completa tu compra» de la ficha.
- * - app/admin/analytics.tsx → tarjeta «Parecidos y complementos (30 días)».
+ * - app/admin/analytics.tsx → tarjeta «Parecidos y complementos (30 días)» y «Comparador (30 días)».
+ * - app/comparar.tsx (la comparación), app/_layout.tsx (monta BarraComparar), app/catalogo.tsx y
+ *   components/BotonAtrasAlcance.tsx (dejan el hueco de la barra: useAlturaBarraComparar).
  */
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Href } from "expo-router";
-import { router } from "expo-router";
+import { router, usePathname } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
-import { ActivityIndicator, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import type { NativeScrollEvent, NativeSyntheticEvent, ViewStyle } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SmartImage from "./SmartImage";
 import { useRecarga } from "./TirarParaActualizar";
 import { cargarIndiceBusqueda, palabrasBusqueda, portadasDeProductos, type ProductoIndice } from "./Barramagic";
@@ -167,6 +176,7 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
   compact,
   extra,
   prioridad,
+  comparar,
 }: {
   titulo: string;
   precioEUR: number;
@@ -177,9 +187,11 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
   extra?: React.ReactNode;
   /** Primera fila de la lista (carga rápida): la foto se pide ya y con prioridad alta; las demás, al acercarse. */
   prioridad?: boolean;
+  /** Catálogo (mejora 8): «Comparar» debajo de la tarjeta, fuera del enlace (no es un botón dentro de otro). */
+  comparar?: ProductoComparar;
 }) {
   const anchoPantalla = useWindowDimensions().width;
-  return (
+  const tarjeta = (
     <Pressable
       onPress={onPress}
       accessibilityRole="link"
@@ -187,8 +199,9 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
       style={({ pressed }) => ({
         opacity: pressed ? 0.9 : 1,
         borderRadius: 16,
-        backgroundColor: COLORS.tile,
+        backgroundColor: comparar ? undefined : COLORS.tile,
         padding: compact ? 8 : 10,
+        paddingBottom: comparar ? 0 : compact ? 8 : 10,
         alignItems: "center",
       })}
     >
@@ -242,6 +255,14 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
 
       {extra}
     </Pressable>
+  );
+  if (!comparar) return tarjeta;
+  // El mismo fondo para la tarjeta y su «Comparar»; flexGrow + space-between: en cada fila, los «Comparar» a la misma altura.
+  return (
+    <View style={{ flexGrow: 1, justifyContent: "space-between", borderRadius: 16, backgroundColor: COLORS.tile }}>
+      {tarjeta}
+      <BotonComparar producto={comparar} origen="catalogo" variante="tarjeta" />
+    </View>
   );
 });
 
@@ -990,6 +1011,413 @@ export function CompletaTuCompra({
           ) : null}
         </View>
       ))}
+    </View>
+  );
+}
+
+// --- «Comparar 2-3 productos» (mejora 8, aprobada por el dueño el 2026-11-14) --------------------------------------------
+// Lo que se compara se guarda SOLO en el dispositivo (AsyncStorage = localStorage en la web; sin cuenta), como mucho 3,
+// con su título, precio y portada para la barra. Todo el que lo usa (el «Comparar» de las tarjetas y de la ficha, la
+// barra flotante y app/comparar.tsx) comparte la misma lista en memoria y se entera de cada cambio.
+// Analítica propia (sin datos de nadie, solo ids de producto): comparar_anadido y comparar_quitado (id, origen y cuántos
+// quedan); comparar_abierto y comparar_anadir_cesta salen de app/comparar.tsx. Administración → Analítica → «Comparador».
+export const COMPARAR_MAX = 3;
+const COMPARAR_KEY = "videojuegoszaragoza:comparar_v1";
+export const AVISO_COMPARAR_LLENO = "Puedes comparar hasta 3 productos. Quita uno para añadir este.";
+export type ProductoComparar = { id: string; titulo: string; precio: number; imagen: string | null };
+export type OrigenComparar = "catalogo" | "ficha" | "barra" | "comparar";
+
+// Un objeto nuevo en cada cambio (useSyncExternalStore): así React, y su compilador, ven que ha cambiado.
+type EstadoComparar = { lista: ProductoComparar[]; leido: boolean; aviso: string | null; alturaBarra: number };
+let comparador: EstadoComparar = { lista: [], leido: false, aviso: null, alturaBarra: 0 };
+const oyentesComparar = new Set<() => void>();
+let lecturaComparar: Promise<void> | null = null;
+let relojAvisoComparar: ReturnType<typeof setTimeout> | null = null;
+
+function cambiarComparar(parcial: Partial<EstadoComparar>) {
+  comparador = { ...comparador, ...parcial };
+  for (const f of [...oyentesComparar]) f();
+}
+function suscribirComparar(f: () => void) {
+  oyentesComparar.add(f);
+  return () => {
+    oyentesComparar.delete(f);
+  };
+}
+const fotoComparar = () => comparador;
+
+/** Lo guardado tal cual se lee del dispositivo: solo lo que tiene forma de producto, sin repetidos y como mucho 3. */
+function limpiarComparados(v: unknown): ProductoComparar[] {
+  if (!Array.isArray(v)) return [];
+  const out: ProductoComparar[] = [];
+  for (const x of v) {
+    if (!x || typeof x !== "object") continue;
+    const r = x as Record<string, unknown>;
+    const id = String(r.id ?? "").trim();
+    if (!/^[0-9A-Za-z-]{1,64}$/.test(id) || out.some((o) => o.id === id)) continue;
+    const precio = Number(r.precio);
+    out.push({
+      id,
+      titulo: String(r.titulo ?? "").slice(0, 200),
+      precio: Number.isFinite(precio) ? precio : 0,
+      imagen: typeof r.imagen === "string" && r.imagen.trim() ? r.imagen.trim() : null,
+    });
+    if (out.length >= COMPARAR_MAX) break;
+  }
+  return out;
+}
+
+function leerComparados(): Promise<void> {
+  if (!lecturaComparar) {
+    lecturaComparar = (async () => {
+      let lista: ProductoComparar[] = [];
+      try {
+        const raw = await AsyncStorage.getItem(COMPARAR_KEY);
+        lista = limpiarComparados(raw ? JSON.parse(raw) : []);
+      } catch {
+        // Sin almacenamiento (modo privado…): se compara igual mientras dure la visita.
+      }
+      cambiarComparar({ lista, leido: true });
+    })();
+  }
+  return lecturaComparar;
+}
+
+function guardarComparados(lista: ProductoComparar[]) {
+  cambiarComparar({ lista });
+  AsyncStorage.setItem(COMPARAR_KEY, JSON.stringify(lista)).catch(() => {});
+}
+
+function avisoComparar(texto: string | null) {
+  if (relojAvisoComparar) clearTimeout(relojAvisoComparar);
+  relojAvisoComparar = null;
+  if (texto) relojAvisoComparar = setTimeout(() => cambiarComparar({ aviso: null }), 6000);
+  if (comparador.aviso !== texto) cambiarComparar({ aviso: texto });
+}
+
+/** La lista que se compara, si ya se ha leído del dispositivo, el aviso y el alto de la barra (se repinta con cada cambio). */
+export function useComparar(): EstadoComparar {
+  const estado = React.useSyncExternalStore(suscribirComparar, fotoComparar, fotoComparar);
+  useEffect(() => {
+    void leerComparados();
+  }, []);
+  return estado;
+}
+
+/** Añade o quita un producto. Con 3 ya elegidos no añade: deja el aviso amable («lleno»). */
+export async function alternarComparar(p: ProductoComparar, origen: OrigenComparar): Promise<"anadido" | "quitado" | "lleno"> {
+  await leerComparados();
+  if (comparador.lista.some((x) => x.id === p.id)) {
+    quitarDeComparar(p.id, origen);
+    return "quitado";
+  }
+  if (comparador.lista.length >= COMPARAR_MAX) {
+    avisoComparar(AVISO_COMPARAR_LLENO);
+    return "lleno";
+  }
+  avisoComparar(null);
+  const nueva = [...comparador.lista, p];
+  guardarComparados(nueva);
+  void trackEvent("comparar_anadido", "Comparar: producto añadido", { metadata: { id: p.id, origen, n: nueva.length } });
+  return "anadido";
+}
+
+export function quitarDeComparar(id: string, origen: OrigenComparar) {
+  const nueva = comparador.lista.filter((x) => x.id !== id);
+  if (nueva.length === comparador.lista.length) return;
+  avisoComparar(null);
+  guardarComparados(nueva);
+  void trackEvent("comparar_quitado", "Comparar: producto quitado", { metadata: { id, origen, n: nueva.length } });
+}
+
+export function vaciarComparar(origen: OrigenComparar) {
+  const quitados = comparador.lista.length;
+  if (!quitados) return;
+  avisoComparar(null);
+  guardarComparados([]);
+  void trackEvent("comparar_quitado", "Comparar: comparación vaciada", { metadata: { origen, vaciada: true, quitados, n: 0 } });
+}
+
+/** /comparar abierto con un enlace (compartido o no): lo que se compara en este dispositivo pasa a ser eso. */
+export async function fijarComparados(lista: ProductoComparar[]) {
+  await leerComparados();
+  const limpia = limpiarComparados(lista);
+  if (JSON.stringify(limpia) !== JSON.stringify(comparador.lista)) guardarComparados(limpia);
+}
+
+/** Enlace de la comparación (se puede compartir): /comparar?ids=a,b,c */
+export function enlaceComparar(ids: string[]): Href {
+  return `/comparar?ids=${ids.map(encodeURIComponent).join(",")}` as Href;
+}
+
+// La barra flotante sale en el Catálogo y en las fichas (fuera de la barra de pestañas, que ahí no se ve); en Inicio va
+// el buscador flotante abajo y no se pisa. Su alto real (con la zona segura del iPhone) lo mide ella misma.
+const RUTAS_BARRA_COMPARAR = /^\/(catalogo|producto\/[^/]+)\/?$/;
+const ALTURA_BARRA_COMPARAR = 64;
+// En la ficha, si «Comprar ya» o «Añadir a la cesta» quedan donde va la barra, la barra se esconde hasta que queden libres.
+const BOTONES_SIN_TAPAR = ["ficha-comprar-ya", "ficha-anadir-cesta"];
+const TRANSICION_BARRA = (Platform.OS === "web"
+  ? { transitionProperty: "opacity, transform", transitionDuration: "180ms", transitionTimingFunction: "ease-out" }
+  : {}) as unknown as ViewStyle;
+
+/** Hueco que deja abajo una pantalla con la barra (Catálogo, ficha y el «Volver» flotante): 0 si no se ve. */
+export function useAlturaBarraComparar(): number {
+  const pathname = usePathname() ?? "";
+  const { lista, alturaBarra } = useComparar();
+  if (Platform.OS !== "web" || !RUTAS_BARRA_COMPARAR.test(pathname) || lista.length === 0) return 0;
+  return alturaBarra || ALTURA_BARRA_COMPARAR;
+}
+
+/**
+ * «Comparar» de la tarjeta del catálogo (texto con icono, 44 px de alto, sin recuadro) y de la ficha (como el botón de
+ * «Avísame si baja de precio»). Es una casilla: «Comparar» o «Comparando». En la ficha, el aviso de «como mucho 3» sale
+ * debajo del botón (allí la barra puede estar escondida para no tapar «Comprar ya»); en el catálogo, en la barra.
+ */
+export function BotonComparar({
+  producto,
+  origen,
+  variante,
+}: {
+  producto: ProductoComparar;
+  origen: "catalogo" | "ficha";
+  variante: "tarjeta" | "ficha";
+}) {
+  const { lista } = useComparar();
+  const activo = lista.some((x) => x.id === producto.id);
+  const [lleno, setLleno] = useState(false);
+  const n = lista.length;
+  useEffect(() => {
+    if (n < COMPARAR_MAX) setLleno(false);
+  }, [n]);
+  const pulsar = async () => setLleno((await alternarComparar(producto, origen)) === "lleno");
+  const comunes = {
+    onPress: pulsar,
+    accessibilityRole: "checkbox" as const,
+    accessibilityState: { checked: activo },
+    "aria-checked": activo,
+    accessibilityLabel: `Comparar ${producto.titulo}`,
+  };
+
+  if (variante === "tarjeta") {
+    return (
+      <Pressable
+        nativeID={`comparar-${producto.id}`}
+        {...comunes}
+        style={({ pressed }) => ({
+          minHeight: TACTIL.minimo,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          paddingHorizontal: 8,
+          opacity: pressed ? 0.7 : 1,
+        })}
+      >
+        <Ionicons name={activo ? "checkmark-circle" : "git-compare-outline"} size={17} color={activo ? COLORES_TEXTO.azulTexto : COLORES_TEXTO.secundario} />
+        <Text style={{ color: activo ? COLORES_TEXTO.azulTexto : COLORES_TEXTO.secundario, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+          {activo ? "Comparando" : "Comparar"}
+        </Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <View nativeID="ficha-comparar" style={{ gap: 6, alignItems: "stretch" }}>
+      <Pressable
+        nativeID="ficha-comparar-boton"
+        {...comunes}
+        style={({ pressed }) => ({
+          minHeight: TACTIL.minimo,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          paddingHorizontal: 14,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: activo ? "#BEE6FA" : "#E3EAF2",
+          backgroundColor: activo ? "#EAF6FD" : "#FFFFFF",
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Ionicons name={activo ? "checkmark-circle" : "git-compare-outline"} size={16} color={activo ? COLORS.accent : COLORS.text} />
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5, flexShrink: 1 }}>
+          {activo ? "En tu comparación" : "Comparar con otros productos"}
+        </Text>
+      </Pressable>
+      {lleno ? (
+        <Text nativeID="ficha-comparar-aviso" style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+          {AVISO_COMPARAR_LLENO}
+        </Text>
+      ) : null}
+      {activo && n >= 2 ? (
+        <Pressable
+          nativeID="ficha-comparar-ver"
+          onPress={() => router.push(enlaceComparar(lista.map((x) => x.id)))}
+          accessibilityRole="link"
+          style={({ pressed }) => ({ minHeight: TACTIL.minimo, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+        >
+          <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "900", fontSize: 14, textDecorationLine: "underline" }}>Ver la comparación ({n})</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * Barra flotante de abajo (se monta una vez en app/_layout.tsx): miniaturas de lo elegido (tocar una la quita), la X que
+ * vacía la comparación y «Comparar (N)», activo desde 2. Solo en el Catálogo y las fichas, nunca con la lista vacía. En la
+ * ficha se esconde mientras «Comprar ya» o «Añadir a la cesta» estén donde iría ella. Blue va arriba a la derecha, así que
+ * no se cruzan; el «Volver» flotante del catálogo sube lo que mide la barra (useAlturaBarraComparar).
+ */
+export function BarraComparar() {
+  const pathname = usePathname() ?? "";
+  const { lista, aviso } = useComparar();
+  const insets = useSafeAreaInsets();
+  const visible = Platform.OS === "web" && RUTAS_BARRA_COMPARAR.test(pathname) && lista.length > 0;
+  const enFicha = pathname.startsWith("/producto/");
+  const [tapa, setTapa] = useState(false);
+
+  useEffect(() => {
+    if (!visible || !enFicha || typeof document === "undefined" || typeof window === "undefined") {
+      setTapa(false);
+      return;
+    }
+    let pendiente = 0;
+    const medir = () => {
+      pendiente = 0;
+      const limite = window.innerHeight - (comparador.alturaBarra || ALTURA_BARRA_COMPARAR);
+      setTapa(
+        BOTONES_SIN_TAPAR.some((id) => {
+          const r = document.getElementById(id)?.getBoundingClientRect();
+          return !!r && r.height > 0 && r.bottom > limite && r.top < window.innerHeight;
+        })
+      );
+    };
+    const pedir = () => {
+      if (!pendiente) pendiente = requestAnimationFrame(medir);
+    };
+    // El scroll de la ficha es de un div (no de la ventana): se escucha en captura. La ficha llega después que la barra.
+    document.addEventListener("scroll", pedir, true);
+    window.addEventListener("resize", pedir);
+    const cambios = typeof MutationObserver !== "undefined" ? new MutationObserver(pedir) : null;
+    cambios?.observe(document.body, { childList: true, subtree: true });
+    pedir();
+    return () => {
+      document.removeEventListener("scroll", pedir, true);
+      window.removeEventListener("resize", pedir);
+      cambios?.disconnect();
+      if (pendiente) cancelAnimationFrame(pendiente);
+    };
+  }, [visible, enFicha, pathname]);
+
+  if (!visible) return null;
+  const n = lista.length;
+  const listo = n >= 2;
+  const textoArriba = aviso && !enFicha ? aviso : n === 1 ? "Elige otro producto para comparar" : null;
+  return (
+    <View
+      nativeID="comparar-barra"
+      pointerEvents={tapa ? "none" : "box-none"}
+      aria-hidden={tapa}
+      {...({ dataSet: { tapa: tapa ? "1" : "0" } } as object)}
+      onLayout={(e) => {
+        const h = Math.round(e.nativeEvent.layout.height);
+        if (h > 0 && h !== comparador.alturaBarra) cambiarComparar({ alturaBarra: h });
+      }}
+      style={[
+        {
+          position: (Platform.OS === "web" ? "fixed" : "absolute") as "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 8500,
+          alignItems: "center",
+          paddingHorizontal: 12,
+          paddingTop: 8,
+          paddingBottom: 8 + Math.round(insets.bottom),
+          backgroundColor: "rgba(255,255,255,0.97)",
+          borderTopWidth: 1,
+          borderTopColor: "#E3EAF2",
+          opacity: tapa ? 0 : 1,
+          transform: [{ translateY: tapa ? 24 : 0 }],
+        },
+        TRANSICION_BARRA,
+      ]}
+    >
+      <View style={{ width: "100%", maxWidth: 560, gap: 4 }}>
+        {textoArriba ? (
+          <Text
+            nativeID={aviso && !enFicha ? "comparar-barra-aviso" : "comparar-barra-pista"}
+            style={{ color: COLORES_TEXTO.secundario, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 17, textAlign: "center" }}
+          >
+            {textoArriba}
+          </Text>
+        ) : null}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Pressable
+            nativeID="comparar-barra-vaciar"
+            onPress={() => vaciarComparar("barra")}
+            accessibilityRole="button"
+            accessibilityLabel="Vaciar la comparación"
+            style={({ pressed }) => ({ width: TACTIL.minimo, height: TACTIL.minimo, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.6 : 1 })}
+          >
+            <Ionicons name="close" size={22} color={COLORS.text} />
+          </Pressable>
+          <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {lista.map((p) => (
+              <Pressable
+                key={p.id}
+                nativeID={`comparar-barra-${p.id}`}
+                onPress={() => quitarDeComparar(p.id, "barra")}
+                accessibilityRole="button"
+                accessibilityLabel={`Quitar ${p.titulo} de la comparación`}
+                style={({ pressed }) => ({
+                  width: TACTIL.minimo,
+                  height: TACTIL.minimo,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: "#E3EAF2",
+                  backgroundColor: "#FFFFFF",
+                  overflow: "hidden",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                {p.imagen ? (
+                  <SmartImage uri={p.imagen} alt={p.titulo} ancho={88} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                ) : (
+                  <Ionicons name="game-controller-outline" size={20} color={COLORS.muted} />
+                )}
+                {/* «Quitar»: la X pequeña en la esquina (toda la miniatura es el botón). */}
+                <View pointerEvents="none" style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: 8, backgroundColor: "rgba(11,33,56,0.72)", alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="close" size={11} color="#FFFFFF" />
+                </View>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable
+            nativeID="comparar-barra-ir"
+            disabled={!listo}
+            onPress={() => router.push(enlaceComparar(lista.map((p) => p.id)))}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !listo }}
+            accessibilityLabel={listo ? `Comparar ${n} productos` : "Elige al menos 2 productos para comparar"}
+            style={({ pressed }) => ({
+              minHeight: TACTIL.minimo,
+              paddingHorizontal: 16,
+              borderRadius: 999,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: listo ? COLORS.accent : "#E3EAF2",
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Text style={{ color: listo ? "#FFFFFF" : COLORES_TEXTO.secundario, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Comparar ({n})</Text>
+          </Pressable>
+        </View>
+      </View>
     </View>
   );
 }

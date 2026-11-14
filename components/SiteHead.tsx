@@ -16,7 +16,7 @@
  * (app/_layout.tsx, junto a la campanita) escribiendo directamente en el
  * <head> del navegador — sin depender de en qué pantalla esté el visitante
  * ni de si esa pantalla tiene foco — y, según la ruta (usePathname), las
- * páginas públicas principales (Catálogo, Servicios, Vender, Blog y las
+ * páginas públicas principales (Catálogo, Servicios, Vender, Blog, Comparar y las
  * políticas) llevan además su propio título y descripción (tabla PAGINAS).
  *
  * Cómo funciona: en cuanto la app arranca en web, pide la fila única de
@@ -59,6 +59,8 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   "/servicios": { titulo: "Servicios de reparación y mantenimiento", descripcion: "Reparación, limpieza y mantenimiento de consolas y dispositivos." },
   "/vender": { titulo: "Vender mi artículo", descripcion: "Vende o intercambia tu consola o dispositivo: cuéntanos qué tienes y te damos un precio." },
   "/blog": { titulo: "Blog", descripcion: "Novedades y artículos de la tienda." },
+  // «Comparar 2-3 productos» (mejora 8, 2026-11-14): el enlace con ?ids= se comparte; la dirección oficial va sin ellos.
+  "/comparar": { titulo: "Comparar productos", descripcion: "Compara hasta 3 consolas, móviles o accesorios: precio, estado, categoría y entrega estimada." },
   "/noticias": {
     titulo: "Noticias de consolas, videojuegos y tecnología",
     descripcion: "Las últimas noticias de consolas, videojuegos, PC, móviles y accesorios, resumidas en español por Videojuegoszaragoza.com.",
