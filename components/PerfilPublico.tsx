@@ -28,8 +28,8 @@
  *   Si no se pueden leer los datos (sesión caducada o sin conexión; fallo real del 2026-11-14 en el iPhone), NUNCA se
  *   enseña el formulario vacío como si no hubiera datos: se reintenta una vez tras renovar la sesión y, si sigue fallando,
  *   «No hemos podido cargar tus datos · Reintentar», sin «Guardar» (no se pueden sobrescribir con vacíos). Se vuelve a
- *   leer al iniciar sesión, al renovarse la sesión o al cambiar la cuenta (SIGNED_IN / TOKEN_REFRESHED / USER_UPDATED),
- *   al volver a la tienda y al volver a Mi cuenta, sin pisar lo que se esté escribiendo. Se mide con perfil_carga_fallida y
+ *   leer al iniciar sesión o al cambiar la cuenta (SIGNED_IN / USER_UPDATED; tras TOKEN_REFRESHED solo si había fallado y
+ *   como mucho cada 30 s, para no alimentar el bucle de renovaciones del 2026-11-14), al volver a la tienda y al volver a Mi cuenta, sin pisar lo que se esté escribiendo. Se mide con perfil_carga_fallida y
  *   perfil_carga_reintentada (Administración → Usuarios).
  * - perfilesPublicos(ids): usuario y foto de varias personas para el Foro (función perfiles_publicos de la base de datos,
  *   que solo devuelve eso; si aún no existe, el Foro sigue como antes).
@@ -291,6 +291,8 @@ export function datosDeFila(fila: Record<string, unknown>): DatosPerfil {
 const ESPERA_REINTENTO_MS = 900;
 // Lecturas silenciosas (al volver o al renovarse la sesión): como mucho una cada 2 s, aunque Supabase avise muchas veces.
 const RELEER_CADA_MS = 2000;
+// Tras una renovación del token (TOKEN_REFRESHED) solo se relee si había fallado, y no antes de 30 s desde la última lectura.
+const RELEER_TRAS_RENOVAR_MS = 30_000;
 async function leerPerfil(uid: string): Promise<Lectura> {
   let ultimo: unknown = null;
   for (let intento = 0; intento < 2; intento++) {
@@ -630,7 +632,11 @@ export default function PerfilPublico({
   }, [cargar]);
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((evento, sesion) => {
-      if (!["SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(evento) || sesion?.user?.id !== uid) return;
+      if (sesion?.user?.id !== uid) return;
+      // Con cada renovación del token solo si la lectura había fallado, y como mucho cada 30 s (sesión estable, 2026-11-14).
+      if (evento === "TOKEN_REFRESHED") {
+        if (estadoRef.current !== "error" || Date.now() - ultimaLectura.current < RELEER_TRAS_RENOVAR_MS) return;
+      } else if (!["SIGNED_IN", "USER_UPDATED"].includes(evento)) return;
       // Fuera del aviso de Supabase (dentro no se puede consultar la base de datos).
       setTimeout(releer, 0);
     });

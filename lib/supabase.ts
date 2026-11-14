@@ -30,6 +30,13 @@
  * renovada); los usa «Mi perfil» (components/PerfilPublico.tsx). En la app nativa, la renovación automática solo con la
  * app delante (AppState), como recomienda Supabase.
  *
+ * Sesión estable (2026-11-14, mejora 1): con el reloj del dispositivo desfasado (> 60 s de la hora del servidor),
+ * renovarConCuidado() pasa la caducidad del token renovado a la hora del dispositivo (sin alargar la validez real);
+ * protegerRenovacion() frena el bucle (con 2 renovaciones en 10 s, la 3.ª espera 20 s) y ante un 429 espera y reintenta
+ * sin borrar la sesión. Un solo cliente en toda la app (las funciones de api/ crean el suyo en el servidor).
+ * alIncidenciaDeSesion() avisa de «reloj_desfasado» y «bucle_frenado» (app/_layout.tsx los mide; Administración →
+ * Usuarios los cuenta). Los oyentes de onAuthStateChange no hacen trabajo pesado en TOKEN_REFRESHED.
+ *
  * Conectado con: prácticamente todas las pantallas que leen o escriben
  * datos (app/(tabs)/*.tsx, app/admin/*.tsx, app/producto/[id].tsx,
  * app/catalogo.tsx) importan `supabase` desde aquí. app/_layout.tsx llama a registrarDispositivo();
@@ -38,7 +45,7 @@
  */
 import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import { AuthRetryableFetchError, createClient, type AuthError, type Session, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { AppState, Platform } from "react-native";
 import { markEnd, markStart } from "./loadingBus";
 
@@ -72,6 +79,10 @@ function trackedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Res
       ? input.toString()
       : (input as Request)?.url ?? "";
 
+  // La renovación del token pasa por la corrección del reloj (abajo; el bucle y el 429 los frena protegerRenovacion). Es
+  // silenciosa: no enciende la barra.
+  if (RENOVACION_RE.test(url)) return renovarConCuidado(input, init);
+
   const silent = isSilentRequest(url);
 
   if (!silent) markStart();
@@ -79,6 +90,138 @@ function trackedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   return fetch(input as any, init).finally(() => {
     if (!silent) markEnd();
   });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Sesión estable (dueño, 2026-11-14, mejora 1): el iPhone del dueño pidió la renovación del token decenas de veces
+// seguidas (cada ~150 ms, todas 200) hasta que Supabase respondió 429 y supabase-js borró la sesión. Causa: Supabase
+// devuelve la caducidad del token en SU hora (expires_at); con el reloj del dispositivo adelantado ~1 h, supabase-js lo
+// cree caducado nada más recibirlo, cada getSession() lo vuelve a renovar y cada renovación (TOKEN_REFRESHED) hacía que
+// los oyentes (Blue, el panel, Mi perfil…) volvieran a pedir la sesión: un bucle (reproducido en pruebas: 1.827
+// renovaciones en 10 s con el reloj adelantado 1 h). La guardia:
+// - Reloj desfasado (renovarConCuidado, en el fetch de POST /auth/v1/token?grant_type=refresh_token): compara la hora del
+//   servidor (cabecera Date si el navegador la deja leer; si no, la del propio token: expires_at − expires_in) con la del
+//   dispositivo. Si difieren más de 60 s, la caducidad se pasa a la hora del dispositivo (hora al pedir + expires_in, lo
+//   mismo que hace supabase-js cuando el servidor no la manda): el token vale lo mismo, NUNCA más (el servidor sigue
+//   comprobando su caducidad real); y se avisa «reloj_desfasado».
+// - Bucle (protegerRenovacion, alrededor de la renovación de supabase-js): con 2 renovaciones en los últimos 10 s, la 3.ª
+//   no sale a la red: se pausa la renovación 20 s y se avisa «bucle_frenado».
+// - 429 (demasiadas peticiones): se espera 2 s y se reintenta UNA vez; si sigue, se pausa (30 s, el doble cada vez, hasta
+//   5 min) y se avisa «bucle_frenado» (motivo «limite»).
+//   Mientras está en pausa, la renovación contesta al momento como un fallo pasajero (AuthRetryableFetchError): supabase-js
+//   NO borra la sesión guardada (con un 429 la borraba) ni se queda reintentando; la vuelve a renovar después.
+// Nada se guarda aparte: ni tokens ni respuestas; solo cuentas y horas en memoria.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const RENOVACION_RE = /\/auth\/v1\/token\?(?:.*&)?grant_type=refresh_token/;
+const BUCLE_VENTANA_MS = 10_000;
+const BUCLE_MAX = 2; // renovaciones que salen a la red en la ventana; la siguiente se frena
+const BUCLE_PAUSA_MS = 20_000;
+const LIMITE_PAUSA_MIN_MS = 30_000;
+const LIMITE_PAUSA_MAX_MS = 5 * 60_000;
+const DESFASE_MAX_S = 60;
+
+let renovacionesRecientes: number[] = [];
+let renovacionEnPausaHasta = 0;
+let pausaPorLimite = LIMITE_PAUSA_MIN_MS;
+
+/** Lo que la guardia de la sesión ha tenido que hacer (para la analítica propia; nunca datos de la cuenta ni tokens). */
+export type IncidenciaSesion = "reloj_desfasado" | "bucle_frenado";
+type DatosIncidencia = Record<string, string | number>;
+const oyentesIncidencia = new Set<(tipo: IncidenciaSesion, datos: DatosIncidencia) => void>();
+const incidenciasPendientes: [IncidenciaSesion, DatosIncidencia][] = [];
+const incidenciasAvisadas = new Set<IncidenciaSesion>();
+
+// Cada incidencia se avisa una sola vez por visita (el bucle podría repetirla cientos de veces). Si aún no escucha nadie
+// (la primera renovación ocurre al cargar este archivo), se guarda y se entrega al apuntarse el primer oyente.
+function avisarIncidencia(tipo: IncidenciaSesion, datos: DatosIncidencia) {
+  if (incidenciasAvisadas.has(tipo)) return;
+  incidenciasAvisadas.add(tipo);
+  if (oyentesIncidencia.size === 0) incidenciasPendientes.push([tipo, datos]);
+  oyentesIncidencia.forEach((f) => f(tipo, datos));
+}
+
+/** app/_layout.tsx lo usa para medir «Sesión: reloj desfasado» y «bucle de renovación frenado». Devuelve cómo dejarlo. */
+export function alIncidenciaDeSesion(f: (tipo: IncidenciaSesion, datos: DatosIncidencia) => void): () => void {
+  oyentesIncidencia.add(f);
+  incidenciasPendientes.splice(0).forEach(([tipo, datos]) => f(tipo, datos));
+  return () => {
+    oyentesIncidencia.delete(f);
+  };
+}
+
+type ResultadoRenovacion = { data: { session: Session | null; user: User | null }; error: AuthError | null };
+
+// «Fallo pasajero» para supabase-js: no borra la sesión guardada y no sale a la red.
+const renovacionEnPausa = (): ResultadoRenovacion => ({
+  data: { session: null, user: null },
+  error: new AuthRetryableFetchError("Renovación de la sesión en pausa", 503),
+});
+
+const esperarMs = (ms: number) => new Promise((listo) => setTimeout(listo, ms));
+
+/**
+ * Envuelve la renovación de supabase-js (_refreshAccessToken, la única que llama a /token?grant_type=refresh_token; la
+ * usan la autorrenovación, getSession() y refreshSession()) con el freno del bucle y la espera ante un 429. Si una versión
+ * futura de supabase-js no la tiene, no se toca nada (sigue la corrección del reloj, que va en el fetch).
+ */
+function protegerRenovacion(cliente: SupabaseClient) {
+  const auth = cliente.auth as unknown as { _refreshAccessToken?: (token: string) => Promise<ResultadoRenovacion> };
+  const original = auth._refreshAccessToken;
+  if (typeof original !== "function") return;
+  const renovar = original.bind(cliente.auth);
+  const esLimite = (r: ResultadoRenovacion) => Number((r.error as { status?: unknown } | null)?.status ?? 0) === 429;
+  auth._refreshAccessToken = async (token: string) => {
+    const ahora = Date.now();
+    if (ahora < renovacionEnPausaHasta) return renovacionEnPausa();
+    renovacionesRecientes = renovacionesRecientes.filter((t) => ahora - t < BUCLE_VENTANA_MS);
+    if (renovacionesRecientes.length >= BUCLE_MAX) {
+      renovacionEnPausaHasta = ahora + BUCLE_PAUSA_MS;
+      avisarIncidencia("bucle_frenado", { motivo: "bucle" });
+      return renovacionEnPausa();
+    }
+    renovacionesRecientes.push(ahora);
+    let r = await renovar(token);
+    if (esLimite(r)) {
+      await esperarMs(2000);
+      r = await renovar(token);
+    }
+    if (esLimite(r)) {
+      renovacionEnPausaHasta = Date.now() + pausaPorLimite;
+      pausaPorLimite = Math.min(pausaPorLimite * 2, LIMITE_PAUSA_MAX_MS);
+      avisarIncidencia("bucle_frenado", { motivo: "limite" });
+      return renovacionEnPausa();
+    }
+    if (!r.error) pausaPorLimite = LIMITE_PAUSA_MIN_MS;
+    return r;
+  };
+}
+
+// La respuesta de la renovación, con la caducidad en la hora del dispositivo si su reloj va desfasado.
+async function renovarConCuidado(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const pedidaEn = Date.now();
+  const r = await fetch(input as any, init);
+  return r.ok ? corregirDesfase(r, pedidaEn) : r;
+}
+
+// Si la hora del servidor y la del dispositivo difieren más de DESFASE_MAX_S, pasa la caducidad a la hora del dispositivo.
+async function corregirDesfase(r: Response, pedidaEn: number): Promise<Response> {
+  try {
+    const cuerpo = (await r.clone().json()) as Record<string, unknown>;
+    const duraS = Number(cuerpo.expires_in);
+    const caducaS = Number(cuerpo.expires_at);
+    if (!Number.isFinite(duraS) || duraS <= 0) return r;
+    const fecha = Date.parse(r.headers.get("date") ?? "");
+    const servidorMs = Number.isFinite(fecha) ? fecha : Number.isFinite(caducaS) ? (caducaS - duraS) * 1000 : NaN;
+    if (!Number.isFinite(servidorMs)) return r;
+    const desfaseS = Math.round((pedidaEn - servidorMs) / 1000);
+    if (Math.abs(desfaseS) <= DESFASE_MAX_S) return r;
+    avisarIncidencia("reloj_desfasado", { minutos: Math.round(desfaseS / 60), fuente: Number.isFinite(fecha) ? "date" : "token" });
+    const corregido = { ...cuerpo, expires_at: Math.floor(pedidaEn / 1000) + duraS };
+    return new Response(JSON.stringify(corregido), { status: r.status, statusText: r.statusText, headers: r.headers });
+  } catch {
+    return r;
+  }
 }
 
 const rawSupabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -137,6 +280,8 @@ export const supabase: SupabaseClient =
 
 if (!globalThis.__videojuegoos_supabase__) {
   globalThis.__videojuegoos_supabase__ = supabase;
+  // Sesión estable: el freno del bucle y la espera ante un 429 (arriba). Antes de la primera renovación (es asíncrona).
+  protegerRenovacion(supabase);
   // Fuera de la web (app nativa), como recomienda Supabase: la renovación automática del token solo con la app delante.
   // En la web (y la app instalada en el iPhone) ya lo hace Supabase solo con «visibilitychange».
   if (Platform.OS !== "web") {

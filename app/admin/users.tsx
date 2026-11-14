@@ -112,7 +112,9 @@
  *   listado) y, de 30 días, quién lo guarda y quién paga con él ya rellenado (perfil_telefono_guardado /
  *   pago_telefono_perfil); sin la columna (migración 20261113120000) no sale nada de esto. CARGA DE «MI PERFIL» (2026-11-14):
  *   de 30 días, a cuántos no se les pudieron leer los datos (sesión caducada o sin conexión) y cuántos pulsaron «Reintentar»
- *   (perfil_carga_fallida / perfil_carga_reintentada). Si la tabla aún no existe
+ *   (perfil_carga_fallida / perfil_carga_reintentada). SESIÓN ESTABLE (2026-11-14): de 30 días, cuántas veces se vio el
+ *   reloj del dispositivo desfasado y cuántas se frenó un bucle de renovación del token o un 429 (sesion_reloj_desfasado /
+ *   sesion_bucle_frenado, solo recuentos). Si la tabla aún no existe
  *   esta parte no se enseña y el resto funciona igual. La edad sale de la fecha de nacimiento
  *   (no se enseña la fecha). Lee hasta 5.000 perfiles.
  * - Cada fila es pulsable: lleva a la "ficha de cliente"
@@ -226,6 +228,10 @@ const EVENTOS_PERFIL = [
   // «Mi perfil» no ha podido leer sus datos (sesión caducada o sin conexión) y quién pulsa «Reintentar» (nunca los datos).
   "perfil_carga_fallida",
   "perfil_carga_reintentada",
+  // Sesión estable (lib/supabase.ts, 2026-11-14): veces que la guardia de la renovación vio el reloj del dispositivo
+  // desfasado o frenó un bucle de renovaciones (o un 429). Sin datos de nadie: solo se cuentan.
+  "sesion_reloj_desfasado",
+  "sesion_bucle_frenado",
 ] as const;
 
 // Perfil → «Mis seguimientos» (app/(tabs)/perfil.tsx): quién lo abre y si lo hace deslizando o tocando la pestaña.
@@ -689,6 +695,8 @@ export default function AdminUsers() {
     pagoConTelefono: number;
     cargaFallida: number;
     cargaReintentada: number;
+    relojDesfasado: number;
+    bucleFrenado: number;
   } | null>(null);
   // Moderación del Foro: comentarios de noticias eliminados (ocultos, contados en la base de datos). null = no se ha podido
   // leer. (Los mensajes del Foro eliminados se borran: no quedan en ninguna tabla que contar.)
@@ -885,6 +893,8 @@ export default function AdminUsers() {
           pagoConTelefono: personas("pago_telefono_perfil"),
           cargaFallida: personas("perfil_carga_fallida"),
           cargaReintentada: personas("perfil_carga_reintentada"),
+          relojDesfasado: ((eventosRes.data ?? []) as { event_name: string }[]).filter((e) => e.event_name === "sesion_reloj_desfasado").length,
+          bucleFrenado: ((eventosRes.data ?? []) as { event_name: string }[]).filter((e) => e.event_name === "sesion_bucle_frenado").length,
         });
       }
 
@@ -1498,6 +1508,10 @@ export default function AdminUsers() {
               <Detalle nativeID="admin-perfiles-carga">
                 «Mi perfil» sin poder cargar los datos (30 días): les pasó a {embudoPerfil.cargaFallida} · pulsaron «Reintentar»{" "}
                 {embudoPerfil.cargaReintentada}
+              </Detalle>
+              {/* Sesión estable: lo que la tienda frenó para no perder la sesión (veces, sin datos de nadie). */}
+              <Detalle nativeID="admin-sesion-estable">
+                Sesión (30 días): reloj desfasado {embudoPerfil.relojDesfasado} · bucle de renovación frenado {embudoPerfil.bucleFrenado}
               </Detalle>
             </View>
           ) : null}
