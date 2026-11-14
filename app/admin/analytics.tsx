@@ -90,6 +90,10 @@
  * - «Parecidos y complementos (30 días)» (#analitica-parecidos, mejora 6 del 2026-11-14): eventos parecidos_mostrado,
  *   parecido_tocado, complemento_mostrado (ficha o cesta), complemento_tocado y complemento_anadido de
  *   components/CategoryProductsShelf.tsx (solo ids de producto) y los 5 productos que más se añaden desde ahí.
+ * - «Velocidad de la tienda (30 días)» (#analitica-velocidad, mejora 7 «Carga más rápida» del 2026-11-14): evento
+ *   rendimiento_carga (lib/analytics.ts → medirCargaPantalla, una vez por visita: ms hasta la primera pantalla útil de
+ *   Inicio, Catálogo o la ficha, ancho por tramos y tipo de conexión; sin datos de nadie). Mediana y percentil 75 por
+ *   pantalla y por móvil/tableta/ordenador.
  * - app/admin/index.tsx → tarjeta "Visitas y métricas" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("analytics") en el Stack.
  */
@@ -155,6 +159,14 @@ type DatePreset = "today" | "7d" | "30d" | "90d" | "all" | "custom";
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.
 const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
+
+// «Velocidad de la tienda (30 días)»: pantallas y tramos de ancho que mide lib/analytics.ts (medirCargaPantalla).
+const PANTALLAS_VELOCIDAD = ["inicio", "catalogo", "producto"];
+const ANCHOS_VELOCIDAD = ["movil", "tableta", "ordenador"];
+const NOMBRE_PANTALLA_VELOCIDAD: Record<string, string> = { inicio: "Inicio", catalogo: "Catálogo", producto: "Ficha" };
+const NOMBRE_ANCHO_VELOCIDAD: Record<string, string> = { movil: "Móvil", tableta: "Tableta", ordenador: "Ordenador" };
+// En segundos con un decimal y coma (1.234 ms → «1,2 s»).
+const segundos = (ms: number) => `${(Math.round(ms / 100) / 10).toFixed(1).replace(".", ",")} s`;
 
 function smartBackAdminHome() {
   try {
@@ -954,6 +966,50 @@ export default function AdminAnalytics() {
         mostradosCesta: mostrados.filter((f) => f.metadata?.origen === "cesta").length,
         masAnadidos: ids.map((id) => ({ id, titulo: titulos.get(id) ?? "Producto retirado", n: n.get(id) ?? 0 })),
       });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Velocidad de la tienda (carga rápida, mejora 7 del 2026-11-14): eventos rendimiento_carga de 30 días (lib/analytics.ts →
+  // medirCargaPantalla: ms hasta la primera pantalla útil, pantalla y ancho por tramos). Mediana y percentil 75 (por rango:
+  // el valor que deja por debajo la mitad o tres cuartos de las visitas) por pantalla y por móvil/tableta/ordenador; solo
+  // las combinaciones con visitas.
+  const [velocidad, setVelocidad] = useState<{ pantalla: string; ancho: string; n: number; mediana: number; p75: number }[] | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data, error } = await supabase
+        .from("analytics_events")
+        .select("event_name, metadata")
+        .eq("event_name", "rendimiento_carga")
+        .gte("created_at", desde)
+        .limit(5000);
+      if (!vivo) return;
+      if (error || !Array.isArray(data)) {
+        setVelocidad(null);
+        return;
+      }
+      const grupos = new Map<string, number[]>();
+      for (const f of data as { event_name: string; metadata: Record<string, unknown> | null }[]) {
+        const ms = Number(f.metadata?.ms);
+        const pantalla = String(f.metadata?.pantalla ?? "");
+        const ancho = String(f.metadata?.ancho ?? "");
+        if (f.event_name !== "rendimiento_carga" || !(ms > 0) || !PANTALLAS_VELOCIDAD.includes(pantalla) || !ANCHOS_VELOCIDAD.includes(ancho)) continue;
+        const clave = `${pantalla}|${ancho}`;
+        grupos.set(clave, [...(grupos.get(clave) ?? []), ms]);
+      }
+      const rango = (lista: number[], q: number) => lista[Math.max(0, Math.ceil(q * lista.length) - 1)];
+      const filas = [];
+      for (const pantalla of PANTALLAS_VELOCIDAD) {
+        for (const ancho of ANCHOS_VELOCIDAD) {
+          const lista = (grupos.get(`${pantalla}|${ancho}`) ?? []).sort((a, b) => a - b);
+          if (lista.length) filas.push({ pantalla, ancho, n: lista.length, mediana: rango(lista, 0.5), p75: rango(lista, 0.75) });
+        }
+      }
+      setVelocidad(filas);
     })();
     return () => {
       vivo = false;
@@ -2121,6 +2177,37 @@ export default function AdminAnalytics() {
                       ))
                     )}
                   </View>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Velocidad de la tienda (30 días)"
+              subtitle="Cuánto tarda en verse la primera pantalla útil (las primeras tarjetas o la ficha) al abrir la tienda: la mediana (la mitad de las visitas tarda menos) y el percentil 75 (tres de cada cuatro tardan menos), por pantalla y por móvil, tableta u ordenador. Una vez por visita y sin datos de nadie; solo visitantes que aceptaron la analítica."
+            >
+              {!velocidad ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se ha podido cargar la velocidad de la tienda.</Text>
+              ) : velocidad.length === 0 ? (
+                <Text nativeID="analitica-velocidad" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                  Aún no hay visitas medidas.
+                </Text>
+              ) : (
+                <View nativeID="analitica-velocidad" style={{ gap: 8 }}>
+                  {velocidad.map((f) => (
+                    <View
+                      key={`${f.pantalla}-${f.ancho}`}
+                      nativeID={`analitica-velocidad-${f.pantalla}-${f.ancho}`}
+                      style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}
+                    >
+                      <Ionicons name={f.ancho === "ordenador" ? "desktop-outline" : f.ancho === "tableta" ? "tablet-portrait-outline" : "phone-portrait-outline"} size={16} color={COLORS.accentDark} />
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, flexGrow: 1 }}>
+                        {NOMBRE_PANTALLA_VELOCIDAD[f.pantalla]} · {NOMBRE_ANCHO_VELOCIDAD[f.ancho]}
+                      </Text>
+                      <Text style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700" }}>
+                        mediana {segundos(f.mediana)} · p75 {segundos(f.p75)} · {f.n} {f.n === 1 ? "visita" : "visitas"}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
               )}
             </SectionCard>

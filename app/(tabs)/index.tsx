@@ -115,7 +115,7 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { supabase } from "../../lib/supabase";
 import { sinEmojis } from "../../lib/admin/products.utils";
-import { trackEvent, trackEventThrottled } from "../../lib/analytics";
+import { medirCargaPantalla, trackEvent, trackEventThrottled } from "../../lib/analytics";
 import { useTabBarBottomInset } from "../../lib/tabBar";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
@@ -1279,6 +1279,9 @@ function FeaturedMediaCarousel({
               uri={uri}
               alt={images.length > 1 ? `${alt} (foto ${index + 1} de ${images.length})` : alt}
               ancho={Math.max(320, containerWidth || 420)}
+              // Carga rápida: la primera foto de la oferta es la primera de Inicio (ya y con prioridad); las demás del
+              // carrusel esperan a que se deslice hasta ellas.
+              priority={index === 0 ? "high" : "normal"}
               contentFit="contain"
               style={{ width: containerWidth, height: mediaHeight }}
             />
@@ -1560,6 +1563,40 @@ function FeaturedOfferCard({
   );
 }
 
+// Mientras llega la oferta (carga rápida, mejora 7 del 2026-11-14): un esqueleto discreto con las proporciones de la
+// tarjeta (la foto con la mascota de la tienda y unas líneas suaves en lugar del título, el precio, el texto y los dos
+// botones), para que al llegar la oferta no salte lo de debajo. Antes era un hueco de 150 px que crecía de golpe.
+function EsqueletoOferta({ isDesktopish, isWide, isMobile }: { isDesktopish: boolean; isWide?: boolean; isMobile: boolean }) {
+  const mediaHeight = isWide ? 320 : isDesktopish ? 280 : isMobile ? 210 : 240;
+  const linea = (ancho: number | `${number}%`, alto: number, extra?: object) => (
+    <View style={{ width: ancho, height: alto, borderRadius: alto / 2, backgroundColor: COLORS.tile, ...extra }} />
+  );
+  return (
+    <View
+      accessibilityLabel="Cargando oferta destacada…"
+      style={{ borderRadius: 22, backgroundColor: COLORS.card, overflow: "hidden", flexDirection: isDesktopish ? "row" : "column" }}
+    >
+      <View style={{ flex: isDesktopish ? 1.05 : undefined, height: mediaHeight, backgroundColor: COLORS.tile, alignItems: "center", justifyContent: "center" }}>
+        <CargaMarca texto="Cargando oferta destacada…" ancho={isMobile ? 84 : 96} />
+      </View>
+      <View style={{ flex: 1, padding: isMobile ? 14 : 16, gap: 12, alignItems: "center", justifyContent: "center" }}>
+        {linea("70%", isMobile ? 22 : 24, { marginTop: 2 })}
+        {linea(96, isMobile ? 24 : 26, { marginTop: 6 })}
+        <View style={{ alignSelf: "stretch", alignItems: "center", gap: 8 }}>
+          {linea("92%", 12)}
+          {linea("84%", 12)}
+          {linea("60%", 12)}
+        </View>
+        {linea(150, 16)}
+        <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12, alignSelf: "stretch" }}>
+          <View style={{ flex: isDesktopish ? 1 : undefined, height: isMobile ? 52 : 56, borderRadius: 18, backgroundColor: COLORS.tile }} />
+          <View style={{ flex: isDesktopish ? 1 : undefined, height: isMobile ? 52 : 56, borderRadius: 18, backgroundColor: COLORS.tile }} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function HomeScreen() {
   // La barra de pestañas crece con la zona segura del iPhone (lib/tabBar.ts): lo que flota
   // justo encima (buscador y "volver arriba") se desplaza lo mismo para no quedar tapado.
@@ -1570,7 +1607,9 @@ export default function HomeScreen() {
   const [featuredLoading, setFeaturedLoading] = useState(true);
   const [featuredChatBusy, setFeaturedChatBusy] = useState(false);
 
-  const [searchSnapPosition, setSearchSnapPosition] = useState<SearchSnapPosition>("bottom");
+  // Empieza donde empieza el buscador flotante (arriba, posicionInicial de FloatingBarramagic): antes empezaba en
+  // «bottom» y, al avisar el buscador, todo Inicio bajaba 70 px de golpe (salto de diseño; carga rápida, 2026-11-14).
+  const [searchSnapPosition, setSearchSnapPosition] = useState<SearchSnapPosition>("top");
   const [infoPop, setInfoPop] = useState<TrustInfoItem | null>(null);
   // Pregunta frecuente abierta (solo una a la vez).
   const [faqAbierta, setFaqAbierta] = useState<number | null>(null);
@@ -1891,6 +1930,11 @@ export default function HomeScreen() {
     trackEvent("page_view", "Inicio", { path: "/" });
   }, []);
 
+  // Carga rápida (mejora 7): la primera pantalla útil de Inicio es la «Oferta de la semana» ya pintada (una vez por visita).
+  useEffect(() => {
+    if (!featuredLoading) medirCargaPantalla("inicio");
+  }, [featuredLoading]);
+
   const searchBarHeight = isMobile
     ? SEARCH_LAYOUT.searchBarHeightMobile
     : SEARCH_LAYOUT.searchBarHeightDesktop;
@@ -2009,16 +2053,7 @@ export default function HomeScreen() {
             <TituloOferta isMobile={isMobile} />
 
             {featuredLoading ? (
-              // Carga con la mascota de la tienda (antes, ruedita gris).
-              <View
-                style={{
-                  minHeight: isMobile ? 150 : 180,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <CargaMarca texto="Cargando oferta destacada…" ancho={isMobile ? 84 : 96} />
-              </View>
+              <EsqueletoOferta isDesktopish={isDesktopish} isWide={isWide} isMobile={isMobile} />
             ) : (
               <FeaturedOfferCard
                 item={featured}

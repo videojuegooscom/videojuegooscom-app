@@ -23,6 +23,10 @@
  *   una lista), no se ve un instante la foto anterior antes de la nueva.
  * - contentFit en vez de resizeMode (nombre que usa expo-image), con los
  *   mismos valores de siempre ("cover", "contain", etc.).
+ * En la web (carga rápida, mejora 7 del 2026-11-14) se pinta un <img> del navegador con lo mismo (fundido, encuadre,
+ * tamaño justo del optimizador) y además loading="lazy", decoding="async" y fetchpriority: la foto con priority="high"
+ * (la primera visible de cada pantalla) se pide ya y con prioridad; las demás, solo al acercarse a la pantalla (ver
+ * FotoWeb y MARGEN_CERCA). En el móvil y la tableta nativos sigue siendo expo-image.
  * Si no hay URL (uri vacío/null/undefined), no pinta nada — igual que antes
  * hacían las pantallas que envolvían su <Image> en `{p.imageUrl ? ... : ...}`.
  *
@@ -48,7 +52,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { Image, type ImageContentFit, type ImageProps, type ImageStyle } from "expo-image";
-import { Platform, type StyleProp } from "react-native";
+import { Platform, View, type StyleProp, type ViewStyle } from "react-native";
 import { markEnd, markStart } from "../lib/loadingBus";
 
 type ImagePriority = NonNullable<ImageProps["priority"]>;
@@ -92,6 +96,118 @@ export type SmartImageProps = {
   /** Al cargar, el tamaño real de la foto en px (el visor lo usa para saber hasta dónde se puede mover). */
   onTamano?: (ancho: number, alto: number) => void;
 };
+
+// En la web (carga rápida, mejora 7 del 2026-11-14) la foto es un <img> del navegador, para poder decirle lo que expo-image
+// no deja: loading="lazy" (las de más abajo no se bajan hasta acercarse a la pantalla), decoding="async" y fetchpriority
+// (alta para la primera foto visible: priority="high", que además no espera). El hueco es la caja de la foto (`style`, con
+// su alto o su proporción), que ya existe antes de que llegue: nada salta. Mismo fundido, mismo encuadre (contentFit →
+// object-fit), mismo aviso de tamaño (onTamano) y la barra de carga solo cuenta las fotos que se bajan a la vista.
+//
+// Cerca de la pantalla: loading="lazy" del navegador se adelanta mucho (Chrome baja todo lo que quede a 1.250-2.500 px,
+// que en el móvil es la página entera del catálogo). Donde el navegador sabe vigilar también dentro de las listas que se
+// desplazan (IntersectionObserver con scrollMargin), la foto se pide solo a MARGEN_CERCA de verse: ~una pantalla más
+// abajo y media a los lados. Donde no lo sabe, se queda en loading="lazy" (como siempre).
+const MARGEN_CERCA = "700px 400px";
+function puedeEsperarCerca(): boolean {
+  return typeof window !== "undefined" && typeof IntersectionObserver !== "undefined" && "scrollMargin" in IntersectionObserver.prototype;
+}
+
+function FotoWeb({
+  src,
+  style,
+  contentFit,
+  transitionMs,
+  alt,
+  priority,
+  onTamano,
+  onInicio,
+  onFin,
+  onFallo,
+}: {
+  src: string;
+  style?: StyleProp<ImageStyle>;
+  contentFit: ImageContentFit;
+  transitionMs: number;
+  alt: string;
+  priority: ImagePriority;
+  onTamano?: (ancho: number, alto: number) => void;
+  onInicio: () => void;
+  onFin: () => void;
+  onFallo: () => void;
+}) {
+  const ref = useRef<HTMLImageElement | null>(null);
+  const [lista, setLista] = useState(false);
+  const alta = priority === "high";
+  // ¿Ya está cerca de la pantalla? Hasta entonces el <img> no lleva src (nada se descarga). Ver MARGEN_CERCA.
+  const [cerca, setCerca] = useState(alta || !puedeEsperarCerca());
+  const avisos = useRef({ onTamano, onInicio, onFin });
+  useEffect(() => {
+    avisos.current = { onTamano, onInicio, onFin };
+  });
+
+  useEffect(() => {
+    if (cerca) return;
+    const img = ref.current;
+    if (!img) return;
+    const io = new IntersectionObserver(
+      (entradas) => {
+        if (!entradas.some((e) => e.isIntersecting)) return;
+        io.disconnect();
+        setCerca(true);
+      },
+      { rootMargin: MARGEN_CERCA, scrollMargin: MARGEN_CERCA } as IntersectionObserverInit
+    );
+    io.observe(img);
+    return () => io.disconnect();
+  }, [cerca]);
+
+  useEffect(() => {
+    setLista(false);
+    const img = ref.current;
+    if (!img || !cerca) return;
+    if (img.complete && img.naturalWidth > 0) {
+      // Ya estaba en la caché del navegador.
+      setLista(true);
+      avisos.current.onTamano?.(img.naturalWidth, img.naturalHeight);
+      return;
+    }
+    const b = img.getBoundingClientRect();
+    if (alta || (b.bottom > 0 && b.top < window.innerHeight)) avisos.current.onInicio();
+  }, [src, alta, cerca]);
+
+  return (
+    <View style={[{ overflow: "hidden" }, style as StyleProp<ViewStyle>]}>
+      <img
+        ref={ref}
+        src={cerca ? src : undefined}
+        data-src={cerca ? undefined : src}
+        alt={alt}
+        loading={alta ? "eager" : "lazy"}
+        decoding="async"
+        fetchPriority={alta ? "high" : priority === "low" ? "low" : "auto"}
+        onLoad={(e) => {
+          setLista(true);
+          avisos.current.onTamano?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight);
+          avisos.current.onFin();
+        }}
+        onError={() => {
+          avisos.current.onFin();
+          onFallo();
+        }}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: contentFit,
+          opacity: lista ? 1 : 0,
+          transition: `opacity ${transitionMs}ms ease-out`,
+        }}
+      />
+    </View>
+  );
+}
 
 export default function SmartImage({
   uri,
@@ -144,6 +260,26 @@ export default function SmartImage({
   if (!uri) return null;
 
   const origen = usarOriginal ? uri : urlOptimizada(uri, ancho);
+
+  if (Platform.OS === "web") {
+    return (
+      <FotoWeb
+        key={uri}
+        src={origen}
+        style={style}
+        contentFit={contentFit}
+        transitionMs={transitionMs}
+        alt={alt ?? accessibilityLabel ?? ""}
+        priority={priority}
+        onTamano={onTamano}
+        onInicio={handleLoadStart}
+        onFin={handleLoadEnd}
+        onFallo={() => {
+          if (origen !== uri) setUsarOriginal(true);
+        }}
+      />
+    );
+  }
 
   return (
     <Image

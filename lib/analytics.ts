@@ -54,7 +54,7 @@
  *   analytics_funnel / analytics_top_metadata, para el panel de métricas.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { supabase } from "./supabase";
+import { rolDeUsuario, supabase } from "./supabase";
 
 const SESSION_ID_KEY = "videojuegoos.analytics.session_id";
 const SESSION_STAMP_KEY = "videojuegoos.analytics.session_last_seen";
@@ -175,13 +175,8 @@ async function isAdminUser(userId: string): Promise<boolean> {
   if (adminCheckCache.has(userId)) return adminCheckCache.get(userId) as boolean;
 
   try {
-    const { data } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", userId)
-      .maybeSingle<{ role: string | null }>();
-
-    const result = String(data?.role ?? "").trim().toLowerCase() === "admin";
+    // Compartida con Blue, el catálogo y la ficha (lib/supabase.ts → rolDeUsuario): una sola consulta al abrir.
+    const result = (await rolDeUsuario(userId)) === "admin";
     adminCheckCache.set(userId, result);
     return result;
   } catch {
@@ -368,6 +363,63 @@ export function medirNoticiaDesdeBuscador(path: string): void {
   const buscador = detectarBuscadorOrigen(document.referrer ?? "");
   if (!buscador) return;
   trackEvent("noticia_buscador", `Noticias: llegada desde buscador · ${buscador}`, { path, metadata: { buscador } });
+}
+
+// Carga rápida (dueño, 2026-11-14, mejora 7). trasPrimeraPintura: lo que no hace falta para ver la pantalla (Blue y sus
+// avisos, components/Campanita.tsx) espera a que el navegador esté libre tras pintarla o, como mucho, `maxMs`. Devuelve
+// cómo cancelarlo (al desmontar).
+type ConIdle = { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
+export function trasPrimeraPintura(fn: () => void, maxMs = 1500): () => void {
+  let hecho = false;
+  const correr = () => {
+    if (hecho) return;
+    hecho = true;
+    fn();
+  };
+  const g = (typeof window !== "undefined" ? window : {}) as ConIdle;
+  const espera = setTimeout(correr, maxMs);
+  const idle = typeof g.requestIdleCallback === "function" ? g.requestIdleCallback(correr, { timeout: maxMs }) : null;
+  return () => {
+    hecho = true;
+    clearTimeout(espera);
+    if (idle !== null) g.cancelIdleCallback?.(idle);
+  };
+}
+
+// «rendimiento_carga»: cuánto tarda en verse la primera pantalla útil (las primeras tarjetas o la ficha ya pintadas, en ms
+// desde que se abrió la página), una vez por visita (sessionStorage de la pestaña) y solo en la pantalla con la que se abrió
+// la tienda. Sin datos de nadie: los ms redondeados, la pantalla, el ancho por tramos y el tipo de conexión si el navegador
+// lo da. Con trackEvent: nada si se rechazó la analítica. Administración → Analítica: «Velocidad de la tienda (30 días)».
+export type PantallaCarga = "inicio" | "catalogo" | "producto";
+const NOMBRE_PANTALLA_CARGA: Record<PantallaCarga, string> = { inicio: "Inicio", catalogo: "Catálogo", producto: "Ficha" };
+const CLAVE_RENDIMIENTO = "videojuegoos.analytics.rendimiento_medido";
+let rendimientoMedido = false;
+
+/** Tramo del ancho de pantalla: móvil (< 768 px), tableta (< 1024 px) u ordenador. */
+export function tramoAncho(ancho: number): "movil" | "tableta" | "ordenador" {
+  return ancho < 768 ? "movil" : ancho < 1024 ? "tableta" : "ordenador";
+}
+
+export function medirCargaPantalla(pantalla: PantallaCarga): void {
+  if (rendimientoMedido || typeof window === "undefined" || typeof performance === "undefined" || typeof requestAnimationFrame === "undefined") return;
+  rendimientoMedido = true;
+  if (!window.location || window.location.pathname !== paginaDeEntrada) return;
+  try {
+    if (window.sessionStorage.getItem(CLAVE_RENDIMIENTO) === "1") return;
+    window.sessionStorage.setItem(CLAVE_RENDIMIENTO, "1");
+  } catch {
+    // sin almacenamiento: una vez por carga de la página
+  }
+  // Tras el pintado (el siguiente fotograma), no al preparar la pantalla.
+  requestAnimationFrame(() =>
+    setTimeout(() => {
+      const ms = Math.round(performance.now());
+      const conexion = (navigator as Navigator & { connection?: { effectiveType?: unknown } }).connection?.effectiveType;
+      const metadata: Record<string, unknown> = { ms, pantalla, ancho: tramoAncho(window.innerWidth) };
+      if (typeof conexion === "string" && /^(slow-2g|2g|3g|4g)$/.test(conexion)) metadata.conexion = conexion;
+      void trackEvent("rendimiento_carga", `Rendimiento: ${NOMBRE_PANTALLA_CARGA[pantalla]} lista`, { path: window.location.pathname, metadata });
+    }, 0)
+  );
 }
 
 const lastTrackedAt = new Map<string, number>();

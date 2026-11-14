@@ -77,7 +77,7 @@ import type { Href } from "expo-router";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import SmartImage from "./SmartImage";
 import { useRecarga } from "./TirarParaActualizar";
 import { cargarIndiceBusqueda, palabrasBusqueda, portadasDeProductos, type ProductoIndice } from "./Barramagic";
@@ -166,6 +166,7 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
   isMobile,
   compact,
   extra,
+  prioridad,
 }: {
   titulo: string;
   precioEUR: number;
@@ -174,7 +175,10 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
   isMobile?: boolean;
   compact?: boolean;
   extra?: React.ReactNode;
+  /** Primera fila de la lista (carga rápida): la foto se pide ya y con prioridad alta; las demás, al acercarse. */
+  prioridad?: boolean;
 }) {
+  const anchoPantalla = useWindowDimensions().width;
   return (
     <Pressable
       onPress={onPress}
@@ -201,7 +205,15 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
         }}
       >
         {imagenUrl ? (
-          <SmartImage uri={imagenUrl} alt={titulo} ancho={compact ? 190 : 340} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+          <SmartImage
+            uri={imagenUrl}
+            alt={titulo}
+            // En el móvil (2 columnas) la foto mide media pantalla menos márgenes (160 px a 390): se pide ≈ 2 × eso.
+            ancho={compact ? Math.max(140, Math.round(anchoPantalla / 2 - 35)) : 340}
+            priority={prioridad ? "high" : "normal"}
+            contentFit="contain"
+            style={{ width: "100%", height: "100%" }}
+          />
         ) : (
           <View style={{ width: "100%", height: "100%", justifyContent: "center", alignItems: "center", paddingHorizontal: 18 }}>
             <Text style={{ color: "rgba(11,33,56,0.15)", fontWeight: "900", fontSize: 40 }}>VG</Text>

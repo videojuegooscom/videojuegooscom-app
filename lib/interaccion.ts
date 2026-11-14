@@ -183,8 +183,19 @@ export function alCambiarAvisosPrecio(f: () => void): () => void {
   };
 }
 
+// Carga rápida (mejora 7, 2026-11-14): al abrir la ficha los pedían a la vez Blue y la propia ficha (la misma consulta dos
+// veces). La lectura en marcha (y su resultado durante 3 s) se comparte; activar, quitar o apuntar un aviso la invalida.
+let avisosPrecioCompartidos: { p: Promise<AvisoPrecio[] | null>; hasta: number } | null = null;
+
 /** Los avisos de precio del cliente con sesión. null sin sesión, sin la tabla o si la lectura falla (no es «ninguno»). */
-export async function misAvisosPrecio(): Promise<AvisoPrecio[] | null> {
+export function misAvisosPrecio(): Promise<AvisoPrecio[] | null> {
+  if (avisosPrecioCompartidos && avisosPrecioCompartidos.hasta > Date.now()) return avisosPrecioCompartidos.p;
+  const p = leerAvisosPrecio();
+  avisosPrecioCompartidos = { p, hasta: Date.now() + 3000 };
+  return p;
+}
+
+async function leerAvisosPrecio(): Promise<AvisoPrecio[] | null> {
   if (sinAvisosPrecio) return null;
   try {
     const { data: s } = await supabase.auth.getSession();
@@ -218,9 +229,11 @@ export async function fijarAvisoPrecio(productId: string, activo: boolean): Prom
     const { data: s } = await supabase.auth.getSession();
     const uid = s.session?.user?.id;
     if (!uid) return "sin_sesion";
+    avisosPrecioCompartidos = null;
     const { error } = activo
       ? await supabase.from("avisos_precio").insert({ product_id: productId })
       : await supabase.from("avisos_precio").delete().eq("user_id", uid).eq("product_id", productId);
+    avisosPrecioCompartidos = null;
     // Ya estaba activado (otra pestaña): cuenta como hecho.
     if (error && !(activo && String((error as { code?: string }).code) === "23505")) {
       if (esFaltaTabla(error)) sinAvisosPrecio = true;
@@ -240,6 +253,7 @@ export async function marcarBajadaAvisada(productId: string, precio: number): Pr
     const uid = s.session?.user?.id;
     if (!uid || !(precio > 0)) return;
     await supabase.from("avisos_precio").update({ precio_avisado: precio }).eq("user_id", uid).eq("product_id", productId);
+    avisosPrecioCompartidos = null;
   } catch {
     // sin red: se volverá a avisar, no pasa nada
   }

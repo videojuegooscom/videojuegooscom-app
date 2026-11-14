@@ -311,6 +311,55 @@ export async function sesionActual(): Promise<Session | null> {
   }
 }
 
+// Rol de la cuenta (carga rápida, mejora 7 del 2026-11-14): al abrir la tienda lo preguntaban a la vez Blue, la analítica,
+// el catálogo y la ficha (la misma consulta a profiles 2-3 veces). Ahora se pregunta una vez por cuenta y se comparte
+// (también la consulta en marcha) durante ROL_CACHE_MS; un fallo no se guarda (se vuelve a preguntar la próxima vez).
+const ROL_CACHE_MS = 5 * 60_000;
+const rolesCache = new Map<string, { rol: Promise<string | null>; hasta: number }>();
+
+/** Rol de la cuenta en profiles («admin», «user»…), en minúsculas, o null. Lanza si la consulta falla. */
+export function rolDeUsuario(userId: string): Promise<string | null> {
+  const guardado = rolesCache.get(userId);
+  if (guardado && guardado.hasta > Date.now()) return guardado.rol;
+  const rol = (async () => {
+    const { data, error } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle<{ role: string | null }>();
+    if (error) throw error;
+    return String(data?.role ?? "").trim().toLowerCase() || null;
+  })();
+  rolesCache.set(userId, { rol, hasta: Date.now() + ROL_CACHE_MS });
+  rol.catch(() => {
+    if (rolesCache.get(userId)?.rol === rol) rolesCache.delete(userId);
+  });
+  return rol;
+}
+
+// La fila de perfiles_cliente de una cuenta («*»). Al abrir la ficha la pedían casi a la vez «Completa tu perfil» y la
+// entrega estimada: la lectura (en marcha o recién hecha, PERFIL_COMPARTIDO_MS) se comparte. Quien guarda el perfil llama
+// a olvidarFilaPerfil() y la siguiente lectura vuelve a preguntar.
+type LecturaPerfil = { data: unknown; error: { message: string; code?: string } | null; status: number };
+const PERFIL_COMPARTIDO_MS = 2000;
+const perfilesCompartidos = new Map<string, { p: Promise<LecturaPerfil>; hasta: number }>();
+export function filaPerfilCliente(uid: string): Promise<LecturaPerfil> {
+  const guardada = perfilesCompartidos.get(uid);
+  if (guardada && guardada.hasta > Date.now()) return guardada.p;
+  const p = Promise.resolve(supabase.from("perfiles_cliente").select("*").eq("user_id", uid).maybeSingle()).then((r) => {
+    const fila = perfilesCompartidos.get(uid);
+    // Un fallo no se comparte; un acierto, solo un momento desde que llega.
+    if (fila?.p === p) {
+      if (r.error) perfilesCompartidos.delete(uid);
+      else fila.hasta = Date.now() + PERFIL_COMPARTIDO_MS;
+    }
+    return r as LecturaPerfil;
+  });
+  perfilesCompartidos.set(uid, { p, hasta: Infinity });
+  p.catch(() => perfilesCompartidos.delete(uid));
+  return p;
+}
+/** Tras guardar el perfil (o al salir): la próxima lectura vuelve a preguntar a la base de datos. */
+export function olvidarFilaPerfil(): void {
+  perfilesCompartidos.clear();
+}
+
 /** ¿El fallo de una consulta es por la sesión (token caducado, sin sesión o sin permiso), y no porque no haya datos? */
 export function esErrorDeSesion(error: unknown): boolean {
   const e = (error ?? {}) as { code?: unknown; message?: unknown; status?: unknown };

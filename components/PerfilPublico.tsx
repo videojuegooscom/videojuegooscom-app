@@ -64,7 +64,9 @@ import {
   avisoContrasenaCorta,
   CONTRASENA_MINIMA,
   esErrorDeSesion,
+  filaPerfilCliente,
   mensajeAuthEnEspanol,
+  olvidarFilaPerfil,
   motivoErrorAuth,
   pedirEnlaceContrasena,
   sesionActual,
@@ -392,7 +394,8 @@ async function leerPerfil(uid: string): Promise<Lectura> {
     }
     let r;
     try {
-      r = await supabase.from("perfiles_cliente").select("*").eq("user_id", uid).maybeSingle();
+      // Compartida con la ficha si las dos la piden a la vez (lib/supabase.ts → filaPerfilCliente).
+      r = await filaPerfilCliente(uid);
     } catch (e) {
       ultimo = e; // sin conexión
       continue;
@@ -998,6 +1001,8 @@ export default function PerfilPublico({
         enviarDirecciones = false;
         ({ error } = await supabase.from("perfiles_cliente").upsert(fila(false, enviarTelefono && !sinTelefono, false), { onConflict: "user_id" }));
       }
+      // Lo guardado manda: la próxima lectura del perfil vuelve a preguntar (lib/supabase.ts → filaPerfilCliente).
+      olvidarFilaPerfil();
       if (!enviarDirecciones) final = null;
       if (sinDireccion) {
         limpio.codigoPostal = "";
