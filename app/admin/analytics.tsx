@@ -79,6 +79,10 @@
  *   busqueda_sin_resultados, busqueda_sugerencia_tocada y catalogo_filtro de components/Barramagic.tsx y
  *   app/catalogo.tsx (siempre 30 días): lo más buscado, lo que no dio resultados (lo que piden y no hay), sinónimos y
  *   correcciones usados, sugerencias tocadas y el uso de los filtros de precio y estado. Texto normalizado, sin datos.
+ * - «Ficha del producto (30 días)» (#analitica-ficha-producto, mejora 4 «Ficha de confianza» del 2026-11-14): eventos
+ *   ficha_foto_zoom (visor abierto, con zoom, cerrado deslizando) y ficha_entrega_estimada (por tipo: mismo día, resto de
+ *   España, islas y sin código postal; nunca el código) de app/producto/[id].tsx, y el recuento de productos revisados y con
+ *   garantía (migración 20261114140000; sin ella, esa línea no sale).
  * - app/admin/index.tsx → tarjeta "Visitas y métricas" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("analytics") en el Stack.
  */
@@ -782,6 +786,69 @@ export default function AdminAnalytics() {
         )
           .slice(0, 5)
           .map(([k, v]) => ({ tramo: k, n: v.n })),
+      });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Ficha del producto (mejora 4 «Ficha de confianza», 2026-11-14): los últimos 30 días del visor de fotos
+  // (ficha_foto_zoom: abrir, zoom y cerrar deslizando) y de la entrega estimada mostrada por tipo (ficha_entrega_estimada,
+  // sin códigos postales), más cuántos productos ha marcado el dueño como revisados o con garantía (solo recuentos; sin la
+  // migración 20261114140000, null y no se enseñan).
+  const [fichaConfianza, setFichaConfianza] = useState<{
+    abiertos: number;
+    zoom: number;
+    cerradosDeslizando: number;
+    entregas: { mismo_dia: number; peninsula: number; islas: number; sin_cp: number };
+    revisados: number | null;
+    conGarantia: number | null;
+  } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data, error } = await supabase
+        .from("analytics_events")
+        .select("event_name, metadata")
+        .in("event_name", ["ficha_foto_zoom", "ficha_entrega_estimada"])
+        .gte("created_at", desde)
+        .limit(5000);
+      if (!vivo) return;
+      if (error || !Array.isArray(data)) {
+        setFichaConfianza(null);
+        return;
+      }
+      const filas = data as { event_name: string; metadata: Record<string, unknown> | null }[];
+      const visor = filas.filter((f) => f.event_name === "ficha_foto_zoom");
+      const entregas = filas.filter((f) => f.event_name === "ficha_entrega_estimada");
+      const deTipo = (t: string) => entregas.filter((f) => f.metadata?.tipo === t).length;
+      // Revisados y con garantía: primero se mira con «*» en una fila si la columna existe (sin un 400 antes de la migración).
+      let revisados: number | null = null;
+      let conGarantia: number | null = null;
+      try {
+        const muestra = await supabase.from("products").select("*").limit(1);
+        const fila = !muestra.error && Array.isArray(muestra.data) ? (muestra.data[0] as Record<string, unknown> | undefined) : undefined;
+        if (fila && "revisado" in fila && "garantia_meses" in fila) {
+          const [r, g] = await Promise.all([
+            supabase.from("products").select("id", { count: "exact", head: true }).eq("revisado", true),
+            supabase.from("products").select("id", { count: "exact", head: true }).not("garantia_meses", "is", null),
+          ]);
+          revisados = r.error ? null : r.count ?? 0;
+          conGarantia = g.error ? null : g.count ?? 0;
+        }
+      } catch {
+        // sin recuentos
+      }
+      if (!vivo) return;
+      setFichaConfianza({
+        abiertos: visor.filter((f) => f.metadata?.accion === "abrir").length,
+        zoom: visor.filter((f) => f.metadata?.accion === "zoom").length,
+        cerradosDeslizando: visor.filter((f) => f.metadata?.accion === "cerrar_deslizando").length,
+        entregas: { mismo_dia: deTipo("mismo_dia"), peninsula: deTipo("peninsula"), islas: deTipo("islas"), sin_cp: deTipo("sin_cp") },
+        revisados,
+        conGarantia,
       });
     })();
     return () => {
@@ -1829,6 +1896,40 @@ export default function AdminAnalytics() {
                       {busquedas.filtros.quitados} · «Borrar filtros» {busquedas.filtros.borrados}
                     </Text>
                   </View>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Ficha del producto (30 días)"
+              subtitle="Uso del visor de fotos, entregas estimadas que se han enseñado (por tipo, sin códigos postales) y cuántos productos has marcado como revisados o con garantía. Siempre los últimos 30 días; solo visitantes que aceptaron la analítica."
+            >
+              {!fichaConfianza ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se ha podido cargar la ficha del producto.</Text>
+              ) : (
+                <View nativeID="analitica-ficha-producto" style={{ gap: 10 }}>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="expand-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-ficha-zoom" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Visor de fotos: abierto {fichaConfianza.abiertos} {fichaConfianza.abiertos === 1 ? "vez" : "veces"} · con zoom {fichaConfianza.zoom} ·
+                      cerrado deslizando {fichaConfianza.cerradosDeslizando}
+                    </Text>
+                  </View>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="cube-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-ficha-entregas" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Entregas estimadas mostradas: mismo día {fichaConfianza.entregas.mismo_dia} · resto de España {fichaConfianza.entregas.peninsula} ·
+                      islas, Ceuta y Melilla {fichaConfianza.entregas.islas} · sin código postal {fichaConfianza.entregas.sin_cp}
+                    </Text>
+                  </View>
+                  {fichaConfianza.revisados !== null ? (
+                    <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                      <Ionicons name="shield-checkmark-outline" size={16} color={COLORS.accentDark} />
+                      <Text nativeID="analitica-ficha-revisados" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                        Productos revisados por el equipo: {fichaConfianza.revisados} · con garantía indicada: {fichaConfianza.conGarantia ?? 0}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
               )}
             </SectionCard>

@@ -116,6 +116,9 @@
  *    administrador la lee (un cliente y un visitante, nada) y desde el navegador nadie escribe ni cambia; una fila por
  *    producto; estado y detalle con su comprobación; no toca escaparate_salida; se aplica dos veces (con su «prueba de la
  *    prueba»: con una regla abierta un cliente ve los avisos).
+ *  - «Revisado» y garantía por producto (20261114140000_productos_revisado.sql): dos columnas que empiezan vacías, garantía
+ *    entre 1 y 36 (0, 37 y negativos no entran); el administrador lo marca, un cliente no; un visitante lo lee de los
+ *    publicados; sin borrar ni tocar permisos; se aplica dos veces (con su «prueba de la prueba»: sin la comprobación, 99).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -1833,6 +1836,65 @@ try {
     }
     ok(entraTv, "(control) sin el bloqueo, la TV a domicilio entra: la prueba SÍ lo detecta");
     await c44.end();
+
+    // «Revisado por nuestro equipo» y garantía por producto (20261114140000, mejora 4 «Ficha de confianza»): dos columnas
+    // que empiezan vacías (nada se promete por defecto), garantía entre 1 y 36 meses, y bajo las políticas de products de
+    // siempre: todos leen lo publicado y solo el administrador lo marca.
+    const REVISADO = readFileSync("supabase/migrations/20261114140000_productos_revisado.sql", "utf8");
+    const ESQUEMA_R = `
+      create table public.products (id uuid primary key default gen_random_uuid(), title text not null, price_eur numeric not null default 0,
+        status text not null default 'PUBLISHED', is_active boolean not null default true);
+      alter table public.products enable row level security;
+      create policy products_select_public_or_admin on public.products for select using (((status = 'PUBLISHED') and (is_active = true)) or public.is_admin());
+      create policy products_admin_update on public.products for update using (public.is_admin()) with check (public.is_admin());
+      insert into public.products (title, price_eur) values ('Consola PS5 Slim', 450), ('Mando DualSense', 50);`;
+    const c45 = await nuevaBase("vz_aislada_productos_revisado", ESQUEMA_R);
+    let repetidaR = true;
+    try {
+      await c45.query(REVISADO);
+      await c45.query(REVISADO);
+    } catch (e) {
+      repetidaR = false;
+      console.log(String(e.message));
+    }
+    const filasR = (await c45.query("select revisado, garantia_meses from public.products")).rows;
+    ok(repetidaR && filasR.length === 2 && filasR.every((r) => r.revisado === false && r.garantia_meses === null), `Revisado: se puede aplicar dos veces y ningún producto sale marcado ni con garantía (${JSON.stringify(filasR)})`);
+    const restricciones = (await c45.query("select count(*)::int as n from pg_constraint where conname = 'products_garantia_meses_rango'")).rows[0].n;
+    ok(restricciones === 1, `Revisado: una sola comprobación de la garantía tras repetirla (${restricciones})`);
+    const fueraRango = async (v) => {
+      try {
+        await c45.query("update public.products set garantia_meses = $1 where title = 'Mando DualSense'", [v]);
+        return false;
+      } catch {
+        return true;
+      }
+    };
+    ok((await fueraRango(0)) && (await fueraRango(37)) && (await fueraRango(-3)), "Revisado: la garantía no admite 0, 37 ni negativos");
+    const adminR = await como(c45, "authenticated", ADMIN, "update public.products set revisado = true, garantia_meses = 12 where title = 'Consola PS5 Slim' returning revisado, garantia_meses", { confirmar: true });
+    ok(adminR.ok && adminR.cuantas === 1 && adminR.filas[0].revisado === true && adminR.filas[0].garantia_meses === 12, `Revisado: el administrador lo marca con 12 meses (${JSON.stringify(adminR.filas ?? adminR.mensaje)})`);
+    const clienteR = await como(c45, "authenticated", U1, "update public.products set revisado = true, garantia_meses = 36 where title = 'Mando DualSense'", { confirmar: true });
+    ok(clienteR.ok && clienteR.cuantas === 0, "Revisado: un cliente no puede marcar un producto (0 filas)");
+    const anonR = await como(c45, "anon", null, "select title, revisado, garantia_meses from public.products order by title");
+    ok(
+      anonR.ok && anonR.filas.length === 2 && anonR.filas.find((r) => r.title === "Consola PS5 Slim")?.garantia_meses === 12 && anonR.filas.find((r) => r.title === "Mando DualSense")?.revisado === false,
+      `Revisado: un visitante lee la marca y la garantía de los publicados (${JSON.stringify(anonR.filas ?? anonR.mensaje)})`
+    );
+    const migR = REVISADO.replace(/^--.*$/gm, "").toLowerCase();
+    ok(!/\b(drop|delete|truncate|grant|revoke|security definer|using\s*\(true\)|anon|auth\.)/.test(migR), "Revisado: la migración no borra nada ni toca permisos o políticas");
+    await c45.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin la comprobación, 99 meses entrarían.
+    const sinRango = REVISADO.replace(/do \$\$[\s\S]*?end \$\$;\n/, "");
+    ok(sinRango !== REVISADO, "(control) se ha podido quitar la comprobación de la garantía en la copia de prueba");
+    const c46 = await nuevaBase("vz_aislada_productos_revisado_sin_rango", ESQUEMA_R + sinRango);
+    let entra99 = true;
+    try {
+      await c46.query("update public.products set garantia_meses = 99");
+    } catch {
+      entra99 = false;
+    }
+    ok(entra99, "(control) sin la comprobación, 99 meses entran: la prueba SÍ lo detecta");
+    await c46.end();
   }
 
   // Opciones de los servicios (20261108230000_servicios_opciones.sql): el administrador escribe las opciones (Básica,

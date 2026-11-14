@@ -66,6 +66,10 @@ export type ProductRow = {
   peso_kg?: number | null;
   // Solo entrega en mano: no se envía (televisores sin su caja original; migración 20261107140000). undefined = sin la columna.
   solo_entrega_mano?: boolean;
+  // «Revisado por nuestro equipo» y meses de garantía (1-36), que marca el dueño (migración 20261114140000). undefined =
+  // la columna aún no existe; garantia_meses null = sin indicar.
+  revisado?: boolean;
+  garantia_meses?: number | null;
   // Aviso a VeoAura de un producto creado a mano («producto_tienda», 2026-11-13; migración 20261113130000):
   // "pendiente" = aún sin respuesta de VeoAura, "enviado" = en VeoAura (ya devolvió su id). undefined = sin aviso.
   veoaura?: "pendiente" | "enviado";

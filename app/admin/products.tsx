@@ -38,6 +38,10 @@
  *   creado a mano, sin id_veoaura, se avisa a VeoAura («producto_tienda») para que lo dé de alta en su Stock y devuelva su id.
  *   La ficha muestra «Enviado a VeoAura · pendiente / en VeoAura ✓» (tabla escaparate_salida_productos, migración
  *   20261113130000; sin ella no se muestra nada). Contrato: docs/puente-tienda-productos-a-veoaura.md.
+ * - Ficha de confianza (mejora 4, migración 20261114140000): en el formulario, «Revisado por nuestro equipo» y la
+ *   «Garantía» (Sin indicar / 3 / 6 / 12 meses u otros de 1 a 36); en la lista, «✓ Revisado · Garantía N meses» y el
+ *   filtro «Revisados» con sus recuentos. La ficha del producto solo enseña lo que se marca aquí. Sin la columna, no sale
+ *   (se comprueba con «*» en una fila, sin errores en la consola). VeoAura no las pisa al publicar.
  * - sql/product_sales.sql → tabla e insert de "Marcar vendido".
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
  * - app/admin/products/products.constants.ts → COLORS y límites de subida.
@@ -501,6 +505,14 @@ const ProductListItem = React.memo(function ProductListItem({
               Solo entrega en mano (no se envía)
             </Text>
           ) : null}
+          {/* Revisado y garantía que enseña la ficha (mejora 4). */}
+          {p.revisado || p.garantia_meses ? (
+            <Text nativeID={`producto-revisado-${p.id}`} style={{ color: COLORS.success, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 16 }}>
+              {[p.revisado ? "✓ Revisado" : null, p.garantia_meses ? `Garantía ${p.garantia_meses} ${p.garantia_meses === 1 ? "mes" : "meses"}` : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
+          ) : null}
 
           {/* Estado (con su color) + el resto de datos en una línea de texto. */}
           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
@@ -628,6 +640,10 @@ export default function AdminProducts() {
   const [supportsPeso, setSupportsPeso] = useState(false);
   // ¿Existe products.solo_entrega_mano? (migración 20261107140000).
   const [supportsSoloMano, setSupportsSoloMano] = useState(false);
+  // ¿Existen products.revisado y garantia_meses? (migración 20261114140000; sin ellas no se enseña ni se guarda).
+  const [supportsRevisado, setSupportsRevisado] = useState(false);
+  // Filtro «Revisados» (mejora 4): todos, solo los revisados o los que aún no.
+  const [revisadoFilter, setRevisadoFilter] = useState<"ALL" | "SI" | "NO">("ALL");
   const [supportsProductMedia, setSupportsProductMedia] = useState(true);
 
   const itemsRef = useRef<ProductRow[]>([]);
@@ -655,6 +671,9 @@ export default function AdminProducts() {
   const [peso, setPeso] = useState("");
   // Solo entrega en mano (no se envía): televisores sin su caja original (dueño, 2026-11-07).
   const [soloMano, setSoloMano] = useState(false);
+  // «Revisado por nuestro equipo» y garantía en meses (texto; vacío = sin indicar). Solo con la migración 20261114140000.
+  const [revisado, setRevisado] = useState(false);
+  const [garantia, setGarantia] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(true);
   const [isFeaturedHome, setIsFeaturedHome] = useState(false);
@@ -717,9 +736,12 @@ export default function AdminProducts() {
         (visibilityFilter === "VISIBLE" && !!p.is_active) ||
         (visibilityFilter === "HIDDEN" && !p.is_active);
 
-      return matchesSearch && matchesStatus && matchesVisibility;
+      const matchesRevisado =
+        revisadoFilter === "ALL" || (revisadoFilter === "SI" && p.revisado === true) || (revisadoFilter === "NO" && p.revisado !== true);
+
+      return matchesSearch && matchesStatus && matchesVisibility && matchesRevisado;
     });
-  }, [items, search, statusFilter, visibilityFilter]);
+  }, [items, search, statusFilter, visibilityFilter, revisadoFilter]);
 
   // Se calcula aquí (con el nombre de categoría ya resuelto) para que
   // ProductListItem no necesite la lista completa de "categories" como
@@ -741,8 +763,10 @@ export default function AdminProducts() {
     const published = items.filter((x) => x.status === "PUBLISHED").length;
     const visible = items.filter((x) => !!x.is_active).length;
     const featured = items.filter((x) => !!x.is_featured_home).length;
+    const revisados = items.filter((x) => x.revisado === true).length;
+    const conGarantia = items.filter((x) => !!x.garantia_meses).length;
 
-    return { total, published, visible, featured };
+    return { total, published, visible, featured, revisados, conGarantia };
   }, [items]);
 
   const currentImageCount = useMemo(
@@ -895,11 +919,29 @@ export default function AdminProducts() {
         }
       }
 
+      // «Revisado» y garantía (migración 20261114140000): primero se mira con «*» en UNA fila si las columnas existen (sin
+      // un 400 en la consola antes de la migración) y solo entonces se piden de todos.
+      const confianza = new Map<string, { revisado: boolean; garantia_meses: number | null }>();
+      let conRevisado = false;
+      const muestra = await supabase.from("products").select("*").limit(1);
+      const filaMuestra = !muestra.error && Array.isArray(muestra.data) ? (muestra.data[0] as Record<string, unknown> | undefined) : undefined;
+      if (filaMuestra && "revisado" in filaMuestra && "garantia_meses" in filaMuestra) {
+        const confRes = await supabase.from("products").select("id,revisado,garantia_meses");
+        if (!confRes.error && Array.isArray(confRes.data)) {
+          conRevisado = true;
+          for (const r of confRes.data as { id: string; revisado: unknown; garantia_meses: unknown }[]) {
+            const g = Number(r.garantia_meses);
+            confianza.set(String(r.id), { revisado: r.revisado === true, garantia_meses: r.garantia_meses != null && g >= 1 && g <= 36 ? g : null });
+          }
+        }
+      }
+
       const merged = productsData.map((item) => ({
         ...item,
         ...(avisosVeoaura.has(item.id) ? { veoaura: avisosVeoaura.get(item.id) } : {}),
         ...(conPeso ? { peso_kg: pesos.get(item.id) ?? null } : {}),
         ...(conSoloMano ? { solo_entrega_mano: soloMano.has(item.id) } : {}),
+        ...(conRevisado ? (confianza.get(item.id) ?? { revisado: false, garantia_meses: null }) : {}),
         media: (mediaByProduct.get(item.id) ?? []).sort(sortMediaRows),
       }));
 
@@ -907,6 +949,7 @@ export default function AdminProducts() {
       setSupportsReference(prodResult.supportsReference);
       setSupportsPeso(conPeso);
       setSupportsSoloMano(conSoloMano);
+      setSupportsRevisado(conRevisado);
       setSupportsProductMedia(supportsMedia);
       // Sin «Reparación / Limpieza»: solo guarda la portada del recuadro de Inicio que lleva a Servicios (no lleva productos).
       setCategories(((Array.isArray(catsRes.data) ? catsRes.data : []) as CategoryRow[]).filter((c) => !esCategoriaServicios(c.slug)));
@@ -938,6 +981,8 @@ export default function AdminProducts() {
     setReference("");
     setPeso("");
     setSoloMano(false);
+    setRevisado(false);
+    setGarantia("");
     setCategoryId(null);
     setIsActive(true);
     setIsFeaturedHome(false);
@@ -969,6 +1014,8 @@ export default function AdminProducts() {
       setReference(p.reference ?? "");
       setPeso(p.peso_kg ? String(p.peso_kg).replace(".", ",") : "");
       setSoloMano(p.solo_entrega_mano === true);
+      setRevisado(p.revisado === true);
+      setGarantia(p.garantia_meses ? String(p.garantia_meses) : "");
       setCategoryId(p.category_id ?? null);
       setIsActive(!!p.is_active);
       setIsFeaturedHome(!!p.is_featured_home);
@@ -1427,6 +1474,18 @@ export default function AdminProducts() {
       payload.solo_entrega_mano = soloMano;
     }
 
+    if (supportsRevisado) {
+      const g = garantia.trim();
+      const meses = g ? Number(g) : null;
+      if (meses !== null && (!Number.isInteger(meses) || meses < 1 || meses > 36)) {
+        setModalErr("La garantía va de 1 a 36 meses (o «Sin indicar»).");
+        setSaving(false);
+        return;
+      }
+      payload.revisado = revisado;
+      payload.garantia_meses = meses;
+    }
+
     // Instantánea de la media pendiente ANTES de tocar el formulario: en
     // cuanto cerremos y reseteemos, "newMedia"/"removedMedia"/"existingMedia"
     // dejan de representar a ESTE producto — el mismo formulario puede
@@ -1707,6 +1766,20 @@ export default function AdminProducts() {
               </View>
             </View>
 
+            {/* Revisados por el equipo (mejora 4): cuántos y filtrarlos. Sin la migración, no sale. */}
+            {supportsRevisado ? (
+              <View nativeID="productos-filtro-revisados" style={{ gap: 8, alignItems: "center" }}>
+                <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>
+                  Revisión · {stats.revisados} {stats.revisados === 1 ? "revisado" : "revisados"} · {stats.conGarantia} con garantía
+                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
+                  <FilterPill label="Todos" active={revisadoFilter === "ALL"} onPress={() => setRevisadoFilter("ALL")} isMobile={isMobile} />
+                  <FilterPill label="Revisados" active={revisadoFilter === "SI"} onPress={() => setRevisadoFilter("SI")} isMobile={isMobile} />
+                  <FilterPill label="Sin revisar" active={revisadoFilter === "NO"} onPress={() => setRevisadoFilter("NO")} isMobile={isMobile} />
+                </View>
+              </View>
+            ) : null}
+
           </View>
 
           {filteredItems.length === 0 ? (
@@ -1943,6 +2016,61 @@ export default function AdminProducts() {
                   </View>
                   <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                     Para televisores sin su caja original: la tienda no deja pedirlo con envío y la ficha lo avisa.
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* «Revisado por nuestro equipo» y garantía (mejora 4, migración 20261114140000): la ficha solo los enseña si
+                  se marcan aquí; sin marcar, no promete nada. */}
+              {supportsRevisado ? (
+                <View nativeID="producto-confianza" style={{ gap: 8 }}>
+                  <View style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14, flexShrink: 1 }}>
+                      Revisado por nuestro equipo
+                    </Text>
+                    <Switch nativeID="producto-revisado" value={revisado} onValueChange={setRevisado} accessibilityLabel="Revisado por nuestro equipo" />
+                  </View>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}>Garantía</Text>
+                  <View nativeID="producto-garantia-opciones" style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                    {(["", "3", "6", "12"] as const).map((v) => (
+                      <FilterPill
+                        key={v || "sin"}
+                        label={v ? `${v} meses` : "Sin indicar"}
+                        active={garantia.trim() === v}
+                        onPress={() => {
+                          setGarantia(v);
+                          setModalErr(null);
+                        }}
+                        isMobile={isMobile}
+                      />
+                    ))}
+                  </View>
+                  <TextInput
+                    nativeID="producto-garantia"
+                    value={garantia}
+                    onChangeText={(v) => {
+                      setGarantia(v.replace(/[^0-9]/g, "").slice(0, 2));
+                      setModalErr(null);
+                    }}
+                    placeholder="Otros meses (de 1 a 36)"
+                    placeholderTextColor="rgba(11,33,56,0.40)"
+                    keyboardType="number-pad"
+                    maxLength={2}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: COLORS.border,
+                      borderRadius: 14,
+                      paddingHorizontal: 12,
+                      minHeight: 48,
+                      color: COLORS.text,
+                      backgroundColor: "#F8FBFE",
+                      fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
+                    }}
+                  />
+                  <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+                    {revisado || garantia.trim()
+                      ? "La ficha del producto lo enseña junto al precio."
+                      : "Sin marcar, la ficha no enseña ni revisión ni garantía."}
                   </Text>
                 </View>
               ) : null}

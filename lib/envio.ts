@@ -20,8 +20,11 @@
  * 20261111130000): el peso por aparato es el del servicio (pesoAparatoReparacion, cargarPesoEnvioServicio), los datos de
  * Bizum/transferencia (datosPagoManual) y la garantía en meses.
  *
+ * Entrega estimada (mejora 4 «Ficha de confianza», 2026-11-14): tipoEntregaPorCodigo y entregaEstimada dan el «Llega hoy» /
+ * «Llega entre el jueves y el viernes» de la ficha del producto con los plazos de siempre, sin domingos y sin hora de corte.
+ *
  * Conectado con: app/(tabs)/cesta.tsx, app/checkout.tsx, app/admin/envios.tsx, app/admin/pedidos.tsx,
- * components/ContratarServicioModal.tsx, app/(tabs)/perfil.tsx y app/admin/services.tsx.
+ * components/ContratarServicioModal.tsx, app/(tabs)/perfil.tsx, app/admin/services.tsx y app/producto/[id].tsx.
  */
 import { supabase } from "./supabase";
 
@@ -306,6 +309,120 @@ export function calcularEtiquetaReparacion(
 /** ¿Alguna zona tiene tramos de Correos activos? (sin ninguna, la reparación por envío no se puede ofrecer) */
 export function hayTarifaCorreos(zonas: ZonaEnvio[] | null): boolean {
   return !!zonas && zonas.some((z) => z.activa && z.zona !== "mano" && z.zona !== "local" && !!z.tramos);
+}
+
+// --- Entrega estimada en la ficha del producto (mejora 4 «Ficha de confianza», dueño 2026-11-14) -----------------------
+// Los mismos plazos que dicen el pago (app/checkout.tsx) y «Quiénes somos»: en Zaragoza y Cuarte de Huerva, el mismo día;
+// al resto de España sale en 1-2 días laborables y llega en 72 h como máximo. Se cuentan días laborables sin domingos
+// (de lunes a sábado; los festivos no se tienen en cuenta) desde la fecha de hoy en Madrid. No hay hora de corte en la
+// tienda, así que no se inventa ninguna: se dice «si lo pides hoy». Siempre «Entrega estimada», nunca garantizada.
+
+/** Códigos del mismo día si las tarifas aún no se pueden leer (los de la zona «local» de 20261104210000_tarifas_envio.sql). */
+export const CODIGOS_MISMO_DIA = "50001-50022, 50410";
+
+export type TipoEntregaEstimada = "mismo_dia" | "peninsula" | "islas" | "sin_cp";
+
+/**
+ * Qué plazo le toca a un código postal: «mismo_dia» si cae en la zona «local» de las tarifas (o, sin tarifas, en
+ * CODIGOS_MISMO_DIA); «islas» para Baleares (07), Canarias (35, 38), Ceuta (51) y Melilla (52), donde no se da fecha; el
+ * resto, «peninsula». Sin un código de 5 cifras, «sin_cp».
+ */
+export function tipoEntregaPorCodigo(codigoPostal: string | null | undefined, zonas?: ZonaEnvio[] | null): TipoEntregaEstimada {
+  const cp = limpiarCodigoPostal(codigoPostal);
+  if (cp.length !== 5) return "sin_cp";
+  const local = zonas?.find((z) => z.zona === "local" && z.activa);
+  const zonasLocal: ZonaEnvio[] = [
+    { zona: "local", nombre: "", codigos: local?.codigos ?? CODIGOS_MISMO_DIA, precio_eur: 0, gratis_desde_eur: null, activa: true, orden: 0, tramos: null },
+  ];
+  if (zonaDeEntrega(zonasLocal, "envio", cp)?.zona === "local") return "mismo_dia";
+  if (/^(07|35|38|51|52)/.test(cp)) return "islas";
+  return "peninsula";
+}
+
+const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+/** Hoy en Madrid: año, mes, día y día de la semana (0 = domingo), sea cual sea la zona horaria del navegador. */
+export function hoyEnMadrid(ahora: Date = new Date()): { y: number; m: number; d: number; dow: number } {
+  const partes = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(ahora);
+  const n = (t: string) => Number(partes.find((p) => p.type === t)?.value ?? 0);
+  const y = n("year");
+  const m = n("month");
+  const d = n("day");
+  return { y, m, d, dow: new Date(Date.UTC(y, m - 1, d)).getUTCDay() };
+}
+
+/** Cuántos días naturales hay hasta el día laborable número `n` contando desde hoy (0 = hoy si es laborable). */
+function diasHastaLaborable(dowHoy: number, n: number): number {
+  let dias = 0;
+  let dow = dowHoy;
+  // El primero: hoy si no es domingo; si no, el siguiente laborable.
+  while (dow === 0) {
+    dias++;
+    dow = (dow + 1) % 7;
+  }
+  for (let k = 0; k < n; k++) {
+    do {
+      dias++;
+      dow = (dow + 1) % 7;
+    } while (dow === 0);
+  }
+  return dias;
+}
+
+/** «hoy», «mañana, martes» o «el jueves» (dias = días naturales desde hoy). */
+function nombreDia(dowHoy: number, dias: number, conArticulo: boolean): string {
+  const nombre = DIAS_SEMANA[(dowHoy + dias) % 7];
+  if (dias === 0) return "hoy";
+  if (dias === 1) return `mañana, ${nombre}`;
+  return conArticulo ? `el ${nombre}` : nombre;
+}
+
+export type EntregaEstimada = {
+  tipo: Exclude<TipoEntregaEstimada, "sin_cp">;
+  /** «Llega hoy», «Llega mañana, martes», «Llega entre el jueves y el viernes»; null en las islas (no se da fecha). */
+  titulo: string | null;
+  /** La explicación prudente que va debajo. */
+  detalle: string;
+  /** Días naturales desde hoy (Madrid) hasta el primer y el último día estimados (null en las islas). */
+  desdeDias: number | null;
+  hastaDias: number | null;
+};
+
+/**
+ * La entrega estimada de un tipo a partir de la fecha de hoy en Madrid. Mismo día: hoy (o el siguiente laborable si hoy es
+ * domingo). Resto de España: sale en 1-2 días laborables y llega en 72 h como máximo, así que entre el 2.º y el 3.er día
+ * laborable desde hoy (sin domingos).
+ */
+export function entregaEstimada(tipo: Exclude<TipoEntregaEstimada, "sin_cp">, ahora: Date = new Date()): EntregaEstimada {
+  const { dow } = hoyEnMadrid(ahora);
+  if (tipo === "islas") {
+    return {
+      tipo,
+      titulo: null,
+      detalle: "A Baleares, Canarias, Ceuta y Melilla el plazo depende del envío: pregúntanos antes de comprar.",
+      desdeDias: null,
+      hastaDias: null,
+    };
+  }
+  if (tipo === "mismo_dia") {
+    const dias = diasHastaLaborable(dow, 0);
+    return {
+      tipo,
+      titulo: `Llega ${nombreDia(dow, dias, true)}`,
+      detalle: dias === 0 ? "Entrega estimada en Zaragoza y Cuarte de Huerva el mismo día, si lo pides hoy." : "Entrega estimada en Zaragoza y Cuarte de Huerva: los domingos no hay entregas.",
+      desdeDias: dias,
+      hastaDias: dias,
+    };
+  }
+  const desde = diasHastaLaborable(dow, 2);
+  const hasta = diasHastaLaborable(dow, 3);
+  return {
+    tipo,
+    titulo: `Llega entre ${nombreDia(dow, desde, true)} y ${nombreDia(dow, hasta, true)}`,
+    detalle: "Entrega estimada si lo pides hoy: sale en 1-2 días laborables y llega en 72 h como máximo.",
+    desdeDias: desde,
+    hastaDias: hasta,
+  };
 }
 
 /** El menor importe a partir del cual alguna zona de envío a domicilio sale gratis (para el aviso de la cesta). */
