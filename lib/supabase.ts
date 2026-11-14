@@ -25,6 +25,11 @@
  * navegador entra el cliente con sesión y cuándo (como mucho cada 15 min; al iniciar sesión suma un inicio), sin IP ni
  * ubicación; nombreDispositivo() y haceCuanto() los usan también Administración → Usuarios y la ficha del cliente.
  *
+ * Sesión al volver (2026-11-14): sesionActual() (la sesión, renovada antes si estaba caducada), esErrorDeSesion() (401,
+ * 42501, JWT…: fallo de sesión, no «no hay datos») y alVolverALaTienda() (avisa al volver a la pantalla con la sesión ya
+ * renovada); los usa «Mi perfil» (components/PerfilPublico.tsx). En la app nativa, la renovación automática solo con la
+ * app delante (AppState), como recomienda Supabase.
+ *
  * Conectado con: prácticamente todas las pantallas que leen o escriben
  * datos (app/(tabs)/*.tsx, app/admin/*.tsx, app/producto/[id].tsx,
  * app/catalogo.tsx) importan `supabase` desde aquí. app/_layout.tsx llama a registrarDispositivo();
@@ -33,8 +38,8 @@
  */
 import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { Platform } from "react-native";
+import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import { AppState, Platform } from "react-native";
 import { markEnd, markStart } from "./loadingBus";
 
 /**
@@ -132,6 +137,73 @@ export const supabase: SupabaseClient =
 
 if (!globalThis.__videojuegoos_supabase__) {
   globalThis.__videojuegoos_supabase__ = supabase;
+  // Fuera de la web (app nativa), como recomienda Supabase: la renovación automática del token solo con la app delante.
+  // En la web (y la app instalada en el iPhone) ya lo hace Supabase solo con «visibilitychange».
+  if (Platform.OS !== "web") {
+    AppState.addEventListener("change", (s) => {
+      if (s === "active") void supabase.auth.startAutoRefresh();
+      else void supabase.auth.stopAutoRefresh();
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Sesión al volver a la tienda (fallo real del 2026-11-14, iPhone con la app instalada): tras una noche dormida, la
+// renovación del token se disparó decenas de veces seguidas, Supabase la cortó (429) y quitó la sesión, y las lecturas
+// salieron con la clave anónima (401 / 42501). «Mi perfil» lo tomaba por «no hay datos» y enseñaba el formulario vacío.
+// sesionActual() pide la sesión a Supabase (la renueva ANTES si está caducada; null si no hay o no se pudo renovar),
+// esErrorDeSesion() reconoce esos fallos y alVolverALaTienda() avisa al volver a la pantalla, ya con la sesión renovada.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** La sesión vigente (renovada si estaba caducada) o null si no hay o no se ha podido renovar. Nunca lanza. */
+export async function sesionActual(): Promise<Session | null> {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) return null;
+    return data.session ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** ¿El fallo de una consulta es por la sesión (token caducado, sin sesión o sin permiso), y no porque no haya datos? */
+export function esErrorDeSesion(error: unknown): boolean {
+  const e = (error ?? {}) as { code?: unknown; message?: unknown; status?: unknown };
+  const codigo = String(e.code ?? "");
+  const status = Number(e.status ?? 0);
+  return (
+    status === 401 ||
+    status === 403 ||
+    ["42501", "PGRST301", "PGRST302", "PGRST303"].includes(codigo) ||
+    /jwt|permission denied|not authenticated|sin sesión/i.test(String(e.message ?? ""))
+  );
+}
+
+/**
+ * Llama a `f` cada vez que se vuelve a la tienda (pestaña o app instalada otra vez a la vista, o vuelta desde la caché de
+ * «atrás»), DESPUÉS de renovar la sesión si estaba caducada: así lo que pida `f` ya sale con un token válido.
+ * Devuelve la función para dejar de escuchar.
+ */
+export function alVolverALaTienda(f: () => void): () => void {
+  const avisar = () => void sesionActual().then(() => f());
+  if (Platform.OS === "web" && typeof document !== "undefined" && typeof window !== "undefined") {
+    const visible = () => {
+      if (document.visibilityState === "visible") avisar();
+    };
+    const mostrada = (e: PageTransitionEvent) => {
+      if (e.persisted) avisar();
+    };
+    document.addEventListener("visibilitychange", visible);
+    window.addEventListener("pageshow", mostrada);
+    return () => {
+      document.removeEventListener("visibilitychange", visible);
+      window.removeEventListener("pageshow", mostrada);
+    };
+  }
+  const sub = AppState.addEventListener("change", (s) => {
+    if (s === "active") avisar();
+  });
+  return () => sub.remove();
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

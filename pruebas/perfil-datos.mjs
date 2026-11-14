@@ -242,6 +242,10 @@
  *    «Guardar en mi perfil» (marcada; solo cambia la columna del teléfono); la ficha del cliente lo enseña con «Copiar»,
  *    Usuarios filtra «Con teléfono», Analítica cuenta perfiles y eventos (sin números); sin la columna todo funciona sin
  *    errores; a 360, 390 y 1280 px sin desbordes. Usa PATCH y HEAD de perfiles_cliente en la base de datos simulada.
+ *  - SES) «Mi perfil» con la sesión caducada (fallo real del 2026-11-14): con un 401 y luego 200 sale relleno; con todo
+ *    401, «No hemos podido cargar tus datos · Reintentar» sin formulario ni «Guardar» (ningún POST/PATCH) y «Reintentar»
+ *    vuelve a pedir (y lo mide la analítica, sin datos); «Completa tu perfil» no sale vacío; tras SIGNED_IN se relee; al
+ *    volver a la pestaña con el token vencido se renueva antes de pedir y no se pisa lo escrito. Simula /auth/v1/token.
  *  - DV) Dispositivos y última conexión (2026-11-12, migración 20261112120000): con sesión, la tienda apunta «iPhone ·
  *    Safari» (solo ese nombre: sin el identificador completo, IP ni ubicación) y no lo repite antes de 15 minutos (ni al
  *    recargar ni al volver a la pestaña); pasados, lo pone al día sin sumar inicios; sin la tabla, una sola petición y sin
@@ -297,7 +301,7 @@
  *    primero, «Marcar leída» de 44 px); Seguridad con el aviso rojo, la moderación en cifras y «Quitar silencio»; letra
  *    ≥ 12 px, táctiles de 44 px separados 8 px, nada se sale y en el ordenador centrada y de 960 px como mucho. Las
  *    secciones E, F, M, ME, CO, DI, SE, C8, P, RE y DV abren la pestaña que les toca (?tab=participacion|ideas|seguridad).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -421,6 +425,15 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (url.pathname.endsWith("/auth/v1/logout")) {
       estado.salio = true;
       return r.fulfill({ status: 204, headers: CORS, body: "" });
+    }
+    // Renovación del token (sección SES, con `estado.renovar`): una sesión nueva de 1 hora, como Supabase.
+    if (estado.renovar && url.pathname.endsWith("/auth/v1/token") && metodo === "POST") {
+      estado.renovaciones = (estado.renovaciones ?? 0) + 1;
+      if (estado.orden) estado.orden.push("renovar");
+      const exp = Math.floor(Date.now() / 1000) + 3600;
+      const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+      const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: usuario.id, role: "authenticated", exp, aud: "authenticated", email: usuario.email })}.firma`;
+      return json({ access_token: jwt, refresh_token: `r${estado.renovaciones}`, expires_in: 3600, expires_at: exp, token_type: "bearer", user: usuario });
     }
     // Reparación por envío (sección RE2): los ajustes, las solicitudes, la API de archivos, la subida al almacén privado y
     // los recuentos de Analítica, como la base de datos y el servidor. Sin `estado.re2`, la tabla de ajustes no existe
@@ -1239,6 +1252,14 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         if (estado.sinColumnaTelefono && /telefono/.test(estado.consultaPerfilesHead)) return json({ code: "42703", message: "column perfiles_cliente.telefono does not exist" }, 400);
         const n = (estado.filas ?? []).filter((f) => f.telefono != null && f.user_id !== (url.searchParams.get("user_id") ?? "").replace(/^neq\./, "")).length;
         return json([], 200, { "content-range": `*/${n}`, "access-control-expose-headers": "*" });
+      }
+      // Sesión caducada (sección SES): las primeras `perfil401` lecturas responden como Supabase con la clave anónima
+      // (401 · 42501); se cuentan las lecturas y su orden respecto a las renovaciones del token.
+      estado.lecturasPerfil = (estado.lecturasPerfil ?? 0) + 1;
+      if (estado.orden) estado.orden.push("perfil");
+      if ((estado.perfil401 ?? 0) > 0) {
+        estado.perfil401 -= 1;
+        return json({ code: "42501", details: null, hint: null, message: "permission denied for table perfiles_cliente" }, 401);
       }
       if (estado.sinTabla) return json({ code: "PGRST205", message: "Could not find the table 'public.perfiles_cliente' in the schema cache" }, 404);
       // Como la base de datos: con «user_id=eq.<id>» solo la fila de esa persona.
@@ -13031,6 +13052,142 @@ async function seccionTM5() {
   }
 }
 
+// ===== SES) «Mi perfil» con la sesión caducada (fallo real del dueño, 2026-11-14, iPhone con la app instalada): tras una
+// noche dormida, las lecturas de perfiles_cliente salían con la clave anónima (401 · 42501) y la tarjeta enseñaba el
+// formulario vacío («Sin usuario · Faltan datos»), con «Guardar» a mano para pisar los datos con vacíos. Ahora: se reintenta
+// tras renovar la sesión; si sigue fallando, «No hemos podido cargar tus datos · Reintentar» sin formulario ni «Guardar»;
+// se relee al iniciar sesión (SIGNED_IN) y al volver a la pestaña, renovando antes el token caducado. Sesión y datos
+// simulados, sin fotos reales. ==============================================================================================
+async function seccionSES() {
+  const fila = { user_id: CLIENTE.id, nombre: "Ana García", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", foto_url: null, codigo_postal: null, localidad: null, direccion: null, piso: null, telefono: null };
+  const esperar = async (p, cond, veces = 40) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  const cabecera = async (p) => (await p.locator("#perfil-cabecera").innerText().catch(() => "")).replace(/\s+/g, " ");
+  const escrituras = (estado) => estado.guardados.length + (estado.actualizados ?? []).length;
+
+  // SES-a) La primera lectura responde 401 y la siguiente 200: el perfil sale con sus datos (no vacío).
+  {
+    const estado = { filas: [{ ...fila }], guardados: [], perfil401: 1 };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-cabecera, #perfil-error").first().waitFor({ timeout: 30000 }).catch(() => {});
+    const c = await cabecera(p);
+    ok(/@ana_g/.test(c) && /Completo/.test(c) && !/Sin usuario/.test(c), `SES: con un 401 y luego 200, «Mi perfil» sale con sus datos (${c || "sin cabecera"})`);
+    ok((estado.lecturasPerfil ?? 0) >= 2 && (await p.locator("#perfil-error").count()) === 0, `SES: lo reintenta solo (${estado.lecturasPerfil ?? 0} lecturas) y no enseña el aviso de error`);
+    await p.locator("#perfil-cabecera").click().catch(() => {});
+    await p.waitForTimeout(400);
+    ok((await p.locator('#perfil-datos [aria-label="Nombre"]').inputValue().catch(() => "")) === "Ana García", "SES: y el formulario sale relleno (nombre «Ana García»)");
+    ok(p.errores.length === 0, `SES-a: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SES-b) Todas las lecturas responden 401: «No hemos podido cargar tus datos · Reintentar», sin formulario ni «Guardar»;
+  // nada se manda a guardar; «Reintentar» vuelve a pedir y, cuando la lectura va bien, salen los datos. Y se mide.
+  {
+    const estado = { filas: [{ ...fila }], guardados: [], perfil401: 1e9, aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-error").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = (await p.locator("body").innerText()).replace(/\s+/g, " ");
+    ok(/No hemos podido cargar tus datos/.test(t) && (await p.getByRole("button", { name: "Reintentar" }).count()) === 1, "SES: si la lectura sigue fallando, sale «No hemos podido cargar tus datos» con «Reintentar»");
+    ok(!/Sin usuario · Faltan datos/.test(t) && (await p.locator('#perfil-datos [aria-label="Nombre"]').count()) === 0, "SES: y NO el formulario vacío («Sin usuario · Faltan datos»)");
+    ok((await p.getByRole("button", { name: "Guardar perfil" }).count()) === 0, "SES: no hay «Guardar perfil» (no se pueden pisar los datos con vacíos)");
+    ok((await p.getByText("Cerrar sesión", { exact: true }).count()) >= 1, "SES: «Cerrar sesión» sigue a mano");
+    const caja = await p.evaluate(() => {
+      const b = document.getElementById("perfil-reintentar")?.getBoundingClientRect();
+      return { alto: Math.round(b?.height ?? 0), ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), vista: window.innerWidth };
+    });
+    ok(caja.alto >= 44 && caja.ancho <= caja.vista + 1, `SES: «Reintentar» de ${caja.alto} px de alto y la pantalla no se ensancha (${caja.ancho}/${caja.vista})`);
+    await capturar(p, "SES-error-390");
+    // Pulsar Intro o tocar donde estaría el formulario no manda nada.
+    await p.keyboard.press("Enter").catch(() => {});
+    await p.waitForTimeout(500);
+    ok(escrituras(estado) === 0, `SES: no se manda ningún POST ni PATCH a perfiles_cliente (${escrituras(estado)})`);
+    const antes = estado.lecturasPerfil ?? 0;
+    await p.getByRole("button", { name: "Reintentar" }).click();
+    await esperar(p, () => (estado.lecturasPerfil ?? 0) > antes);
+    await p.locator("#perfil-error").waitFor({ timeout: 15000 }).catch(() => {});
+    ok((estado.lecturasPerfil ?? 0) > antes && (await p.locator("#perfil-error").count()) === 1, `SES: «Reintentar» vuelve a pedir (${antes} → ${estado.lecturasPerfil ?? 0}) y, si sigue fallando, sigue el aviso`);
+    estado.perfil401 = 0;
+    await p.getByRole("button", { name: "Reintentar" }).click();
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 15000 }).catch(() => {});
+    ok(/@ana_g · Completo/.test(await cabecera(p)), "SES: cuando la lectura va bien, «Reintentar» trae sus datos («@ana_g · Completo»)");
+    ok(escrituras(estado) === 0, "SES: y sigue sin mandar nada a guardar");
+    await esperar(p, () => (estado.eventosEnviados ?? []).some((e) => e.event_name === "perfil_carga_reintentada"));
+    const ev = (estado.eventosEnviados ?? []).filter((e) => /^perfil_carga_/.test(e.event_name));
+    ok(ev.some((e) => e.event_name === "perfil_carga_fallida" && e.metadata?.motivo === "sesion") && ev.some((e) => e.event_name === "perfil_carga_reintentada") && !/Ana|ana_g|Zaragoza/.test(JSON.stringify(ev)), `SES: la analítica propia cuenta el fallo («sesion») y «Reintentar», sin datos del perfil (${ev.map((e) => e.event_name).join(", ")})`);
+    ok(p.errores.length === 0, `SES-b: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SES-b2) «Completa tu perfil» con la lectura fallando: no tapa la tienda con un formulario vacío.
+  {
+    const estado = { filas: [{ ...fila }], guardados: [], perfil401: 1e9 };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await esperar(p, () => (estado.lecturasPerfil ?? 0) >= 2);
+    await p.waitForTimeout(1500);
+    ok((await p.locator("#perfil-obligatorio").count()) === 0 && escrituras(estado) === 0, "SES: con la lectura fallando no sale «Completa tu perfil» vacío ni se guarda nada");
+    await ctx.close();
+  }
+
+  // SES-c) Tras un SIGNED_IN (como al volver a entrar), se vuelve a leer el perfil y salen los datos nuevos.
+  {
+    const estado = { filas: [{ ...fila }], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(2600);
+    const antes = estado.lecturasPerfil ?? 0;
+    estado.filas = [{ ...fila, usuario: "ana_nueva" }];
+    await p.evaluate(async () => {
+      const c = globalThis.__videojuegoos_supabase__;
+      const { data } = await c.auth.getSession();
+      await c.auth._notifyAllSubscribers("SIGNED_IN", data.session, false);
+    });
+    await esperar(p, () => (estado.lecturasPerfil ?? 0) > antes);
+    await p.waitForTimeout(500);
+    ok((estado.lecturasPerfil ?? 0) > antes && /@ana_nueva/.test(await cabecera(p)), `SES: tras SIGNED_IN se vuelve a leer el perfil (${antes} → ${estado.lecturasPerfil ?? 0}; ${await cabecera(p)})`);
+    ok(p.errores.length === 0, `SES-c: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SES-d) Volver a la pestaña con el token vencido: primero se renueva y después se pide el perfil (con lo escrito sin
+  // guardar, no se pisa).
+  {
+    const estado = { filas: [{ ...fila }], guardados: [], renovar: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(2600);
+    estado.orden = [];
+    await p.evaluate(() => {
+      const clave = "videojuegoos.supabase.auth";
+      const s = JSON.parse(localStorage.getItem(clave) ?? "{}");
+      s.expires_at = Math.floor(Date.now() / 1000) - 60;
+      localStorage.setItem(clave, JSON.stringify(s));
+      document.dispatchEvent(new Event("visibilitychange", { bubbles: true }));
+    });
+    await esperar(p, () => estado.orden.includes("perfil"));
+    const iR = estado.orden.indexOf("renovar");
+    const iP = estado.orden.indexOf("perfil");
+    ok(iP >= 0 && iR >= 0 && iR < iP, `SES: al volver a la pestaña con el token vencido, se renueva ANTES de pedir el perfil (${estado.orden.join(" → ") || "nada"})`);
+    // Con cambios sin guardar, volver no los pisa.
+    await p.locator("#perfil-cabecera").click().catch(() => {});
+    await p.waitForTimeout(300);
+    await p.locator('#perfil-datos [aria-label="Nombre"]').fill("Ana Escribiendo").catch(() => {});
+    await p.waitForTimeout(2300);
+    const antes = estado.lecturasPerfil ?? 0;
+    await p.evaluate(() => document.dispatchEvent(new Event("visibilitychange", { bubbles: true })));
+    await esperar(p, () => (estado.lecturasPerfil ?? 0) > antes, 12);
+    await p.waitForTimeout(400);
+    ok((await p.locator('#perfil-datos [aria-label="Nombre"]').inputValue().catch(() => "")) === "Ana Escribiendo", "SES: volver a la pestaña no pisa lo que se estaba escribiendo");
+    ok(p.errores.length === 0, `SES-d: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 // ===== CAMPOS16) Todo recuadro donde sale el teclado (input, textarea, contenteditable) lleva letra de 16 px o más (con menos,
 // Safari del iPhone hace zoom al tocarlo; constants/theme.ts: CAMPO.letra). Recorre cliente (sin y con sesión) y Administración,
 // con los formularios que se pueden abrir con un toque. Lista los que fallen con su selector. ===================================
@@ -13117,6 +13274,7 @@ async function seccionCAMPOS16() {
 const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "CAMPOS16") await seccionCAMPOS16();
+  if (SOLO === "SES") await seccionSES();
   if (SOLO === "TEL") await seccionTEL();
   if (SOLO === "TM5") await seccionTM5();
   if (SOLO === "TM4") await seccionTM4();
@@ -14201,6 +14359,7 @@ try {
   await seccionTM4();
   await seccionTM5();
   await seccionTEL();
+  await seccionSES();
   await seccionCAMPOS16();
   }
 } catch (e) {
