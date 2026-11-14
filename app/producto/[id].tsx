@@ -6,10 +6,12 @@
  * añadirlo a la cesta, ir a checkout, preguntar por este producto,
  * compartir la ficha o darle "me gusta".
  *
- * Dudas: el botón "Preguntar por este producto" abre Blue IA con
- * ?producto=<id>; desde ahí, "Hablar con el equipo" (abrirChatEquipo en components/ProductChatThread.tsx) crea o
- * reutiliza el chat privado de (este producto, este cliente) con
- * get_or_create_product_chat, para que Jefe lo vea en app/admin/chats.tsx.
+ * Dudas (mejora 10 «Chat con el producto adjunto», 2026-11-15): «Preguntar por este artículo» abre directamente el chat
+ * de la tienda de (este producto, este cliente) —el que ya hay o uno nuevo, get_or_create_product_chat no duplica— con la
+ * tarjeta del producto arriba y preguntas sugeridas (abrirChatProducto en components/ProductChatThread.tsx); Jefe lo ve
+ * en app/admin/chats.tsx. Sin cuenta (PreguntarArticulo): explica la ventaja y ofrece «Crear cuenta gratis» / «Entrar»;
+ * al entrar vuelve aquí con ?chat=1 y abre el chat. Se mide chat_producto_invitacion (solo el producto). Antes abría Blue
+ * IA con ?producto=<id> (Blue sigue pudiendo pasar al equipo con «Hablar con el equipo»).
  *
  * Cómo funciona: fetchProductRow() trae el producto y su categoría en una
  * sola consulta (join categories). pickInitialHeroImage() elige la foto de portada. detectAdmin() decide si
@@ -158,6 +160,7 @@ import CabeceraMarca from "../../components/CabeceraMarca";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { BotonComparar, CompletaTuCompra, ProductosParecidos, registrarVisto, useAlturaBarraComparar } from "../../components/CategoryProductsShelf";
+import { abrirChatProducto } from "../../components/ProductChatThread";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -660,7 +663,8 @@ export default function ProductoScreen() {
   const alturaBarraComparar = useAlturaBarraComparar();
 
   // ?guia=1: la guía de Blue (components/Campanita.tsx) enseña esta ficha; esa demostración no cuenta como visita.
-  const params = useLocalSearchParams<{ id?: string; guia?: string }>();
+  // ?chat=1: vuelve de crear la cuenta o entrar desde «Preguntar por este artículo» y abre el chat (PreguntarArticulo).
+  const params = useLocalSearchParams<{ id?: string; guia?: string; chat?: string }>();
   const productId = typeof params.id === "string" ? params.id : "";
 
   const [loading, setLoading] = useState(true);
@@ -1153,13 +1157,6 @@ export default function ProductoScreen() {
     } finally {
       setCartBusy(false);
     }
-  }
-
-  // Las dudas van primero a Blue IA con el producto como contexto; desde ahí
-  // el cliente puede pasar al chat con el equipo.
-  function handleAskBlue() {
-    if (!p) return;
-    pushRoute(`/blue-ia?producto=${encodeURIComponent(p.id)}` as Href);
   }
 
   async function toggleLike() {
@@ -1782,29 +1779,9 @@ export default function ProductoScreen() {
                     </Text>
                   </Pressable>
 
-                  {/* Dudas: primero Blue IA con el producto como contexto; desde ahí, el equipo. */}
-                  <Pressable
-                    onPress={handleAskBlue}
-                    accessibilityRole="button"
-                    accessibilityLabel="Preguntar por este producto"
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.88 : 1,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 7,
-                      minHeight: 44,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                      backgroundColor: "#FFFFFF",
-                    })}
-                  >
-                    <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>
-                      Preguntar por este producto
-                    </Text>
-                  </Pressable>
+                  {/* Dudas (mejora 10): el chat de la tienda con este artículo adjunto; sin cuenta, invita a crearla. */}
+                  <PreguntarArticulo productId={p.id} abrirAlEntrar={params.chat === "1"} />
+
 
                   {/* «Avísame si baja de precio» (solo con cuenta): en lo que se puede comprar. */}
                   {p.status === "PUBLICADA" && p.isActive ? <AvisoPrecioFicha productId={p.id} precio={p.priceEUR} /> : null}
@@ -1879,6 +1856,110 @@ export default function ProductoScreen() {
 // aviso en avisos_precio. Sin cuenta: al tocarlo explica la ventaja y lleva a crear la cuenta (y de vuelta a esta ficha).
 // Sin la migración o con la lectura fallida no sale nada: nunca un «desactivado» que no se sabe.
 const VOLVER_TRAS_ACCESO_FICHA_KEY = "videojuegoszaragoza:volver_tras_acceso";
+
+// --- «Preguntar por este artículo» (mejora 10, aprobada por el dueño el 2026-11-15) --------------------------------------
+// Con cuenta: abre el chat de la tienda de este producto (el que ya hay o uno nuevo) con la tarjeta del artículo arriba.
+// Sin cuenta: explica la ventaja («te contestamos aquí y te avisamos») con «Crear cuenta gratis» y «Entrar»; al entrar vuelve
+// a esta ficha con ?chat=1 (perfil.tsx, volver_tras_acceso) y abre el chat solo (abrirAlEntrar), una vez.
+function PreguntarArticulo({ productId, abrirAlEntrar }: { productId: string; abrirAlEntrar: boolean }) {
+  const [abriendo, setAbriendo] = useState(false);
+  const [invitacion, setInvitacion] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const abiertoAlEntrar = useRef(false);
+
+  const preguntar = useCallback(async () => {
+    if (abriendo) return;
+    setAbriendo(true);
+    setError(null);
+    try {
+      const r = await abrirChatProducto(productId);
+      if (r === "login") {
+        setInvitacion(true);
+        void trackEvent("chat_producto_invitacion", "Ficha: preguntar por el artículo sin cuenta", { path: `/producto/${productId}`, metadata: { productId } });
+      }
+    } catch {
+      setError("No se ha podido abrir el chat. Inténtalo de nuevo.");
+    } finally {
+      setAbriendo(false);
+    }
+  }, [abriendo, productId]);
+
+  // Vuelta tras crear la cuenta o entrar: abre el chat (si de verdad hay sesión) y quita ?chat=1 para no repetirlo.
+  useEffect(() => {
+    if (!abrirAlEntrar || abiertoAlEntrar.current) return;
+    abiertoAlEntrar.current = true;
+    router.setParams({ chat: undefined } as never);
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.user) void preguntar();
+    });
+  }, [abrirAlEntrar, preguntar]);
+
+  const irAcceso = useCallback(
+    (modo: "registro" | "entrar") => {
+      marcarOrigenRegistro("chat_producto");
+      AsyncStorage.setItem(VOLVER_TRAS_ACCESO_FICHA_KEY, JSON.stringify({ ruta: `/producto/${productId}?chat=1`, hasta: Date.now() + 30 * 60_000 })).catch(() => {});
+      pushRoute(`/perfil?acceso=${modo}` as Href);
+    },
+    [productId]
+  );
+
+  return (
+    <View style={{ gap: 8 }}>
+      <Pressable
+        nativeID="ficha-preguntar"
+        onPress={preguntar}
+        disabled={abriendo}
+        accessibilityRole="button"
+        accessibilityLabel="Preguntar por este artículo"
+        style={({ pressed }) => ({
+          opacity: pressed || abriendo ? 0.88 : 1,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 7,
+          minHeight: 44,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          backgroundColor: "#FFFFFF",
+        })}
+      >
+        {abriendo ? <ActivityIndicator size="small" color={COLORS.accent} /> : <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />}
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>Preguntar por este artículo</Text>
+      </Pressable>
+      {error ? (
+        <Text accessibilityRole="alert" style={{ color: "#B91C1C", fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+          {error}
+        </Text>
+      ) : null}
+      {invitacion ? (
+        <View nativeID="ficha-chat-invitacion" style={{ alignItems: "center", gap: 8, borderRadius: 16, backgroundColor: COLORS.bg2, padding: 12 }}>
+          <Text style={{ color: COLORES_TEXTO.texto, fontSize: TAMANOS.minimo, lineHeight: 19, textAlign: "center" }}>
+            Pregunta con tu cuenta gratis: te contestamos aquí, con el artículo adjunto, y te avisamos cuando respondamos.
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: TACTIL.separacion }}>
+            <Pressable
+              nativeID="ficha-chat-crear-cuenta"
+              onPress={() => irAcceso("registro")}
+              accessibilityRole="button"
+              style={({ pressed }) => ({ minHeight: TACTIL.minimo, justifyContent: "center", paddingHorizontal: 20, borderRadius: 999, backgroundColor: COLORS.accentDark, opacity: pressed ? 0.85 : 1 })}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>Crear cuenta gratis</Text>
+            </Pressable>
+            <Pressable
+              nativeID="ficha-chat-entrar"
+              onPress={() => irAcceso("entrar")}
+              accessibilityRole="button"
+              style={({ pressed }) => ({ minHeight: TACTIL.minimo, justifyContent: "center", paddingHorizontal: 20, borderRadius: 999, borderWidth: 1.5, borderColor: COLORS.accent, backgroundColor: "#FFFFFF", opacity: pressed ? 0.85 : 1 })}
+            >
+              <Text style={{ color: colorTextoAzul(14), fontWeight: "900", fontSize: 14 }}>Entrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 function AvisoPrecioFicha({ productId, precio }: { productId: string; precio: number }) {
   // "cargando" | "sin_cuenta" | "no" (sin migración o error de lectura: no se ofrece) | "listo"

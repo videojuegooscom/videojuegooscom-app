@@ -41,6 +41,15 @@
  *   función, y avisa al padre (prop onDeleted) para que salga de la
  *   pantalla o refresque su lista.
  *
+ * - Chat con el producto adjunto (mejora 10, 2026-11-15): en las conversaciones de un producto, una TARJETA fijada
+ *   arriba del hilo (TarjetaArticuloChat: foto pequeña, título, precio actual y estado a la venta / vendido / retirado
+ *   con cargarArticulosChat). El cliente tiene «Ver el artículo» (mientras esté a la venta) y, hasta que escribe, chips de
+ *   44 px con primeras preguntas (SUGERENCIAS_CHAT_PRODUCTO) que rellenan el campo sin enviarlo; el administrador, «Ver la
+ *   ficha» y «Editar en Productos» (/admin/products?editar=<id>). abrirChatProducto lo abre desde la ficha. Analítica
+ *   propia sin datos de nadie ni el texto: chat_producto_abierto, chat_producto_sugerencia (cuál), chat_producto_enviado
+ *   (primera o no; Administración → Analítica, «Preguntas por artículos»). Sin migración: product_chats ya era una fila
+ *   por (producto, cliente).
+ *
  * Conectado con:
  * - lib/supabase.ts → sesión, lectura/envío de mensajes, tiempo real.
  * - sql/product_chats.sql → tablas y función get_or_create_product_chat
@@ -68,10 +77,145 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
+import { trackEvent } from "../lib/analytics";
+import { fmtEUR } from "../lib/admin/products.utils";
+import SmartImage from "./SmartImage";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 
 // Título de las conversaciones sin producto ni venta (chat general con la tienda).
 export const TITULO_ATENCION_CLIENTE = "Atención al cliente";
+
+// --- Chat con el producto adjunto (mejora 10, 2026-11-15) ------------------------------------------------------------
+// Primeras preguntas sugeridas (chips de 44 px): rellenan el campo, nunca se envían solas. Sin «¿Puedo verlo en persona?»:
+// la tienda es solo online (sin tienda física), así que se pregunta por la garantía.
+export const SUGERENCIAS_CHAT_PRODUCTO = ["¿Sigue disponible?", "¿En qué estado está?", "¿Hacéis envíos a mi zona?", "¿Tiene garantía?"] as const;
+
+export type EstadoArticulo = "venta" | "vendido" | "retirado";
+export const ETIQUETA_ESTADO_ARTICULO: Record<EstadoArticulo, string> = { venta: "A la venta", vendido: "Vendido", retirado: "Retirado" };
+
+export type ArticuloChat = {
+  id: string;
+  /** null: el cliente ya no lo puede leer (retirado o vendido: la política solo enseña lo publicado). */
+  titulo: string | null;
+  precio: number | null;
+  foto: string | null;
+  estado: EstadoArticulo;
+};
+
+/**
+ * Producto de una o varias conversaciones, con su estado: «vendido» si tiene una venta registrada (product_sales, que
+ * se lee en público), «a la venta» si está publicado y visible, y si no, «retirado». Para el cliente, lo que ya no está
+ * publicado no llega (RLS de products): sale sin título y como retirado, o como vendido si consta la venta.
+ */
+export async function cargarArticulosChat(ids: string[]): Promise<Map<string, ArticuloChat>> {
+  const unicos = Array.from(new Set(ids.filter(Boolean)));
+  const mapa = new Map<string, ArticuloChat>();
+  if (!unicos.length) return mapa;
+  const [prods, fotos, ventas] = await Promise.all([
+    supabase.from("products").select("id,title,images,price_eur,status,is_active").in("id", unicos),
+    supabase
+      .from("product_media")
+      .select("product_id,public_url,is_cover,sort_order")
+      .in("product_id", unicos)
+      .eq("kind", "image")
+      // Solo la portada (marcada o la primera), no las filas de todas las fotos (hasta 30 por producto).
+      .or("is_cover.eq.true,sort_order.eq.0")
+      .order("is_cover", { ascending: false })
+      .order("sort_order", { ascending: true }),
+    supabase.from("product_sales").select("product_id").in("product_id", unicos),
+  ]);
+  type FilaProducto = { id: string; title: string | null; images: string[] | null; price_eur: unknown; status: string | null; is_active: boolean | null };
+  const porId = new Map(((prods.error ? [] : prods.data) ?? []).map((f) => [String((f as FilaProducto).id), f as FilaProducto]));
+  const portada = new Map<string, string>();
+  for (const f of ((fotos.error ? [] : fotos.data) ?? []) as { product_id: string; public_url: string | null }[]) {
+    if (f.public_url && !portada.has(f.product_id)) portada.set(f.product_id, f.public_url);
+  }
+  const vendidos = new Set(((ventas.error ? [] : ventas.data) ?? []).map((f) => String((f as { product_id: string }).product_id)));
+  for (const id of unicos) {
+    const f = porId.get(id);
+    const precio = f && Number.isFinite(Number(f.price_eur)) ? Number(f.price_eur) : null;
+    const estado: EstadoArticulo = vendidos.has(id) ? "vendido" : f && f.status === "PUBLISHED" && f.is_active ? "venta" : "retirado";
+    mapa.set(id, { id, titulo: f?.title ?? null, precio, foto: portada.get(id) ?? f?.images?.[0] ?? null, estado });
+  }
+  return mapa;
+}
+
+const COLOR_ESTADO: Record<EstadoArticulo, { fondo: string; texto: string }> = {
+  venta: { fondo: "#DCFCE7", texto: "#166534" },
+  vendido: { fondo: "#EEF3F8", texto: "#0B2138" },
+  retirado: { fondo: "#FFF1F0", texto: "#9F1239" },
+};
+
+export function EtiquetaEstadoArticulo({ estado, nativeID }: { estado: EstadoArticulo; nativeID?: string }) {
+  const c = COLOR_ESTADO[estado];
+  return (
+    <View nativeID={nativeID} style={{ alignSelf: "flex-start", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: c.fondo }}>
+      <Text style={{ color: c.texto, fontWeight: "800", fontSize: TAMANOS.minimo }}>{ETIQUETA_ESTADO_ARTICULO[estado]}</Text>
+    </View>
+  );
+}
+
+function EnlaceTarjeta({ nativeID, texto, icono, onPress }: { nativeID: string; texto: string; icono: React.ComponentProps<typeof Ionicons>["name"]; onPress: () => void }) {
+  return (
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      accessibilityRole="link"
+      style={({ pressed }) => ({ minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", gap: 4, paddingRight: 4, opacity: pressed ? 0.7 : 1 })}
+    >
+      <Ionicons name={icono} size={15} color={COLORES_TEXTO.azulTexto} />
+      <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "800", fontSize: TAMANOS.minimo }}>{texto}</Text>
+    </Pressable>
+  );
+}
+
+/**
+ * Tarjeta del producto fijada arriba del hilo (y en Administración → Chats): foto pequeña, título, precio actual y estado.
+ * El cliente tiene «Ver el artículo» mientras está a la venta; el administrador, la ficha y «Editar en Productos».
+ */
+export function TarjetaArticuloChat({ articulo, modo, nativeID = "chat-producto-tarjeta" }: { articulo: ArticuloChat; modo: "cliente" | "admin"; nativeID?: string }) {
+  const verFicha = () => router.push(`/producto/${articulo.id}` as never);
+  const enVenta = articulo.estado === "venta";
+  return (
+    <View nativeID={nativeID} style={{ width: "100%", maxWidth: 640, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: "#E3EAF2", backgroundColor: "#FFFFFF" }}>
+      {articulo.foto ? (
+        <SmartImage uri={articulo.foto} ancho={56} alt={articulo.titulo ?? "Artículo"} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: "#F6FAFD" }} />
+      ) : (
+        <View style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: "#F6FAFD", alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="cube-outline" size={20} color={COLORES_TEXTO.secundario} />
+        </View>
+      )}
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+        <Text nativeID={`${nativeID}-titulo`} numberOfLines={2} style={{ color: COLORES_TEXTO.texto, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 20 }}>
+          {articulo.titulo ?? "Este artículo ya no está a la venta"}
+        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 8, rowGap: 2 }}>
+          {articulo.precio !== null && articulo.titulo ? (
+            <Text nativeID={`${nativeID}-precio`} style={{ color: COLORES_TEXTO.texto, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>
+              {fmtEUR(articulo.precio)}
+            </Text>
+          ) : null}
+          {modo === "admin" || !enVenta ? <EtiquetaEstadoArticulo estado={articulo.estado} nativeID={`${nativeID}-estado`} /> : null}
+        </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 14, marginBottom: -10, marginTop: -4 }}>
+          {modo === "cliente" ? (
+            enVenta ? <EnlaceTarjeta nativeID={`${nativeID}-ver`} texto="Ver el artículo" icono="open-outline" onPress={verFicha} /> : null
+          ) : (
+            <>
+              <EnlaceTarjeta nativeID={`${nativeID}-ver`} texto="Ver la ficha" icono="open-outline" onPress={verFicha} />
+              <EnlaceTarjeta
+                nativeID={`${nativeID}-editar`}
+                texto="Editar en Productos"
+                icono="create-outline"
+                onPress={() => router.push({ pathname: "/admin/products", params: { editar: articulo.id } } as never)}
+              />
+            </>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
 
 const RESUMEN_MAX = 1200;
 
@@ -141,6 +285,17 @@ export async function abrirChatEquipo({
   return "ok";
 }
 
+/**
+ * «Preguntar por este artículo» (ficha del producto): abre la conversación de (este producto, este cliente) —la que ya
+ * hay o una nueva: get_or_create_product_chat nunca la duplica— y lo mide como chat_producto_abierto (solo el producto).
+ * Devuelve "login" sin sesión (la ficha invita a crear la cuenta).
+ */
+export async function abrirChatProducto(productId: string): Promise<"ok" | "login"> {
+  const r = await abrirChatEquipo({ productId });
+  if (r === "ok") void trackEvent("chat_producto_abierto", "Chat con el producto: abierto", { path: `/producto/${productId}`, metadata: { productId } });
+  return r;
+}
+
 const COLORS = {
   bg: "#FFFFFF",
   bg2: "#F4F9FD",
@@ -184,17 +339,24 @@ function AnimatedPressable({
   disabled,
   style,
   children,
+  etiqueta,
+  nativeID,
 }: {
   onPress?: () => void;
   disabled?: boolean;
   style?: any;
   children?: React.ReactNode;
+  etiqueta?: string;
+  nativeID?: string;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      nativeID={nativeID}
+      accessibilityRole="button"
+      accessibilityLabel={etiqueta}
       onPressIn={() => Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 50, bounciness: 6 }).start()}
       onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 6 }).start()}
     >
@@ -222,6 +384,13 @@ export default function ProductChatThread({
 }) {
   const [meId, setMeId] = useState<string | null>(null);
   const [product, setProduct] = useState<ProductInfo | null>(null);
+  // Chat con el producto adjunto: la tarjeta de arriba y si quien mira es el cliente dueño de la conversación (chips y analítica).
+  const [articulo, setArticulo] = useState<ArticuloChat | null>(null);
+  const [soyCliente, setSoyCliente] = useState(false);
+  // Ya ha preguntado en esta visita (los mensajes nuevos llegan por tiempo real; los chips se van al enviar).
+  const [yaPregunto, setYaPregunto] = useState(false);
+  const sugerenciaUsada = useRef<string | null>(null);
+  const campoRef = useRef<TextInput>(null);
   const [sellArticulo, setSellArticulo] = useState<string | null>(null);
   const [chatKind, setChatKind] = useState<ChatKind | null>(null);
   const [customerName, setCustomerName] = useState<string>("Cliente");
@@ -237,7 +406,8 @@ export default function ProductChatThread({
     setLoading(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      setMeId(sessionData.session?.user?.id ?? null);
+      const yo = sessionData.session?.user?.id ?? null;
+      setMeId(yo);
 
       const { data: chatRow } = await supabase
         .from("product_chats")
@@ -250,28 +420,19 @@ export default function ProductChatThread({
           customer_user_id: string;
         }>();
 
+      setSoyCliente(!!yo && chatRow?.customer_user_id === yo);
+      // Otra conversación en el mismo hilo (Administración → Chat): nada de la anterior.
+      setYaPregunto(false);
+      sugerenciaUsada.current = null;
+      if (!chatRow?.product_id) setArticulo(null);
+
       if (chatRow?.product_id) {
         setChatKind("product");
 
-        const { data: productRow } = await supabase
-          .from("products")
-          .select("title,images")
-          .eq("id", chatRow.product_id)
-          .maybeSingle<{ title: string; images: string[] | null }>();
-
-        let cover: string | null = productRow?.images?.[0] ?? null;
-        const { data: mediaRow } = await supabase
-          .from("product_media")
-          .select("public_url")
-          .eq("product_id", chatRow.product_id)
-          .eq("kind", "image")
-          .order("is_cover", { ascending: false })
-          .order("sort_order", { ascending: true })
-          .limit(1)
-          .maybeSingle<{ public_url: string }>();
-        if (mediaRow?.public_url) cover = mediaRow.public_url;
-
-        setProduct({ title: productRow?.title ?? "Producto", imageUrl: cover });
+        // Producto adjunto: foto, título, precio actual y estado (a la venta / vendido / retirado).
+        const art = (await cargarArticulosChat([chatRow.product_id])).get(chatRow.product_id) ?? null;
+        setArticulo(art);
+        setProduct({ title: art?.titulo ?? "Producto", imageUrl: art?.foto ?? null });
       } else if (chatRow?.sell_request_id) {
         setChatKind("sell");
 
@@ -354,6 +515,17 @@ export default function ProductChatThread({
     if (!loading) requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   }, [messages.length, loading]);
 
+  // ¿El cliente ya ha escrito en esta conversación? Mientras no, se le sugieren primeras preguntas.
+  const yaPreguntoAntes = yaPregunto || messages.some((m) => m.sender_role === "customer");
+  const conSugerencias = chatKind === "product" && soyCliente && !!articulo && !yaPreguntoAntes;
+
+  function usarSugerencia(texto: string) {
+    setDraft(texto);
+    sugerenciaUsada.current = texto;
+    campoRef.current?.focus();
+    if (articulo) void trackEvent("chat_producto_sugerencia", `Chat con el producto: sugerencia «${texto}»`, { path: `/producto/${articulo.id}`, metadata: { productId: articulo.id, sugerencia: texto } });
+  }
+
   async function handleSend() {
     const body = draft.trim();
     if (!body || sending) return;
@@ -363,6 +535,15 @@ export default function ProductChatThread({
       const { error } = await supabase.from("product_chat_messages").insert({ chat_id: chatId, body });
       if (error) throw error;
       setDraft("");
+      // Pregunta por un artículo (solo el cliente; nunca el texto): si era la primera y si salió de una sugerencia.
+      if (chatKind === "product" && soyCliente && articulo) {
+        void trackEvent("chat_producto_enviado", "Chat con el producto: mensaje enviado", {
+          path: `/producto/${articulo.id}`,
+          metadata: { productId: articulo.id, primera: !yaPreguntoAntes, sugerencia: sugerenciaUsada.current !== null && sugerenciaUsada.current === body },
+        });
+        sugerenciaUsada.current = null;
+        setYaPregunto(true);
+      }
     } catch {
       // Se deja el texto escrito para que la persona pueda reintentar.
     } finally {
@@ -373,8 +554,10 @@ export default function ProductChatThread({
   const headerTitle = useMemo(() => {
     if (chatKind === "sell") return sellArticulo ? `Venta: ${sellArticulo}` : "Venta de un artículo";
     if (chatKind === "support") return TITULO_ATENCION_CLIENTE;
+    // Con la tarjeta del producto arriba, la cabecera no repite el título.
+    if (chatKind === "product" && articulo) return "Pregunta por un artículo";
     return product?.title ?? "Conversación";
-  }, [chatKind, sellArticulo, product]);
+  }, [chatKind, sellArticulo, product, articulo]);
 
   async function handleDeleteChat() {
     if (deleting) return;
@@ -407,7 +590,7 @@ export default function ProductChatThread({
           backgroundColor: COLORS.bg2,
         }}
       >
-        {product?.imageUrl ? (
+        {product?.imageUrl && !articulo ? (
           <Image
             source={{ uri: product.imageUrl }}
             style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: COLORS.card }}
@@ -427,7 +610,7 @@ export default function ProductChatThread({
               name={
                 chatKind === "sell"
                   ? "pricetag-outline"
-                  : chatKind === "support"
+                  : chatKind === "support" || articulo
                     ? "chatbubble-ellipses-outline"
                     : "cube-outline"
               }
@@ -442,7 +625,8 @@ export default function ProductChatThread({
             {headerTitle}
           </Text>
           <Text numberOfLines={1} style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
-            Con {customerName}
+            {/* El cliente habla con la tienda (no «Con» su propio nombre). */}
+            {soyCliente ? "Con el equipo de la tienda" : `Con ${customerName}`}
           </Text>
         </View>
 
@@ -516,6 +700,13 @@ export default function ProductChatThread({
         </View>
       ) : null}
 
+      {/* Producto adjunto, fijado arriba del hilo (no se desplaza con los mensajes). */}
+      {chatKind === "product" && articulo ? (
+        <View style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 2, backgroundColor: COLORS.bg }}>
+          <TarjetaArticuloChat articulo={articulo} modo={soyCliente ? "cliente" : "admin"} />
+        </View>
+      ) : null}
+
       {bajoCabecera}
 
       {loading ? (
@@ -525,8 +716,10 @@ export default function ProductChatThread({
       ) : (
         <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 14, gap: 8 }}>
           {messages.length === 0 ? (
-            <Text style={{ color: COLORS.muted, textAlign: "center", marginTop: 20 }}>
-              Todavía no hay mensajes. Escribe el primero.
+            <Text nativeID="chat-vacio" style={{ color: COLORS.muted, textAlign: "center", marginTop: 20, lineHeight: 20 }}>
+              {conSugerencias
+                ? "Pregúntanos lo que quieras de este artículo: te contestamos aquí y te avisamos cuando respondamos."
+                : "Todavía no hay mensajes. Escribe el primero."}
             </Text>
           ) : (
             messages.map((m) => {
@@ -567,6 +760,35 @@ export default function ProductChatThread({
         </ScrollView>
       )}
 
+      {/* Primeras preguntas sugeridas: rellenan el campo (no se envían solas); se van en cuanto el cliente pregunta. */}
+      {conSugerencias && !loading ? (
+        <View nativeID="chat-producto-sugerencias" style={{ paddingHorizontal: 12, paddingTop: 8, gap: 6, borderTopWidth: 1, borderTopColor: COLORS.border }}>
+          <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700" }}>Preguntas rápidas</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+            {SUGERENCIAS_CHAT_PRODUCTO.map((s) => (
+              <Pressable
+                key={s}
+                onPress={() => usarSugerencia(s)}
+                accessibilityRole="button"
+                accessibilityLabel={`Usar la pregunta ${s}`}
+                style={({ pressed }) => ({
+                  minHeight: TACTIL.minimo,
+                  justifyContent: "center",
+                  paddingHorizontal: 14,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: draft === s ? COLORS.accent : COLORS.accentBorder,
+                  backgroundColor: draft === s ? COLORS.accent2 : "#FFFFFF",
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>{s}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null}
+
       <View
         style={{
           flexDirection: "row",
@@ -579,9 +801,12 @@ export default function ProductChatThread({
         }}
       >
         <TextInput
+          ref={campoRef}
+          nativeID="chat-campo"
           value={draft}
           onChangeText={(t) => setDraft(t.slice(0, MESSAGE_MAX))}
-          placeholder="Escribe un mensaje…"
+          accessibilityLabel="Escribe un mensaje"
+          placeholder={conSugerencias ? "Escribe tu pregunta…" : "Escribe un mensaje…"}
           placeholderTextColor="rgba(11,33,56,0.40)"
           multiline
           style={{
@@ -607,6 +832,8 @@ export default function ProductChatThread({
         />
 
         <AnimatedPressable
+          nativeID="chat-enviar"
+          etiqueta="Enviar mensaje"
           onPress={handleSend}
           disabled={!draft.trim() || sending}
           style={{

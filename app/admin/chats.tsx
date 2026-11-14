@@ -56,9 +56,13 @@
  *   administrador; el cliente ve el mensaje en su chat y Campanita/Blue le avisan (get_unread_chat_count: último mensaje del
  *   administrador sin leer).
  *
+ * - Chat con el producto adjunto (mejora 10, 2026-11-15): cada producto de la lista lleva su tarjeta (TarjetaArticuloChat
+ *   de components/ProductChatThread.tsx: foto, título, precio actual y estado a la venta / vendido / retirado, con «Ver la
+ *   ficha» y «Editar en Productos»), también fijada arriba del hilo abierto. Filtro «Todas» / «Con producto».
+ *
  * Conectado con:
  * - sql/product_chats.sql → product_chats, product_chat_messages.
- * - app/admin/cliente/[userId].tsx → «Escribir por el chat» (?chat=).
+ * - app/admin/cliente/[userId].tsx → «Escribir por el chat» (?chat=) y sus preguntas por artículos.
  * - sql/product_sales.sql → marcar como vendido.
  * - sql/admin_users_by_ids.sql → nombre real del cliente en la lista.
  * - components/ProductChatThread.tsx → el hilo de mensajes en sí.
@@ -73,7 +77,6 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Image,
   Pressable,
   ScrollView,
   StatusBar,
@@ -87,7 +90,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
-import ProductChatThread, { TITULO_ATENCION_CLIENTE } from "../../components/ProductChatThread";
+import ProductChatThread, { cargarArticulosChat, TarjetaArticuloChat, TITULO_ATENCION_CLIENTE, type ArticuloChat } from "../../components/ProductChatThread";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
@@ -135,6 +138,8 @@ type ProductGroup = {
   product_image: string | null;
   // Precio del artículo: rellena el importe al asignarle el seguimiento de un pedido.
   product_price: number | null;
+  // Tarjeta del producto (mejora 10): foto, título, precio y estado, con enlace a la ficha y a editar en Productos.
+  articulo: ArticuloChat;
   chats: ChatRow[];
 };
 
@@ -586,23 +591,14 @@ export default function AdminChats() {
       const customerIds = Array.from(new Set(chatRows.map((c) => c.customer_user_id)));
 
       const [
-        { data: products },
-        { data: media },
+        articulos,
         { data: sellRequests },
         { data: firstMsgs },
         { data: sales },
         { data: realUsers },
       ] = await Promise.all([
-        supabase.from("products").select("id,title,images,price_eur").in("id", productIds),
-        supabase
-          .from("product_media")
-          .select("product_id,public_url,is_cover,sort_order")
-          .in("product_id", productIds)
-          .eq("kind", "image")
-          // Solo la portada (marcada o la primera), no las filas de todas las fotos (hasta 30 por producto).
-          .or("is_cover.eq.true,sort_order.eq.0")
-          .order("is_cover", { ascending: false })
-          .order("sort_order", { ascending: true }),
+        // Producto adjunto de cada conversación: foto, título, precio actual y estado (a la venta / vendido / retirado).
+        cargarArticulosChat(productIds),
         supabase.from("sell_requests").select("id,articulo").in("id", sellRequestIds),
         supabase
           .from("product_chat_messages")
@@ -620,17 +616,6 @@ export default function AdminChats() {
         ),
       ]);
 
-      const titleById: Record<string, string> = {};
-      const imageById: Record<string, string | null> = {};
-      const priceById: Record<string, number | null> = {};
-      for (const row of (products ?? []) as any[]) {
-        titleById[row.id] = row.title ?? "Producto";
-        imageById[row.id] = row.images?.[0] ?? null;
-        priceById[row.id] = Number.isFinite(Number(row.price_eur)) ? Number(row.price_eur) : null;
-      }
-      for (const row of (media ?? []) as any[]) {
-        if (!imageById[row.product_id]) imageById[row.product_id] = row.public_url;
-      }
 
       const articuloBySellRequest: Record<string, string> = {};
       for (const row of (sellRequests ?? []) as any[]) {
@@ -671,13 +656,15 @@ export default function AdminChats() {
         todasLasFilas.push(chatWithName);
 
         if (c.product_id) {
+          const art = articulos.get(c.product_id) ?? { id: c.product_id, titulo: null, precio: null, foto: null, estado: "retirado" as const };
           const group =
             byProduct[c.product_id] ??
             (byProduct[c.product_id] = {
               product_id: c.product_id,
-              product_title: titleById[c.product_id] ?? "Producto",
-              product_image: imageById[c.product_id] ?? null,
-              product_price: priceById[c.product_id] ?? null,
+              product_title: art.titulo ?? "Producto",
+              product_image: art.foto,
+              product_price: art.precio,
+              articulo: { ...art, titulo: art.titulo ?? "Producto" },
               chats: [],
             });
           group.chats.push(chatWithName);
@@ -740,6 +727,10 @@ export default function AdminChats() {
   useEffect(() => {
     load();
   }, [load, chatUrl]);
+
+  // Filtro de la lista (mejora 10): todas o solo las que tienen un producto adjunto.
+  const [filtro, setFiltro] = useState<"todas" | "producto">("todas");
+  const chatsConProducto = useMemo(() => groups.reduce((sum, g) => sum + g.chats.length, 0), [groups]);
 
   const totalChats = useMemo(
     () =>
@@ -812,6 +803,13 @@ export default function AdminChats() {
       keyboardShouldPersistTaps="handled"
     >
       <InvitarRegistro />
+      {/* Filtro (mejora 10): todas o solo las conversaciones con un producto adjunto. */}
+      {!loading && totalChats > 0 ? (
+        <View nativeID="chats-filtro" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+          <Chip activo={filtro === "todas"} texto={`Todas (${totalChats})`} onPress={() => setFiltro("todas")} />
+          <Chip activo={filtro === "producto"} texto={`Con producto (${chatsConProducto})`} onPress={() => setFiltro("producto")} />
+        </View>
+      ) : null}
       {loading ? (
         <View style={{ alignItems: "center", paddingVertical: 24 }}>
           <CargaMarca texto="Cargando conversaciones…" />
@@ -827,7 +825,12 @@ export default function AdminChats() {
         </View>
       ) : (
         <>
-          {supportChats.length > 0 ? (
+          {filtro === "producto" && groups.length === 0 ? (
+            <Text nativeID="chats-sin-producto" style={{ color: COLORS.muted, textAlign: "center", lineHeight: 19, paddingVertical: 12 }}>
+              Ninguna conversación con un producto todavía: salen cuando un cliente pulsa «Preguntar por este artículo» en una ficha.
+            </Text>
+          ) : null}
+          {supportChats.length > 0 && filtro === "todas" ? (
             <View
               style={{
                 borderRadius: 18,
@@ -903,7 +906,7 @@ export default function AdminChats() {
             </View>
           ) : null}
 
-          {sellGroups.length > 0 ? (
+          {sellGroups.length > 0 && filtro === "todas" ? (
             <View
               style={{
                 borderRadius: 18,
@@ -991,6 +994,7 @@ export default function AdminChats() {
           {groups.map((group) => (
           <View
             key={group.product_id}
+            nativeID={`chats-producto-${group.product_id}`}
             style={{
               borderRadius: 18,
               backgroundColor: COLORS.card,
@@ -998,33 +1002,11 @@ export default function AdminChats() {
               gap: 8,
             }}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              {group.product_image ? (
-                <Image
-                  source={{ uri: group.product_image }}
-                  style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: COLORS.cardSoft }}
-                />
-              ) : (
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 10,
-                    backgroundColor: COLORS.cardSoft,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Ionicons name="cube-outline" size={18} color={COLORS.muted} />
-                </View>
-              )}
-              <Text numberOfLines={1} style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
-                {group.product_title}
-              </Text>
-              <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
-                {group.chats.length} {group.chats.length === 1 ? "persona" : "personas"}
-              </Text>
-            </View>
+            {/* Tarjeta del producto: foto, título, precio, estado y enlaces a la ficha y a editar en Productos. */}
+            <TarjetaArticuloChat articulo={group.articulo} modo="admin" nativeID={`chats-tarjeta-${group.product_id}`} />
+            <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, textAlign: "right" }}>
+              {group.chats.length} {group.chats.length === 1 ? "persona pregunta" : "personas preguntan"}
+            </Text>
 
             <View style={{ gap: TACTIL.separacion }}>
               {group.chats.map((chat) => {

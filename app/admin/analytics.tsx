@@ -96,6 +96,11 @@
  * - «Vistos recientemente (30 días)» (#analitica-vistos, mejora 9 del 2026-11-14): eventos vistos_mostrado (n),
  *   visto_tocado (id y posición), visto_quitado y vistos_borrados de Inicio (components/CategoryProductsShelf.tsx →
  *   VistosRecientemente; solo ids); veces mostrado, toques, quitados/borrados y los 5 productos más revisitados.
+ * - «Preguntas por artículos (30 días)» (#analitica-chat-producto, mejora 10 «Chat con el producto adjunto» del
+ *   2026-11-15): eventos chat_producto_abierto (productId), chat_producto_sugerencia (qué pregunta sugerida),
+ *   chat_producto_enviado (primera o no) y chat_producto_invitacion (sin cuenta) de app/producto/[id].tsx y
+ *   components/ProductChatThread.tsx; conversaciones abiertas, preguntas sugeridas más usadas y los 5 productos por los que
+ *   más se pregunta. Solo ids de producto, nunca el texto de los mensajes.
  * - «Velocidad de la tienda (30 días)» (#analitica-velocidad, mejora 7 «Carga más rápida» del 2026-11-14): evento
  *   rendimiento_carga (lib/analytics.ts → medirCargaPantalla, una vez por visita: ms hasta la primera pantalla útil de
  *   Inicio, Catálogo o la ficha, ancho por tramos y tipo de conexión; sin datos de nadie). Mediana y percentil 75 por
@@ -1075,6 +1080,64 @@ export default function AdminAnalytics() {
         toques: toques.length,
         quitados: filas.filter((f) => f.event_name === "visto_quitado").length,
         borrados: filas.filter((f) => f.event_name === "vistos_borrados").length,
+        top: ids.map((id) => ({ id, titulo: titulos.get(id) ?? "Producto retirado", n: veces.get(id) ?? 0 })),
+      });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Preguntas por artículos (mejora 10, 2026-11-15): en 30 días, conversaciones abiertas desde «Preguntar por este
+  // artículo», mensajes enviados, invitaciones sin cuenta, las primeras preguntas sugeridas que más se usan y los productos
+  // por los que más se pregunta (ids de chat_producto_abierto; los títulos se piden aparte). Sin datos de nadie.
+  const [preguntasArticulos, setPreguntasArticulos] = useState<{
+    abiertos: number;
+    enviados: number;
+    primeras: number;
+    invitaciones: number;
+    sugerencias: { texto: string; n: number }[];
+    top: { id: string; titulo: string; n: number }[];
+  } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const NOMBRES = ["chat_producto_abierto", "chat_producto_sugerencia", "chat_producto_enviado", "chat_producto_invitacion"];
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data, error } = await supabase
+        .from("analytics_events")
+        .select("event_name, metadata")
+        .in("event_name", NOMBRES)
+        .gte("created_at", desde)
+        .limit(5000);
+      if (!vivo) return;
+      if (error || !Array.isArray(data)) {
+        setPreguntasArticulos(null);
+        return;
+      }
+      const filas = (data as { event_name: string; metadata: Record<string, unknown> | null }[]).filter((f) => NOMBRES.includes(f.event_name));
+      const abiertos = filas.filter((f) => f.event_name === "chat_producto_abierto");
+      const enviados = filas.filter((f) => f.event_name === "chat_producto_enviado");
+      const veces = new Map<string, number>();
+      for (const f of abiertos) if (typeof f.metadata?.productId === "string") veces.set(f.metadata.productId, (veces.get(f.metadata.productId) ?? 0) + 1);
+      const usos = new Map<string, number>();
+      for (const f of filas) {
+        if (f.event_name !== "chat_producto_sugerencia" || typeof f.metadata?.sugerencia !== "string") continue;
+        usos.set(f.metadata.sugerencia, (usos.get(f.metadata.sugerencia) ?? 0) + 1);
+      }
+      const ids = [...veces.keys()].sort((a, b) => (veces.get(b) ?? 0) - (veces.get(a) ?? 0)).slice(0, 5);
+      const titulos = new Map<string, string>();
+      if (ids.length) {
+        const { data: prods } = await supabase.from("products").select("id,title").in("id", ids);
+        for (const p of (prods ?? []) as { id: string; title: string }[]) titulos.set(p.id, p.title);
+      }
+      if (!vivo) return;
+      setPreguntasArticulos({
+        abiertos: abiertos.length,
+        enviados: enviados.length,
+        primeras: enviados.filter((f) => f.metadata?.primera === true).length,
+        invitaciones: filas.filter((f) => f.event_name === "chat_producto_invitacion").length,
+        sugerencias: [...usos.entries()].sort((a, b) => b[1] - a[1]).map(([texto, n]) => ({ texto, n })),
         top: ids.map((id) => ({ id, titulo: titulos.get(id) ?? "Producto retirado", n: veces.get(id) ?? 0 })),
       });
     })();
@@ -2361,6 +2424,55 @@ export default function AdminAnalytics() {
                     ) : (
                       vistosUso.top.map((f) => (
                         <View key={f.id} nativeID={`analitica-visto-${f.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700", flex: 1 }}>{f.titulo}</Text>
+                          <Text style={{ color: COLORES_TEXTO.azulTexto, fontSize: TAMANOS.minimo, fontWeight: "900" }}>
+                            {f.n} {f.n === 1 ? "vez" : "veces"}
+                          </Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Preguntas por artículos (30 días)"
+              subtitle="«Preguntar por este artículo» en la ficha abre el chat de la tienda con el producto adjunto: conversaciones abiertas, mensajes enviados (y cuántos fueron la primera pregunta), invitaciones a crear cuenta, las preguntas sugeridas más usadas y los productos por los que más se pregunta. Solo ids de producto, sin datos de nadie; solo visitantes que aceptaron la analítica."
+            >
+              {!preguntasArticulos ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se han podido cargar las preguntas por artículos.</Text>
+              ) : (
+                <View nativeID="analitica-chat-producto" style={{ gap: 10 }}>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="chatbubbles-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-chat-producto-uso" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Conversaciones abiertas {preguntasArticulos.abiertos} · mensajes enviados {preguntasArticulos.enviados} (primera pregunta{" "}
+                      {preguntasArticulos.primeras}) · sin cuenta, invitados a crearla {preguntasArticulos.invitaciones}
+                    </Text>
+                  </View>
+                  <View nativeID="analitica-chat-producto-sugerencias" style={{ gap: 6 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Primeras preguntas más usadas</Text>
+                    {preguntasArticulos.sugerencias.length === 0 ? (
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Aún nadie ha usado una pregunta sugerida.</Text>
+                    ) : (
+                      preguntasArticulos.sugerencias.map((f) => (
+                        <View key={f.texto} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700", flex: 1 }}>{f.texto}</Text>
+                          <Text style={{ color: COLORES_TEXTO.azulTexto, fontSize: TAMANOS.minimo, fontWeight: "900" }}>
+                            {f.n} {f.n === 1 ? "vez" : "veces"}
+                          </Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                  <View nativeID="analitica-chat-producto-top" style={{ gap: 6 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Por lo que más se pregunta</Text>
+                    {preguntasArticulos.top.length === 0 ? (
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Aún nadie ha preguntado por un artículo.</Text>
+                    ) : (
+                      preguntasArticulos.top.map((f) => (
+                        <View key={f.id} nativeID={`analitica-chat-producto-${f.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                           <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700", flex: 1 }}>{f.titulo}</Text>
                           <Text style={{ color: COLORES_TEXTO.azulTexto, fontSize: TAMANOS.minimo, fontWeight: "900" }}>
                             {f.n} {f.n === 1 ? "vez" : "veces"}

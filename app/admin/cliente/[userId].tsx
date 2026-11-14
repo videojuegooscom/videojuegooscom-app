@@ -124,6 +124,8 @@ import { ORIGENES_MEJORA, type OrigenMejora } from "../../../components/ReviewMo
 import { datosDeFila, direccionEnUnaLinea, direccionesDeFila, textoEtiqueta } from "../../../components/PerfilPublico";
 import { openExternalLink } from "../../../lib/openExternalLink";
 import { useGestoPestanas } from "../../../lib/admin/products.components";
+import { fmtEUR } from "../../../lib/admin/products.utils";
+import { cargarArticulosChat, EtiquetaEstadoArticulo, type ArticuloChat } from "../../../components/ProductChatThread";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar el cuadro de notas (se cerraba solo): solo se usa en nativo.
@@ -150,6 +152,74 @@ const COLORS = {
 };
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
+
+// «Preguntas por artículos» (mejora 10, 2026-11-15): las conversaciones del cliente con un producto adjunto (product_chats
+// con product_id), con el producto, su precio y su estado (a la venta / vendido / retirado); tocar una abre su hilo en
+// Administración → Chat (?chat=). Sin ninguna, no sale nada.
+function PreguntasPorArticulos({ userId }: { userId: string }) {
+  const [filas, setFilas] = useState<{ id: string; fecha: string; articulo: ArticuloChat }[]>([]);
+  useEffect(() => {
+    if (!userId) return;
+    let vivo = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from("product_chats")
+        .select("id,product_id,last_message_at")
+        .eq("customer_user_id", userId)
+        .not("product_id", "is", null)
+        .is("admin_deleted_at", null)
+        .order("last_message_at", { ascending: false })
+        .limit(20);
+      const chats = (error ? [] : (data ?? [])) as { id: string; product_id: string | null; last_message_at: string }[];
+      const conProducto = chats.filter((c): c is { id: string; product_id: string; last_message_at: string } => !!c.product_id);
+      if (!conProducto.length) {
+        if (vivo) setFilas([]);
+        return;
+      }
+      const articulos = await cargarArticulosChat(conProducto.map((c) => c.product_id));
+      if (!vivo) return;
+      setFilas(
+        conProducto.map((c) => ({
+          id: c.id,
+          fecha: c.last_message_at,
+          articulo: articulos.get(c.product_id) ?? { id: c.product_id, titulo: null, precio: null, foto: null, estado: "retirado" },
+        }))
+      );
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [userId]);
+
+  if (!filas.length) return null;
+  return (
+    <View nativeID="ficha-chats-producto" style={{ gap: 6, paddingHorizontal: 4, paddingTop: 6 }}>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>Preguntas por artículos ({filas.length})</Text>
+      {filas.map((f) => (
+        <Pressable
+          key={f.id}
+          nativeID={`ficha-chat-producto-${f.id}`}
+          onPress={() => router.push({ pathname: "/admin/chats", params: { chat: f.id } } as never)}
+          accessibilityRole="button"
+          accessibilityLabel={`Abrir la conversación sobre ${f.articulo.titulo ?? "el artículo"}`}
+          style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, backgroundColor: COLORS.cardSoft, paddingHorizontal: 10, paddingVertical: 6, opacity: pressed ? 0.85 : 1 })}
+        >
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>
+              {f.articulo.titulo ?? "Artículo"}
+            </Text>
+            <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 13 }}>
+              {f.articulo.precio !== null ? `${fmtEUR(f.articulo.precio)} · ` : ""}
+              {haceCuanto(f.fecha)}
+            </Text>
+          </View>
+          <EtiquetaEstadoArticulo estado={f.articulo.estado} />
+          <Ionicons name="chevron-forward" size={16} color={COLORS.muted} />
+        </Pressable>
+      ))}
+    </View>
+  );
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -1152,6 +1222,7 @@ export default function ClienteFicha() {
                       {chatCliente.empezo === "tienda" ? "Conversación empezada por la tienda" : "Conversación empezada por el cliente"}
                     </Text>
                   ) : null}
+                  <PreguntasPorArticulos userId={userId} />
                   {avisoAccion ? (
                     <Text nativeID="ficha-aviso-accion" accessibilityRole="alert" style={{ color: avisoAccion.ok ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: 13, paddingHorizontal: 4 }}>
                       {avisoAccion.texto}
