@@ -114,6 +114,13 @@
  *   · Bajada de precio (con sesión): de lo que le gusta (LIKED_PRODUCTS_KEY y los «me gusta» de la cuenta,
  *     misMeGustaServidor de lib/interaccion.ts) o tiene en la cesta (CART_KEY) se guarda en el móvil el precio visto
  *     (PRECIOS_VISTOS_KEY); si baja, avisa.
+ *     «Avísame si baja de precio» (mejora 5, 2026-11-14): lo que el cliente sigue desde la ficha (tabla avisos_precio,
+ *     lib/interaccion.ts) se compara con el precio guardado al activarlo (o el último avisado); Blue lo dice en un mensaje
+ *     («Ha bajado de precio: X, ahora N €», lleva a la ficha) UNA vez por bajada: queda en el dispositivo (DICHOS_KEY) y
+ *     en la cuenta (precio_avisado). Se relee al abrir o volver a la tienda y al activar o quitar uno (sin sondeo nuevo).
+ *   · Estado de pedidos (mejora 5): el mensaje de Blue dice «Tu pedido VZ-… está enviado · Ver seguimiento» UNA vez por
+ *     cambio, también entre visitas (DICHOS_KEY). Se miden pedido_aviso_estado_mostrado / _tocado y aviso_precio_mostrado /
+ *     _tocado (solo el estado o el producto, sin datos personales) en Administración → Analítica.
  *   · Solo el admin: ventas de artículos de VeoAura que aún no se han podido confirmar a
  *     VeoAura (tabla escaparate_salida) → panel Escaparate.
  *   · Solo el admin: pedidos y reparaciones en curso sin ningún cambio desde hace 48 h (updated_at de pedidos y
@@ -166,7 +173,7 @@ import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { getAnalyticsConsent, marcarOrigenRegistro, marcarOrigenVender, trackEvent } from "../lib/analytics";
-import { misMeGustaServidor } from "../lib/interaccion";
+import { alCambiarAvisosPrecio, marcarBajadaAvisada, misAvisosPrecio, misMeGustaServidor, precioReferenciaAviso } from "../lib/interaccion";
 import { sinEmojis } from "../lib/admin/products.utils";
 import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaConocimiento } from "../lib/conocimiento";
 import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificaciones";
@@ -234,7 +241,8 @@ const CART_KEY = "videojuegoos_cart_v1";
 type ProductoAviso = { id: string; title: string; price: number };
 type AvisoBusqueda = { id: string; texto: string; visto_hasta: string };
 type Llegada = { aviso: AvisoBusqueda; productos: ProductoAviso[] };
-type Bajada = { id: string; title: string; antes: number; ahora: number };
+// seguido: el cliente activó «Avísame si baja de precio» en la ficha (tabla avisos_precio); antes = precio de referencia.
+type Bajada = { id: string; title: string; antes: number; ahora: number; seguido?: boolean };
 // Artículo de la cesta con su reserva en marcha (lib/reservas.ts: 15 minutos); `hasta` = fin de la reserva (ms).
 type ReservaAviso = { id: string; title: string; hasta: number };
 // Blue avisa de una reserva cuando le quedan 5 minutos o menos.
@@ -403,6 +411,28 @@ export async function marcarSeguimientosVistos(
   for (const r of reparaciones) vistos.r[r.id] = `${r.etapa}|${r.actualizado}`;
   await guardarVistosSeg(uid, vistos);
   oyentesSeguimientos.forEach((f) => f());
+}
+
+// --- Lo que Blue ya dijo en este dispositivo (mejora 5, 2026-11-14) ---------------------------------------------------
+// El aviso de un cambio de estado de un pedido y el de una bajada de precio seguida salen UNA vez por cambio, también
+// entre visitas: se guarda en el móvil la clave de cada uno cuando se enseña (como mucho las 200 últimas).
+const DICHOS_KEY = "videojuegoszaragoza:blue_avisos_dichos";
+let dichosGuardados: Set<string> | null = null;
+async function cargarDichos(): Promise<Set<string>> {
+  if (dichosGuardados) return dichosGuardados;
+  const lista = await leerJsonLocal<unknown>(DICHOS_KEY, []);
+  dichosGuardados = new Set(Array.isArray(lista) ? lista.filter((x): x is string => typeof x === "string") : []);
+  return dichosGuardados;
+}
+async function apuntarDicho(clave: string): Promise<void> {
+  const s = await cargarDichos();
+  if (s.has(clave)) return;
+  s.add(clave);
+  try {
+    await AsyncStorage.setItem(DICHOS_KEY, JSON.stringify([...s].slice(-200)));
+  } catch {
+    // sin memoria local: puede repetirse en otra visita, no pasa nada
+  }
 }
 
 // Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
@@ -636,6 +666,12 @@ const MENSAJE_VISIBLE_MS = 12000;
 function contarMensaje(b: Bocadillo, como: "tocado" | "cerrado con la X" | "se cierra solo") {
   if (b.panel) return;
   void trackEvent("blue_mensaje", `Blue: mensaje ${como}`, { metadata: { tipo: b.id.split(":")[0] } });
+  // Mejora 5: los avisos de estado del pedido y de bajada de precio tocados (sin datos personales).
+  if (como === "tocado" && b.id.startsWith("s:p:")) {
+    void trackEvent("pedido_aviso_estado_tocado", "Blue: aviso de estado del pedido tocado", { metadata: { estado: (b.id.split(":")[3] ?? "").split("|")[0] } });
+  } else if (como === "tocado" && b.id.startsWith("ap:")) {
+    void trackEvent("aviso_precio_tocado", "Blue: bajada de precio tocada", { metadata: { productId: b.id.split(":")[1] } });
+  }
 }
 
 // Analítica propia (Administración → Analítica, tarjeta «Blue flotante»): en qué pantalla se abre Blue. Solo en la tienda
@@ -1265,12 +1301,14 @@ export default function Campanita() {
         setBajadas([]);
         return;
       }
-      const [gustan, deCuenta] = await Promise.all([getLikedProductIds(), misMeGustaServidor()]);
+      const [gustan, deCuenta, seguidos] = await Promise.all([getLikedProductIds(), misMeGustaServidor(), misAvisosPrecio()]);
       const cesta = await leerJsonLocal<unknown[]>(CART_KEY, []);
       const enCesta = (Array.isArray(cesta) ? cesta : [])
         .map((it: any) => String(it?.id ?? ""))
         .filter(Boolean);
-      const ids = [...new Set([...gustan, ...(deCuenta?.productos ?? []), ...enCesta])].slice(0, 60);
+      // «Avísame si baja de precio» (avisos_precio): se compara con el precio guardado al activarlo (o el último avisado).
+      const refSeguido = new Map((seguidos ?? []).map((a) => [a.product_id, precioReferenciaAviso(a)]));
+      const ids = [...new Set([...refSeguido.keys(), ...gustan, ...(deCuenta?.productos ?? []), ...enCesta])].slice(0, 80);
       if (!ids.length) {
         setBajadas([]);
         return;
@@ -1282,6 +1320,11 @@ export default function Campanita() {
       const lista: Bajada[] = [];
       for (const p of (data ?? []) as { id: string; title: string; price_eur: number | string | null }[]) {
         const ahora = Number(p.price_eur ?? 0);
+        const ref = refSeguido.get(p.id);
+        if (ref !== undefined) {
+          if (ahora > 0 && ahora < ref - 0.004) lista.push({ id: p.id, title: p.title, antes: ref, ahora, seguido: true });
+          continue;
+        }
         const antes = Number(vistos[p.id]);
         if (Number.isFinite(antes) && antes > 0 && ahora > 0 && ahora < antes - 0.004) {
           lista.push({ id: p.id, title: p.title, antes, ahora });
@@ -1291,7 +1334,11 @@ export default function Campanita() {
         }
       }
       await AsyncStorage.setItem(PRECIOS_VISTOS_KEY, JSON.stringify(nuevos)).catch(() => {});
-      setBajadas(lista);
+      // Primero las que el cliente pidió seguir.
+      lista.sort((a, b) => Number(!!b.seguido) - Number(!!a.seguido));
+      setBajadas((previa) =>
+        previa.length === lista.length && previa.every((b, i) => b.id === lista[i].id && b.ahora === lista[i].ahora && b.antes === lista[i].antes) ? previa : lista
+      );
     } catch {
       // sin conexión: se deja como estaba
     }
@@ -1506,6 +1553,8 @@ export default function Campanita() {
       oyentesAvisos.delete(oyente);
     };
   }, [refreshAvisosBusqueda]);
+  // La ficha activa o quita un «Avísame si baja de precio»: se releen las bajadas (sin sondeo nuevo).
+  useEffect(() => alCambiarAvisosPrecio(() => refreshBajadas()), [refreshBajadas]);
 
   useEffect(() => {
     refreshAuth();
@@ -1778,18 +1827,67 @@ export default function Campanita() {
   useEffect(() => {
     if (!enPantalla || enAdmin || guiaAbierta || panelOpen || bocadillo) return;
     if (pathname.startsWith("/perfil") || pathname.startsWith("/checkout") || pathname.startsWith("/blue-ia")) return;
-    const a = segAvisos.find((x) => !yaDicho.has(`s:${x.clave}`));
-    if (!a) return;
+    const candidatos = segAvisos.filter((x) => !yaDicho.has(`s:${x.clave}`));
+    if (!candidatos.length) return;
     let vivo = true;
     (async () => {
       if ((await getAnalyticsConsent()) === null || !vivo) return;
+      // Una vez por cambio también entre visitas (mejora 5): lo ya dicho en este dispositivo no se repite.
+      const dichos = await cargarDichos();
+      if (!vivo) return;
+      const a = candidatos.find((x) => !dichos.has(`s:${x.clave}`));
+      for (const x of candidatos) if (x !== a && dichos.has(`s:${x.clave}`)) yaDicho.add(`s:${x.clave}`);
+      if (!a) return;
       yaDicho.add(`s:${a.clave}`);
-      decir({ id: `s:${a.clave}`, texto: `${a.texto}.`, accion: "ruta", ruta: "/perfil?tab=seguimientos" });
+      // Pedidos: «Tu pedido VZ-… está enviado · Ver seguimiento» (dueño, 2026-11-14).
+      decir({ id: `s:${a.clave}`, texto: a.tipo === "pedido" ? `${a.texto} · Ver seguimiento` : `${a.texto}.`, accion: "ruta", ruta: "/perfil?tab=seguimientos" });
     })();
     return () => {
       vivo = false;
     };
   }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, segAvisos, decir]);
+
+  // Una bajada de precio de lo que el cliente sigue («Avísame si baja de precio»): un mensaje de Blue UNA vez por bajada
+  // (guardado en el dispositivo y, en la cuenta, el precio avisado). No en el pago ni en Blue IA.
+  useEffect(() => {
+    if (!enPantalla || enAdmin || guiaAbierta || panelOpen || bocadillo) return;
+    if (pathname.startsWith("/checkout") || pathname.startsWith("/blue-ia")) return;
+    const candidatos = bajadas.filter((b) => b.seguido && !yaDicho.has(`ap:${b.id}:${b.ahora}`));
+    if (!candidatos.length) return;
+    let vivo = true;
+    (async () => {
+      if ((await getAnalyticsConsent()) === null || !vivo) return;
+      const dichos = await cargarDichos();
+      if (!vivo) return;
+      const b = candidatos.find((x) => !dichos.has(`ap:${x.id}:${x.ahora}`));
+      if (!b) return;
+      yaDicho.add(`ap:${b.id}:${b.ahora}`);
+      const titulo = b.title.length > 48 ? `${b.title.slice(0, 47).trimEnd()}…` : b.title;
+      decir({ id: `ap:${b.id}:${b.ahora}`, texto: `Ha bajado de precio: ${titulo}, ahora ${fmtEUR(b.ahora)}`, accion: "ruta", ruta: `/producto/${b.id}` });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, bajadas, decir]);
+
+  // Cuando un aviso de pedido o de precio se ve de verdad: queda dicho en el dispositivo (no se repite), la bajada se apunta
+  // en la cuenta y se mide (sin datos personales: el estado del pedido o el producto).
+  useEffect(() => {
+    if (!bocadillo) return;
+    const id = bocadillo.id;
+    if (id.startsWith("s:p:")) {
+      void apuntarDicho(id);
+      const estado = (id.split(":")[3] ?? "").split("|")[0];
+      void trackEvent("pedido_aviso_estado_mostrado", "Blue: aviso de estado del pedido mostrado", { metadata: { estado } });
+    } else if (id.startsWith("s:r:")) {
+      void apuntarDicho(id);
+    } else if (id.startsWith("ap:")) {
+      const [, productId, precio] = id.split(":");
+      void apuntarDicho(id);
+      void marcarBajadaAvisada(productId, Number(precio));
+      void trackEvent("aviso_precio_mostrado", "Blue: bajada de precio mostrada", { metadata: { productId } });
+    }
+  }, [bocadillo]);
 
   // Oferta de instalar la tienda como app: un mensaje de Blue, una vez cada 7 días como mucho,
   // cuando ya lleva un rato en pantalla, no está hablando de otra cosa y la persona ya
@@ -2321,6 +2419,13 @@ export default function Campanita() {
   const verBajada = useCallback(
     async (b: Bajada) => {
       setBajadas((prev) => prev.filter((x) => x.id !== b.id));
+      if (b.seguido) {
+        // «Avísame si baja de precio»: esta bajada ya está avisada (en la cuenta) y se mide el toque.
+        void marcarBajadaAvisada(b.id, b.ahora);
+        void trackEvent("aviso_precio_tocado", "Blue: bajada de precio tocada", { metadata: { productId: b.id, donde: "panel" } });
+        ir(`/producto/${b.id}`);
+        return;
+      }
       const vistos = await leerJsonLocal<Record<string, number>>(PRECIOS_VISTOS_KEY, {});
       vistos[b.id] = b.ahora;
       AsyncStorage.setItem(PRECIOS_VISTOS_KEY, JSON.stringify(vistos)).catch(() => {});
@@ -2779,7 +2884,12 @@ export default function Campanita() {
                         key={a.clave}
                         titulo={a.texto}
                         accion="Ver seguimiento"
-                        onPress={() => ir("/perfil?tab=seguimientos")}
+                        onPress={() => {
+                          if (a.tipo === "pedido") {
+                            void trackEvent("pedido_aviso_estado_tocado", "Blue: aviso de estado del pedido tocado", { metadata: { estado: (a.clave.split(":")[2] ?? "").split("|")[0], donde: "panel" } });
+                          }
+                          ir("/perfil?tab=seguimientos");
+                        }}
                       />
                     ))}
                     {/* Reservas de la cesta (15 minutos): las que vencen en 5 o menos avisan; las demás, solo informan. */}

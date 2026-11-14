@@ -23,8 +23,15 @@
  * Entrega estimada (mejora 4 «Ficha de confianza», 2026-11-14): tipoEntregaPorCodigo y entregaEstimada dan el «Llega hoy» /
  * «Llega entre el jueves y el viernes» de la ficha del producto con los plazos de siempre, sin domingos y sin hora de corte.
  *
+ * Seguimiento del pedido (mejora 5, 2026-11-14; migración 20261114160000_pedidos_historial.sql): cargarHistorialPedidos
+ * lee la hora de cada cambio de estado (tabla pedido_estados; sin la migración, null y los pasos van sin hora: se pregunta
+ * una vez por carga y se recuerda), pasosDelPedido arma la línea de pasos (Pedido recibido → Pagado → Confirmado →
+ * Preparando → Enviado → Entregado, o Cancelado / Pago devuelto) con la fecha REAL de cada uno o sin fecha, nunca inventada,
+ * y enlaceSeguimientoEnvio convierte el número de Correos (o el enlace del transportista) en la dirección de «Seguir el envío».
+ *
  * Conectado con: app/(tabs)/cesta.tsx, app/checkout.tsx, app/admin/envios.tsx, app/admin/pedidos.tsx,
- * components/ContratarServicioModal.tsx, app/(tabs)/perfil.tsx, app/admin/services.tsx y app/producto/[id].tsx.
+ * components/ContratarServicioModal.tsx, app/(tabs)/perfil.tsx, app/admin/services.tsx, app/producto/[id].tsx y
+ * app/admin/cliente/[userId].tsx.
  */
 import { supabase } from "./supabase";
 
@@ -432,4 +439,144 @@ export function gratisDesdeMinimo(zonas: ZonaEnvio[] | null): number | null {
     .filter((z) => z.zona !== "mano" && z.activa && (z.precio_eur > 0 || !!z.tramos) && z.gratis_desde_eur !== null)
     .map((z) => z.gratis_desde_eur as number);
   return importes.length ? Math.min(...importes) : null;
+}
+
+// --- Seguimiento del pedido (mejora 5, 2026-11-14) ------------------------------------------------------------------
+export type EstadoPedidoPaso = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
+export type CambioEstadoPedido = { estado: string; creado_en: string };
+/** Por pedido, sus cambios de estado del más antiguo al más reciente. */
+export type HistorialPedidos = Record<string, CambioEstadoPedido[]>;
+export type PasoPedido = {
+  clave: string;
+  etiqueta: string;
+  /** Hora real del paso (ISO) o null si no se sabe: se enseña sin fecha. */
+  fecha: string | null;
+  hecho: boolean;
+  actual: boolean;
+  /** Cancelado o pago devuelto: se pinta en rojo / gris. */
+  tipo?: "cancelado" | "devuelto";
+};
+
+// Sin la migración la tabla no existe: se pregunta una vez por carga de la tienda y se recuerda (sin repetir el 404).
+let sinHistorialPedidos = false;
+
+/** Hora de cada cambio de estado de estos pedidos. null = aún no se guarda (migración sin aplicar) o no se pudo leer. */
+export async function cargarHistorialPedidos(ids: string[]): Promise<HistorialPedidos | null> {
+  if (sinHistorialPedidos) return null;
+  const lista = [...new Set(ids.filter(Boolean))].slice(0, 200);
+  if (!lista.length) return {};
+  try {
+    const { data, error } = await supabase
+      .from("pedido_estados")
+      .select("pedido_id,estado,creado_en")
+      .in("pedido_id", lista)
+      .order("creado_en", { ascending: true })
+      .limit(2000);
+    if (error) {
+      if (["42P01", "PGRST205"].includes(String((error as { code?: string }).code ?? ""))) sinHistorialPedidos = true;
+      return null;
+    }
+    const porPedido: HistorialPedidos = {};
+    for (const f of (data ?? []) as { pedido_id: string; estado: string; creado_en: string }[]) {
+      (porPedido[f.pedido_id] ??= []).push({ estado: f.estado, creado_en: f.creado_en });
+    }
+    return porPedido;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Los pasos con su hora y el número de envío de cada pedido. El número (pedidos.envio_seguimiento) es de la misma migración
+ * que el historial: solo se pide si el historial existe, así antes de la migración no hay ningún 400 por la columna.
+ */
+export async function cargarSeguimientoPedidos(ids: string[]): Promise<{ historial: HistorialPedidos | null; numeros: Record<string, string> }> {
+  const historial = await cargarHistorialPedidos(ids);
+  return { historial, numeros: historial ? await cargarNumerosEnvio(ids) : {} };
+}
+
+async function cargarNumerosEnvio(ids: string[]): Promise<Record<string, string>> {
+  const lista = [...new Set(ids.filter(Boolean))].slice(0, 200);
+  if (sinHistorialPedidos || !lista.length) return {};
+  try {
+    const { data, error } = await supabase.from("pedidos").select("id,envio_seguimiento").in("id", lista);
+    if (error) return {};
+    const fuera: Record<string, string> = {};
+    for (const f of (data ?? []) as { id: string; envio_seguimiento: string | null }[]) if (f.envio_seguimiento) fuera[f.id] = f.envio_seguimiento;
+    return fuera;
+  } catch {
+    return {};
+  }
+}
+
+const ORDEN_PASOS: EstadoPedidoPaso[] = ["pendiente", "confirmado", "preparado", "enviado", "entregado"];
+
+/**
+ * La línea de pasos de un pedido con la hora REAL de cada uno: «Pedido recibido» (created_at), «Pagado» (solo si se pagó
+ * online: pagado_en), Confirmado, Preparando, Enviado (o «Listo para recoger») y Entregado con la última vez que llegó a
+ * ese estado según pedido_estados; los que se saltaron o son anteriores a la migración, sin fecha. Cancelado: los pasos
+ * que sí se dieron y «Cancelado». Pago devuelto (devuelto_en), al final.
+ */
+export function pasosDelPedido(
+  p: { estado: string; entrega?: string | null; created_at: string; pago_estado?: string | null; pagado_en?: string | null; devuelto_en?: string | null },
+  historial: CambioEstadoPedido[] | null | undefined
+): PasoPedido[] {
+  const cambios = historial ?? [];
+  const ultimaVez = (estado: string) => {
+    for (let i = cambios.length - 1; i >= 0; i--) if (cambios[i].estado === estado) return cambios[i].creado_en;
+    return null;
+  };
+  const etiqueta: Record<EstadoPedidoPaso, string> = {
+    pendiente: "Pedido recibido",
+    confirmado: "Confirmado",
+    preparado: "Preparando",
+    enviado: p.entrega === "recogida" ? "Listo para recoger" : "Enviado",
+    entregado: "Entregado",
+    cancelado: "Cancelado",
+  };
+  const pasos: PasoPedido[] = [{ clave: "pendiente", etiqueta: etiqueta.pendiente, fecha: p.created_at || null, hecho: true, actual: false }];
+  if (p.pago_estado === "pagado") pasos.push({ clave: "pagado", etiqueta: "Pagado", fecha: p.pagado_en ?? null, hecho: true, actual: false });
+  if (p.estado === "cancelado") {
+    // Solo los pasos que de verdad se dieron antes de cancelarlo (los que están en el historial).
+    for (const e of ORDEN_PASOS.slice(1)) {
+      const f = ultimaVez(e);
+      if (f) pasos.push({ clave: e, etiqueta: etiqueta[e], fecha: f, hecho: true, actual: false });
+    }
+    pasos.push({ clave: "cancelado", etiqueta: "Cancelado", fecha: ultimaVez("cancelado"), hecho: true, actual: false, tipo: "cancelado" });
+  } else {
+    const indice = Math.max(0, ORDEN_PASOS.indexOf(p.estado as EstadoPedidoPaso));
+    for (const [i, e] of ORDEN_PASOS.entries()) {
+      if (i === 0) continue;
+      const hecho = i <= indice;
+      pasos.push({ clave: e, etiqueta: etiqueta[e], fecha: hecho ? ultimaVez(e) : null, hecho, actual: false });
+    }
+  }
+  if (p.devuelto_en) pasos.push({ clave: "devuelto", etiqueta: "Pago devuelto", fecha: p.devuelto_en, hecho: true, actual: false, tipo: "devuelto" });
+  const ultimoHecho = pasos.map((x) => x.hecho).lastIndexOf(true);
+  if (ultimoHecho >= 0) pasos[ultimoHecho].actual = true;
+  return pasos;
+}
+
+/** «14 nov, 10:32» (hora de Madrid); con otro año, «14 nov 2025, 10:32». Vacío si no hay fecha válida. */
+export function fechaHoraPaso(iso: string | null | undefined, ahora: Date = new Date()): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const anio = (x: Date) => x.toLocaleString("es-ES", { timeZone: "Europe/Madrid", year: "numeric" });
+  const dia = d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "numeric", month: "short", ...(anio(d) !== anio(ahora) ? { year: "numeric" } : {}) });
+  const hora = d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${dia.replace(/\./g, "")}, ${hora}`;
+}
+
+/**
+ * Dirección de «Seguir el envío»: un enlace https del transportista tal cual; un número (letras y cifras, 8 a 30) es de
+ * Correos, con quien trabaja la tienda (dueño: «yo trabajo con Correos»), y abre su localizador. Si no, null (sin botón).
+ */
+export function enlaceSeguimientoEnvio(texto: string | null | undefined): string | null {
+  const t = String(texto ?? "").trim();
+  if (!t) return null;
+  if (/^https:\/\/[^\s]+$/i.test(t)) return t;
+  const n = t.replace(/[\s-]/g, "").toUpperCase();
+  if (/^[A-Z0-9]{8,30}$/.test(n)) return `https://www.correos.es/es/es/herramientas/localizador/envios/detalle?tracking-number=${encodeURIComponent(n)}`;
+  return null;
 }

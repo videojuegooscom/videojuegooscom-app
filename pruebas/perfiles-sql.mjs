@@ -119,6 +119,13 @@
  *  - «Revisado» y garantía por producto (20261114140000_productos_revisado.sql): dos columnas que empiezan vacías, garantía
  *    entre 1 y 36 (0, 37 y negativos no entran); el administrador lo marca, un cliente no; un visitante lo lee de los
  *    publicados; sin borrar ni tocar permisos; se aplica dos veces (con su «prueba de la prueba»: sin la comprobación, 99).
+ *  - Seguimiento del pedido y avisos de precio (20261114160000_pedidos_historial.sql y 20261114160100_avisos_precio.sql):
+ *    cada cambio real de estado (del administrador o del servidor) apunta un paso con la hora de la base de datos y el
+ *    repetido no; disparadores sin security definer; el cliente lee solo los pasos de sus pedidos, no los inventa, cambia
+ *    ni borra; el número de envío lo pone el administrador; avisos de precio con el precio y el dueño que pone la base de
+ *    datos, uno por producto, solo lo que está a la venta, 50 como mucho, cada cliente solo los suyos (el administrador los
+ *    cuenta) y solo cambia el precio avisado; la privacidad lo dice una vez; se aplican dos veces (con su «prueba de la
+ *    prueba»: con las reglas de lectura abiertas, un cliente ve lo de otro).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -1895,6 +1902,120 @@ try {
     }
     ok(entra99, "(control) sin la comprobación, 99 meses entran: la prueba SÍ lo detecta");
     await c46.end();
+  }
+
+  // Seguimiento del pedido y avisos de precio (mejora 5, 2026-11-14): 20261114160000_pedidos_historial.sql (pedido_estados,
+  // su disparador normal y pedidos.envio_seguimiento) y 20261114160100_avisos_precio.sql (avisos_precio y la frase de la
+  // privacidad). Con roles reales: quién lee y escribe qué, la hora la pone la base de datos, una vez por cambio.
+  {
+    const HISTORIAL = readFileSync("supabase/migrations/20261114160000_pedidos_historial.sql", "utf8");
+    const AVISOS = readFileSync("supabase/migrations/20261114160100_avisos_precio.sql", "utf8");
+    const P1 = "61616161-6161-4616-8616-616161616161";
+    const P2 = "62626262-6262-4626-8626-626262626262";
+    const X = "71717171-7171-4717-8717-717171717171";
+    const OCULTO = "72727272-7272-4727-8727-727272727272";
+    const ESQUEMA_SP = `
+      create table public.products (id uuid primary key default gen_random_uuid(), title text not null, price_eur numeric not null default 0,
+        status text not null default 'PUBLISHED', is_active boolean not null default true);
+      alter table public.products enable row level security;
+      create policy products_select_public_or_admin on public.products for select using (((status = 'PUBLISHED') and (is_active = true)) or public.is_admin());
+      insert into public.products (id, title, price_eur) values ('${X}', 'Consola PS5 Slim', 450);
+      insert into public.products (id, title, price_eur, status) values ('${OCULTO}', 'Borrador', 99, 'DRAFT');
+      insert into public.products (title, price_eur) select 'Relleno ' || g, 10 from generate_series(1, 55) g;
+      create table public.pedidos (id uuid primary key default gen_random_uuid(), user_id uuid, estado text not null default 'pendiente',
+        created_at timestamptz not null default now());
+      alter table public.pedidos enable row level security;
+      create policy pedidos_admin_select on public.pedidos for select to authenticated using ((select public.is_admin()));
+      create policy pedidos_cliente_select on public.pedidos for select to authenticated using (user_id = (select auth.uid()));
+      create policy pedidos_admin_update on public.pedidos for update to authenticated using ((select public.is_admin())) with check ((select public.is_admin()));
+      insert into public.pedidos (id, user_id) values ('${P1}', '${U1}'), ('${P2}', '${U2}');
+      create table public.policy_pages (slug text primary key, sections jsonb not null, updated_at timestamptz);
+      insert into public.policy_pages (slug, sections) values ('privacidad', '[{"heading": "Qué datos tratamos", "body": "Datos."}, {"heading": "Para qué usamos tus datos", "body": "Para gestionar tu pedido."}]');`;
+    const c47 = await nuevaBase("vz_aislada_seguimiento_precio", ESQUEMA_SP);
+    let repetidaSP = true;
+    try {
+      for (const m of [HISTORIAL, AVISOS, HISTORIAL, AVISOS]) await c47.query(m);
+    } catch (e) {
+      repetidaSP = false;
+      console.log(String(e.message));
+    }
+    ok(repetidaSP, "Seguimiento: las dos migraciones se aplican dos veces sin error");
+    const n = async (sql) => Number((await c47.query(sql)).rows[0].n);
+    ok((await n("select count(*) as n from pg_trigger where tgname in ('pedido_estados_apuntar', 'avisos_precio_normalizar')")) === 2, "Seguimiento: un disparador de cada, sin duplicar");
+    ok((await n("select count(*) as n from pg_policies where tablename = 'pedido_estados'")) === 2 && (await n("select count(*) as n from pg_policies where tablename = 'avisos_precio'")) === 4, "Seguimiento: sus políticas (2 y 4), sin duplicar tras repetirlas");
+    ok((await n("select count(*) as n from pg_proc where proname in ('pedido_estados_apuntar', 'avisos_precio_normalizar') and prosecdef")) === 0, "Seguimiento: las funciones de disparador NO son security definer");
+    ok((await n("select count(*) as n from public.pedido_estados")) === 0, "Seguimiento: la migración no inventa pasos de los pedidos antiguos");
+
+    // El administrador cambia el estado: el paso queda con la hora de la base de datos; sin cambio real, nada.
+    const a1 = await como(c47, "authenticated", ADMIN, `update public.pedidos set estado = 'confirmado' where id = '${P1}'`, { confirmar: true });
+    await como(c47, "authenticated", ADMIN, `update public.pedidos set estado = 'confirmado' where id = '${P1}'`, { confirmar: true });
+    await como(c47, "authenticated", ADMIN, `update public.pedidos set estado = 'enviado' where id = '${P2}'`, { confirmar: true });
+    await c47.query(`update public.pedidos set estado = 'preparado' where id = '${P1}'`); // el puente de VeoAura (clave de servidor)
+    const pasos = (await c47.query(`select pedido_id, estado, creado_en from public.pedido_estados order by creado_en`)).rows;
+    ok(a1.ok && pasos.length === 3 && pasos.filter((r) => r.pedido_id === P1).map((r) => r.estado).join(",") === "confirmado,preparado", `Seguimiento: cada cambio real apunta un paso (el repetido, no) también desde el servidor (${JSON.stringify(pasos.map((r) => r.estado))})`);
+    ok(pasos.every((r) => Math.abs(Date.now() - new Date(r.creado_en).getTime()) < 120000), "Seguimiento: la hora la pone la base de datos");
+    const leeU1 = await como(c47, "authenticated", U1, "select pedido_id, estado from public.pedido_estados");
+    const leeU2 = await como(c47, "authenticated", U2, "select pedido_id, estado from public.pedido_estados");
+    const leeAdmin = await como(c47, "authenticated", ADMIN, "select pedido_id from public.pedido_estados");
+    const leeAnon = await como(c47, "anon", null, "select pedido_id from public.pedido_estados");
+    ok(leeU1.ok && leeU1.filas.length === 2 && leeU1.filas.every((r) => r.pedido_id === P1), `Seguimiento: el cliente ve SOLO los pasos de sus pedidos (${leeU1.filas?.length})`);
+    ok(leeU2.ok && leeU2.filas.length === 1 && leeU2.filas[0].pedido_id === P2, "Seguimiento: otro cliente, solo los suyos");
+    ok(leeAdmin.ok && leeAdmin.filas.length === 3, "Seguimiento: el administrador los lee todos");
+    ok(!leeAnon.ok || leeAnon.filas.length === 0, "Seguimiento: un visitante no ve ninguno");
+    const metaU1 = await como(c47, "authenticated", U1, `insert into public.pedido_estados (pedido_id, estado) values ('${P1}', 'entregado')`);
+    ok(!metaU1.ok, `Seguimiento: un cliente no puede inventarse un paso (${metaU1.codigo ?? "entró"})`);
+    const cambiaU1 = await como(c47, "authenticated", U1, "update public.pedido_estados set estado = 'entregado'", { confirmar: true });
+    const borraU1 = await como(c47, "authenticated", U1, "delete from public.pedido_estados", { confirmar: true });
+    ok(cambiaU1.ok && cambiaU1.cuantas === 0 && borraU1.ok && borraU1.cuantas === 0, "Seguimiento: nadie cambia ni borra pasos desde el navegador (0 filas)");
+    const corto = await como(c47, "authenticated", ADMIN, `update public.pedidos set envio_seguimiento = 'ab' where id = '${P1}'`);
+    const bueno = await como(c47, "authenticated", ADMIN, `update public.pedidos set envio_seguimiento = 'PK123456789ES' where id = '${P1}' returning envio_seguimiento`, { confirmar: true });
+    const clienteNum = await como(c47, "authenticated", U1, `update public.pedidos set envio_seguimiento = 'PK000000000ES' where id = '${P1}'`, { confirmar: true });
+    ok(!corto.ok && corto.codigo === "23514" && bueno.ok && bueno.filas[0]?.envio_seguimiento === "PK123456789ES" && clienteNum.cuantas === 0, "Seguimiento: el número de envío lo pone el administrador (2 letras no valen) y el cliente no");
+
+    // Avisos de precio: el precio lo pone la base de datos, la fila es siempre de quien la crea, una por producto, solo lo
+    // que está a la venta, 50 como mucho; cada cliente solo las suyas.
+    const crea = await como(c47, "authenticated", U1, `insert into public.avisos_precio (product_id, precio_inicial, user_id) values ('${X}', 1, '${U2}') returning user_id, precio_inicial, precio_avisado`, { confirmar: true });
+    ok(crea.ok && crea.filas[0].user_id === U1 && Number(crea.filas[0].precio_inicial) === 450 && crea.filas[0].precio_avisado === null, `Avisos de precio: la fila es de quien la crea y el precio el del producto (${JSON.stringify(crea.filas ?? crea.mensaje)})`);
+    const repe = await como(c47, "authenticated", U1, `insert into public.avisos_precio (product_id) values ('${X}')`);
+    ok(!repe.ok && repe.codigo === "23505", "Avisos de precio: uno por cliente y producto");
+    const oculto = await como(c47, "authenticated", U1, `insert into public.avisos_precio (product_id) values ('${OCULTO}')`);
+    ok(!oculto.ok && /no está a la venta/.test(oculto.mensaje), "Avisos de precio: no se puede seguir lo que no está a la venta");
+    const anonCrea = await como(c47, "anon", null, `insert into public.avisos_precio (product_id) values ('${X}')`);
+    ok(!anonCrea.ok, "Avisos de precio: sin cuenta, nada");
+    await como(c47, "authenticated", U2, `insert into public.avisos_precio (product_id) values ('${X}')`, { confirmar: true });
+    const verU2 = await como(c47, "authenticated", U2, "select user_id from public.avisos_precio");
+    const verAdmin = await como(c47, "authenticated", ADMIN, "select product_id, count(*)::int as n from public.avisos_precio group by product_id");
+    const verAnon = await como(c47, "anon", null, "select user_id from public.avisos_precio");
+    ok(verU2.ok && verU2.filas.length === 1 && verU2.filas[0].user_id === U2, `Avisos de precio: un cliente no ve los de otro (${verU2.filas?.length})`);
+    ok(verAdmin.ok && verAdmin.filas[0]?.n === 2, "Avisos de precio: el administrador los cuenta por producto");
+    ok(!verAnon.ok || verAnon.filas.length === 0, "Avisos de precio: un visitante no ve ninguno");
+    const ajeno = await como(c47, "authenticated", U2, `update public.avisos_precio set precio_avisado = 1 where user_id = '${U1}'`, { confirmar: true });
+    const ajenoBorra = await como(c47, "authenticated", U2, `delete from public.avisos_precio where user_id = '${U1}'`, { confirmar: true });
+    ok(ajeno.cuantas === 0 && ajenoBorra.cuantas === 0, "Avisos de precio: nadie cambia ni quita los de otro");
+    const propio = await como(c47, "authenticated", U1, `update public.avisos_precio set precio_avisado = 399, precio_inicial = 1, product_id = '${OCULTO}' returning precio_inicial, precio_avisado, product_id`, { confirmar: true });
+    ok(propio.ok && Number(propio.filas[0].precio_inicial) === 450 && Number(propio.filas[0].precio_avisado) === 399 && propio.filas[0].product_id === X, `Avisos de precio: el cliente solo apunta el precio avisado (${JSON.stringify(propio.filas ?? propio.mensaje)})`);
+    const quita = await como(c47, "authenticated", U1, `delete from public.avisos_precio where product_id = '${X}'`, { confirmar: true });
+    ok(quita.ok && quita.cuantas === 1, "Avisos de precio: el cliente quita el suyo");
+    const tope = await como(c47, "authenticated", U1, "insert into public.avisos_precio (product_id) select id from public.products where title like 'Relleno %' order by title limit 51");
+    const cincuenta = await como(c47, "authenticated", U1, "insert into public.avisos_precio (product_id) select id from public.products where title like 'Relleno %' order by title limit 50 returning id");
+    ok(!tope.ok && /50 avisos/.test(tope.mensaje) && cincuenta.ok && cincuenta.cuantas === 50, "Avisos de precio: como mucho 50 por cliente");
+    const priv = (await c47.query("select sections::text as t from public.policy_pages where slug = 'privacidad'")).rows[0].t;
+    ok((priv.match(/Avísame si baja de precio/g) ?? []).length === 1, "Avisos de precio: la privacidad lo dice una sola vez");
+    const textoMig = (HISTORIAL + AVISOS).replace(/^--.*$/gm, "").toLowerCase();
+    ok(!/\b(drop\s|delete\s+from|truncate|grant\b|revoke\b|security\s+definer|to\s+(anon|public)\b|using\s*\(\s*true\s*\)|auth\.(users|identities|sessions|refresh_tokens))/.test(textoMig), "Seguimiento: las migraciones no borran ni tocan permisos delicados (nada que bloquee el guardián)");
+    await c47.end();
+
+    // PRUEBA DE LAS PRUEBAS: con las reglas de lectura abiertas, un cliente vería los pasos y los avisos de otro.
+    const histAbierto = HISTORIAL.replace("(select public.is_admin())\n        or exists", "true or exists");
+    const avisosAbierto = AVISOS.replace("using (user_id = (select auth.uid()) or (select public.is_admin()));", "using (true);");
+    ok(histAbierto !== HISTORIAL && avisosAbierto !== AVISOS, "(control) se han podido abrir las reglas en la copia de prueba");
+    const c48 = await nuevaBase("vz_aislada_seguimiento_precio_abierta", ESQUEMA_SP + histAbierto + avisosAbierto);
+    await c48.query(`update public.pedidos set estado = 'confirmado' where id = '${P2}'`);
+    await como(c48, "authenticated", U2, `insert into public.avisos_precio (product_id) values ('${X}')`, { confirmar: true });
+    const fuga1 = await como(c48, "authenticated", U1, "select pedido_id from public.pedido_estados");
+    const fuga2 = await como(c48, "authenticated", U1, "select user_id from public.avisos_precio");
+    ok(fuga1.filas?.length === 1 && fuga2.filas?.length === 1, "(control) con las reglas abiertas, un cliente ve los pasos y los avisos de otro: la prueba SÍ lo detecta");
+    await c48.end();
   }
 
   // Opciones de los servicios (20261108230000_servicios_opciones.sql): el administrador escribe las opciones (Básica,

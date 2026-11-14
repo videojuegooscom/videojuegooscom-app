@@ -15,8 +15,12 @@
  *   navegador y simplemente no se cuenta. Si el endpoint responde que NO (límite, petición no válida), no se
  *   usa la vía antigua: sería saltarse el límite.
  *
- * Conectado con: app/producto/[id].tsx (visitas y «me gusta»), app/servicio/[id].tsx (visitas y «me gusta»),
- * app/(tabs)/perfil.tsx (pestaña «Me gusta»), api/interaccion.ts, lib/supabase.ts.
+ * - «Avísame si baja de precio» (2026-11-14): misAvisosPrecio, fijarAvisoPrecio y marcarBajadaAvisada sobre la tabla
+ *   avisos_precio (con la sesión del cliente; solo con cuenta).
+ *
+ * Conectado con: app/producto/[id].tsx (visitas, «me gusta» y aviso de precio), app/servicio/[id].tsx (visitas y «me
+ * gusta»), app/(tabs)/perfil.tsx (pestaña «Me gusta» y sus avisos de precio), components/Campanita.tsx (Blue avisa de las
+ * bajadas), api/interaccion.ts, lib/supabase.ts.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
@@ -159,4 +163,89 @@ export async function misMeGustaServidor(): Promise<{ productos: string[]; servi
   } catch {
     return null;
   }
+}
+
+// --- «Avísame si baja de precio» (mejora 5, 2026-11-14; migración 20261114160100_avisos_precio.sql) ----------------
+// SOLO CON CUENTA. Cada cliente sigue los productos que quiere (tabla avisos_precio, RLS: solo los suyos). El precio al
+// activarlo lo pone la base de datos; Blue (components/Campanita.tsx) avisa cuando baja y apunta en precio_avisado el
+// precio del que ya avisó (una vez por bajada). Sin la migración, la tabla no existe: se pregunta una vez por carga de la
+// tienda y se recuerda (sin repetir el 404), y la ficha no ofrece el interruptor.
+export type AvisoPrecio = { id: string; product_id: string; precio_inicial: number; precio_avisado: number | null; creado_en: string };
+let sinAvisosPrecio = false;
+const oyentesAvisosPrecio = new Set<() => void>();
+const esFaltaTabla = (e: unknown) => ["42P01", "PGRST205"].includes(String((e as { code?: string } | null)?.code ?? ""));
+
+/** Quien escucha cambios (Blue relee sus avisos al activarse o quitarse uno). Devuelve cómo dejar de escuchar. */
+export function alCambiarAvisosPrecio(f: () => void): () => void {
+  oyentesAvisosPrecio.add(f);
+  return () => {
+    oyentesAvisosPrecio.delete(f);
+  };
+}
+
+/** Los avisos de precio del cliente con sesión. null sin sesión, sin la tabla o si la lectura falla (no es «ninguno»). */
+export async function misAvisosPrecio(): Promise<AvisoPrecio[] | null> {
+  if (sinAvisosPrecio) return null;
+  try {
+    const { data: s } = await supabase.auth.getSession();
+    const uid = s.session?.user?.id;
+    if (!uid) return null;
+    const { data, error } = await supabase
+      .from("avisos_precio")
+      .select("id,product_id,precio_inicial,precio_avisado,creado_en")
+      .eq("user_id", uid)
+      .order("creado_en", { ascending: false })
+      .limit(50);
+    if (error) {
+      if (esFaltaTabla(error)) sinAvisosPrecio = true;
+      return null;
+    }
+    return ((data ?? []) as { id: string; product_id: string; precio_inicial: number | string; precio_avisado: number | string | null; creado_en: string }[]).map((f) => ({
+      id: f.id,
+      product_id: f.product_id,
+      precio_inicial: Number(f.precio_inicial),
+      precio_avisado: f.precio_avisado === null ? null : Number(f.precio_avisado),
+      creado_en: f.creado_en,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/** Activa (true) o quita (false) el aviso de este producto. "sin_sesion" sin cuenta; "error" si no se pudo. */
+export async function fijarAvisoPrecio(productId: string, activo: boolean): Promise<"ok" | "sin_sesion" | "limite" | "error"> {
+  try {
+    const { data: s } = await supabase.auth.getSession();
+    const uid = s.session?.user?.id;
+    if (!uid) return "sin_sesion";
+    const { error } = activo
+      ? await supabase.from("avisos_precio").insert({ product_id: productId })
+      : await supabase.from("avisos_precio").delete().eq("user_id", uid).eq("product_id", productId);
+    // Ya estaba activado (otra pestaña): cuenta como hecho.
+    if (error && !(activo && String((error as { code?: string }).code) === "23505")) {
+      if (esFaltaTabla(error)) sinAvisosPrecio = true;
+      return /50 avisos/.test(String(error.message)) ? "limite" : "error";
+    }
+    oyentesAvisosPrecio.forEach((f) => f());
+    return "ok";
+  } catch {
+    return "error";
+  }
+}
+
+/** Blue ya avisó de esta bajada: se apunta el precio para no repetirla (en cualquier dispositivo). */
+export async function marcarBajadaAvisada(productId: string, precio: number): Promise<void> {
+  try {
+    const { data: s } = await supabase.auth.getSession();
+    const uid = s.session?.user?.id;
+    if (!uid || !(precio > 0)) return;
+    await supabase.from("avisos_precio").update({ precio_avisado: precio }).eq("user_id", uid).eq("product_id", productId);
+  } catch {
+    // sin red: se volverá a avisar, no pasa nada
+  }
+}
+
+/** El precio a partir del cual hay bajada: el más bajo entre el de activarlo y el último avisado. */
+export function precioReferenciaAviso(a: Pick<AvisoPrecio, "precio_inicial" | "precio_avisado">): number {
+  return a.precio_avisado !== null && a.precio_avisado > 0 ? Math.min(a.precio_inicial, a.precio_avisado) : a.precio_inicial;
 }

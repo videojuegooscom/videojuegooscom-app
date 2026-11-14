@@ -54,6 +54,12 @@
  * Cuarte, «Llega entre el … y el …» en el resto de España (sin domingos) y, sin código, las dos; se mide como
  * ficha_entrega_estimada (tipo y origen, nunca el código postal). Se ve en Administración → Analítica.
  *
+ * «Avísame si baja de precio» (mejora 5, 2026-11-14; AvisoPrecioFicha, migración 20261114160100): bajo «Preguntar por
+ * este producto», un interruptor de 44 px SOLO con cuenta (tabla avisos_precio, lib/interaccion.ts). Sin cuenta, al
+ * tocarlo explica la ventaja y ofrece «Crear cuenta gratis» (vuelve a esta ficha al entrar). Sin la migración o si la
+ * lectura falla, no se ofrece (un error no es «no lo sigues»). Se mide como aviso_precio_activado / aviso_precio_desactivado
+ * (solo el producto) y aviso_precio_invitacion; Blue avisa de la bajada (components/Campanita.tsx).
+ *
  * Cabecera: solo el botón "←" queda fijo arriba; el título y el subtítulo
  * del producto viven dentro del ScrollView (son lo primero que se ve) y
  * desaparecen al hacer scroll como el resto del contenido, en vez de
@@ -123,8 +129,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/theme";
 import { sinEmojis } from "../../lib/admin/products.utils";
-import { contarVistaProducto, fijarMeGusta } from "../../lib/interaccion";
-import { trackEvent, trackEventThrottled } from "../../lib/analytics";
+import { contarVistaProducto, fijarAvisoPrecio, fijarMeGusta, misAvisosPrecio } from "../../lib/interaccion";
+import { marcarOrigenRegistro, trackEvent, trackEventThrottled } from "../../lib/analytics";
 import { productosReservadosPorOtros, RESERVA_MINUTOS, reservarProducto } from "../../lib/reservas";
 import {
   cargarTarifas,
@@ -1780,6 +1786,9 @@ export default function ProductoScreen() {
                       Preguntar por este producto
                     </Text>
                   </Pressable>
+
+                  {/* «Avísame si baja de precio» (solo con cuenta): en lo que se puede comprar. */}
+                  {p.status === "PUBLICADA" && p.isActive ? <AvisoPrecioFicha productId={p.id} precio={p.priceEUR} /> : null}
                 </View>
 
                 {/* Ficha técnica y mantenimiento de VeoAura y descripción: con más de una, un carrusel que se desliza
@@ -1827,6 +1836,138 @@ export default function ProductoScreen() {
         onClose={() => setLightboxOpen(false)}
         onEvento={eventoVisor}
       />
+    </View>
+  );
+}
+
+// --- «Avísame si baja de precio» (mejora 5, aprobada por el dueño el 2026-11-14) ------------------------------------
+// SOLO CON CUENTA (ventaja de registrarse, como los avisos de Blue). Con cuenta: interruptor de 44 px que guarda o quita el
+// aviso en avisos_precio. Sin cuenta: al tocarlo explica la ventaja y lleva a crear la cuenta (y de vuelta a esta ficha).
+// Sin la migración o con la lectura fallida no sale nada: nunca un «desactivado» que no se sabe.
+const VOLVER_TRAS_ACCESO_FICHA_KEY = "videojuegoszaragoza:volver_tras_acceso";
+
+function AvisoPrecioFicha({ productId, precio }: { productId: string; precio: number }) {
+  // "cargando" | "sin_cuenta" | "no" (sin migración o error de lectura: no se ofrece) | "listo"
+  const [estado, setEstado] = useState<"cargando" | "sin_cuenta" | "no" | "listo">("cargando");
+  const [activo, setActivo] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
+  const [invitacion, setInvitacion] = useState(false);
+  const [mensaje, setMensaje] = useState<string | null>(null);
+
+  const leer = useCallback(async () => {
+    try {
+      const { data: s } = await supabase.auth.getSession();
+      if (!s.session?.user) {
+        setEstado("sin_cuenta");
+        return;
+      }
+      const lista = await misAvisosPrecio();
+      if (!lista) {
+        setEstado("no");
+        return;
+      }
+      setActivo(lista.some((a) => a.product_id === productId));
+      setEstado("listo");
+    } catch {
+      setEstado("no");
+    }
+  }, [productId]);
+
+  useEffect(() => {
+    leer();
+    // Al entrar o salir de la cuenta se vuelve a mirar; con cada renovación del token, nada (sesión estable).
+    const { data } = supabase.auth.onAuthStateChange((evento) => {
+      if (evento === "SIGNED_IN" || evento === "SIGNED_OUT" || evento === "USER_UPDATED") leer();
+    });
+    return () => data?.subscription?.unsubscribe?.();
+  }, [leer]);
+
+  const alternar = useCallback(async () => {
+    if (ocupado) return;
+    if (estado === "sin_cuenta") {
+      setInvitacion((v) => !v);
+      if (!invitacion) void trackEvent("aviso_precio_invitacion", "Ficha: aviso de precio sin cuenta", { metadata: { productId } });
+      return;
+    }
+    if (estado !== "listo") return;
+    const nuevo = !activo;
+    setOcupado(true);
+    setMensaje(null);
+    setActivo(nuevo);
+    const r = await fijarAvisoPrecio(productId, nuevo);
+    setOcupado(false);
+    if (r === "ok") {
+      setMensaje(nuevo ? "Hecho: Blue te avisará si baja de precio." : "Aviso quitado.");
+      void trackEvent(nuevo ? "aviso_precio_activado" : "aviso_precio_desactivado", nuevo ? "Aviso de precio: activado" : "Aviso de precio: desactivado", {
+        path: `/producto/${productId}`,
+        metadata: { productId },
+      });
+    } else {
+      setActivo(!nuevo);
+      setMensaje(r === "limite" ? "Ya tienes 50 avisos de precio: quita alguno en Mi perfil." : r === "sin_sesion" ? "Inicia sesión para activar el aviso." : "No se ha podido guardar. Inténtalo de nuevo.");
+    }
+  }, [ocupado, estado, activo, invitacion, productId]);
+
+  const crearCuenta = useCallback(() => {
+    void trackEvent("aviso_precio_crear_cuenta", "Ficha: crear cuenta por el aviso de precio", { metadata: { productId } });
+    marcarOrigenRegistro("aviso_precio");
+    AsyncStorage.setItem(VOLVER_TRAS_ACCESO_FICHA_KEY, JSON.stringify({ ruta: `/producto/${productId}`, hasta: Date.now() + 30 * 60_000 })).catch(() => {});
+    pushRoute("/perfil?acceso=registro" as Href);
+  }, [productId]);
+
+  if (estado === "cargando" || estado === "no" || !(precio > 0)) return null;
+  const encendido = estado === "listo" && activo;
+  return (
+    <View nativeID="ficha-aviso-precio" style={{ gap: 8, alignItems: "stretch" }}>
+      <Pressable
+        nativeID="ficha-aviso-precio-boton"
+        onPress={alternar}
+        disabled={ocupado}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: encendido, disabled: ocupado }}
+        aria-checked={encendido}
+        accessibilityLabel="Avísame si baja de precio"
+        style={({ pressed }) => ({
+          minHeight: TACTIL.minimo,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          paddingHorizontal: 14,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: encendido ? COLORS.accentBorder : COLORS.border,
+          backgroundColor: encendido ? COLORS.accent2 : "#FFFFFF",
+          opacity: pressed || ocupado ? 0.85 : 1,
+        })}
+      >
+        <Ionicons name={encendido ? "notifications" : "notifications-outline"} size={16} color={encendido ? COLORS.accent : COLORS.text} />
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5, flexShrink: 1 }}>Avísame si baja de precio</Text>
+        {/* El interruptor dibujado (todo el botón es el que se toca). */}
+        <View style={{ width: 34, height: 20, borderRadius: 10, padding: 2, backgroundColor: encendido ? COLORS.accent : "#CBD5E1", alignItems: encendido ? "flex-end" : "flex-start" }}>
+          <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: "#FFFFFF" }} />
+        </View>
+      </Pressable>
+      {estado === "sin_cuenta" && invitacion ? (
+        <View nativeID="ficha-aviso-precio-invitacion" style={{ alignItems: "center", gap: 8 }}>
+          <Text style={{ color: COLORES_TEXTO.texto, fontSize: TAMANOS.minimo, lineHeight: 19, textAlign: "center" }}>
+            Los avisos de precio son solo con cuenta: créala gratis y Blue te avisará si este artículo baja de precio.
+          </Text>
+          <Pressable
+            nativeID="ficha-aviso-precio-crear-cuenta"
+            onPress={crearCuenta}
+            accessibilityRole="button"
+            style={({ pressed }) => ({ minHeight: TACTIL.minimo, justifyContent: "center", paddingHorizontal: 20, borderRadius: 999, backgroundColor: COLORS.accentDark, opacity: pressed ? 0.85 : 1 })}
+          >
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>Crear cuenta gratis</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {mensaje ? (
+        <Text nativeID="ficha-aviso-precio-mensaje" style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+          {mensaje}
+        </Text>
+      ) : null}
     </View>
   );
 }

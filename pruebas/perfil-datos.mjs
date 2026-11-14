@@ -328,7 +328,15 @@
  *    dos («mañana, lunes» el domingo de Madrid) y un campo de 16 px que no guarda; la insignia y la garantía solo si el
  *    dueño las marca; sin la columna, nada y sin errores (y sin pedirla por su nombre); Productos marca, filtra y no deja 40
  *    meses; Analítica «Ficha del producto (30 días)»; sin desbordes a 360, 390 y 1280 px; nada si se rechazó la analítica.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF]
+ *  - SEGP) Seguimiento del pedido y avisos de precio (2026-11-14, mejora 5, migraciones 20261114160000 y 20261114160100): en
+ *    «Mis pedidos» los pasos con su fecha y hora reales (Madrid) y sin fecha cuando no se guardó; «Seguir el envío» (44 px)
+ *    abre el localizador de Correos; Blue avisa «Tu pedido VZ-… está enviado · Ver seguimiento» una vez (no lo repite al
+ *    recargar) y tocarlo lleva a Seguimientos; sin cuenta el aviso de precio invita a crearla, con cuenta se activa y se
+ *    quita; Blue avisa de la bajada una vez y apunta el precio avisado; «Avisos de precio» en Mi perfil con «Quitar»;
+ *    Administración → Pedidos (pasos, recuento, número de envío, cambio de estado con hora) y Analítica (recuentos por
+ *    producto sin nombres y avisos mostrados/tocados); sin las migraciones nada se rompe ni se pide la columna nueva; 360,
+ *    390 y 1280 px sin desbordes y sin errores de JavaScript.
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -1455,7 +1463,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (metodo === "GET" || metodo === "HEAD") {
       // Administración → Analítica mira con «*» en una fila si products ya tiene «revisado» (mejora 4): sin fila, no sale.
       if (url.pathname.endsWith("/rest/v1/products") && url.searchParams.get("select") === "*" && url.searchParams.get("limit") === "1") return json([]);
-      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|product_chats|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento)$/.test(url.pathname)) {
+      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|product_chats|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento|pedido_estados|avisos_precio)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
       }
       return r.continue();
@@ -14681,8 +14689,496 @@ async function seccionFCONF() {
   }
 }
 
+// ===== SEGP) Seguimiento del pedido y «Avísame si baja de precio» (dueño, 2026-11-14, mejora 5; migraciones
+// 20261114160000_pedidos_historial.sql y 20261114160100_avisos_precio.sql): en «Mis pedidos», los pasos con la fecha y la
+// hora REALES (las de pedido_estados; sin ellas, sin fecha: nunca inventada) y «Seguir el envío» de 44 px que abre Correos;
+// Blue avisa «Tu pedido VZ-… está enviado · Ver seguimiento» UNA vez por cambio (también tras recargar) y se mide; en la
+// ficha, sin cuenta el aviso de precio invita a crearla y con cuenta se activa y se quita; Blue avisa de la bajada una vez
+// (y apunta el precio avisado); «Avisos de precio» en Mi perfil con «Quitar»; Administración → Pedidos (pasos, recuento y
+// número de envío) y Analítica (recuentos por producto y avisos mostrados/tocados); sin las migraciones nada se rompe ni
+// se pide la columna nueva; sin errores de JavaScript y sin desbordar a 360, 390 y 1280 px. Todo simulado. ===========
+async function seccionSEGP() {
+  const PROD = "00000000-0000-4000-8000-0000000005e1";
+  const PROD2 = "00000000-0000-4000-8000-0000000005e2";
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const perfil = { user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", telefono: null, codigo_postal: "50001", localidad: "Zaragoza", direccion: "Calle Mayor 5", piso: null, direcciones: [] };
+  const perfilAdmin = { user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" };
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  // El texto visible, sin los iconos (Ionicons usa caracteres de uso privado).
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/[-]/g, "").replace(/\s+/g, " ").trim()).catch(() => "");
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const alto =(p, sel) => p.evaluate((s) => Math.round(document.querySelector(s)?.getBoundingClientRect().height ?? 0), sel);
+  // La misma hora que enseña la tienda («14 nov, 10:32», hora de Madrid), calculada aquí aparte.
+  const hora = (iso) => {
+    const d = new Date(iso);
+    const dia = d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "numeric", month: "short" }).replace(/\./g, "");
+    const hm = d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", hour12: false });
+    return `${dia}, ${hm}`;
+  };
+  const T = {
+    recibidoA: "2026-11-10T09:05:00Z", pagadoA: "2026-11-10T09:07:00Z", confirmadoA: "2026-11-10T11:30:00Z", preparadoA: "2026-11-11T08:15:00Z", enviadoA: "2026-11-11T16:40:00Z",
+    recibidoB: "2026-11-13T18:00:00Z", recibidoC: "2026-11-09T10:00:00Z", confirmadoC: "2026-11-09T12:00:00Z", canceladoC: "2026-11-09T19:20:00Z", recibidoD: "2026-11-01T10:00:00Z",
+  };
+  const pedido = (id, numero, codigo, estado, creado, extra = {}) => ({
+    id, numero, codigo_seguimiento: codigo, estado, entrega: "envio", created_at: creado, total_eur: 399, user_id: CLIENTE.id, nombre: "Ana", email: CLIENTE.email,
+    telefono: "600111222", direccion: "Calle Mayor 5", codigo_postal: "50001", ciudad: "Zaragoza", notas: null, pago_estado: null, pago_modo: null, pagado_eur: null, pagado_en: null,
+    devuelto_en: null, envio_seguimiento: null, ...extra,
+  });
+  const PEDIDOS = () => [
+    pedido("a0000000-0000-4000-8000-000000000101", 101, "VZ-AB2C-DE01", "enviado", T.recibidoA, { pago_estado: "pagado", pago_modo: "real", pagado_eur: 399, pagado_en: T.pagadoA, envio_seguimiento: "PK123456789ES" }),
+    pedido("a0000000-0000-4000-8000-000000000102", 102, "VZ-AB2C-DE02", "pendiente", T.recibidoB),
+    pedido("a0000000-0000-4000-8000-000000000103", 103, "VZ-AB2C-DE03", "cancelado", T.recibidoC),
+    // Anterior a la migración: llegó a «enviado» sin que se guardara la hora de ningún paso.
+    pedido("a0000000-0000-4000-8000-000000000104", 104, "VZ-AB2C-DE04", "enviado", T.recibidoD),
+  ];
+  const ESTADOS = () => [
+    { pedido_id: "a0000000-0000-4000-8000-000000000101", estado: "confirmado", creado_en: T.confirmadoA },
+    { pedido_id: "a0000000-0000-4000-8000-000000000101", estado: "preparado", creado_en: T.preparadoA },
+    { pedido_id: "a0000000-0000-4000-8000-000000000101", estado: "enviado", creado_en: T.enviadoA },
+    { pedido_id: "a0000000-0000-4000-8000-000000000103", estado: "confirmado", creado_en: T.confirmadoC },
+    { pedido_id: "a0000000-0000-4000-8000-000000000103", estado: "cancelado", creado_en: T.canceladoC },
+  ];
+  const ITEMS = [
+    { pedido_id: "a0000000-0000-4000-8000-000000000101", titulo: "PlayStation 5 Slim", product_id: null, id: "i1", precio_eur: 399 },
+    { pedido_id: "a0000000-0000-4000-8000-000000000102", titulo: "Mando DualSense", product_id: null, id: "i2", precio_eur: 49 },
+    { pedido_id: "a0000000-0000-4000-8000-000000000103", titulo: "Nintendo Switch OLED", product_id: null, id: "i3", precio_eur: 249 },
+    { pedido_id: "a0000000-0000-4000-8000-000000000104", titulo: "Xbox Series S", product_id: null, id: "i4", precio_eur: 199 },
+  ];
+  const producto = (id, title, price_eur) => ({
+    id, title, description: "Consola en buen estado.", price_eur, status: "PUBLISHED", is_active: true, category_id: null, images: [], updated_at: "2026-11-14T10:00:00Z",
+    created_at: "2026-11-14T10:00:00Z", condition: "GOOD", like_count: 0, reference: null, caracteristicas: null, mantenimiento: null, category: null, solo_entrega_mano: false,
+  });
+  // La base de datos ficticia de esta sección (por encima de la de contexto(): las rutas nuevas mandan). `sin`: las
+  // migraciones aún no están aplicadas (tablas nuevas inexistentes, sin la columna envio_seguimiento).
+  const rutas = async (ctx, s, usuario, rol) => {
+    s.pedidos ??= PEDIDOS();
+    s.estados ??= ESTADOS();
+    s.avisos ??= [];
+    s.productos ??= [producto(PROD, "PlayStation 5 Slim", 399), producto(PROD2, "Mando DualSense", 49)];
+    s.peticiones = [];
+    await ctx.route("**/*", async (r) => {
+      const q = r.request();
+      const url = new URL(q.url());
+      const metodo = q.method();
+      const json = (cuerpo, status = 200) => r.fulfill({ status, contentType: "application/json", headers: CORS, body: JSON.stringify(cuerpo) });
+      const falta = (t) => json({ code: "PGRST205", message: `Could not find the table 'public.${t}' in the schema cache` }, 404);
+      const filtro = (campo) => url.searchParams.get(campo) ?? "";
+      const lista = (campo) => (filtro(campo).startsWith("in.(") ? filtro(campo).slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")) : null);
+      const objeto = /vnd\.pgrst\.object/.test(q.headers()["accept"] ?? "");
+      if (url.hostname === "www.correos.es") {
+        s.correos = [...(s.correos ?? []), url.href];
+        return r.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><meta charset=utf-8><title>Correos (simulada)</title><h1>Localizador (simulado)</h1>" });
+      }
+      if (metodo === "OPTIONS") return r.fallback();
+      const tabla = url.pathname.startsWith("/rest/v1/") ? url.pathname.slice(9) : null;
+      if (!tabla) return r.fallback();
+      s.peticiones.push(`${metodo} ${tabla}?${decodeURIComponent(url.search.slice(1))}`);
+      if (tabla === "pedido_estados") {
+        if (s.sin) return falta("pedido_estados");
+        const ids = lista("pedido_id");
+        const mios = new Set(s.pedidos.filter((p) => rol === "admin" || p.user_id === usuario.id).map((p) => p.id));
+        return json(s.estados.filter((e) => mios.has(e.pedido_id) && (!ids || ids.includes(e.pedido_id))).sort((a, b) => (a.creado_en < b.creado_en ? -1 : 1)));
+      }
+      if (tabla === "pedidos") {
+        const select = filtro("select");
+        if (s.sin && /envio_seguimiento/.test(select)) {
+          s.pedidos400 = (s.pedidos400 ?? 0) + 1;
+          return json({ code: "42703", message: "column pedidos.envio_seguimiento does not exist" }, 400);
+        }
+        if (metodo === "PATCH") {
+          const id = filtro("id").replace(/^eq\./, "");
+          const cuerpo = JSON.parse(q.postData() ?? "{}");
+          s.cambios = [...(s.cambios ?? []), { id, cuerpo }];
+          s.pedidos = s.pedidos.map((p) => {
+            if (p.id !== id) return p;
+            // Como el disparador pedido_estados_apuntar: la hora del cambio de estado la pone la base de datos.
+            if (!s.sin && cuerpo.estado && cuerpo.estado !== p.estado) s.estados.push({ pedido_id: id, estado: cuerpo.estado, creado_en: new Date().toISOString() });
+            return { ...p, ...cuerpo };
+          });
+          return r.fulfill({ status: 204, headers: CORS, body: "" });
+        }
+        if (metodo === "HEAD") return r.fulfill({ status: 200, headers: { ...CORS, "content-range": "*/0", "access-control-expose-headers": "*" }, body: "" });
+        const uid = filtro("user_id").replace(/^eq\./, "");
+        const ids = lista("id");
+        let filas = s.pedidos.filter((p) => (rol === "admin" || p.user_id === usuario.id) && (!uid || p.user_id === uid) && (!ids || ids.includes(p.id)));
+        if (/pedido_items/.test(select)) filas = filas.map((p) => ({ ...p, pedido_items: ITEMS.filter((i) => i.pedido_id === p.id) }));
+        if (s.sin) filas = filas.map(({ envio_seguimiento, ...resto }) => resto);
+        return json(filas);
+      }
+      if (tabla === "pedido_items") {
+        const ids = lista("pedido_id");
+        return json(ITEMS.filter((i) => !ids || ids.includes(i.pedido_id)));
+      }
+      if (tabla === "avisos_precio") {
+        if (s.sin) return falta("avisos_precio");
+        if (metodo === "POST") {
+          const cuerpo = [].concat(JSON.parse(q.postData() ?? "{}"))[0];
+          s.avisosCreados = [...(s.avisosCreados ?? []), cuerpo];
+          const prod = s.productos.find((p) => p.id === cuerpo.product_id);
+          // Como el disparador: de quién es y el precio los pone la base de datos.
+          s.avisos.push({ id: `ap${s.avisos.length + 1}`, user_id: usuario.id, product_id: cuerpo.product_id, precio_inicial: prod?.price_eur ?? 0, precio_avisado: null, creado_en: new Date().toISOString() });
+          return r.fulfill({ status: 201, headers: CORS, body: "" });
+        }
+        if (metodo === "DELETE") {
+          const prodId = filtro("product_id").replace(/^eq\./, "");
+          s.avisosQuitados = [...(s.avisosQuitados ?? []), prodId];
+          s.avisos = s.avisos.filter((a) => !(a.user_id === usuario.id && a.product_id === prodId));
+          return r.fulfill({ status: 204, headers: CORS, body: "" });
+        }
+        if (metodo === "PATCH") {
+          const prodId = filtro("product_id").replace(/^eq\./, "");
+          const cuerpo = JSON.parse(q.postData() ?? "{}");
+          s.avisados = [...(s.avisados ?? []), { prodId, cuerpo }];
+          s.avisos = s.avisos.map((a) => (a.user_id === usuario.id && a.product_id === prodId ? { ...a, precio_avisado: cuerpo.precio_avisado } : a));
+          return r.fulfill({ status: 204, headers: CORS, body: "" });
+        }
+        const uid = filtro("user_id").replace(/^eq\./, "");
+        // RLS: cada cliente solo las suyas; el administrador, todas.
+        return json(s.avisos.filter((a) => (rol === "admin" || a.user_id === usuario.id) && (!uid || a.user_id === uid)));
+      }
+      if (tabla === "products" && metodo === "GET") {
+        const ids = lista("id");
+        const uno = filtro("id").startsWith("eq.") ? filtro("id").slice(3) : null;
+        const filas = s.productos.filter((p) => (!ids || ids.includes(p.id)) && (!uno || p.id === uno));
+        return objeto ? json(filas[0] ?? null) : json(filas);
+      }
+      if (["product_media", "product_likes", "product_reviews", "flash_news", "noticias_gaming", "service_requests", "pedido_facturas"].includes(tabla) && metodo === "GET") {
+        return tabla === "pedido_facturas" ? falta("pedido_facturas") : json([]);
+      }
+      return r.fallback();
+    });
+  };
+  const cliente = async (s, vista = {}, extra = {}) => {
+    const estado = { filas: [perfil], guardados: [], aceptaAnalitica: true, ...extra };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await rutas(ctx, s, CLIENTE, "user");
+    return { ctx, estado };
+  };
+  const abrirPedidos = async (ctx) => {
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.locator("#pasos-pedido-101").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    return p;
+  };
+
+  // SEGP1) «Mis pedidos» (390): los pasos con sus fechas y horas reales; sin hora conocida, sin fecha; «Seguir el envío».
+  {
+    const s = {};
+    const { ctx, estado } = await cliente(s);
+    const p = await abrirPedidos(ctx);
+    const pasosA = await texto(p, "#pasos-pedido-101");
+    ok(/Pedido recibido/.test(pasosA) && /Pagado/.test(pasosA) && /Confirmado/.test(pasosA) && /Preparando/.test(pasosA) && /Enviado/.test(pasosA), `SEGP: el pedido enviado enseña sus pasos (${pasosA})`);
+    const fechas = {
+      pendiente: await texto(p, "#paso-101-pendiente-fecha"), pagado: await texto(p, "#paso-101-pagado-fecha"), confirmado: await texto(p, "#paso-101-confirmado-fecha"),
+      preparado: await texto(p, "#paso-101-preparado-fecha"), enviado: await texto(p, "#paso-101-enviado-fecha"),
+    };
+    ok(
+      fechas.pendiente === hora(T.recibidoA) && fechas.pagado === hora(T.pagadoA) && fechas.confirmado === hora(T.confirmadoA) && fechas.preparado === hora(T.preparadoA) && fechas.enviado === hora(T.enviadoA),
+      `SEGP: cada paso con SU fecha y hora reales, en hora de Madrid (${JSON.stringify(fechas)})`
+    );
+    ok((await texto(p, "#paso-101-siguiente")) === "Siguiente: Entregado" && (await p.locator("#paso-101-entregado").count()) === 0, "SEGP: lo que falta no sale como hecho: «Siguiente: Entregado»");
+    const b = await texto(p, "#pasos-pedido-102");
+    ok(/Pedido recibido/.test(b) && (await texto(p, "#paso-102-pendiente-fecha")) === hora(T.recibidoB) && (await p.locator("#paso-102-confirmado").count()) === 0 && /Siguiente: Confirmado/.test(b), `SEGP: el pendiente, solo «Pedido recibido» con su hora y «Siguiente: Confirmado» (${b})`);
+    const d = await p.evaluate(() => ["confirmado", "preparado", "enviado"].map((k) => [!!document.getElementById(`paso-104-${k}`), !!document.getElementById(`paso-104-${k}-fecha`)]));
+    ok(d.every(([esta, fecha]) => esta && !fecha), `SEGP: sin hora guardada (anterior a la migración), los pasos salen SIN fecha, nunca inventada (${JSON.stringify(d)})`);
+    const c = await texto(p, "#pasos-pedido-103");
+    ok(/Cancelado/.test(c) && (await texto(p, "#paso-103-cancelado-fecha")) === hora(T.canceladoC) && (await texto(p, "#paso-103-confirmado-fecha")) === hora(T.confirmadoC) && !/Preparando|Siguiente/.test(c), `SEGP: el cancelado, los pasos que se dieron y «Cancelado» con su hora (${c})`);
+    ok((await p.locator("#seguir-envio-101").count()) === 1 && (await p.locator("#seguir-envio-102").count()) === 0 && (await p.locator("#seguir-envio-104").count()) === 0, "SEGP: «Seguir el envío» solo en el pedido con número de envío");
+    ok((await alto(p, "#seguir-envio-101")) >= 44, `SEGP: «Seguir el envío» mide 44 px o más (${await alto(p, "#seguir-envio-101")})`);
+    await p.locator("#pasos-pedido-101").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "SEGP1-mis-pedidos-390");
+    const popup = ctx.waitForEvent("page", { timeout: 8000 }).catch(() => null);
+    await p.locator("#seguir-envio-101").click();
+    await popup;
+    for (let i = 0; i < 20 && !(s.correos ?? []).length; i++) await p.waitForTimeout(250);
+    ok((s.correos ?? []).some((u) => /localizador\/envios\/detalle\?tracking-number=PK123456789ES/.test(u)), `SEGP: «Seguir el envío» abre el localizador de Correos con el número (${JSON.stringify(s.correos ?? [])})`);
+    for (let i = 0; i < 20 && !evento(estado, "seguir_envio").length; i++) await p.waitForTimeout(250);
+    ok(evento(estado, "seguir_envio")[0]?.metadata?.tipo === "pedido" && !/PK123|VZ-|cliente@/.test(JSON.stringify(evento(estado, "seguir_envio"))), "SEGP: se mide «seguir_envio» sin el número ni datos del cliente");
+    ok(p.errores.length === 0, `SEGP1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SEGP2) Sin las migraciones: «Mis pedidos» sale entero, sin fechas de los pasos (solo recibido y pagado), sin pedir la
+  // columna nueva y sin «Seguir el envío»; la ficha no ofrece el aviso de precio a quien tiene cuenta.
+  {
+    const s = { sin: true };
+    const { ctx } = await cliente(s);
+    const p = await abrirPedidos(ctx);
+    const fechaConfirmado = await p.locator("#paso-101-confirmado-fecha").count();
+    ok((await p.locator("#paso-101-enviado").count()) === 1 && fechaConfirmado === 0 && (await texto(p, "#paso-101-pendiente-fecha")) === hora(T.recibidoA), "SEGP: sin la migración, los pasos salen sin hora (salvo recibido y pagado, que ya existían)");
+    ok(!s.pedidos400 && !s.peticiones.some((x) => /envio_seguimiento/.test(x)), `SEGP: sin la migración nunca se pide envio_seguimiento (${s.pedidos400 ?? 0} errores)`);
+    ok(s.peticiones.filter((x) => x.startsWith("GET pedido_estados")).length <= 1, `SEGP: sin la tabla se pregunta una vez y se recuerda (${s.peticiones.filter((x) => x.startsWith("GET pedido_estados")).length})`);
+    ok((await p.locator('[id^="seguir-envio-"]').count()) === 0, "SEGP: sin la migración, ningún «Seguir el envío»");
+    ok(p.errores.length === 0, `SEGP2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    const f = await pagina(ctx, `/producto/${PROD}`);
+    await f.getByText("Preguntar por este producto").first().waitFor({ timeout: 40000 }).catch(() => {});
+    await f.waitForTimeout(1500);
+    ok((await f.locator("#ficha-aviso-precio").count()) === 0 && (await f.getByText("Comprar ya", { exact: true }).count()) >= 1, "SEGP: sin la tabla, la ficha sale entera y sin el aviso de precio (no se puede guardar)");
+    ok(f.errores.length === 0, `SEGP2: la ficha sin errores de JavaScript (${f.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SEGP3) Blue avisa del cambio UNA vez: «Tu pedido VZ-AB2C-DE01 está enviado · Ver seguimiento»; tras recargar, no lo
+  // repite (queda guardado en el dispositivo); se mide como mostrado y, en otro dispositivo, tocarlo lleva a Seguimientos.
+  const CLAVE_VISTOS = `videojuegoszaragoza:seguimientos_vistos:${CLIENTE.id}`;
+  const sembrarVistos = (ctx) =>
+    ctx.addInitScript(([clave]) => {
+      try {
+        if (!localStorage.getItem(clave)) {
+          localStorage.setItem(clave, JSON.stringify({ p: { "a0000000-0000-4000-8000-000000000101": "preparado", "a0000000-0000-4000-8000-000000000102": "pendiente", "a0000000-0000-4000-8000-000000000103": "cancelado", "a0000000-0000-4000-8000-000000000104": "enviado" }, r: {} }));
+        }
+      } catch {
+        // sin almacenamiento
+      }
+    }, [CLAVE_VISTOS]);
+  const esperarMensaje = (p, re, ms) =>
+    p.waitForFunction((fuente) => new RegExp(fuente).test(document.getElementById("blue-mensaje")?.textContent ?? ""), re.source, { timeout: ms }).then(() => true, () => false);
+  {
+    const s = {};
+    const { ctx, estado } = await cliente(s);
+    await sembrarVistos(ctx);
+    const p = await pagina(ctx, "/");
+    const dicho = await esperarMensaje(p, /Tu pedido VZ-AB2C-DE01 está enviado · Ver seguimiento/, 50000);
+    ok(dicho, "SEGP: Blue dice «Tu pedido VZ-AB2C-DE01 está enviado · Ver seguimiento»");
+    if (dicho) await capturar(p, "SEGP3-blue-pedido-390");
+    for (let i = 0; i < 20 && !evento(estado, "pedido_aviso_estado_mostrado").length; i++) await p.waitForTimeout(250);
+    const m = evento(estado, "pedido_aviso_estado_mostrado");
+    ok(m.length === 1 && m[0]?.metadata?.estado === "enviado" && !/VZ-|a0000000|cliente@|Ana/.test(JSON.stringify(m)), `SEGP: se mide «pedido_aviso_estado_mostrado» una vez, solo con el estado (${JSON.stringify(m.map((e) => e.metadata))})`);
+    const guardado = await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:blue_avisos_dichos") ?? "");
+    ok(/s:p:a0000000-0000-4000-8000-000000000101:enviado/.test(guardado), "SEGP: lo dicho queda guardado en el dispositivo");
+    await p.reload({ waitUntil: "load" });
+    const repetido = await esperarMensaje(p, /Tu pedido VZ-AB2C-DE01 está enviado/, 40000);
+    ok(!repetido, "SEGP: al volver a abrir la tienda, Blue NO lo repite (una vez por cambio)");
+    ok(p.errores.length === 0, `SEGP3: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+  {
+    const s = {};
+    const { ctx, estado } = await cliente(s);
+    await sembrarVistos(ctx);
+    const p = await pagina(ctx, "/");
+    if (await esperarMensaje(p, /Ver seguimiento/, 50000)) {
+      await p.locator("#blue-mensaje").click();
+      await p.waitForURL(/\/perfil\?tab=seguimientos/, { timeout: 15000 }).then(
+        () => ok(true, "SEGP: tocar el aviso de Blue lleva a «Mis seguimientos»"),
+        () => ok(false, `SEGP: tocar el aviso debía llevar a Seguimientos (${p.url()})`)
+      );
+      for (let i = 0; i < 20 && !evento(estado, "pedido_aviso_estado_tocado").length; i++) await p.waitForTimeout(250);
+      ok(evento(estado, "pedido_aviso_estado_tocado")[0]?.metadata?.estado === "enviado", "SEGP: se mide «pedido_aviso_estado_tocado» (solo el estado)");
+    } else ok(false, "SEGP: (segundo dispositivo) Blue debía decir el aviso para poder tocarlo");
+    await ctx.close();
+  }
+
+  // SEGP4) La ficha: sin cuenta, el aviso de precio invita a crear la cuenta (y vuelve a la ficha); con cuenta se activa y
+  // se quita (44 px), lo guarda la base de datos con su precio y se mide solo con el producto. A 360, 390 y 1280 sin desbordes.
+  {
+    const s = {};
+    const { ctx, estado } = await cliente(s);
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await pagina(ctx, `/producto/${PROD}`);
+    await p.locator("#ficha-aviso-precio-boton").waitFor({ timeout: 40000 }).catch(() => {});
+    ok((await p.locator("#ficha-aviso-precio-boton").count()) === 1 && (await alto(p, "#ficha-aviso-precio-boton")) >= 44, `SEGP: sin cuenta se ve «Avísame si baja de precio» de 44 px (${await alto(p, "#ficha-aviso-precio-boton")})`);
+    await p.locator("#ficha-aviso-precio-boton").click();
+    await p.locator("#ficha-aviso-precio-invitacion").waitFor({ timeout: 5000 }).catch(() => {});
+    const inv = await texto(p, "#ficha-aviso-precio-invitacion");
+    ok(/solo con cuenta/.test(inv) && /Crear cuenta gratis/.test(inv) && !(s.avisosCreados ?? []).length, `SEGP: sin cuenta invita a crearla y explica la ventaja, sin guardar nada (${inv})`);
+    ok((await alto(p, "#ficha-aviso-precio-crear-cuenta")) >= 44, "SEGP: «Crear cuenta gratis» mide 44 px o más");
+    await capturar(p, "SEGP4-ficha-sin-cuenta-390");
+    await p.locator("#ficha-aviso-precio-crear-cuenta").click();
+    await p.waitForURL(/\/perfil\?acceso=registro/, { timeout: 15000 }).catch(() => {});
+    const volver = await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:volver_tras_acceso") ?? "");
+    ok(/\/perfil\?acceso=registro/.test(p.url()) && volver.includes(`/producto/${PROD}`), `SEGP: «Crear cuenta gratis» lleva al registro y recuerda volver a la ficha (${p.url().replace(BASE, "")})`);
+    ok(evento(estado, "aviso_precio_invitacion").length === 1, "SEGP: se mide la invitación sin cuenta");
+    ok(p.errores.length === 0, `SEGP4: sin cuenta, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+  {
+    const s = {};
+    const { ctx, estado } = await cliente(s);
+    const p = await pagina(ctx, `/producto/${PROD}`);
+    await p.locator("#ficha-aviso-precio-boton").waitFor({ timeout: 40000 }).catch(() => {});
+    const marcado = () => p.locator("#ficha-aviso-precio-boton").getAttribute("aria-checked").catch(() => null);
+    ok((await marcado()) === "false", `SEGP: con cuenta y sin seguirlo, el interruptor está apagado (${await marcado()})`);
+    await p.locator("#ficha-aviso-precio-boton").click();
+    for (let i = 0; i < 20 && !(s.avisosCreados ?? []).length; i++) await p.waitForTimeout(250);
+    await p.waitForTimeout(300);
+    ok((s.avisosCreados ?? []).length === 1 && Object.keys(s.avisosCreados[0]).join(",") === "product_id" && (await marcado()) === "true", `SEGP: activarlo guarda solo el producto (el precio lo pone la base de datos) y queda encendido (${JSON.stringify(s.avisosCreados)})`);
+    ok(/Blue te avisará si baja de precio/.test(await texto(p, "#ficha-aviso-precio-mensaje")), "SEGP: y lo confirma");
+    await capturar(p, "SEGP4-ficha-activado-390");
+    for (let i = 0; i < 20 && !evento(estado, "aviso_precio_activado").length; i++) await p.waitForTimeout(250);
+    ok(evento(estado, "aviso_precio_activado")[0]?.metadata?.productId === PROD && Object.keys(evento(estado, "aviso_precio_activado")[0]?.metadata ?? {}).join(",") === "productId", "SEGP: se mide «aviso_precio_activado» solo con el producto");
+    await p.reload({ waitUntil: "load" });
+    await p.locator("#ficha-aviso-precio-boton").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok((await marcado()) === "true", "SEGP: al volver a la ficha sigue encendido (lo lee de la cuenta)");
+    await p.locator("#ficha-aviso-precio-boton").click();
+    for (let i = 0; i < 20 && !(s.avisosQuitados ?? []).length; i++) await p.waitForTimeout(250);
+    await p.waitForTimeout(300);
+    ok((s.avisosQuitados ?? [])[0] === PROD && (await marcado()) === "false" && !s.avisos.length, "SEGP: tocarlo otra vez lo quita");
+    for (let i = 0; i < 20 && !evento(estado, "aviso_precio_desactivado").length; i++) await p.waitForTimeout(250);
+    ok(evento(estado, "aviso_precio_desactivado").length === 1, "SEGP: se mide «aviso_precio_desactivado»");
+    ok(p.errores.length === 0, `SEGP4: con cuenta, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SEGP5) La bajada: lo sigue desde 399 € y ahora vale 349 €: Blue lo dice UNA vez («Ha bajado de precio: …, ahora
+  // 349,00€»), apunta el precio avisado en la cuenta y se mide; al recargar no lo repite. «Avisos de precio» en Mi perfil
+  // lo enseña y «Quitar» lo quita.
+  {
+    const s = {
+      productos: [producto(PROD, "PlayStation 5 Slim", 349), producto(PROD2, "Mando DualSense", 49)],
+      avisos: [
+        { id: "ap1", user_id: CLIENTE.id, product_id: PROD, precio_inicial: 399, precio_avisado: null, creado_en: "2026-11-12T10:00:00Z" },
+        // De otro cliente: nunca le llega a este.
+        { id: "ap2", user_id: "22222222-2222-4222-8222-222222222222", product_id: PROD2, precio_inicial: 59, precio_avisado: null, creado_en: "2026-11-12T10:00:00Z" },
+      ],
+    };
+    const { ctx, estado } = await cliente(s);
+    const p = await pagina(ctx, "/");
+    const dicho = await esperarMensaje(p, /Ha bajado de precio: PlayStation 5 Slim, ahora 349,00€/, 50000);
+    ok(dicho, "SEGP: Blue dice «Ha bajado de precio: PlayStation 5 Slim, ahora 349,00€»");
+    if (dicho) await capturar(p, "SEGP5-blue-bajada-390");
+    for (let i = 0; i < 20 && !(s.avisados ?? []).length; i++) await p.waitForTimeout(250);
+    ok((s.avisados ?? [])[0]?.prodId === PROD && Number(s.avisados[0].cuerpo.precio_avisado) === 349, `SEGP: apunta en la cuenta el precio avisado (${JSON.stringify(s.avisados ?? [])})`);
+    // (En Inicio el Mando sale en los estantes: lo que cuenta es que Blue no avisa de él ni se apunta nada suyo.)
+    const panelBlue = await p.evaluate(() => document.getElementById("blue-mensaje")?.textContent ?? "");
+    ok(!/Mando DualSense/.test(panelBlue) && !(s.avisados ?? []).some((a) => a.prodId === PROD2) && s.avisos.find((a) => a.id === "ap2")?.precio_avisado === null, "SEGP: el aviso de otro cliente no le llega (ni se toca)");
+    ok(evento(estado, "aviso_precio_mostrado").length === 1 && evento(estado, "aviso_precio_mostrado")[0]?.metadata?.productId === PROD, "SEGP: se mide «aviso_precio_mostrado» una vez (solo el producto)");
+    await p.reload({ waitUntil: "load" });
+    ok(!(await esperarMensaje(p, /Ha bajado de precio/, 40000)), "SEGP: al volver, Blue NO repite la misma bajada");
+    ok(p.errores.length === 0, `SEGP5: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    const m = await pagina(ctx, "/perfil?tab=megusta");
+    await m.locator("#perfil-avisos-precio").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = await texto(m, "#perfil-avisos-precio");
+    ok(/Avisos de precio \(1\)/.test(t) && /PlayStation 5 Slim/.test(t) && /Ha bajado: 399,00€ → 349,00€/.test(t), `SEGP: «Avisos de precio» en Mi perfil con la bajada (${t})`);
+    ok((await alto(m, `#perfil-aviso-precio-quitar-${PROD}`)) >= 44, "SEGP: «Quitar» mide 44 px o más");
+    await capturar(m, "SEGP5-mis-avisos-390");
+    await m.locator(`#perfil-aviso-precio-quitar-${PROD}`).click();
+    for (let i = 0; i < 20 && !(s.avisosQuitados ?? []).length; i++) await m.waitForTimeout(250);
+    await m.waitForTimeout(300);
+    ok((s.avisosQuitados ?? [])[0] === PROD && (await m.locator("#perfil-avisos-precio").count()) === 0, "SEGP: «Quitar» lo quita de la cuenta y de la lista");
+    ok(m.errores.length === 0, `SEGP5: Mi perfil sin errores de JavaScript (${m.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SEGP6) Sin desbordes a 360, 390 y 1280 px: «Mis pedidos» con los pasos y la ficha con el aviso de precio.
+  for (const { nombre, vista } of VISTAS) {
+    const s = {};
+    const { ctx } = await cliente(s, vista);
+    const p = await abrirPedidos(ctx);
+    const d = await sinDesborde(p);
+    const cajas = await p.evaluate(() =>
+      ["pasos-pedido-101", "pasos-pedido-103", "seguir-envio-101"].map((id) => {
+        const r = document.getElementById(id)?.getBoundingClientRect();
+        return r ? { id, izq: Math.round(r.left), der: Math.round(r.right), v: window.innerWidth } : { id, falta: true };
+      })
+    );
+    ok(d.a <= d.v + 1 && cajas.every((c) => !c.falta && c.izq >= 0 && c.der <= c.v + 1), `SEGP (${nombre}): «Mis pedidos» no se ensancha y los pasos caben (${d.a}/${d.v} · ${JSON.stringify(cajas)})`);
+    const letra = await p.evaluate(() => Math.min(...[...document.querySelectorAll('[id^="pasos-pedido-"] *')].filter((e) => e.childNodes.length && [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())).map((e) => parseFloat(getComputedStyle(e).fontSize))));
+    ok(letra >= 13, `SEGP (${nombre}): la letra de los pasos no baja de 13 px (${letra})`);
+    await p.locator("#pasos-pedido-101").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `SEGP6-pedidos-${nombre}`);
+    ok(p.errores.length === 0, `SEGP6 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    const f = await pagina(ctx, `/producto/${PROD}`);
+    await f.locator("#ficha-aviso-precio-boton").waitFor({ timeout: 40000 }).catch(() => {});
+    const df = await sinDesborde(f);
+    const caja = await f.evaluate(() => {
+      const r = document.getElementById("ficha-aviso-precio-boton")?.getBoundingClientRect();
+      return r ? { izq: Math.round(r.left), der: Math.round(r.right), alto: Math.round(r.height), v: window.innerWidth } : null;
+    });
+    ok(df.a <= df.v + 1 && !!caja && caja.izq >= 0 && caja.der <= caja.v + 1 && caja.alto >= 44, `SEGP (${nombre}): la ficha con el aviso de precio cabe (${df.a}/${df.v} · ${JSON.stringify(caja)})`);
+    await f.locator("#ficha-aviso-precio").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(f, `SEGP6-ficha-${nombre}`);
+    ok(f.errores.length === 0, `SEGP6 (${nombre}): la ficha sin errores de JavaScript (${f.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SEGP7) Administración → Pedidos (390 y 1280): los pasos con fecha (o «sin hora»), el recuento, guardar el número de
+  // envío y cambiar el estado (la hora la pone la base de datos y se ve al momento).
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const s = {};
+    const estado = { filas: [perfilAdmin], guardados: [], categorias: [] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    await rutas(ctx, s, ADMIN, "admin");
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#pedido-pasos-101").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.getByText("Todos", { exact: true }).first().click().catch(() => {});
+    await p.waitForTimeout(800);
+    ok((await texto(p, "#pedido-paso-101-enviado")) === `Enviado · ${hora(T.enviadoA)}` && (await texto(p, "#pedido-paso-101-pagado")) === `Pagado · ${hora(T.pagadoA)}`, `SEGP (${nombre}): Pedidos enseña cada paso con su hora (${await texto(p, "#pedido-pasos-101")})`);
+    ok((await texto(p, "#pedido-paso-104-enviado")) === "Enviado · sin hora", `SEGP (${nombre}): y «sin hora» cuando no se guardó (${await texto(p, "#pedido-paso-104-enviado")})`);
+    ok(/con la hora de algún cambio: 2 · con número de envío: 1/.test(await texto(p, "#pedidos-seguimiento")), `SEGP (${nombre}): recuento arriba (${await texto(p, "#pedidos-seguimiento")})`);
+    await p.locator("#pedido-numero-envio-campo-102").fill("pk 987 654 321 es");
+    await p.locator("#pedido-numero-envio-guardar-102").click();
+    for (let i = 0; i < 20 && !(s.cambios ?? []).length; i++) await p.waitForTimeout(250);
+    ok((s.cambios ?? [])[0]?.cuerpo?.envio_seguimiento === "PK 987 654 321 ES" && /Número guardado/.test(await texto(p, "#pedido-numero-envio-mensaje-102")), `SEGP (${nombre}): guarda el número de envío del pedido (${JSON.stringify(s.cambios ?? [])})`);
+    await p.locator("#pedido-numero-envio-campo-104").fill("hola");
+    await p.locator("#pedido-numero-envio-guardar-104").click();
+    await p.waitForTimeout(400);
+    ok((s.cambios ?? []).length === 1 && /Escribe el número de Correos/.test(await texto(p, "#pedido-numero-envio-mensaje-104")), "SEGP: un número que no lo es no se guarda y lo explica");
+    const letra = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById("pedido-numero-envio-campo-102")).fontSize));
+    ok(letra >= 16 && (await alto(p, "#pedido-numero-envio-campo-102")) >= 44, `SEGP (${nombre}): el campo del número a 16 px y 44 de alto (${letra})`);
+    await p.locator("#pedido-pasos-101").locator("xpath=..").getByText("Entregado", { exact: true }).last().click();
+    for (let i = 0; i < 20 && !(s.cambios ?? []).some((c) => c.cuerpo.estado === "entregado"); i++) await p.waitForTimeout(250);
+    await p.locator("#pedido-paso-101-entregado").waitFor({ timeout: 8000 }).catch(() => {});
+    // La hora llega al releer el historial (un instante después del cambio).
+    for (let i = 0; i < 30 && /sin hora/.test(await texto(p, "#pedido-paso-101-entregado")); i++) await p.waitForTimeout(200);
+    ok(/^Entregado · \d{1,2} [a-z]{3,4}, \d{2}:\d{2}$/.test(await texto(p, "#pedido-paso-101-entregado")), `SEGP (${nombre}): al marcar «Entregado» sale el paso con la hora que puso la base de datos (${await texto(p, "#pedido-paso-101-entregado")})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `SEGP (${nombre}): Pedidos no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#pedido-pasos-101").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `SEGP7-admin-pedidos-${nombre}`);
+    ok(p.errores.length === 0, `SEGP7 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // SEGP8) Administración → Analítica (390 y 1280): cuántos clientes siguen cada producto (sin nombres) y los avisos
+  // mostrados y tocados.
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const s = {
+      avisos: [
+        { id: "a1", user_id: CLIENTE.id, product_id: PROD, precio_inicial: 399, precio_avisado: null, creado_en: "2026-11-12T10:00:00Z" },
+        { id: "a2", user_id: "22222222-2222-4222-8222-222222222222", product_id: PROD, precio_inicial: 399, precio_avisado: null, creado_en: "2026-11-12T11:00:00Z" },
+        { id: "a3", user_id: CLIENTE.id, product_id: PROD2, precio_inicial: 49, precio_avisado: null, creado_en: "2026-11-12T12:00:00Z" },
+      ],
+    };
+    const ev = (n, k) => Array.from({ length: k }, () => ({ event_name: n, metadata: {}, created_at: "2026-11-13T10:00:00Z", session_id: "x", step_label: n }));
+    const estado = {
+      filas: [perfilAdmin], guardados: [], embudo: [],
+      eventos: [...ev("pedido_aviso_estado_mostrado", 5), ...ev("pedido_aviso_estado_tocado", 2), ...ev("seguir_envio", 1), ...ev("aviso_precio_activado", 4), ...ev("aviso_precio_desactivado", 1), ...ev("aviso_precio_mostrado", 3), ...ev("aviso_precio_tocado", 2), ...ev("aviso_precio_invitacion", 6)],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    await rutas(ctx, s, ADMIN, "admin");
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-avisos-precio-total").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok((await texto(p, "#analitica-avisos-precio-total")) === "Ahora: 2 clientes siguen algún producto", `SEGP (${nombre}): Analítica cuenta los clientes que siguen algo (${await texto(p, "#analitica-avisos-precio-total")})`);
+    ok(/PlayStation 5 Slim 2 clientes/.test(await texto(p, `#analitica-aviso-precio-${PROD}`)) && /Mando DualSense 1 cliente/.test(await texto(p, `#analitica-aviso-precio-${PROD2}`)), `SEGP (${nombre}): recuento por producto (${await texto(p, "#analitica-avisos-precio-productos")})`);
+    ok(!/cliente@example|Ana|2222/.test(await texto(p, "#analitica-avisos-precio")), "SEGP: sin nombres ni datos de los clientes en la lista");
+    ok(/mostrados 5 · tocados 2 · «Seguir el envío» tocado 1/.test(await texto(p, "#analitica-aviso-estado")), `SEGP (${nombre}): avisos de estado mostrados y tocados (${await texto(p, "#analitica-aviso-estado")})`);
+    ok(/activados 4 · quitados 1 · bajadas avisadas por Blue 3 · tocadas 2 · sin cuenta \(invitados a crearla\) 6/.test(await texto(p, "#analitica-aviso-precio-uso")), `SEGP (${nombre}): avisos de precio (${await texto(p, "#analitica-aviso-precio-uso")})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `SEGP (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#analitica-avisos-precio").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `SEGP8-analitica-${nombre}`);
+    ok(p.errores.length === 0, `SEGP8 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "SEGP") await seccionSEGP();
   if (SOLO === "FCONF") await seccionFCONF();
   if (SOLO === "FBU") await seccionFBU();
   if (SOLO === "CAMPOS16") await seccionCAMPOS16();
@@ -15778,6 +16274,7 @@ try {
   await seccionCR();
   await seccionFBU();
   await seccionFCONF();
+  await seccionSEGP();
   await seccionCAMPOS16();
   }
 } catch (e) {

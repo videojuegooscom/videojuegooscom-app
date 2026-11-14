@@ -56,6 +56,10 @@
  *   pagado <forma> · entregado» y «Unida a la cuenta del cliente» o «Pendiente de que se registre <correo>»; recuento
  *   arriba (cuántas, importe, unidas y pendientes) y filtro «En tienda». Sin envío, teléfono, cambio de estado, cancelar ni
  *   WhatsApp (las gestiona VeoAura). Sin la migración, no se enseña nada de esto.
+ * - Seguimiento paso a paso (mejora 5, 2026-11-14; migración 20261114160000): cada pedido enseña sus pasos con la fecha y
+ *   la hora que guarda la base de datos (pedido_estados, la apunta un disparador al cambiar el estado; lo anterior, «sin
+ *   hora») —lo mismo que ve el cliente en «Mis pedidos»— y, si va a domicilio, el campo «Nº de Correos o enlace» que le da
+ *   al cliente «Seguir el envío». Recuento arriba (#pedidos-seguimiento). Sin la migración, pasos sin hora y sin el campo.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
@@ -64,7 +68,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
-import { cargarTarifas, fmtKg, type ZonaEnvio } from "../../lib/envio";
+import {
+  cargarSeguimientoPedidos,
+  cargarTarifas,
+  enlaceSeguimientoEnvio,
+  fechaHoraPaso,
+  fmtKg,
+  pasosDelPedido,
+  type HistorialPedidos,
+  type ZonaEnvio,
+} from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
@@ -251,6 +264,12 @@ export default function PedidosAdmin() {
   const [facturas, setFacturas] = useState<Record<string, { numero_factura: string | null; pdf: boolean }>>({});
   const [filtroFactura, setFiltroFactura] = useState<"todas" | "con" | "sin">("todas");
   const [facturaMsg, setFacturaMsg] = useState<{ id: string; texto: string } | null>(null);
+  // Seguimiento paso a paso (mejora 5, migración 20261114160000): hora de cada cambio de estado y número de envío. null =
+  // la migración aún no está aplicada: pasos sin hora y sin el campo del número.
+  const [historial, setHistorial] = useState<HistorialPedidos | null>(null);
+  const [numerosEnvio, setNumerosEnvio] = useState<Record<string, string>>({});
+  const [numeroEscrito, setNumeroEscrito] = useState<Record<string, string>>({});
+  const [numeroMsg, setNumeroMsg] = useState<{ id: string; tipo: "ok" | "error"; texto: string } | null>(null);
   // Buscador: referencia VZ-…, número interno, nombre, correo o teléfono (dueño, 2026-11-11).
   // Desde la ficha del cliente («Ver en Pedidos») llega ?buscar=<correo>: el buscador sale relleno (y se puede borrar).
   const { buscar } = useLocalSearchParams<{ buscar?: string }>();
@@ -313,6 +332,11 @@ export default function PedidosAdmin() {
     } else {
       const lista = (data ?? []) as unknown as Pedido[];
       setPedidos(lista);
+      // Pasos con su hora y número de envío (consulta aparte; sin la migración, sin horas y sin fallar).
+      cargarSeguimientoPedidos(lista.filter((p) => !enTienda(p)).map((p) => p.id)).then((seg) => {
+        setHistorial(seg.historial);
+        setNumerosEnvio(seg.numeros);
+      });
       // Facturas de VeoAura de estos pedidos (consulta aparte; sin la tabla, no se enseñan y no falla nada).
       if (lista.length) {
         const fac = await supabase
@@ -466,9 +490,42 @@ export default function PedidosAdmin() {
       setErr("No se pudo cambiar el estado del pedido.");
     } else {
       setPedidos((prev) => prev.map((x) => (x.id === p.id ? { ...x, estado } : x)));
+      // La hora del paso la pone la base de datos (pedido_estados): se relee la de este pedido.
+      if (historial) {
+        cargarSeguimientoPedidos([p.id]).then((seg) => {
+          if (seg.historial) setHistorial((h) => ({ ...(h ?? {}), [p.id]: seg.historial?.[p.id] ?? [] }));
+        });
+      }
       // Si se cancela un pedido con artículos de VeoAura, el servidor se lo avisa a VeoAura
       // (api/escaparate-retorno.ts). No se espera.
       if (Platform.OS === "web") fetch("/api/escaparate-retorno", { method: "POST" }).catch(() => {});
+    }
+    setGuardando(null);
+  }
+
+  // Número de envío (Correos) o enlace del transportista: el cliente ve «Seguir el envío». Vacío lo quita.
+  async function guardarNumeroEnvio(p: Pedido) {
+    // Un número de Correos va en mayúsculas; un enlace, tal cual.
+    const escrito = (numeroEscrito[p.id] ?? numerosEnvio[p.id] ?? "").trim();
+    const texto = /^https:\/\//i.test(escrito) ? escrito : escrito.toUpperCase();
+    if (texto && !enlaceSeguimientoEnvio(texto)) {
+      setNumeroMsg({ id: p.id, tipo: "error", texto: "Escribe el número de Correos (letras y cifras) o un enlace que empiece por https://." });
+      return;
+    }
+    setGuardando(p.id);
+    setNumeroMsg(null);
+    const { error } = await supabase.from("pedidos").update({ envio_seguimiento: texto || null }).eq("id", p.id);
+    if (error) {
+      setNumeroMsg({ id: p.id, tipo: "error", texto: "No se pudo guardar el número de envío." });
+    } else {
+      setNumerosEnvio((n) => {
+        const copia = { ...n };
+        if (texto) copia[p.id] = texto;
+        else delete copia[p.id];
+        return copia;
+      });
+      setNumeroEscrito((e) => ({ ...e, [p.id]: texto }));
+      setNumeroMsg({ id: p.id, tipo: "ok", texto: texto ? "Número guardado: el cliente ya ve «Seguir el envío»." : "Número quitado." });
     }
     setGuardando(null);
   }
@@ -677,6 +734,13 @@ export default function PedidosAdmin() {
             <Text nativeID="pedidos-en-tienda" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
               Ventas en tienda (llegan de VeoAura) · {resumenTienda.total} ({fmtEUR(resumenTienda.importe)}) · en la cuenta del cliente:{" "}
               {resumenTienda.unidas} · pendientes de que se registre: {resumenTienda.pendientes}
+            </Text>
+          ) : null}
+
+          {historial && !loading ? (
+            <Text nativeID="pedidos-seguimiento" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+              Seguimiento paso a paso · con la hora de algún cambio: {pedidos.filter((p) => (historial[p.id] ?? []).length > 0).length} · con número de
+              envío: {pedidos.filter((p) => !!numerosEnvio[p.id]).length}
             </Text>
           ) : null}
 
@@ -993,6 +1057,65 @@ export default function PedidosAdmin() {
                 {/* Una venta en mano ya está pagada y entregada (la gestiona VeoAura): sin cambiar estado ni WhatsApp. */}
                 {enTienda(p) ? null : (
                 <>
+                {/* Los pasos con su fecha y hora (las que guarda la base de datos; sin hora conocida, sin fecha). */}
+                <View nativeID={`pedido-pasos-${p.numero}`} style={{ alignItems: "center", gap: 2 }}>
+                  {pasosDelPedido(p, historial?.[p.id])
+                    .filter((x) => x.hecho)
+                    .map((x) => (
+                      <Text
+                        key={x.clave}
+                        nativeID={`pedido-paso-${p.numero}-${x.clave}`}
+                        style={{ color: x.tipo === "cancelado" ? COLORS.danger : x.actual ? COLORS.accentDark : COLORS.text, fontWeight: x.actual ? "900" : "700", fontSize: TAMANOS.minimo, textAlign: "center" }}
+                      >
+                        {x.etiqueta}
+                        {fechaHoraPaso(x.fecha) ? ` · ${fechaHoraPaso(x.fecha)}` : " · sin hora"}
+                      </Text>
+                    ))}
+                </View>
+                {/* Número de envío (solo con la migración y si va a domicilio): el cliente ve «Seguir el envío». */}
+                {historial && p.entrega === "envio" ? (
+                  <View nativeID={`pedido-numero-envio-${p.numero}`} style={{ alignItems: "center", gap: 6 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+                      <TextInput
+                        nativeID={`pedido-numero-envio-campo-${p.numero}`}
+                        value={numeroEscrito[p.id] ?? numerosEnvio[p.id] ?? ""}
+                        onChangeText={(t) => setNumeroEscrito((e) => ({ ...e, [p.id]: t.slice(0, 300) }))}
+                        placeholder="Nº de Correos o enlace"
+                        placeholderTextColor="rgba(11,33,56,0.45)"
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                        accessibilityLabel={`Número de envío del pedido ${p.numero}`}
+                        style={{ width: 220, minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 10, color: COLORS.text, fontSize: 16, fontWeight: "700", textAlign: "center" }}
+                      />
+                      <Pressable
+                        nativeID={`pedido-numero-envio-guardar-${p.numero}`}
+                        disabled={guardando === p.id}
+                        onPress={() => guardarNumeroEnvio(p)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Guardar el número de envío del pedido ${p.numero}`}
+                        style={({ pressed }) => ({ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: pressed || guardando === p.id ? 0.6 : 1 })}
+                      >
+                        <Ionicons name="checkmark-circle" size={28} color={COLORS.accent} />
+                      </Pressable>
+                    </View>
+                    {numerosEnvio[p.id] && enlaceSeguimientoEnvio(numerosEnvio[p.id]) ? (
+                      <Pressable
+                        nativeID={`pedido-numero-envio-ver-${p.numero}`}
+                        onPress={() => openExternalLink(enlaceSeguimientoEnvio(numerosEnvio[p.id]) as string)}
+                        accessibilityRole="link"
+                        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
+                      >
+                        <Ionicons name="navigate-outline" size={16} color={COLORS.accent} />
+                        <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>Ver el envío (lo que ve el cliente)</Text>
+                      </Pressable>
+                    ) : null}
+                    {numeroMsg?.id === p.id ? (
+                      <Text nativeID={`pedido-numero-envio-mensaje-${p.numero}`} style={{ color: numeroMsg.tipo === "ok" ? "#15803D" : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                        {numeroMsg.texto}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
                 <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: TACTIL.separacion, marginTop: 4 }}>
                   {ESTADOS.map((e) => {
                     const activo = p.estado === e.value;
