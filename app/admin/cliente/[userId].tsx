@@ -58,6 +58,8 @@
  *   set_request_customer_user_id() en la migración) — las solicitudes
  *   anónimas de antes de este cambio, o enviadas sin iniciar sesión, no
  *   aparecerán aquí aunque sean de este cliente.
+ * - Valoración tras la entrega (mejora 11, 2026-11-15; migración 20261115100000): bajo cada pedido entregado, su nota y
+ *   su comentario (ValoracionPedidoAdmin de components/ReviewModal.tsx) o «Sin valorar» con cuándo se le pide.
  * - Pedidos: los de la tienda (pedidos + pedido_items) hechos con su cuenta
  *   (user_id) y, aparte, los hechos SIN sesión con su mismo correo (esos no
  *   los ve en «Mis seguimientos»). Desde aquí se cambia la etapa con un toque
@@ -120,7 +122,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { haceCuanto, supabase } from "../../../lib/supabase";
 import CargaMarca from "../../../components/marca/CargaMarca";
 import SmartImage from "../../../components/SmartImage";
-import { ORIGENES_MEJORA, type OrigenMejora } from "../../../components/ReviewModal";
+import {
+  ORIGENES_MEJORA,
+  ValoracionPedidoAdmin,
+  cargarValoracionesPedidos,
+  entregadoEnDe,
+  type OrigenMejora,
+  type ValoracionPedido,
+} from "../../../components/ReviewModal";
+import { cargarHistorialPedidos, type HistorialPedidos } from "../../../lib/envio";
 import { datosDeFila, direccionEnUnaLinea, direccionesDeFila, textoEtiqueta } from "../../../components/PerfilPublico";
 import { openExternalLink } from "../../../lib/openExternalLink";
 import { useGestoPestanas } from "../../../lib/admin/products.components";
@@ -620,6 +630,23 @@ export default function ClienteFicha() {
   const [seguimientoDisponible, setSeguimientoDisponible] = useState(false);
   // Pedidos de la tienda; null = la tabla aún no existe o no se ha podido leer.
   const [pedidos, setPedidos] = useState<PedidoFicha[] | null>(null);
+  // Valoración tras la entrega (mejora 11) de sus pedidos entregados y la hora de su entrega; null sin la migración.
+  const [valoracionesFicha, setValoracionesFicha] = useState<{ notas: Record<string, ValoracionPedido>; historial: HistorialPedidos | null } | null>(null);
+  const entregadosFicha = useMemo(() => (pedidos ?? []).filter((p) => p.estado === "entregado").map((p) => p.id).join(","), [pedidos]);
+  useEffect(() => {
+    const ids = entregadosFicha ? entregadosFicha.split(",") : [];
+    if (!ids.length) {
+      setValoracionesFicha(null);
+      return;
+    }
+    let vivo = true;
+    Promise.all([cargarValoracionesPedidos(ids), cargarHistorialPedidos(ids)]).then(([notas, historial]) => {
+      if (vivo) setValoracionesFicha(notas ? { notas, historial } : null);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [entregadosFicha]);
   // Pedidos y reparaciones desplegados (se pliegan al volver a tocarlos).
   const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set());
   const alternar = useCallback((id: string) => {
@@ -1420,6 +1447,11 @@ export default function ClienteFicha() {
                                 abierto={abiertos.has(p.id)}
                                 onAlternar={() => alternar(p.id)}
                                 onCambiado={(estado) => setPedidos((prev) => (prev ?? []).map((x) => (x.id === p.id ? { ...x, estado } : x)))}
+                                valoracion={
+                                  valoracionesFicha && p.estado === "entregado"
+                                    ? { v: valoracionesFicha.notas[p.id] ?? null, entregadoEn: entregadoEnDe(valoracionesFicha.historial?.[p.id]) }
+                                    : null
+                                }
                               />
                             ))}
                           </View>
@@ -1987,12 +2019,15 @@ function PedidoFila({
   abierto,
   onAlternar,
   onCambiado,
+  valoracion,
 }: {
   pedido: PedidoFicha;
   primero: boolean;
   abierto: boolean;
   onAlternar: () => void;
   onCambiado: (estado: EstadoPedido) => void;
+  /** Valoración tras la entrega (mejora 11; solo pedidos entregados y con la migración): su nota o cuándo se le pide. */
+  valoracion?: { v: ValoracionPedido | null; entregadoEn: string | null } | null;
 }) {
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -2083,6 +2118,12 @@ function PedidoFila({
               <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15 }}>Ver factura</Text>
             </Pressable>
           ) : null}
+        </View>
+      ) : null}
+
+      {valoracion ? (
+        <View style={{ paddingLeft: 56, paddingBottom: 6, alignItems: "flex-start" }}>
+          <ValoracionPedidoAdmin nativeID={`ficha-valoracion-${clave}`} valoracion={valoracion.v} entregadoEn={valoracion.entregadoEn} />
         </View>
       ) : null}
 

@@ -231,9 +231,12 @@ const RESUMEN_MAX = 1200;
 export async function abrirChatEquipo({
   productId,
   resumen,
+  borrador,
 }: {
   productId?: string | null;
   resumen?: string;
+  /** Texto que queda ESCRITO en la casilla, sin enviar (valoración baja de un pedido: «Sobre mi pedido VZ-…: »). */
+  borrador?: string;
 } = {}): Promise<"ok" | "login"> {
   const { data: sessionData } = await supabase.auth.getSession();
   const userId = sessionData.session?.user?.id;
@@ -281,7 +284,8 @@ export async function abrirChatEquipo({
     if (msgErr) console.error("Error enviando el resumen al chat:", msgErr);
   }
 
-  router.push({ pathname: "/chat/[chatId]", params: { chatId } } as never);
+  const casilla = (borrador ?? "").slice(0, 300);
+  router.push({ pathname: "/chat/[chatId]", params: casilla ? { chatId, borrador: casilla } : { chatId } } as never);
   return "ok";
 }
 
@@ -372,8 +376,11 @@ export default function ProductChatThread({
   headerRight,
   bajoCabecera,
   onDeleted,
+  borradorInicial,
 }: {
   chatId: string;
+  /** Texto que ya sale escrito en la casilla (sin enviar): lo manda abrirChatEquipo({ borrador }). */
+  borradorInicial?: string;
   headerRight?: React.ReactNode;
   /** Franja bajo la cabecera (Administración → Chat: «Asignar seguimiento» a este cliente). */
   bajoCabecera?: React.ReactNode;
@@ -396,7 +403,7 @@ export default function ProductChatThread({
   const [customerName, setCustomerName] = useState<string>("Cliente");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(() => (borradorInicial ?? "").slice(0, MESSAGE_MAX));
   const [sending, setSending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);

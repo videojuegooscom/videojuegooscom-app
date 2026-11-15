@@ -35,8 +35,10 @@ const COLORS = {
 };
 
 export default function ChatScreen() {
-  const params = useLocalSearchParams<{ chatId: string }>();
+  // borrador: texto que sale escrito en la casilla sin enviar (valoración baja de un pedido, components/ReviewModal.tsx).
+  const params = useLocalSearchParams<{ chatId: string; borrador?: string }>();
   const chatId = String(params.chatId ?? "").trim();
+  const borrador = typeof params.borrador === "string" ? params.borrador.slice(0, 300) : "";
   const [checking, setChecking] = useState(true);
   const [allowed, setAllowed] = useState(false);
 
@@ -76,6 +78,7 @@ export default function ChatScreen() {
       ) : allowed ? (
         <ProductChatThread
           chatId={chatId}
+          borradorInicial={borrador}
           onDeleted={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)/chat-global" as any))}
         />
       ) : null}

@@ -126,6 +126,10 @@
  *    datos, uno por producto, solo lo que está a la venta, 50 como mucho, cada cliente solo los suyos (el administrador los
  *    cuenta) y solo cambia el precio avisado; la privacidad lo dice una vez; se aplican dos veces (con su «prueba de la
  *    prueba»: con las reglas de lectura abiertas, un cliente ve lo de otro).
+ *  - Valoración tras la entrega (20261115100000_pedido_valoraciones.sql): solo pedidos propios y entregados, una por
+ *    pedido, el dueño lo pone la base de datos, nota 1-5 y comentario ≤ 1000, nadie ve las de otro (el administrador sí),
+ *    nadie las cambia ni borra, disparador sin security definer, la privacidad una vez; se aplica dos veces (con su «prueba
+ *    de la prueba»: con las reglas abiertas, un cliente ve las de otro y valora lo no entregado).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -2016,6 +2020,83 @@ try {
     const fuga2 = await como(c48, "authenticated", U1, "select user_id from public.avisos_precio");
     ok(fuga1.filas?.length === 1 && fuga2.filas?.length === 1, "(control) con las reglas abiertas, un cliente ve los pasos y los avisos de otro: la prueba SÍ lo detecta");
     await c48.end();
+  }
+
+  // Valoración tras la entrega (mejora 11, 2026-11-15): 20261115100000_pedido_valoraciones.sql. Con roles reales: solo
+  // pedidos propios y entregados, una por pedido, quién valora lo pone la base de datos, nadie ve las de otro (el
+  // administrador sí), nadie la cambia ni la borra, y la frase de la privacidad una sola vez.
+  {
+    const VALORACIONES = readFileSync("supabase/migrations/20261115100000_pedido_valoraciones.sql", "utf8");
+    const PE1 = "81818181-8181-4818-8818-818181818181"; // de U1, entregado
+    const PE2 = "82828282-8282-4828-8828-828282828282"; // de U1, enviado
+    const PE3 = "83838383-8383-4838-8838-838383838383"; // de U2, entregado
+    const ESQUEMA_V = `
+      create table public.pedidos (id uuid primary key default gen_random_uuid(), user_id uuid, estado text not null default 'pendiente',
+        created_at timestamptz not null default now());
+      alter table public.pedidos enable row level security;
+      create policy pedidos_admin_select on public.pedidos for select to authenticated using ((select public.is_admin()));
+      create policy pedidos_cliente_select on public.pedidos for select to authenticated using (user_id = (select auth.uid()));
+      insert into public.pedidos (id, user_id, estado) values ('${PE1}', '${U1}', 'entregado'), ('${PE2}', '${U1}', 'enviado'), ('${PE3}', '${U2}', 'entregado');
+      create table public.policy_pages (slug text primary key, sections jsonb not null, updated_at timestamptz);
+      insert into public.policy_pages (slug, sections) values ('privacidad', '[{"heading": "Qué datos tratamos", "body": "Datos."}, {"heading": "Para qué usamos tus datos", "body": "Para gestionar tu pedido."}]');`;
+    const c49 = await nuevaBase("vz_aislada_valoraciones", ESQUEMA_V);
+    let repetidaV = true;
+    try {
+      for (const m of [VALORACIONES, VALORACIONES]) await c49.query(m);
+    } catch (e) {
+      repetidaV = false;
+      console.log(String(e.message));
+    }
+    ok(repetidaV, "Valoraciones: la migración se aplica dos veces sin error");
+    const n = async (sql) => Number((await c49.query(sql)).rows[0].n);
+    ok((await n("select count(*) as n from pg_trigger where tgname = 'pedido_valoraciones_normalizar'")) === 1, "Valoraciones: un disparador, sin duplicar");
+    ok((await n("select count(*) as n from pg_policies where tablename = 'pedido_valoraciones'")) === 2, "Valoraciones: sus 2 políticas (leer e insertar), sin duplicar");
+    ok((await n("select count(*) as n from pg_proc where proname = 'pedido_valoraciones_normalizar' and prosecdef")) === 0, "Valoraciones: la función del disparador NO es security definer");
+
+    const crea = await como(c49, "authenticated", U1, `insert into public.pedido_valoraciones (pedido_id, nota, comentario, user_id) values ('${PE1}', 5, '  Muy bien  ', '${U2}') returning user_id, nota, comentario`, { confirmar: true });
+    ok(crea.ok && crea.filas[0].user_id === U1 && crea.filas[0].nota === 5 && crea.filas[0].comentario === "Muy bien", `Valoraciones: la fila es de quien valora (no la que manda) y el comentario sin espacios sobrantes (${JSON.stringify(crea.filas ?? crea.mensaje)})`);
+    const repe = await como(c49, "authenticated", U1, `insert into public.pedido_valoraciones (pedido_id, nota) values ('${PE1}', 1)`);
+    ok(!repe.ok && repe.codigo === "23505", `Valoraciones: una por pedido (${repe.codigo ?? "entró"})`);
+    const noEntregado = await como(c49, "authenticated", U1, `insert into public.pedido_valoraciones (pedido_id, nota) values ('${PE2}', 4)`);
+    ok(!noEntregado.ok && /entregados/.test(noEntregado.mensaje ?? ""), `Valoraciones: no se puede valorar un pedido sin entregar (${noEntregado.mensaje ?? "entró"})`);
+    const deOtro = await como(c49, "authenticated", U1, `insert into public.pedido_valoraciones (pedido_id, nota) values ('${PE3}', 1)`);
+    ok(!deOtro.ok && /entregados/.test(deOtro.mensaje ?? ""), `Valoraciones: no se puede valorar el pedido de otro (${deOtro.mensaje ?? "entró"})`);
+    const fuera = await como(c49, "authenticated", U2, `insert into public.pedido_valoraciones (pedido_id, nota) values ('${PE3}', 6)`);
+    const largo = await como(c49, "authenticated", U2, `insert into public.pedido_valoraciones (pedido_id, nota, comentario) values ('${PE3}', 3, repeat('a', 1001))`);
+    ok(!fuera.ok && fuera.codigo === "23514" && !largo.ok && largo.codigo === "23514", "Valoraciones: la nota de 1 a 5 y el comentario de 1000 como mucho");
+    const anon = await como(c49, "anon", null, `insert into public.pedido_valoraciones (pedido_id, nota) values ('${PE3}', 3)`);
+    ok(!anon.ok, "Valoraciones: sin cuenta, nada");
+    await como(c49, "authenticated", U2, `insert into public.pedido_valoraciones (pedido_id, nota) values ('${PE3}', 2)`, { confirmar: true });
+    const verU1 = await como(c49, "authenticated", U1, "select pedido_id from public.pedido_valoraciones");
+    const verU2 = await como(c49, "authenticated", U2, "select pedido_id from public.pedido_valoraciones");
+    const verAdmin = await como(c49, "authenticated", ADMIN, "select pedido_id from public.pedido_valoraciones");
+    const verAnon = await como(c49, "anon", null, "select pedido_id from public.pedido_valoraciones");
+    ok(verU1.ok && verU1.filas.length === 1 && verU1.filas[0].pedido_id === PE1, `Valoraciones: el cliente ve SOLO las suyas (${verU1.filas?.length})`);
+    ok(verU2.ok && verU2.filas.length === 1 && verU2.filas[0].pedido_id === PE3, "Valoraciones: otro cliente, solo las suyas");
+    ok(verAdmin.ok && verAdmin.filas.length === 2, "Valoraciones: el administrador las lee todas");
+    ok(!verAnon.ok || verAnon.filas.length === 0, "Valoraciones: un visitante no ve ninguna");
+    const cambia = await como(c49, "authenticated", U1, "update public.pedido_valoraciones set nota = 1", { confirmar: true });
+    const borra = await como(c49, "authenticated", U1, "delete from public.pedido_valoraciones", { confirmar: true });
+    const cambiaAdmin = await como(c49, "authenticated", ADMIN, "update public.pedido_valoraciones set nota = 5", { confirmar: true });
+    ok(cambia.cuantas === 0 && borra.cuantas === 0 && cambiaAdmin.cuantas === 0, "Valoraciones: nadie las cambia ni las borra desde el navegador (0 filas)");
+    const priv = (await c49.query("select sections::text as t from public.policy_pages where slug = 'privacidad'")).rows[0].t;
+    ok((priv.match(/Si valoras un pedido/g) ?? []).length === 1, "Valoraciones: la privacidad lo dice una sola vez");
+    const textoMig = VALORACIONES.replace(/^--.*$/gm, "").toLowerCase();
+    ok(!/\b(drop\s|delete\s+from|truncate|grant\b|revoke\b|security\s+definer|to\s+(anon|public)\b|using\s*\(\s*true\s*\)|auth\.(users|identities|sessions|refresh_tokens))/.test(textoMig), "Valoraciones: la migración no borra ni toca permisos delicados (nada que bloquee el guardián)");
+    await c49.end();
+
+    // PRUEBA DE LAS PRUEBAS: con la regla de lectura abierta, un cliente vería las valoraciones de otro; sin la
+    // comprobación del disparador, valoraría pedidos ajenos.
+    const abierta = VALORACIONES.replace("using (user_id = (select auth.uid()) or (select public.is_admin()));", "using (true);")
+      .replace("p.id = new.pedido_id and p.user_id = new.user_id and p.estado = 'entregado'", "p.id = new.pedido_id");
+    ok(abierta !== VALORACIONES, "(control) se ha podido abrir la regla en la copia de prueba");
+    const c50 = await nuevaBase("vz_aislada_valoraciones_abierta", ESQUEMA_V + abierta);
+    await c50.query(`create policy pedidos_todos_select on public.pedidos for select to authenticated using (true)`);
+    await como(c50, "authenticated", U2, `insert into public.pedido_valoraciones (pedido_id, nota) values ('${PE3}', 2)`, { confirmar: true });
+    const fuga = await como(c50, "authenticated", U1, "select pedido_id from public.pedido_valoraciones");
+    const ajena = await como(c50, "authenticated", U1, `insert into public.pedido_valoraciones (pedido_id, nota) values ('${PE2}', 4)`, { confirmar: true });
+    ok(fuga.filas?.length === 1 && ajena.ok, "(control) con las reglas abiertas, un cliente ve las de otro y valora lo no entregado: la prueba SÍ lo detecta");
+    await c50.end();
   }
 
   // Opciones de los servicios (20261108230000_servicios_opciones.sql): el administrador escribe las opciones (Básica,

@@ -97,6 +97,9 @@
  *   «Seguir el envío» (44 px) si la tienda puso el número de Correos o el enlace del transportista; en las reparaciones,
  *   «Última actualización» y «Seguir el envío» con el número de la vuelta. En «Me gusta», arriba, «Avisos de precio» con
  *   lo que sigue desde la ficha y «Quitar» (AvisosPrecioSeccion, migración 20261114160100).
+ * - Valoración tras la entrega (mejora 11, 2026-11-15; migración 20261115100000): en los pedidos entregados hace 3 días o
+ *   más (paso «entregado» de pedido_estados) y sin valorar, «Valorar compra» (44 px) abre ValorarPedidoModal
+ *   (components/ReviewModal.tsx); valorado, «Tu valoración: ★★★★☆». Sin la migración no sale nada.
  * - Tamaños y colores (auditoría móvil y lección del 2026-11-12, constants/theme.ts): toda la letra sale de TAMANOS (13 px
  *   como mínimo; 12 solo «SESIÓN ACTUAL», las etiquetas de la barra de etapas y las de los filtros cuando son cinco), lo
  *   que se toca mide 44 px (pestañas Mi cuenta / Mis seguimientos / Me gusta, «Preguntar por esto», enlaces), los campos
@@ -140,7 +143,15 @@ import {
 } from "../../lib/envio";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PerfilPublico from "../../components/PerfilPublico";
-import ReviewModal, { MejorasModal } from "../../components/ReviewModal";
+import ReviewModal, {
+  MejorasModal,
+  ValorarPedidoModal,
+  cargarValoracionesPedidos,
+  entregadoEnDe,
+  estrellasDeNota,
+  tocaValorarPedido,
+  type ValoracionPedido,
+} from "../../components/ReviewModal";
 import SiteFooter from "../../components/SiteFooter";
 import SmartImage from "../../components/SmartImage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -1674,6 +1685,8 @@ type PedidoSeg = {
   venta_forma_pago?: string | null;
   // Número de envío de Correos o enlace del transportista (migración 20261114160000; puede no venir): «Seguir el envío».
   envio_seguimiento?: string | null;
+  // Primer artículo del pedido con producto: el chat de la tienda abre con su tarjeta (valoración baja, mejora 11).
+  primerProducto?: string | null;
 };
 
 // «Pagado con Bizum · Entregado» bajo el título «Compra en tienda VZ-…» (venta en mano que manda VeoAura, evento
@@ -3062,6 +3075,39 @@ function BotonSeguirEnvio({ id, numero, tipo }: { id: string; numero: string | n
   );
 }
 
+// «Valorar compra» (44 px, mejora 11): en los pedidos entregados hace 3 días o más y sin valorar. Se mide una vez por
+// pedido y visita como valoracion_pedida (origen mis_pedidos), sin datos personales.
+const valoracionPedidaVista = new Set<string>();
+function BotonValorarCompra({ id, pedidoId, onPress }: { id: string; pedidoId: string; onPress: () => void }) {
+  useEffect(() => {
+    if (valoracionPedidaVista.has(pedidoId)) return;
+    valoracionPedidaVista.add(pedidoId);
+    void trackEvent("valoracion_pedida", "Valoración del pedido: pedida", { metadata: { origen: "mis_pedidos" } });
+  }, [pedidoId]);
+  return (
+    <Pressable
+      nativeID={id}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Valorar compra"
+      style={({ pressed }) => ({
+        minHeight: TACTIL.minimo,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        paddingHorizontal: 18,
+        borderRadius: 999,
+        backgroundColor: SEG.accent,
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <Ionicons name="star-outline" size={16} color="#FFFFFF" />
+      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.minimo }}>Valorar compra</Text>
+    </Pressable>
+  );
+}
+
 function PreguntarBoton({ onPress }: { onPress: () => void }) {
   return (
     // 44 px de alto (TACTIL.minimo; antes 23) para el dedo.
@@ -3352,6 +3398,9 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
   // no se pueden valorar (sin la migración no sale el botón).
   const [valoradas, setValoradas] = useState<Record<string, number> | null>(null);
   const [valorando, setValorando] = useState<{ solicitudId: string; titulo: string } | null>(null);
+  // Valoración tras la entrega (mejora 11): las de sus pedidos entregados (null sin la migración) y la que está valorando.
+  const [valoracionesPed, setValoracionesPed] = useState<Record<string, ValoracionPedido> | null>(null);
+  const [valorandoPedido, setValorandoPedido] = useState<{ id: string; referencia: string | null; productId?: string | null } | null>(null);
   // Filtro de «Mis pedidos» (dueño, 2026-11-10): todos, en curso, cancelados o los que tienen factura.
   // Llega ya puesto con ?filtro=facturas («Ver mis facturas» de Blue IA).
   const [filtroPedidos, setFiltroPedidos] = useState<FiltroPedidos>(filtroInicial ?? "todos");
@@ -3411,6 +3460,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
         const porPedido: Record<string, string[]> = {};
         // Miniatura de cada pedido (dueño, 2026-11-10): la portada del primer artículo que la tenga.
         const fotoPedido: Record<string, string> = {};
+        const primerProducto: Record<string, string> = {};
         if (filas.length) {
           const itRes = await supabase
             .from("pedido_items")
@@ -3424,6 +3474,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
           for (const it of items) {
             const f = it.product_id ? portadas[it.product_id] : undefined;
             if (f && !fotoPedido[it.pedido_id]) fotoPedido[it.pedido_id] = f;
+            if (it.product_id && !primerProducto[it.pedido_id]) primerProducto[it.pedido_id] = it.product_id;
           }
         }
         // Las devoluciones (migración 20261106100000) solo se piden si hay algún pedido pagado con tarjeta.
@@ -3461,9 +3512,13 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
         // La hora de cada paso y el número de envío (migración 20261114160000; sin ella, pasos sin hora y sin botón).
         const seg = await cargarSeguimientoPedidos(filas.map((p) => p.id));
         setHistorial(seg.historial);
+        // Valoraciones de los entregados (migración 20261115100000; sin ella, null: no sale nada).
+        const entregadosIds = filas.filter((p) => p.estado === "entregado").map((p) => p.id);
+        setValoracionesPed(entregadosIds.length ? await cargarValoracionesPedidos(entregadosIds) : {});
         setPedidos(
           filas.map((p) => ({
             ...p,
+            primerProducto: primerProducto[p.id] ?? null,
             envio_seguimiento: seg.numeros[p.id] ?? null,
             ...devueltos[p.id],
             items: porPedido[p.id] ?? [],
@@ -3725,6 +3780,22 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
                     <DatosDelSeguimiento entrega={p.entrega ? (p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio") : null} />
                   </>
                 )}
+                {/* Valoración tras la entrega (mejora 11): a los 3 días del paso «entregado»; una vez valorado, sus estrellas. */}
+                {valoracionesPed && valoracionesPed[p.id] ? (
+                  <Text
+                    nativeID={`valoracion-pedido-${p.numero ?? p.id}`}
+                    accessibilityLabel={`Tu valoración: ${valoracionesPed[p.id].nota} de 5 estrellas`}
+                    style={{ color: SEG.text, fontSize: TAMANOS.cuerpo, fontWeight: "800", textAlign: "center" }}
+                  >
+                    Tu valoración: <Text style={{ color: "#B7791F", letterSpacing: 1 }}>{estrellasDeNota(valoracionesPed[p.id].nota)}</Text>
+                  </Text>
+                ) : valoracionesPed && tocaValorarPedido(p.estado, entregadoEnDe(historial?.[p.id]), false) ? (
+                  <BotonValorarCompra
+                    id={`valorar-compra-${p.numero ?? p.id}`}
+                    pedidoId={p.id}
+                    onPress={() => setValorandoPedido({ id: p.id, referencia: p.codigo_seguimiento ?? null, productId: p.primerProducto ?? null })}
+                  />
+                ) : null}
                 <PreguntarBoton onPress={() => router.push(`/blue-ia?pedido=${encodeURIComponent(p.codigo_seguimiento ?? "")}`)} />
               </View>
             ))}
@@ -3835,6 +3906,12 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
           const id = valorando?.solicitudId;
           if (id) setValoradas((v) => ({ ...(v ?? {}), [id]: resena.rating }));
         }}
+      />
+      <ValorarPedidoModal
+        visible={!!valorandoPedido}
+        pedido={valorandoPedido}
+        onClose={() => setValorandoPedido(null)}
+        onValorado={(v) => setValoracionesPed((prev) => ({ ...(prev ?? {}), [v.pedido_id]: v }))}
       />
     </View>
   );
