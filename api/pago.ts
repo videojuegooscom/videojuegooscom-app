@@ -78,6 +78,26 @@
  *   service_requests.aviso_admin_sesion). Como mucho 4 s en total (ESPERA_AVISOS_MS) y nunca lanza: el cobro y la
  *   respuesta a Stripe no dependen de los avisos. Un dispositivo que contesta 404/410 (suscripción caducada) se desactiva.
  *   Cada envío se apunta en admin_avisos_registro (título, referencia y cuántos llegaron; sin datos de nadie).
+ * Reservar con señal (dueño, 2026-11-15, mejora 14; migración 20261115150000_reservas_senal). APAGADA Y VACÍA hasta que el
+ * dueño ponga sus reglas (escala de %, días máximos, tipo de arras, qué pasa al vencer) y marque «Revisado por mi gestor».
+ * Va AQUÍ por el tope de 12 funciones de api/.
+ * - GET /api/pago?reserva=ajustes[&producto=<uuid>] → { ok, activa } y, SOLO si está activa, completa y el pago online se
+ *   puede usar (pagoDisponible), las reglas públicas (escala, dias_max, tipo_arras, al_vencer, texto_condiciones); con
+ *   producto, también reservado_hasta (si está reservado ahora). La tabla de ajustes solo la lee el administrador (RLS):
+ *   esta respuesta es la única puerta pública y no lleva nada más.
+ * - POST { accion: "reserva", producto, dias, acepta: true } (con sesión) → { ok, url }. TODO se recalcula aquí con la
+ *   configuración y el precio de la base de datos (lo que mande el navegador como importe o porcentaje no cuenta): el
+ *   porcentaje es el del primer tramo de la escala que cubre esos días, la señal = precio × porcentaje (al céntimo), el
+ *   producto tiene que estar a la venta y sin otra reserva (activa, o pendiente de pago de otra persona). Se guarda la
+ *   reserva «pendiente_pago» con una copia de las condiciones aceptadas (y su SHA-256) y se abre Stripe por la señal; el
+ *   artículo queda apartado mientras dura el pago (31 min). Rechazos: apagada o incompleta 403, sin sesión 401, sin aceptar
+ *   las condiciones 400, días fuera de la escala 400, no está a la venta 409, ya reservado 409.
+ * - La confirmación («confirmar» y el aviso de Stripe) reconoce la reserva por metadata[reserva_id]: si Stripe la cobró por
+ *   el importe guardado, pasa a «activa» UNA sola vez (vence a los días elegidos desde el pago) y products.reservado_hasta =
+ *   vence_en. Cobrada fuera de «pendiente_pago» (cancelada antes): no se toca y se avisa en la consola para devolverla.
+ * - POST { accion: "reserva_estado", reserva, estado: "completada" | "cancelada" | "vencida" } (SOLO el administrador): cambia
+ *   el estado y suelta el artículo. NO devuelve dinero: si procede, el reembolso se hace en Stripe.
+ *
  * Variables de los avisos (las pone el dueño en Vercel): VAPID_PUBLIC_KEY (65 bytes, base64url sin relleno),
  * VAPID_PRIVATE_KEY (32 bytes, base64url sin relleno) y VAPID_SUBJECT (mailto:…). Si faltan o no casan, no se envía nada.
  *
@@ -93,7 +113,7 @@
  * móvil: components/AvisosMovil.tsx, lib/notificaciones.ts, public/sw-avisos.js y pruebas/avisos-api.mjs.
  */
 /// <reference types="node" />
-import { createCipheriv, createECDH, createHmac, createPrivateKey, randomBytes, sign as firmarEcdsa, type KeyObject } from "node:crypto";
+import { createCipheriv, createECDH, createHash, createHmac, createPrivateKey, randomBytes, sign as firmarEcdsa, type KeyObject } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const STRIPE = "https://api.stripe.com/v1";
@@ -979,6 +999,7 @@ async function confirmarPagoSolicitud(supabase: SupabaseClient, modo: Modo, s: S
 async function confirmarPago(supabase: SupabaseClient, clave: string, modo: Modo, sesionId: string) {
   const s = await sesionDeStripe(clave, sesionId);
   if (s && s.livemode === (modo === "real") && s.metadata?.solicitud_id) return confirmarPagoSolicitud(supabase, modo, s);
+  if (s && s.livemode === (modo === "real") && s.metadata?.reserva_id) return confirmarPagoReserva(supabase, modo, s);
   const pedidoId = s?.metadata?.pedido_id ?? "";
   if (!s || !UUID_RE.test(pedidoId) || s.client_reference_id !== pedidoId || s.livemode !== (modo === "real")) {
     throw new Rechazo(404, "pago no encontrado");
@@ -1083,6 +1104,275 @@ async function apuntarDevolucionDeAviso(supabase: SupabaseClient, cargo: any) {
   if (error) throw new Rechazo(500, "no se pudo apuntar la devolución");
 }
 
+// --- Reservar con señal (mejora 14; migración 20261115150000_reservas_senal) ------------------------------------------
+// APAGADA Y VACÍA hasta que el dueño ponga sus reglas y su gestor revise el texto. Nada de lo de aquí cobra si los ajustes
+// no están activos y completos (la misma regla que el disparador reserva_ajustes_validar de la base de datos).
+
+type TramoReserva = { hasta_dias: number; porcentaje: number };
+type TipoArras = "penitenciales" | "confirmatorias";
+type AjustesReserva = { escala: TramoReserva[]; dias_max: number; tipo_arras: TipoArras; al_vencer: string; texto_condiciones: string };
+type FilaReserva = {
+  id: string;
+  product_id: string | null;
+  user_id: string;
+  dias: number;
+  senal_eur: number | string;
+  estado: string;
+  vence_en: string;
+  creado_en: string;
+  pago_sesion: string | null;
+};
+
+// El artículo queda apartado mientras dura la página de pago de la señal (la sesión de Stripe caduca a los 31 minutos).
+const RESERVA_PAGO_MINUTOS = 31;
+const DIA_MS = 86_400_000;
+const MARCA_BORRADOR_RE = /pendiente de revisión del gestor/i;
+const ESTADOS_RESERVA_ADMIN = ["completada", "cancelada", "vencida"];
+
+// La escala del dueño: de 1 a 12 tramos, días enteros crecientes (1-365) y porcentaje entero del 1 al 70. Si no, null.
+function escalaReservaValida(e: unknown): TramoReserva[] | null {
+  if (!Array.isArray(e) || e.length === 0 || e.length > 12) return null;
+  const salida: TramoReserva[] = [];
+  let previo = 0;
+  for (const t of e) {
+    const d = Number((t as Record<string, unknown>)?.hasta_dias);
+    const p = Number((t as Record<string, unknown>)?.porcentaje);
+    if (!Number.isInteger(d) || d < 1 || d > 365 || d <= previo || !Number.isInteger(p) || p < 1 || p > 70) return null;
+    salida.push({ hasta_dias: d, porcentaje: p });
+    previo = d;
+  }
+  return salida;
+}
+
+// El porcentaje de esos días: el del primer tramo que los cubre. null si pasan del último.
+function porcentajeDeReserva(escala: TramoReserva[], dias: number): number | null {
+  return escala.find((t) => dias <= t.hasta_dias)?.porcentaje ?? null;
+}
+
+// Los ajustes SOLO si están activos y completos (si falta algo, null: no se ofrece ni se cobra nada).
+async function ajustesReservaActivos(supabase: SupabaseClient): Promise<AjustesReserva | null> {
+  const { data, error } = await supabase.from("reserva_ajustes").select("*").eq("id", 1).maybeSingle<Record<string, unknown>>();
+  if (error || !data || data.activa !== true || data.condiciones_revisadas !== true) return null;
+  const escala = escalaReservaValida(data.escala);
+  const diasMax = Number(data.dias_max);
+  const tipo = data.tipo_arras === "penitenciales" || data.tipo_arras === "confirmatorias" ? (data.tipo_arras as TipoArras) : null;
+  const alVencer = typeof data.al_vencer === "string" ? data.al_vencer.trim() : "";
+  const texto = typeof data.texto_condiciones === "string" ? data.texto_condiciones.trim() : "";
+  if (!escala || !Number.isInteger(diasMax) || diasMax < 1 || diasMax > escala[escala.length - 1].hasta_dias || !tipo || !alVencer || !texto || MARCA_BORRADOR_RE.test(texto)) {
+    return null;
+  }
+  return { escala, dias_max: diasMax, tipo_arras: tipo, al_vencer: alVencer, texto_condiciones: texto };
+}
+
+function parametroDeLaUrl(req: any, nombre: string): string {
+  const q = req.query?.[nombre];
+  if (typeof q === "string") return q;
+  try {
+    return new URL(String(req.url ?? ""), "http://x").searchParams.get(nombre) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+// GET ?reserva=ajustes[&producto=…]: si está activa (y el pago online se puede usar), las reglas públicas; con el producto,
+// hasta cuándo está reservado (también apagada: un artículo ya reservado no se ofrece).
+async function ajustesReservaPublicos(supabase: SupabaseClient | null, modo: Modo | null, req: any) {
+  if (!supabase) return { ok: true, activa: false };
+  const a = await ajustesReservaActivos(supabase);
+  const uid = a && modo === "prueba" ? await usuarioDeLaPeticion(supabase, req) : null;
+  const activa = !!a && !!modo && (await pagoDisponible(supabase, modo, uid));
+  const salida: Record<string, unknown> = { ok: true, activa };
+  if (activa && a) Object.assign(salida, a);
+  const producto = parametroDeLaUrl(req, "producto");
+  if (UUID_RE.test(producto)) {
+    const { data } = await supabase.from("products").select("reservado_hasta").eq("id", producto.toLowerCase()).maybeSingle<{ reservado_hasta: string | null }>();
+    const hasta = data?.reservado_hasta ? Date.parse(data.reservado_hasta) : NaN;
+    if (Number.isFinite(hasta) && hasta > Date.now()) salida.reservado_hasta = new Date(hasta).toISOString();
+  }
+  return salida;
+}
+
+// Las reservas de un artículo que aún cuentan (activas o pendientes de pago); las caducadas se ponen al día aquí.
+async function reservasVigentes(supabase: SupabaseClient, productId: string): Promise<FilaReserva[]> {
+  const { data, error } = await supabase
+    .from("reservas")
+    .select("id,product_id,user_id,dias,senal_eur,estado,vence_en,creado_en,pago_sesion")
+    .eq("product_id", productId)
+    .in("estado", ["pendiente_pago", "activa"]);
+  if (error) throw new Rechazo(503, "falta preparar las reservas con señal");
+  const ahora = Date.now();
+  const vigentes: FilaReserva[] = [];
+  for (const r of (data ?? []) as FilaReserva[]) {
+    if (r.estado === "activa" && Date.parse(r.vence_en) <= ahora) {
+      await supabase.from("reservas").update({ estado: "vencida", actualizado_en: new Date().toISOString() }).eq("id", r.id).eq("estado", "activa");
+    } else if (r.estado === "pendiente_pago" && Date.parse(r.creado_en) <= ahora - (RESERVA_PAGO_MINUTOS + 1) * 60_000) {
+      await supabase.from("reservas").update({ estado: "cancelada", actualizado_en: new Date().toISOString() }).eq("id", r.id).eq("estado", "pendiente_pago");
+    } else vigentes.push(r);
+  }
+  return vigentes;
+}
+
+async function crearReserva(supabase: SupabaseClient, clave: string, modo: Modo, req: any, b: Record<string, unknown>) {
+  const uid = await usuarioDeLaPeticion(supabase, req);
+  if (!uid) throw new Rechazo(401, "inicia sesión para reservar");
+  const a = await ajustesReservaActivos(supabase);
+  if (!a) throw new Rechazo(403, "las reservas con señal no están activas");
+  if (!(await pagoDisponible(supabase, modo, uid))) throw new Rechazo(403, "el pago online no está disponible");
+  const productId = typeof b.producto === "string" && UUID_RE.test(b.producto) ? b.producto.toLowerCase() : null;
+  if (!productId) throw new Rechazo(400, "artículo no válido");
+  const dias = Number(b.dias);
+  if (!Number.isInteger(dias) || dias < 1 || dias > a.dias_max) throw new Rechazo(400, `elige de 1 a ${a.dias_max} días`);
+  if (b.acepta !== true) throw new Rechazo(400, "tienes que aceptar las condiciones de la reserva");
+  const porcentaje = porcentajeDeReserva(a.escala, dias);
+  if (porcentaje === null) throw new Rechazo(400, `elige de 1 a ${a.dias_max} días`);
+
+  // El precio y el estado, de la base de datos (nunca del navegador).
+  const { data: p, error } = await supabase
+    .from("products")
+    .select("id,title,price_eur,status,is_active,reservado_hasta")
+    .eq("id", productId)
+    .maybeSingle<{ id: string; title: string | null; price_eur: number | string | null; status: string | null; is_active: boolean | null; reservado_hasta: string | null }>();
+  if (error) throw /reservado_hasta/.test(String(error.message ?? "")) ? new Rechazo(503, "falta preparar las reservas con señal") : new Rechazo(500, "no se pudo leer el artículo");
+  if (!p || p.status !== "PUBLISHED" || p.is_active !== true) throw new Rechazo(409, "este artículo no está a la venta");
+  const precioCts = Math.round(Number(p.price_eur) * 100);
+  if (!Number.isFinite(precioCts) || precioCts <= 0 || precioCts > MAXIMO_CENTIMOS) throw new Rechazo(409, "este artículo no se puede reservar");
+
+  // ¿Ya lo tiene reservado alguien (o lo está pagando otra persona ahora)? Una reserva propia sin pagar se cierra y se rehace.
+  for (const r of await reservasVigentes(supabase, productId)) {
+    if (r.estado === "activa") throw new Rechazo(409, "este artículo ya está reservado");
+    if (r.user_id !== uid) throw new Rechazo(409, "otra persona está reservando este artículo ahora; vuelve a mirar en media hora");
+    if (r.pago_sesion && SESION_RE.test(r.pago_sesion)) {
+      const previa = await sesionDeStripe(clave, r.pago_sesion);
+      if (previa?.status === "open") await llamarStripe(clave, "POST", `/checkout/sessions/${encodeURIComponent(previa.id)}/expire`);
+      if (previa?.status === "complete") throw new Rechazo(409, "ya has pagado la señal de este artículo: mírala en Mis reservas");
+    }
+    await supabase.from("reservas").update({ estado: "cancelada", actualizado_en: new Date().toISOString() }).eq("id", r.id).eq("estado", "pendiente_pago");
+  }
+
+  const senalCts = Math.round((precioCts * porcentaje) / 100);
+  if (senalCts < MINIMO_CENTIMOS) throw new Rechazo(409, "la señal de este artículo sería de menos de 0,50 €");
+  const ahora = Date.now();
+  const titulo = corta(p.title ?? "Artículo", 120);
+  const { data: fila, error: errAlta } = await supabase
+    .from("reservas")
+    .insert({
+      product_id: p.id,
+      producto_titulo: titulo,
+      user_id: uid,
+      dias,
+      porcentaje,
+      senal_eur: senalCts / 100,
+      precio_eur: precioCts / 100,
+      vence_en: new Date(ahora + dias * DIA_MS).toISOString(),
+      estado: "pendiente_pago",
+      tipo_arras: a.tipo_arras,
+      al_vencer_texto: a.al_vencer,
+      condiciones_texto: a.texto_condiciones,
+      condiciones_hash: createHash("sha256").update(a.texto_condiciones, "utf8").digest("hex"),
+      aceptadas_condiciones_en: new Date(ahora).toISOString(),
+    })
+    .select("id")
+    .single<{ id: string }>();
+  if (errAlta || !fila?.id) {
+    console.error("pago: no se pudo guardar la reserva", errAlta?.code ?? "");
+    throw new Rechazo(500, "no se pudo guardar la reserva");
+  }
+
+  const minuto = Math.floor(ahora / 60_000);
+  const caduca = (minuto + RESERVA_PAGO_MINUTOS) * 60;
+  const origen = origenDe(req);
+  const nombre = `Señal de reserva · ${corta(titulo, 60)} · VideojuegosZaragoza`;
+  const campos: Record<string, string> = {
+    mode: "payment",
+    locale: "es",
+    submit_type: "pay",
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": "eur",
+    "line_items[0][price_data][unit_amount]": String(senalCts),
+    "line_items[0][price_data][product_data][name]": nombre,
+    client_reference_id: fila.id,
+    "metadata[reserva_id]": fila.id,
+    "metadata[producto_id]": p.id,
+    "payment_intent_data[description]": nombre,
+    "payment_intent_data[metadata][reserva_id]": fila.id,
+    success_url: `${origen}/perfil?tab=seguimientos&reserva=ok&sesion={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origen}/producto/${p.id}?reserva=cancelada`,
+    expires_at: String(caduca),
+  };
+  const r = await abrirSesionStripe(clave, campos, await metodosOnline(supabase), `vz-reserva-${fila.id}-${senalCts}`);
+  if (r.http !== 200 || typeof r.datos?.id !== "string" || typeof r.datos?.url !== "string") {
+    console.error("pago: Stripe no abrió el pago de la señal", r.http, r.datos?.error?.code ?? "");
+    await supabase.from("reservas").update({ estado: "cancelada", actualizado_en: new Date().toISOString() }).eq("id", fila.id);
+    throw new Rechazo(502, "no se pudo abrir el pago");
+  }
+  await supabase.from("reservas").update({ pago_sesion: r.datos.id, pago_modo: modo }).eq("id", fila.id);
+  // Apartado mientras dura el pago (si no paga, se suelta solo al pasar la hora).
+  await supabase.from("products").update({ reservado_hasta: new Date(caduca * 1000).toISOString() }).eq("id", p.id);
+  return { ok: true, url: r.datos.url as string };
+}
+
+// Una sesión de Stripe de una reserva: si está cobrada por el importe guardado, la reserva pasa a «activa» una sola vez.
+async function confirmarPagoReserva(supabase: SupabaseClient, modo: Modo, s: SesionStripe) {
+  const id = s.metadata?.reserva_id ?? "";
+  if (!UUID_RE.test(id) || s.client_reference_id !== id) throw new Rechazo(404, "pago no encontrado");
+  const { data: r, error } = await supabase.from("reservas").select("id,product_id,user_id,dias,senal_eur,estado,vence_en,creado_en,pago_sesion").eq("id", id).maybeSingle<FilaReserva>();
+  if (error) throw new Rechazo(503, "falta preparar las reservas con señal");
+  if (!r) throw new Rechazo(404, "pago no encontrado");
+  if (r.estado === "activa" || r.estado === "completada") return { pagado: true, reserva: r.id };
+  if (!sesionCobrada(s)) return { pagado: false, reserva: r.id };
+  if (Math.round(Number(r.senal_eur) * 100) !== s.amount_total) {
+    console.error(`pago: la reserva ${r.id} cobró ${s.amount_total} céntimos y la base de datos dice ${r.senal_eur} €: revísalo en Stripe`);
+    return { pagado: false, reserva: r.id };
+  }
+  if (r.estado !== "pendiente_pago") {
+    console.error(`pago: la señal de la reserva ${r.id} se ha cobrado pero la reserva estaba «${r.estado}»: devuélvela desde Stripe`);
+    return { pagado: false, reserva: r.id };
+  }
+  const vence = new Date(Date.now() + Number(r.dias) * DIA_MS).toISOString();
+  const { data: hecho, error: errApunte } = await supabase
+    .from("reservas")
+    .update({
+      estado: "activa",
+      pagado_en: new Date().toISOString(),
+      pago_sesion: s.id,
+      pago_modo: modo,
+      pago_referencia: typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id ?? null,
+      vence_en: vence,
+      actualizado_en: new Date().toISOString(),
+    })
+    .eq("id", r.id)
+    .eq("estado", "pendiente_pago")
+    .select("id");
+  if (errApunte) {
+    // 23505: el artículo ya tiene otra reserva activa (dos pagos a la vez). El cobro hay que devolverlo desde Stripe.
+    console.error(`pago: no se pudo activar la reserva ${r.id}`, errApunte.code ?? "", errApunte.code === "23505" ? "(ya había otra activa: devuélvela desde Stripe)" : "");
+    if (errApunte.code === "23505") return { pagado: false, reserva: r.id };
+    throw new Rechazo(500, "no se pudo apuntar el pago");
+  }
+  if (Array.isArray(hecho) && hecho.length && r.product_id) {
+    await supabase.from("products").update({ reservado_hasta: vence }).eq("id", r.product_id);
+  }
+  return { pagado: true, reserva: r.id };
+}
+
+// Administración → Reservas: «Marcar completada», «Cancelar» o «Marcar vencida». Solo cambia el estado y suelta el
+// artículo; NO devuelve dinero (si procede, el reembolso se hace en Stripe).
+async function cambiarEstadoReserva(supabase: SupabaseClient, req: any, b: Record<string, unknown>) {
+  if (!(await esAdministrador(supabase, await usuarioDeLaPeticion(supabase, req)))) throw new Rechazo(403, "solo para administradores");
+  const id = typeof b.reserva === "string" && UUID_RE.test(b.reserva) ? b.reserva.toLowerCase() : null;
+  const estado = typeof b.estado === "string" && ESTADOS_RESERVA_ADMIN.includes(b.estado) ? b.estado : null;
+  if (!id || !estado) throw new Rechazo(400, "reserva no válida");
+  const { data: r, error } = await supabase.from("reservas").select("id,product_id,estado,vence_en").eq("id", id).maybeSingle<Pick<FilaReserva, "id" | "product_id" | "estado" | "vence_en">>();
+  if (error) throw new Rechazo(503, "falta preparar las reservas con señal");
+  if (!r) throw new Rechazo(404, "reserva no encontrada");
+  if (r.estado !== "activa" && r.estado !== "pendiente_pago") return { ok: true, estado: r.estado, ya: true };
+  if (estado === "vencida" && Date.parse(r.vence_en) > Date.now()) throw new Rechazo(409, "esta reserva aún no ha vencido");
+  const { error: errCambio } = await supabase.from("reservas").update({ estado, actualizado_en: new Date().toISOString() }).eq("id", r.id).in("estado", ["activa", "pendiente_pago"]);
+  if (errCambio) throw new Rechazo(500, "no se pudo cambiar la reserva");
+  if (r.product_id) await supabase.from("products").update({ reservado_hasta: null }).eq("id", r.product_id);
+  return { ok: true, estado };
+}
+
 export default async function handler(req: any, res: any) {
   try {
     const clave = String(process.env.STRIPE_SECRET_KEY ?? "").trim();
@@ -1097,6 +1387,11 @@ export default async function handler(req: any, res: any) {
       if (/[?&]avisos=clave(&|$)/.test(String(req.url ?? "")) || req.query?.avisos === "clave") {
         const v = vapidDelEntorno();
         responder(res, 200, { ok: true, configurado: !!v, clave: v ? v.publica : null });
+        return;
+      }
+      // Reservar con señal: si está activa, sus reglas públicas (y si el artículo está reservado).
+      if (parametroDeLaUrl(req, "reserva") === "ajustes") {
+        responder(res, 200, await ajustesReservaPublicos(supabase, modo, req));
         return;
       }
       if (!modo || !supabase) {
@@ -1167,7 +1462,19 @@ export default async function handler(req: any, res: any) {
       responder(res, 200, await avisoDePrueba(supabase, req, b));
       return;
     }
+    // Administración → Reservas: cambiar el estado (no necesita Stripe; no devuelve dinero).
+    if (b.accion === "reserva_estado") {
+      if (!(await consumirLimite(supabase, `pago:reserva_estado:${cubo}`, LIMITE_CONFIRMAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
+      responder(res, 200, await cambiarEstadoReserva(supabase, req, b));
+      return;
+    }
     if (!modo) throw new Rechazo(503, "el pago con tarjeta no está configurado");
+
+    if (b.accion === "reserva") {
+      if (!(await consumirLimite(supabase, `pago:crear:${cubo}`, LIMITE_CREAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
+      responder(res, 200, await crearReserva(supabase, clave, modo, req, b));
+      return;
+    }
 
     if (b.accion === "crear") {
       if (!(await consumirLimite(supabase, `pago:crear:${cubo}`, LIMITE_CREAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");

@@ -385,6 +385,13 @@ export default function AdminHome() {
         onPress: () => router.push("/admin/envios" as never),
       },
       {
+        key: "reservas",
+        title: "Reservas con señal",
+        subtitle: "Tus reglas de la señal (desactivada hasta que las pongas y tu gestor revise el texto) y las reservas de los clientes",
+        icon: "calendar-outline" as IoniconName,
+        onPress: () => router.push("/admin/reservas" as never),
+      },
+      {
         key: "escaparate",
         title: "Escaparate VeoAura",
         subtitle: "Lo que llega de VeoAura, sus visitas y las ventas de la tienda avisadas a VeoAura",

@@ -183,6 +183,10 @@
  *    y no con un mando; sin cifras; abre Vender en modo cambio con «para comprar: …»; la solicitud se guarda marcada;
  *    Cotizaciones la marca y la filtra; Analítica cuenta mostrado/tocado/enviados; 360/390/1280; campos de 16 px.
  *    Se lanza con SOLO = CAMBC y en la pasada completa.
+ *  - RESEN) Reservar con señal (mejora 14): apagada, ni la ficha ni Mis seguimientos enseñan nada; Administración no deja
+ *    activar sin reglas ni sin «Revisado por mi gestor» (borrador marcado, escala 1-70 %); activa, la ficha calcula el % y
+ *    los € según los días, la casilla es obligatoria y «Pagar señal» solo manda artículo y días; sin cuenta invita; «Mis
+ *    reservas» y la vuelta de Stripe; 360/390/1280; campos de 16 px. Se lanza con SOLO = RESEN y en la pasada completa.
  *  - FS) Ficha de servicio con el formato de la de producto (galería, visor con zoom, botones iguales, pestañas,
  *    «Volver atrás», sin bloques de más) y su uso en Administración → Analítica, en el móvil y en el ordenador.
  *
@@ -941,6 +945,9 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       estado.referenciasPedidas = [...(estado.referenciasPedidas ?? []), { cuerpo: JSON.parse(peticion.postData() ?? "{}"), auth: peticion.headers()["authorization"] ?? "" }];
       return json({ ok: true, referencia: estado.referencia ?? "VZ-PD7K-3M9Q" });
     }
+    // Reservar con señal (mejora 14): fuera de la sección RESEN, apagada (como la deja la migración), sin contar como consulta
+    // del pago con tarjeta.
+    if (url.pathname === "/api/pago" && metodo === "GET" && url.searchParams.get("reserva") === "ajustes") return json({ ok: true, activa: false });
     if (url.pathname === "/api/pago" && estado.pago) {
       const auth = peticion.headers()["authorization"] ?? "";
       if (metodo === "GET") {
@@ -1629,8 +1636,13 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (metodo === "GET" || metodo === "HEAD") {
       // Administración → Analítica mira con «*» en una fila si products ya tiene «revisado» (mejora 4): sin fila, no sale.
       if (url.pathname.endsWith("/rest/v1/products") && url.searchParams.get("select") === "*" && url.searchParams.get("limit") === "1") return json([]);
-      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|product_chats|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento|pedido_estados|avisos_precio|admin_avisos_suscripciones|admin_avisos_registro)$/.test(url.pathname)) {
+      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|product_chats|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento|pedido_estados|avisos_precio|admin_avisos_suscripciones|admin_avisos_registro|reservas)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
+      }
+      // Reservar con señal: los ajustes como los deja la migración (apagada y vacía), sin ir a la base de datos real.
+      if (url.pathname.endsWith("/rest/v1/reserva_ajustes")) {
+        const fila = { id: 1, activa: false, escala: null, dias_max: null, tipo_arras: null, al_vencer: null, texto_condiciones: null, condiciones_revisadas: false };
+        return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(fila) : json([fila]);
       }
       return r.continue();
     }
@@ -14015,7 +14027,7 @@ async function seccionCAMPOS16() {
     { e: "Restablecer contraseña", ruta: "/reset-password" },
     { e: "Acceso", ruta: "/login" },
   ];
-  const admin = ["products", "services", "categories", "inventario", "cotizaciones", "escaparate", "envios", "policies", "blog", "chats", "flash-news", "marca-seo", "aprendizajes", "conocimiento", "redes-sociales", "pedidos", "analytics", "users", "auditorias", "escaparate"]
+  const admin = ["products", "services", "categories", "inventario", "cotizaciones", "escaparate", "envios", "reservas", "policies", "blog", "chats", "flash-news", "marca-seo", "aprendizajes", "conocimiento", "redes-sociales", "pedidos", "analytics", "users", "auditorias", "escaparate"]
     .map((r) => ({ e: `Admin ${r}`, ruta: `/admin/${r}`, abrir: async (p) => { await botones(p, /^(Nuevo|Nueva|Añadir|Editar|Crear)/i); await p.locator('[id$="-nuevo"],[id$="-nueva"]').first().click({ timeout: 3000 }).catch(() => {}); await p.waitForTimeout(500); } }));
   const todas = [
     ...cliente.map((c) => ({ ...c, usuario: null })),
@@ -18209,8 +18221,321 @@ async function seccionCAMBC() {
   }
 }
 
+// ===== RESEN) Reservar con señal (mejora 14, 2026-11-15) ==============================================================
+// APAGADA (como la deja la migración): ni la ficha ni Mis pedidos enseñan nada. Administración → Reservas con señal: el
+// borrador precargado y marcado, no deja activar sin reglas ni sin «Revisado por mi gestor», valida la escala (1-70 %) y,
+// con todo, activa. Con la configuración activa: la ficha ofrece «Reservar con señal» (44 px) y la hoja calcula el % y los €
+// según los días, enseña el vencimiento, las arras, qué pasa al vencer y las condiciones, con la casilla OBLIGATORIA; «Pagar
+// señal» solo manda el artículo y los días. Sin cuenta, invita a crearla. «Mis reservas» con su estado y la vuelta de Stripe.
+// 360/390/1280, sin errores de JavaScript y campos de 16 px. /api/pago y las tablas, simulados. ==========================
+async function seccionRESEN() {
+  const CATS = [{ id: "c0000000-0000-4000-8000-0000000000c7", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true }];
+  const PROD = "e0000000-0000-4000-8000-000000000301";
+  const PRODUCTOS = [
+    {
+      id: PROD, title: "Playstation 5 Slim Con Lector", description: "Artículo de prueba.", price_eur: 450, status: "PUBLISHED", is_active: true, condition: "GOOD", category_id: CATS[0].id,
+      category: { id: CATS[0].id, name: CATS[0].name, slug: CATS[0].slug }, created_at: "2026-11-10T10:00:00Z", updated_at: "2026-11-14T10:00:00Z",
+      view_count: 1, images: [], like_count: 0, reference: null, revisado: false, garantia_meses: null, solo_entrega_mano: false,
+    },
+  ];
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+  const TEXTO = "Condiciones de la reserva con señal revisadas por el gestor.";
+  const AL_VENCER = "Texto del dueño sobre qué pasa al vencer.";
+  const PUBLICA = { ok: true, activa: true, escala: [{ hasta_dias: 7, porcentaje: 10 }, { hasta_dias: 30, porcentaje: 25 }], dias_max: 20, tipo_arras: "penitenciales", al_vencer: AL_VENCER, texto_condiciones: TEXTO };
+  const VACIOS = { id: 1, activa: false, escala: null, dias_max: null, tipo_arras: null, al_vencer: null, texto_condiciones: null, condiciones_revisadas: false };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/\s+/g, " ").trim()).catch(() => "");
+  const alto = (p, sel) => p.locator(sel).first().evaluate((e) => Math.round(e.getBoundingClientRect().height)).catch(() => 0);
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  // Los campos de texto (no las casillas ni el interruptor, que el navegador dibuja como «checkbox»).
+  const letras = (p) =>
+    p.evaluate(() =>
+      [...document.querySelectorAll("input, textarea")]
+        .filter((e) => !["checkbox", "radio", "hidden"].includes(e.type) && e.getBoundingClientRect().width > 0)
+        .map((e) => parseFloat(getComputedStyle(e).fontSize))
+    );
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !(await cond()); i++) await p.waitForTimeout(250);
+  };
+  const fecha = (dias) => new Date(Date.now() + dias * 86_400_000).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Madrid" });
+  // /api/pago (GET ?reserva=ajustes, POST reserva / reserva_estado / confirmar) y las tablas, como el servidor y la base de datos.
+  const simular = async (ctx, rs) => {
+    await ctx.route("**/api/pago*", (r) => {
+      const q = r.request();
+      const u = new URL(q.url());
+      if (q.method() === "GET" && u.searchParams.get("reserva") === "ajustes") {
+        rs.consultas = (rs.consultas ?? 0) + 1;
+        return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(rs.publica ?? { ok: true, activa: false }) });
+      }
+      if (q.method() === "POST") {
+        const cuerpo = JSON.parse(q.postData() ?? "{}");
+        rs.posts = [...(rs.posts ?? []), cuerpo];
+        if (cuerpo.accion === "reserva") return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, url: "https://checkout.stripe.com/c/pay/cs_test_resen1" }) });
+        if (cuerpo.accion === "reserva_estado") return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, estado: cuerpo.estado }) });
+        if (cuerpo.accion === "confirmar") return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, pagado: true, reserva: "d0000000-0000-4000-8000-000000000001" }) });
+      }
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, disponible: false }) });
+    });
+    await ctx.route("**/rest/v1/reserva_ajustes*", (r) => {
+      const q = r.request();
+      if (q.method() === "OPTIONS") return r.fallback();
+      if (q.method() === "PATCH") {
+        const cuerpo = JSON.parse(q.postData() ?? "{}");
+        rs.patches = [...(rs.patches ?? []), cuerpo];
+        rs.ajustes = { ...rs.ajustes, ...cuerpo };
+        return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(rs.ajustes) });
+      }
+      return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(rs.ajustes) });
+    });
+    await ctx.route("**/rest/v1/reservas*", (r) =>
+      r.request().method() === "OPTIONS" ? r.fallback() : r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(rs.reservas ?? []) })
+    );
+    await ctx.route("**/rest/v1/analytics_events*", (r) =>
+      r.request().method() === "GET" ? r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(rs.eventos ?? []) }) : r.fallback()
+    );
+  };
+  const reserva = (id, estado, venceDias, extra = {}) => ({
+    id, producto_titulo: "Playstation 5 Slim Con Lector", product_id: PROD, dias: 10, porcentaje: 25, senal_eur: 112.5, precio_eur: 450,
+    vence_en: new Date(Date.now() + venceDias * 86_400_000).toISOString(), estado, tipo_arras: "penitenciales", creado_en: new Date(Date.now() - 86_400_000).toISOString(), pagado_en: null, ...extra,
+  });
+
+  // RESEN1) Apagada (390): la ficha no ofrece reservar y «Mis seguimientos» no enseña «Mis reservas».
+  {
+    const rs = { publica: { ok: true, activa: false }, reservas: [] };
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await simular(ctx, rs);
+    const p = await pagina(ctx, `/producto/${PROD}`);
+    await p.locator("#ficha-comprar-ya").waitFor({ timeout: 40000 }).catch(() => {});
+    await esperar(p, async () => (rs.consultas ?? 0) > 0);
+    await p.waitForTimeout(1200);
+    ok((rs.consultas ?? 0) > 0, "RESEN1: la ficha pregunta a /api/pago si las reservas están activas");
+    ok((await p.locator("#ficha-reservar-senal").count()) === 0 && (await p.locator("#ficha-reserva-senal").count()) === 0, "RESEN1: APAGADA, la ficha no ofrece «Reservar con señal»");
+    ok((await p.locator("#ficha-comprar-ya").count()) === 1, "RESEN1: y se sigue pudiendo comprar como siempre");
+    await capturar(p, "RESEN1-ficha-apagada-390");
+    ok(p.errores.length === 0, `RESEN1: ficha sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    const s = await pagina(ctx, "/perfil?tab=seguimientos");
+    await s.waitForTimeout(4000);
+    ok((await s.locator("#mis-reservas").count()) === 0, "RESEN1: sin reservas, «Mis seguimientos» no enseña «Mis reservas»");
+    ok(s.errores.length === 0, `RESEN1: seguimientos sin errores de JavaScript (${s.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RESEN2) Administración → Reservas con señal (360, 390 y 1280): borrador marcado, no se activa sin reglas; en 390 se
+  // rellena todo, la escala se valida (80 % no), sin «Revisado por mi gestor» no se activa, cambiar el texto lo desmarca y,
+  // con todo, se activa. La lista (activas / vencidas / completadas), «Cancelar» sin dinero y el uso de 30 días.
+  for (const { nombre, vista } of VISTAS) {
+    const ev = (n, k) => Array.from({ length: k }, () => ({ event_name: n }));
+    const rs = {
+      ajustes: { ...VACIOS },
+      reservas: [reserva("d0000000-0000-4000-8000-000000000001", "activa", 5), reserva("d0000000-0000-4000-8000-000000000002", "activa", -1), reserva("d0000000-0000-4000-8000-000000000003", "completada", -3)],
+      eventos: [...ev("reserva_abierta", 4), ...ev("reserva_pagar", 2), ...ev("reserva_pagada", 1)],
+    };
+    const estado = { filas: perfilAdmin, guardados: [] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    await simular(ctx, rs);
+    const p = await pagina(ctx, "/admin/reservas");
+    const sale = await p.locator("#reservas-ajustes").waitFor({ timeout: 40000 }).then(() => true, () => false);
+    ok(sale, `RESEN2 (${nombre}): se abre Administración → Reservas con señal`);
+    ok(/^Desactivadas/.test(await texto(p, "#reservas-estado")), `RESEN2 (${nombre}): empieza DESACTIVADA (${await texto(p, "#reservas-estado")})`);
+    const condiciones = await p.locator("#reservas-condiciones").inputValue().catch(() => "");
+    ok(condiciones.startsWith("BORRADOR · Pendiente de revisión del gestor") && (await p.locator("#reservas-borrador").count()) === 1, `RESEN2 (${nombre}): el texto viene precargado con un BORRADOR marcado «Pendiente de revisión del gestor»`);
+    ok(!/\d+ ?%|\d+ ?días|€/.test(condiciones), `RESEN2 (${nombre}): el borrador no inventa cifras (porcentajes, días ni importes)`);
+    ok((await p.locator("[id^=reservas-tramo-dias-]").count()) === 0 && (await p.locator("#reservas-dias-max").inputValue()) === "", `RESEN2 (${nombre}): la escala y los días máximos empiezan vacíos`);
+    const faltan = await texto(p, "#reservas-faltan");
+    ok(/la escala/.test(faltan) && /días máximos/.test(faltan) && /tipo de arras/.test(faltan) && /Revisado por mi gestor/.test(faltan), `RESEN2 (${nombre}): dice qué falta para activarla (${faltan.slice(0, 160)})`);
+    await p.locator("#reservas-interruptor").click();
+    await p.waitForTimeout(400);
+    ok(/No se puede activar/.test(await texto(p, "#reservas-mensaje")) && !(rs.patches ?? []).some((x) => x.activa === true), `RESEN2 (${nombre}): sin reglas, el interruptor NO la activa ni manda nada (${await texto(p, "#reservas-mensaje")})`);
+    ok(/^Desactivadas/.test(await texto(p, "#reservas-estado")), `RESEN2 (${nombre}): sigue desactivada`);
+    const l = await letras(p);
+    ok(l.length > 0 && l.every((x) => x >= 16), `RESEN2 (${nombre}): los campos miden 16 px o más (${l.join(",")})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `RESEN2 (${nombre}): la pantalla no se ensancha (${d.a}/${d.v})`);
+    await capturar(p, `RESEN2-admin-vacia-${nombre}`);
+    if (nombre === "390") {
+      await p.locator("#reservas-tramo-anadir").click();
+      await p.locator("#reservas-tramo-anadir").click();
+      await p.locator("#reservas-tramo-dias-0").fill("7");
+      await p.locator("#reservas-tramo-pct-0").fill("10");
+      await p.locator("#reservas-tramo-dias-1").fill("30");
+      await p.locator("#reservas-tramo-pct-1").fill("80");
+      await p.locator("#reservas-guardar").click();
+      await p.waitForTimeout(400);
+      const escritos = await p.evaluate(() => [...document.querySelectorAll("[id^=reservas-tramo-]")].map((e) => `${e.id}=${e.value ?? ""}`).join(" "));
+      ok(/1 al 70/.test(await texto(p, "#reservas-mensaje")) && !(rs.patches ?? []).length, `RESEN2: un 80 % no se guarda (${await texto(p, "#reservas-mensaje")} · ${escritos} · ${JSON.stringify(rs.patches ?? [])})`);
+      await p.locator("#reservas-tramo-pct-1").fill("25");
+      await p.locator("#reservas-dias-max").fill("20");
+      await p.locator("#reservas-arras-penitenciales").click();
+      await p.locator("#reservas-al-vencer").fill(AL_VENCER);
+      await p.locator("#reservas-condiciones").fill(TEXTO);
+      await p.locator("#reservas-interruptor").click();
+      await p.waitForTimeout(400);
+      ok(/Revisado por mi gestor/.test(await texto(p, "#reservas-mensaje")) && !(rs.patches ?? []).some((x) => x.activa === true), `RESEN2: con las reglas pero sin «Revisado por mi gestor», no se activa (${await texto(p, "#reservas-mensaje")})`);
+      await p.locator("#reservas-revisado").click();
+      await p.locator("#reservas-condiciones").fill(`${TEXTO} `);
+      ok((await p.locator("#reservas-revisado").getAttribute("aria-checked")) === "false", "RESEN2: cambiar el texto desmarca «Revisado por mi gestor»");
+      await p.locator("#reservas-condiciones").fill(TEXTO);
+      await p.locator("#reservas-revisado").click();
+      await p.locator("#reservas-interruptor").click();
+      await esperar(p, async () => (rs.patches ?? []).some((x) => x.activa === true));
+      const g = (rs.patches ?? []).find((x) => x.activa === true) ?? {};
+      ok(JSON.stringify(g.escala) === '[{"hasta_dias":7,"porcentaje":10},{"hasta_dias":30,"porcentaje":25}]' && g.dias_max === 20 && g.tipo_arras === "penitenciales" && g.al_vencer === AL_VENCER && g.texto_condiciones === TEXTO && g.condiciones_revisadas === true, `RESEN2: con todo puesto y revisado, se activa con las reglas escritas (${JSON.stringify(g).slice(0, 220)})`);
+      await p.waitForTimeout(300);
+      ok(/^Activadas/.test(await texto(p, "#reservas-estado")), `RESEN2: queda ACTIVADA (${await texto(p, "#reservas-estado")})`);
+      await capturar(p, "RESEN2-admin-activada-390");
+    }
+    // La lista y el uso.
+    ok((await texto(p, "#reservas-filtro-activas")) === "Activas (1)" && (await texto(p, "#reservas-filtro-vencidas")) === "Vencidas (1)" && (await texto(p, "#reservas-filtro-completadas")) === "Completadas (1)", `RESEN2 (${nombre}): los filtros cuentan las reservas (${await texto(p, "#reservas-filtro-activas")} / ${await texto(p, "#reservas-filtro-vencidas")})`);
+    ok((await alto(p, "#reservas-filtro-activas")) >= 44, `RESEN2 (${nombre}): los filtros miden 44 px`);
+    const datos = await texto(p, "#reserva-datos-d0000000-0000-4000-8000-000000000001");
+    ok(/Señal 112,50 € \(25 % de 450,00 €\) · 10 días · vence el /.test(datos), `RESEN2 (${nombre}): cada reserva con su señal, el precio, los días y el vencimiento (${datos})`);
+    ok((await texto(p, "#reservas-uso-cifras")) === "Hojas abiertas 4 · a pagar 2 · señales pagadas 1", `RESEN2 (${nombre}): el uso de 30 días (${await texto(p, "#reservas-uso-cifras")})`);
+    await p.locator("#reservas-filtro-vencidas").click();
+    await p.waitForTimeout(300);
+    ok(/Vencida \(sin marcar\)/.test(await texto(p, "#reserva-estado-d0000000-0000-4000-8000-000000000002")) && (await p.locator("#reserva-vencida-d0000000-0000-4000-8000-000000000002").count()) === 1, `RESEN2 (${nombre}): la vencida sin marcar sale con «Marcar vencida»`);
+    await p.locator("#reservas-filtro-activas").click();
+    await p.waitForTimeout(300);
+    ok((await alto(p, "#reserva-cancelada-d0000000-0000-4000-8000-000000000001")) >= 44, `RESEN2 (${nombre}): «Cancelar» mide 44 px`);
+    await p.locator("#reservas-lista").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `RESEN2-admin-lista-${nombre}`);
+    if (nombre === "1280") {
+      await p.locator("#reserva-cancelada-d0000000-0000-4000-8000-000000000001").click();
+      await esperar(p, async () => (rs.posts ?? []).some((x) => x.accion === "reserva_estado"));
+      const post = (rs.posts ?? []).find((x) => x.accion === "reserva_estado") ?? {};
+      ok(post.reserva === "d0000000-0000-4000-8000-000000000001" && post.estado === "cancelada", `RESEN2: «Cancelar» lo pide a /api/pago (${JSON.stringify(post)})`);
+      await p.waitForTimeout(300);
+      ok(/reembolso|devolver la señal/.test(await texto(p, "#reservas-lista-mensaje")) && /Stripe/.test(await texto(p, "#reservas-lista-mensaje")), `RESEN2: y avisa de que el dinero, si procede, se devuelve en Stripe (${await texto(p, "#reservas-lista-mensaje")})`);
+    }
+    ok(p.errores.length === 0, `RESEN2 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RESEN3) Activa (360, 390 y 1280): «Reservar con señal» de 44 px; la hoja calcula el % y los € según los días; en 390 se
+  // comprueba la casilla obligatoria y lo que se manda al pagar.
+  for (const { nombre, vista } of VISTAS) {
+    const rs = { publica: PUBLICA, reservas: [] };
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await simular(ctx, rs);
+    const p = await pagina(ctx, `/producto/${PROD}`);
+    const sale = await p.locator("#ficha-reservar-senal").waitFor({ timeout: 40000 }).then(() => true, () => false);
+    ok(sale, `RESEN3 (${nombre}): activa, la ficha ofrece «Reservar con señal»`);
+    ok((await alto(p, "#ficha-reservar-senal")) >= 44, `RESEN3 (${nombre}): el botón mide 44 px (${await alto(p, "#ficha-reservar-senal")})`);
+    const orden = await p.evaluate(() => {
+      const a = document.getElementById("ficha-anadir-cesta")?.getBoundingClientRect();
+      const b = document.getElementById("ficha-reservar-senal")?.getBoundingClientRect();
+      return !!a && !!b && b.top >= a.bottom;
+    });
+    ok(orden, `RESEN3 (${nombre}): va debajo de «Añadir a la cesta» (secundario)`);
+    await p.locator("#ficha-reservar-senal").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `RESEN3-ficha-${nombre}`);
+    await p.locator("#ficha-reservar-senal").click();
+    await p.locator("#reserva-hoja").waitFor({ timeout: 10000 }).catch(() => {});
+    ok((await texto(p, "#reserva-dias-valor")) === "7 días" && (await texto(p, "#reserva-senal")) === "Señal: 10 % · 45,00 €", `RESEN3 (${nombre}): con 7 días, 10 % = 45,00 € (${await texto(p, "#reserva-senal")})`);
+    await p.locator("#reserva-dias-mas").click();
+    await p.waitForTimeout(200);
+    ok((await texto(p, "#reserva-dias-valor")) === "8 días" && (await texto(p, "#reserva-senal")) === "Señal: 25 % · 112,50 €", `RESEN3 (${nombre}): con 8 días, el tramo siguiente: 25 % = 112,50 € (${await texto(p, "#reserva-senal")})`);
+    ok((await texto(p, "#reserva-vence")) === `Vence el ${fecha(8)} si pagas hoy.`, `RESEN3 (${nombre}): la fecha de vencimiento (${await texto(p, "#reserva-vence")})`);
+    ok(/Arras penitenciales/.test(await texto(p, "#reserva-arras")) && /1454/.test(await texto(p, "#reserva-arras")), `RESEN3 (${nombre}): explica el tipo de arras`);
+    ok((await texto(p, "#reserva-al-vencer")) === `Qué pasa al vencer ${AL_VENCER}`, `RESEN3 (${nombre}): qué pasa al vencer, con el texto del dueño (${await texto(p, "#reserva-al-vencer")})`);
+    ok((await alto(p, "#reserva-dias-mas")) >= 44 && (await alto(p, "#reserva-acepta")) >= 44 && (await alto(p, "#reserva-condiciones-ver")) >= 44, `RESEN3 (${nombre}): días, casilla y enlace de 44 px`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `RESEN3 (${nombre}): la hoja no ensancha la página (${d.a}/${d.v})`);
+    await capturar(p, `RESEN3-hoja-${nombre}`);
+    if (nombre === "390") {
+      ok((await p.locator("#reserva-pagar").getAttribute("aria-disabled")) === "true", "RESEN3: «Pagar señal» empieza desactivado (casilla OBLIGATORIA)");
+      await p.locator("#reserva-pagar").click({ force: true, timeout: 2000 }).catch(() => {});
+      await p.waitForTimeout(400);
+      ok(!(rs.posts ?? []).length, "RESEN3: sin marcar la casilla no se manda nada");
+      for (let i = 0; i < 30; i++) await p.locator("#reserva-dias-mas").click({ timeout: 2000 }).catch(() => {});
+      ok((await texto(p, "#reserva-dias-valor")) === "20 días" && (await p.locator("#reserva-dias-mas").getAttribute("aria-disabled")) === "true", `RESEN3: no pasa de los días máximos (${await texto(p, "#reserva-dias-valor")})`);
+      for (let i = 0; i < 12; i++) await p.locator("#reserva-dias-menos").click();
+      await p.locator("#reserva-condiciones-ver").click();
+      ok((await texto(p, "#reserva-condiciones-texto")) === TEXTO, "RESEN3: «Leer las condiciones completas» enseña el texto entero");
+      ok(/He leído y acepto las condiciones de la reserva \(arras penitenciales\)/.test(await texto(p, "#reserva-acepta")), "RESEN3: la casilla dice qué se acepta");
+      await p.locator("#reserva-acepta").click();
+      ok((await p.locator("#reserva-acepta").getAttribute("aria-checked")) === "true" && (await texto(p, "#reserva-pagar")) === "Pagar señal · 112,50 €", `RESEN3: marcada, «Pagar señal · 112,50 €» (${await texto(p, "#reserva-pagar")})`);
+      await capturar(p, "RESEN3-hoja-aceptada-390");
+      await p.locator("#reserva-pagar").click();
+      await esperar(p, async () => (estado.stripeAbierto ?? []).length > 0);
+      const post = (rs.posts ?? []).find((x) => x.accion === "reserva") ?? {};
+      ok(JSON.stringify(post) === JSON.stringify({ accion: "reserva", producto: PROD, dias: 8, acepta: true }), `RESEN3: «Pagar señal» solo manda el artículo, los días y que acepta (nunca el importe) (${JSON.stringify(post)})`);
+      ok((estado.stripeAbierto ?? []).some((x) => x.startsWith("https://checkout.stripe.com/c/pay/cs_test_resen1")), "RESEN3: y abre la página de pago de Stripe");
+      ok(evento(estado, "reserva_abierta").length === 1 && JSON.stringify(evento(estado, "reserva_pagar").map((e) => e.metadata)) === '[{"dias":8,"porcentaje":25}]', `RESEN3: se miden reserva_abierta y reserva_pagar, sin datos personales (${JSON.stringify(evento(estado, "reserva_pagar").map((e) => e.metadata))})`);
+    }
+    ok(p.errores.length === 0, `RESEN3 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RESEN4) Sin cuenta (390): invita a crearla, sin abrir la hoja.
+  {
+    const rs = { publica: PUBLICA, reservas: [] };
+    const estado = { filas: [], guardados: [], aceptaAnalitica: false, categorias: CATS, catalogoFB: PRODUCTOS };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    await simular(ctx, rs);
+    const p = await pagina(ctx, `/producto/${PROD}`);
+    await p.locator("#ficha-reservar-senal").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    await p.locator("#ficha-reservar-senal").click().catch(() => {});
+    await p.locator("#ficha-reserva-invitacion").waitFor({ timeout: 5000 }).catch(() => {});
+    const inv = await texto(p, "#ficha-reserva-invitacion");
+    ok(/solo con cuenta/.test(inv) && /Crear cuenta gratis/.test(inv) && (await p.locator("#reserva-hoja").count()) === 0, `RESEN4: sin cuenta invita a crearla y no abre la hoja (${inv})`);
+    ok((await alto(p, "#ficha-reserva-crear-cuenta")) >= 44, "RESEN4: «Crear cuenta gratis» mide 44 px");
+    await capturar(p, "RESEN4-sin-cuenta-390");
+    await p.locator("#ficha-reserva-crear-cuenta").click();
+    await p.waitForURL(/\/perfil\?acceso=registro/, { timeout: 15000 }).catch(() => {});
+    ok(/\/perfil\?acceso=registro/.test(p.url()), `RESEN4: lleva al registro (${p.url().replace(BASE, "")})`);
+    ok(p.errores.length === 0, `RESEN4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RESEN5) «Mis reservas» (360, 390 y 1280) con su estado y vencimiento; en 390, la vuelta de Stripe la confirma el servidor.
+  for (const { nombre, vista } of VISTAS) {
+    const rs = { publica: { ok: true, activa: false }, reservas: [reserva("d0000000-0000-4000-8000-000000000001", "activa", 8), reserva("d0000000-0000-4000-8000-000000000004", "cancelada", 2, { producto_titulo: "Mando DualSense", senal_eur: 6, porcentaje: 10, dias: 3 })] };
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await simular(ctx, rs);
+    const ruta = nombre === "390" ? "/perfil?tab=seguimientos&reserva=ok&sesion=cs_test_resen1" : "/perfil?tab=seguimientos";
+    const p = await pagina(ctx, ruta);
+    const sale = await p.locator("#mis-reservas").waitFor({ timeout: 40000 }).then(() => true, () => false);
+    ok(sale, `RESEN5 (${nombre}): «Mis reservas» sale en Mis seguimientos`);
+    ok(/Mis reservas \(2\)/.test(await texto(p, "#mis-reservas")), `RESEN5 (${nombre}): con sus 2 reservas`);
+    ok((await texto(p, "#mi-reserva-estado-d0000000-0000-4000-8000-000000000001")) === "Reservado" && (await texto(p, "#mi-reserva-estado-d0000000-0000-4000-8000-000000000004")) === "Cancelada", `RESEN5 (${nombre}): con su estado`);
+    const linea = await texto(p, "#mi-reserva-d0000000-0000-4000-8000-000000000001");
+    ok(linea.includes("Señal 112,50 € (25 %) · 10 días · vence el") && linea.includes(fecha(8)), `RESEN5 (${nombre}): la señal, los días y el vencimiento (${linea})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `RESEN5 (${nombre}): no se ensancha (${d.a}/${d.v})`);
+    if (nombre === "390") {
+      await esperar(p, async () => /Señal recibida/.test(await texto(p, "#mis-reservas-aviso")));
+      ok(/Señal recibida/.test(await texto(p, "#mis-reservas-aviso")) && (rs.posts ?? []).some((x) => x.accion === "confirmar" && x.sesion === "cs_test_resen1"), `RESEN5: a la vuelta de Stripe, lo confirma el servidor (${await texto(p, "#mis-reservas-aviso")})`);
+      await esperar(p, async () => evento(estado, "reserva_pagada").length > 0);
+      ok(evento(estado, "reserva_pagada").length === 1 && JSON.stringify(evento(estado, "reserva_pagada")[0]?.metadata ?? {}) === "{}", "RESEN5: se mide reserva_pagada, sin datos personales");
+      ok(!/reserva=ok/.test(p.url()), "RESEN5: y se limpia la dirección");
+    }
+    await p.locator("#mis-reservas").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `RESEN5-mis-reservas-${nombre}`);
+    ok(p.errores.length === 0, `RESEN5 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "RESEN") await seccionRESEN();
   if (SOLO === "AVISOM") await seccionAVISOM();
   if (SOLO === "CHATP") await seccionCHATP();
   if (SOLO === "VALOR") await seccionVALOR();
@@ -19326,6 +19651,7 @@ try {
   await seccionVALOR();
   await seccionMOMB();
   await seccionCAMBC();
+  await seccionRESEN();
   await seccionCAMPOS16();
   }
 } catch (e) {
