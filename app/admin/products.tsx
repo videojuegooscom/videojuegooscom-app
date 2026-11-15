@@ -501,7 +501,11 @@ const ProductListItem = React.memo(function ProductListItem({
           {/* Peso para el envío con Correos (por kilos). Sin peso, cuenta PESO_SIN_DATO_KG. */}
           {p.peso_kg !== undefined ? (
             <Text nativeID={`producto-peso-${p.id}`} style={{ color: p.peso_kg ? COLORS.muted : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo }}>
-              {p.peso_kg ? `Peso con embalaje: ${fmtKg(p.peso_kg)}` : `Sin peso: el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}`}
+              {p.peso_kg
+                ? p.peso_estimado
+                  ? `Peso estimado: ${fmtKg(p.peso_kg)} · revísalo al pesarlo`
+                  : `Peso con embalaje: ${fmtKg(p.peso_kg)}`
+                : `Sin peso: el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}`}
             </Text>
           ) : null}
           {p.solo_entrega_mano ? (
@@ -673,6 +677,10 @@ export default function AdminProducts() {
   const [reference, setReference] = useState("");
   // Peso con embalaje en kg (texto, con coma). Solo se guarda si la columna existe (migración 20261107120000).
   const [peso, setPeso] = useState("");
+  // Pesos estimados (migración 20261115160000): ¿existe la columna? y ¿el dueño ha tocado el peso al editar? Si lo toca,
+  // el peso deja de ser «estimado» al guardar.
+  const [supportsPesoEstimado, setSupportsPesoEstimado] = useState(false);
+  const [pesoTocado, setPesoTocado] = useState(false);
   // Solo entrega en mano (no se envía): televisores sin su caja original (dueño, 2026-11-07).
   const [soloMano, setSoloMano] = useState(false);
   // «Revisado por nuestro equipo» y garantía en meses (texto; vacío = sin indicar). Solo con la migración 20261114140000.
@@ -912,6 +920,9 @@ export default function AdminProducts() {
         }
       }
       const conPeso = !pesosRes.error;
+      // Pesos estimados por Claude (migración 20261115160000): solo si la columna existe (se mira en la fila de muestra).
+      const estimados = new Set<string>();
+      let conEstimado = false;
 
       // Aviso a VeoAura de los productos creados a mano (migración 20261113130000; sin ella, no se muestra nada).
       const avisosVeoaura = new Map<string, "pendiente" | "enviado">();
@@ -929,6 +940,13 @@ export default function AdminProducts() {
       let conRevisado = false;
       const muestra = await supabase.from("products").select("*").limit(1);
       const filaMuestra = !muestra.error && Array.isArray(muestra.data) ? (muestra.data[0] as Record<string, unknown> | undefined) : undefined;
+      if (conPeso && filaMuestra && "peso_estimado" in filaMuestra) {
+        const estRes = await supabase.from("products").select("id").eq("peso_estimado", true);
+        if (!estRes.error && Array.isArray(estRes.data)) {
+          conEstimado = true;
+          for (const r of estRes.data as { id: string }[]) estimados.add(String(r.id));
+        }
+      }
       if (filaMuestra && "revisado" in filaMuestra && "garantia_meses" in filaMuestra) {
         const confRes = await supabase.from("products").select("id,revisado,garantia_meses");
         if (!confRes.error && Array.isArray(confRes.data)) {
@@ -944,6 +962,7 @@ export default function AdminProducts() {
         ...item,
         ...(avisosVeoaura.has(item.id) ? { veoaura: avisosVeoaura.get(item.id) } : {}),
         ...(conPeso ? { peso_kg: pesos.get(item.id) ?? null } : {}),
+        ...(conEstimado ? { peso_estimado: estimados.has(item.id) } : {}),
         ...(conSoloMano ? { solo_entrega_mano: soloMano.has(item.id) } : {}),
         ...(conRevisado ? (confianza.get(item.id) ?? { revisado: false, garantia_meses: null }) : {}),
         media: (mediaByProduct.get(item.id) ?? []).sort(sortMediaRows),
@@ -952,6 +971,7 @@ export default function AdminProducts() {
       setSupportsFeaturedHome(supportsFeatured);
       setSupportsReference(prodResult.supportsReference);
       setSupportsPeso(conPeso);
+      setSupportsPesoEstimado(conEstimado);
       setSupportsSoloMano(conSoloMano);
       setSupportsRevisado(conRevisado);
       setSupportsProductMedia(supportsMedia);
@@ -984,6 +1004,7 @@ export default function AdminProducts() {
     setCondition("GOOD");
     setReference("");
     setPeso("");
+    setPesoTocado(false);
     setSoloMano(false);
     setRevisado(false);
     setGarantia("");
@@ -1017,6 +1038,7 @@ export default function AdminProducts() {
       setCondition(p.condition ?? "GOOD");
       setReference(p.reference ?? "");
       setPeso(p.peso_kg ? String(p.peso_kg).replace(".", ",") : "");
+      setPesoTocado(false);
       setSoloMano(p.solo_entrega_mano === true);
       setRevisado(p.revisado === true);
       setGarantia(p.garantia_meses ? String(p.garantia_meses) : "");
@@ -1484,6 +1506,8 @@ export default function AdminProducts() {
 
     if (supportsPeso) {
       payload.peso_kg = pesoKg === null ? null : Math.round(pesoKg * 1000) / 1000;
+      // El dueño ha escrito el peso: deja de ser una estimación.
+      if (supportsPesoEstimado && pesoTocado) payload.peso_estimado = false;
     }
 
     if (supportsSoloMano) {
@@ -1997,6 +2021,7 @@ export default function AdminProducts() {
                     value={peso}
                     onChangeText={(v) => {
                       setPeso(v);
+                      setPesoTocado(true);
                       setModalErr(null);
                     }}
                     placeholder="Peso con embalaje en kg (para el envío: 2,5)"
@@ -2015,7 +2040,9 @@ export default function AdminProducts() {
                   />
                   <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                     {peso.trim()
-                      ? "Correos cobra por kilos: con este peso se calcula el envío."
+                      ? supportsPesoEstimado && editing?.peso_estimado && !pesoTocado
+                        ? "Peso estimado (datos de fábrica + tu embalaje): cuando lo peses, escríbelo aquí y deja de ser estimado."
+                        : "Correos cobra por kilos: con este peso se calcula el envío."
                       : `Sin peso, el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}.`}
                   </Text>
                 </View>
