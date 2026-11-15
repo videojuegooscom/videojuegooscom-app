@@ -31,7 +31,7 @@
  *   app/admin/policies.tsx, app/admin/blog.tsx, app/admin/analytics.tsx,
  *   app/admin/users.tsx, app/admin/cliente/[userId].tsx, app/admin/marca-seo.tsx,
  *   app/admin/redes-sociales.tsx, app/admin/aprendizajes.tsx, app/admin/pedidos.tsx,
- *   app/admin/escaparate.tsx
+ *   app/admin/escaparate.tsx, app/admin/reservas.tsx
  *   → las rutas hijas que este layout protege (Stack.Screen).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -201,6 +201,7 @@ export default function AdminLayout() {
       <Stack.Screen name="aprendizajes" />
       <Stack.Screen name="pedidos" />
       <Stack.Screen name="envios" />
+      <Stack.Screen name="reservas" />
       <Stack.Screen name="escaparate" />
     </Stack>
   );

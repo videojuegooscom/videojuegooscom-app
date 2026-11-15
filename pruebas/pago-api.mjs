@@ -26,6 +26,12 @@
  *  P13) Referencia del pedido (2026-11-11): la página de pago y la descripción del cobro dicen «Pedido VZ-… ·
  *      VideojuegosZaragoza» (nunca «nº»); «confirmar» la devuelve; «referencia» solo a quien hizo el pedido (clave de la
  *      compra o su cuenta; si no, 404), con límite por IP y también sin la clave de Stripe.
+ *  R1-R10) Reservar con señal (2026-11-15): sin la tabla o apagada y vacía, la tienda no recibe reglas y «reserva» se
+ *      rechaza sin llamar a Stripe; sin «Revisado por mi gestor», con la marca de borrador, sin días máximos o con más del
+ *      70 %, tampoco; con la clave de prueba solo el administrador; sin sesión 401, sin aceptar 400, días fuera 400, artículo
+ *      en borrador u oculto 409; la señal la calcula el servidor (ignora lo que mande el navegador), con copia y SHA-256 de
+ *      las condiciones; otra persona no la reserva mientras se paga ni cuando está activa; el aviso de Stripe la activa una
+ *      sola vez; si lo cobrado no es lo guardado, no se activa; «reserva_estado» solo el administrador y sin dinero.
  *  CONTROL) Sin la comprobación de Klarna o de Bizum en la privacidad, sin el reintento sin Bizum, sin la de
  *      administrador, sin la de «paid», sin la de la firma, sin la del dueño del pedido (al pagar y al pedir la
  *      referencia) o con «Pedido nº» en Stripe, las pruebas lo detectan.
@@ -35,7 +41,7 @@
  * Conectado con: api/pago.ts (Stripe); simula en memoria perfiles, pedidos, políticas y el límite compartido. La lanza
  *   pruebas/todas.mjs (grupo api).
  */
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -90,6 +96,8 @@ let sinColumnas;
 let limitePermitido;
 let stripeSinBizum;
 let sinColumnaMetodo;
+// Reservar con señal (sección R): null fuera de su batería (las tablas no existen para el resto).
+let resv = null;
 const stripeSesiones = new Map();
 const idempotencia = new Map();
 const devoluciones = new Map();
@@ -142,6 +150,37 @@ function supabaseFalso(url, metodo, cabeceras, cuerpo) {
   if (ruta === "/rest/v1/policy_pages") {
     const f = eq(url, "slug") === "privacidad" ? { sections: politica } : null;
     return objeto ? json(f) : json(f ? [f] : []);
+  }
+  // Reservar con señal (sección R): ajustes, reservas y productos, como PostgREST (filtros eq / in / is.null).
+  if (ruta === "/rest/v1/reserva_ajustes" || ruta === "/rest/v1/reservas" || (ruta === "/rest/v1/products" && resv)) {
+    if (!resv || (ruta === "/rest/v1/reserva_ajustes" && !resv.ajustes)) return json({ code: "PGRST205", message: `Could not find the table 'public.${ruta.split("/").pop()}' in the schema cache` }, 404);
+    const tabla = ruta === "/rest/v1/reserva_ajustes" ? [resv.ajustes] : ruta === "/rest/v1/reservas" ? resv.reservas : resv.productos;
+    const filas = tabla.filter((f) =>
+      [...url.searchParams].every(([k, v]) => {
+        if (["select", "order", "limit", "offset", "columns"].includes(k)) return true;
+        if (v.startsWith("eq.")) return String(f[k]) === v.slice(3);
+        if (v.startsWith("in.(")) return v.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")).includes(String(f[k]));
+        if (v === "is.null") return f[k] == null;
+        return true;
+      })
+    );
+    const representar = /return=representation/.test(cabeceras.get("prefer") ?? "");
+    if (metodo === "GET") return objeto ? json(filas[0] ?? null) : json(filas);
+    if (metodo === "POST" && ruta === "/rest/v1/reservas") {
+      const fila = { id: `d0000000-0000-4000-8000-${String(resv.reservas.length + 1).padStart(12, "0")}`, creado_en: new Date().toISOString(), actualizado_en: new Date().toISOString(), pago_sesion: null, pagado_en: null, ...cuerpo };
+      resv.reservas.push(fila);
+      resv.altas.push({ ...cuerpo });
+      return objeto ? json({ id: fila.id }, 201) : json([{ id: fila.id }], 201);
+    }
+    if (metodo === "PATCH") {
+      resv.cambios.push({ tabla: ruta.split("/").pop(), filtro: decodeURIComponent(url.search), cuerpo });
+      // Una sola reserva «activa» por artículo (índice único parcial), como la base de datos.
+      if (ruta === "/rest/v1/reservas" && cuerpo?.estado === "activa" && filas.some((f) => resv.reservas.some((o) => o.id !== f.id && o.product_id === f.product_id && o.estado === "activa"))) {
+        return json({ code: "23505", message: "duplicate key value violates unique constraint \"reservas_una_activa_idx\"" }, 409);
+      }
+      for (const f of filas) Object.assign(f, cuerpo);
+      return representar ? json(filas.map((f) => ({ id: f.id }))) : new Response(null, { status: 204 });
+    }
   }
   if (ruta === "/rest/v1/pedidos") {
     if (sinColumnas && /pago_/.test(url.searchParams.get("select") ?? "")) return json({ code: "42703", message: "column pedidos.pago_estado does not exist" }, 400);
@@ -207,7 +246,8 @@ function stripeFalso(url, metodo, cabeceras, cuerpoTexto) {
       url: `https://checkout.stripe.com/c/pay/${id}`,
       livemode: real,
       client_reference_id: c.client_reference_id,
-      metadata: { pedido_id: c["metadata[pedido_id]"], numero: c["metadata[numero]"] },
+      // Todos los metadatos que manda la tienda (pedido_id y numero; reserva_id en las reservas con señal).
+      metadata: Object.fromEntries(Object.entries(c).filter(([campo]) => /^metadata\[[a-z_]+\]$/.test(campo)).map(([campo, v]) => [campo.slice(9, -1), v])),
       payment_intent: null,
     };
     stripeSesiones.set(id, s);
@@ -445,8 +485,167 @@ async function bateria(manejador) {
   return r;
 }
 
+// --- R) Reservar con señal (mejora 14, 2026-11-15; migración 20261115150000_reservas_senal) -------------------------
+const OTRO = "22222222-2222-4222-8222-222222222222";
+sesiones["token-otro"] = OTRO;
+roles[OTRO] = "user";
+const PR1 = "b1000000-0000-4000-8000-000000000001"; // a la venta, 450 €
+const PR2 = "b1000000-0000-4000-8000-000000000002"; // borrador
+const PR3 = "b1000000-0000-4000-8000-000000000003"; // oculto
+const PR4 = "b1000000-0000-4000-8000-000000000004"; // a la venta, 99,99 €
+const TEXTO_OK = "Condiciones de la reserva con señal (revisadas por el gestor).";
+const AJUSTES_OK = {
+  id: 1, activa: true, escala: [{ hasta_dias: 7, porcentaje: 10 }, { hasta_dias: 30, porcentaje: 25 }], dias_max: 20, tipo_arras: "penitenciales",
+  al_vencer: "Texto del dueño sobre el vencimiento.", texto_condiciones: TEXTO_OK, condiciones_revisadas: true,
+};
+
+async function bateriaReservas(manejador) {
+  const r = {};
+  reiniciar();
+  politica[0].body += " Si pagas con tarjeta, el pago lo gestiona Stripe.";
+  process.env.STRIPE_SECRET_KEY = CLAVE_REAL;
+  process.env.STRIPE_WEBHOOK_SECRET = SECRETO_AVISO;
+  const productos = () => [
+    { id: PR1, title: "PlayStation 5 Slim", price_eur: 450, status: "PUBLISHED", is_active: true, reservado_hasta: null },
+    { id: PR2, title: "Borrador", price_eur: 100, status: "DRAFT", is_active: true, reservado_hasta: null },
+    { id: PR3, title: "Oculto", price_eur: 100, status: "PUBLISHED", is_active: false, reservado_hasta: null },
+    { id: PR4, title: "Mando DualSense", price_eur: 99.99, status: "PUBLISHED", is_active: true, reservado_hasta: null },
+  ];
+  // R1: sin la tabla (migración sin aplicar) y apagada / vacía (como la deja la migración).
+  resv = { ajustes: null, reservas: [], productos: productos(), altas: [], cambios: [] };
+  r.sinTabla = await pedirUrl(manejador, "/api/pago?reserva=ajustes");
+  resv.ajustes = { id: 1, activa: false, escala: null, dias_max: null, tipo_arras: null, al_vencer: null, texto_condiciones: null, condiciones_revisadas: false };
+  r.apagadaGet = await pedirUrl(manejador, `/api/pago?reserva=ajustes&producto=${PR1}`);
+  const postAntes = registro.stripePost;
+  r.apagada = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 5, acepta: true } });
+  // R2: activa pero sin revisar, con la marca de borrador o sin días máximos: el servidor tampoco la da por buena.
+  resv.ajustes = { ...AJUSTES_OK, condiciones_revisadas: false };
+  r.sinRevisarGet = await pedirUrl(manejador, "/api/pago?reserva=ajustes");
+  r.sinRevisar = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 5, acepta: true } });
+  resv.ajustes = { ...AJUSTES_OK, texto_condiciones: "BORRADOR · Pendiente de revisión del gestor\n\nTexto." };
+  r.borrador = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 5, acepta: true } });
+  resv.ajustes = { ...AJUSTES_OK, dias_max: null };
+  r.sinDias = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 5, acepta: true } });
+  resv.ajustes = { ...AJUSTES_OK, escala: [{ hasta_dias: 7, porcentaje: 80 }] };
+  r.escalaMala = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 5, acepta: true } });
+  r.postTrasApagada = registro.stripePost - postAntes;
+  // R3: activa y completa.
+  resv.ajustes = { ...AJUSTES_OK };
+  r.activaGet = await pedirUrl(manejador, `/api/pago?reserva=ajustes&producto=${PR1}`);
+  process.env.STRIPE_SECRET_KEY = CLAVE_PRUEBA;
+  r.pruebaCliente = await pedirUrl(manejador, "/api/pago?reserva=ajustes", "token-cliente");
+  r.pruebaAdmin = await pedirUrl(manejador, "/api/pago?reserva=ajustes", "token-admin");
+  process.env.STRIPE_SECRET_KEY = CLAVE_REAL;
+  // R4: sin sesión, sin aceptar, días fuera, artículos que no están a la venta.
+  r.sinSesion = await pedir(manejador, "POST", { cuerpo: { accion: "reserva", producto: PR1, dias: 5, acepta: true } });
+  r.sinAcepta = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 5 } });
+  r.aceptaTexto = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 5, acepta: "true" } });
+  r.diasDeMas = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 21, acepta: true } });
+  r.diasCero = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 0, acepta: true } });
+  r.borradorProd = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR2, dias: 5, acepta: true } });
+  r.oculto = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR3, dias: 5, acepta: true } });
+  r.altasTrasRechazos = resv.altas.length;
+  // R5: bien. El navegador manda otro importe y otro porcentaje: no cuentan (10 días → 25 % de 450 € = 112,50 €).
+  r.crea = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 10, acepta: true, importe: 1, porcentaje: 70, senal_eur: 1, precio_eur: 2 } });
+  r.sesionCrea = registro.crearSesion[registro.crearSesion.length - 1];
+  r.reserva1 = { ...resv.reservas[0] };
+  r.prod1 = { ...resv.productos[0] };
+  // R6: mientras la paga, otra persona no puede; la misma persona la rehace (la antigua se cierra).
+  r.otroPendiente = await pedir(manejador, "POST", { token: "token-otro", cuerpo: { accion: "reserva", producto: PR1, dias: 3, acepta: true } });
+  r.rehace = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 3, acepta: true } });
+  r.sesionRehace = registro.crearSesion[registro.crearSesion.length - 1];
+  r.expiradasRehace = [...registro.expiradas];
+  r.reservasTrasRehacer = resv.reservas.map((x) => ({ id: x.id, estado: x.estado, senal: x.senal_eur, porcentaje: x.porcentaje }));
+  // R7: el aviso de Stripe la activa UNA sola vez.
+  const segunda = resv.reservas[1];
+  pagarEnStripe(segunda.pago_sesion, "pi_3Reserva1");
+  const aviso = JSON.stringify({ id: "evt_r1", type: "checkout.session.completed", livemode: true, data: { object: { id: segunda.pago_sesion, object: "checkout.session" } } });
+  r.aviso1 = await pedir(manejador, "POST", { crudo: aviso, cabeceras: { "stripe-signature": firmar(aviso) } });
+  r.trasAviso = { ...resv.reservas[1] };
+  r.prodTrasAviso = { ...resv.productos[0] };
+  r.cambiosTrasAviso = resv.cambios.filter((c) => c.tabla === "reservas" && c.cuerpo?.estado === "activa").length;
+  r.aviso2 = await pedir(manejador, "POST", { crudo: aviso, cabeceras: { "stripe-signature": firmar(aviso) } });
+  r.confirmar = await pedir(manejador, "POST", { cuerpo: { accion: "confirmar", sesion: segunda.pago_sesion } });
+  r.trasAviso2 = { ...resv.reservas[1] };
+  r.cambiosTrasAviso2 = resv.cambios.filter((c) => c.tabla === "reservas" && c.cuerpo?.estado === "activa").length;
+  r.reservadoGet = await pedirUrl(manejador, `/api/pago?reserva=ajustes&producto=${PR1}`);
+  // R8: ya reservado: nadie más (ni la misma persona) abre otra.
+  r.yaReservadoOtro = await pedir(manejador, "POST", { token: "token-otro", cuerpo: { accion: "reserva", producto: PR1, dias: 3, acepta: true } });
+  r.yaReservadoMismo = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 3, acepta: true } });
+  // R9: lo cobrado no coincide con lo guardado: no se activa.
+  r.crea4 = await pedir(manejador, "POST", { token: "token-otro", cuerpo: { accion: "reserva", producto: PR4, dias: 2, acepta: true } });
+  const cuarta = resv.reservas.find((x) => x.product_id === PR4);
+  r.senal4 = cuarta?.senal_eur;
+  cuarta.senal_eur = 50;
+  pagarEnStripe(cuarta.pago_sesion, "pi_3Reserva4");
+  r.confirmaMal = await pedir(manejador, "POST", { cuerpo: { accion: "confirmar", sesion: cuarta.pago_sesion } });
+  r.estado4 = cuarta.estado;
+  // R10: Administración → cambiar el estado: solo el administrador; no devuelve dinero; suelta el artículo.
+  const postAntesAdmin = registro.stripePost;
+  r.estadoCliente = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva_estado", reserva: segunda.id, estado: "cancelada" } });
+  r.vencidaAntes = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "reserva_estado", reserva: segunda.id, estado: "vencida" } });
+  r.estadoMalo = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "reserva_estado", reserva: segunda.id, estado: "activa" } });
+  r.cancelar = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "reserva_estado", reserva: segunda.id, estado: "cancelada" } });
+  r.trasCancelar = { ...resv.reservas[1] };
+  r.prodTrasCancelar = { ...resv.productos[0] };
+  r.cancelarOtraVez = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "reserva_estado", reserva: segunda.id, estado: "completada" } });
+  r.stripeTrasAdmin = registro.stripePost - postAntesAdmin;
+  r.devolucionesAdmin = registro.devoluciones.length;
+  resv = null;
+  return r;
+}
+
+// Un GET con la ruta completa (los parámetros van en req.url, como en Vercel).
+async function pedirUrl(manejador, url, token) {
+  const req = { method: "GET", url, headers: { host: "videojuegoszaragoza.com", "x-vercel-forwarded-for": "203.0.113.7", ...(token ? { authorization: `Bearer ${token}` } : {}) } };
+  const res = respuesta();
+  await manejador(req, res);
+  return res;
+}
+
+function comprobarReservas(r) {
+  ok(r.sinTabla.codigo === 200 && r.sinTabla.cuerpo?.activa === false, `R1: sin la tabla (migración sin aplicar), apagada (${JSON.stringify(r.sinTabla.cuerpo)})`);
+  ok(r.apagadaGet.cuerpo?.activa === false && !("escala" in (r.apagadaGet.cuerpo ?? {})) && !("texto_condiciones" in (r.apagadaGet.cuerpo ?? {})), `R1: apagada y vacía (como la deja la migración), la tienda no recibe ninguna regla (${JSON.stringify(r.apagadaGet.cuerpo)})`);
+  ok(r.apagada.codigo === 403, `R1: apagada, «reserva» se rechaza (${r.apagada.codigo} ${r.apagada.cuerpo?.error})`);
+  ok(r.sinRevisarGet.cuerpo?.activa === false && r.sinRevisar.codigo === 403, `R2: sin «Revisado por mi gestor», ni se ofrece ni se cobra (${r.sinRevisar.codigo})`);
+  ok(r.borrador.codigo === 403 && r.sinDias.codigo === 403 && r.escalaMala.codigo === 403, `R2: con la marca de borrador, sin días máximos o con un 80 %, tampoco (${r.borrador.codigo}, ${r.sinDias.codigo}, ${r.escalaMala.codigo})`);
+  ok(r.postTrasApagada === 0, "R1-R2: sin reglas completas no se llama a Stripe");
+  const g = r.activaGet.cuerpo ?? {};
+  ok(g.activa === true && g.dias_max === 20 && g.tipo_arras === "penitenciales" && g.texto_condiciones === TEXTO_OK && JSON.stringify(g.escala) === JSON.stringify(AJUSTES_OK.escala) && !("condiciones_revisadas" in g) && !("id" in g), `R3: activa y completa, la tienda recibe solo las reglas públicas (${JSON.stringify(g).slice(0, 200)})`);
+  ok(r.pruebaCliente.cuerpo?.activa === false && r.pruebaAdmin.cuerpo?.activa === true, "R3: con la clave de prueba de Stripe, solo la ve el administrador");
+  ok(r.sinSesion.codigo === 401, `R4: sin sesión, 401 (${r.sinSesion.codigo})`);
+  ok(r.sinAcepta.codigo === 400 && r.aceptaTexto.codigo === 400, `R4: sin aceptar las condiciones (o con «true» en texto), 400 (${r.sinAcepta.codigo}, ${r.aceptaTexto.codigo})`);
+  ok(r.diasDeMas.codigo === 400 && r.diasCero.codigo === 400, `R4: días fuera de 1..dias_max, 400 (${r.diasDeMas.codigo}, ${r.diasCero.codigo})`);
+  ok(r.borradorProd.codigo === 409 && r.oculto.codigo === 409, `R4: un artículo que no está a la venta (borrador u oculto), 409 (${r.borradorProd.codigo}, ${r.oculto.codigo})`);
+  ok(r.altasTrasRechazos === 0, "R4: ningún rechazo guarda una reserva");
+  const c = r.sesionCrea?.campos ?? {};
+  ok(r.crea.codigo === 200 && /^https:\/\/checkout\.stripe\.com\//.test(r.crea.cuerpo?.url ?? ""), `R5: con todo bien, abre la página de pago (${r.crea.codigo} ${r.crea.cuerpo?.error ?? ""})`);
+  ok(c["line_items[0][price_data][unit_amount]"] === "11250" && c["line_items[0][price_data][currency]"] === "eur", `R5: la señal la calcula el servidor (10 días → 25 % de 450 € = 112,50 €), aunque el navegador mande otra (${c["line_items[0][price_data][unit_amount]"]})`);
+  ok(c["metadata[reserva_id]"] === r.reserva1.id && c.client_reference_id === r.reserva1.id && /\/perfil\?tab=seguimientos&reserva=ok&sesion=\{CHECKOUT_SESSION_ID\}$/.test(c.success_url ?? "") && c.cancel_url === `https://videojuegoszaragoza.com/producto/${PR1}?reserva=cancelada`, `R5: la sesión lleva la reserva y vuelve a Mis reservas (${c.success_url})`);
+  ok(/^Señal de reserva · PlayStation 5 Slim · VideojuegosZaragoza$/.test(c["line_items[0][price_data][product_data][name]"] ?? ""), `R5: el concepto del cobro (${c["line_items[0][price_data][product_data][name]"]})`);
+  const f = r.reserva1;
+  ok(f.estado === "pendiente_pago" && f.user_id === CLIENTE && f.dias === 10 && f.porcentaje === 25 && f.senal_eur === 112.5 && f.precio_eur === 450 && f.tipo_arras === "penitenciales", `R5: la reserva se guarda pendiente, de quien la pide y con lo calculado en el servidor (${JSON.stringify({ e: f.estado, d: f.dias, p: f.porcentaje, s: f.senal_eur })})`);
+  ok(f.condiciones_texto === TEXTO_OK && f.condiciones_hash === createHash("sha256").update(TEXTO_OK).digest("hex") && !!f.aceptadas_condiciones_en && f.al_vencer_texto === AJUSTES_OK.al_vencer, "R5: con la copia de las condiciones aceptadas, su SHA-256 y la hora");
+  const apartado = Date.parse(r.prod1.reservado_hasta ?? "") - Date.now();
+  ok(apartado > 29 * 60_000 && apartado < 32 * 60_000, `R5: el artículo queda apartado mientras dura el pago (${Math.round(apartado / 60000)} min)`);
+  ok(r.otroPendiente.codigo === 409, `R6: mientras una persona paga la señal, otra no puede reservarlo (${r.otroPendiente.codigo})`);
+  ok(r.rehace.codigo === 200 && r.sesionRehace?.campos["line_items[0][price_data][unit_amount]"] === "4500" && r.expiradasRehace.includes(r.reserva1.pago_sesion) && r.reservasTrasRehacer[0].estado === "cancelada" && r.reservasTrasRehacer[1].estado === "pendiente_pago", `R6: la misma persona la rehace (3 días → 10 % = 45 €) y la antigua se cierra (${JSON.stringify(r.reservasTrasRehacer)})`);
+  const vence = Date.parse(r.trasAviso.vence_en) - Date.now();
+  ok(r.aviso1.codigo === 200 && r.trasAviso.estado === "activa" && r.trasAviso.pago_referencia === "pi_3Reserva1" && r.trasAviso.pago_modo === "real" && !!r.trasAviso.pagado_en, `R7: el aviso de Stripe la activa (${r.trasAviso.estado})`);
+  ok(vence > 2.9 * 86_400_000 && vence < 3.1 * 86_400_000 && r.prodTrasAviso.reservado_hasta === r.trasAviso.vence_en, `R7: vence a los 3 días del pago y el artículo queda reservado hasta entonces (${r.trasAviso.vence_en} / ${r.prodTrasAviso.reservado_hasta})`);
+  ok(r.aviso2.codigo === 200 && r.confirmar.cuerpo?.pagado === true && r.confirmar.cuerpo?.reserva === r.trasAviso.id && r.cambiosTrasAviso === 1 && r.cambiosTrasAviso2 === 1 && r.trasAviso2.pagado_en === r.trasAviso.pagado_en, `R7: repetir el aviso o confirmar no la activa dos veces (${r.cambiosTrasAviso2})`);
+  ok(r.reservadoGet.cuerpo?.reservado_hasta === new Date(Date.parse(r.trasAviso.vence_en)).toISOString(), `R7: la tienda sabe hasta cuándo está reservado (${r.reservadoGet.cuerpo?.reservado_hasta})`);
+  ok(r.yaReservadoOtro.codigo === 409 && r.yaReservadoMismo.codigo === 409, `R8: ya reservado, nadie abre otra (${r.yaReservadoOtro.codigo}, ${r.yaReservadoMismo.codigo})`);
+  ok(r.crea4.codigo === 200 && r.senal4 === 10, `R9: 2 días → 10 % de 99,99 € = 10,00 € al céntimo (${r.senal4})`);
+  ok(r.confirmaMal.cuerpo?.pagado === false && r.estado4 === "pendiente_pago", `R9: si lo cobrado no es lo guardado, no se activa (${r.estado4})`);
+  ok(r.estadoCliente.codigo === 403 && r.estadoMalo.codigo === 400 && r.vencidaAntes.codigo === 409, `R10: un cliente no cambia estados; un estado raro 400; «vencida» antes de tiempo 409 (${r.estadoCliente.codigo}, ${r.estadoMalo.codigo}, ${r.vencidaAntes.codigo})`);
+  ok(r.cancelar.codigo === 200 && r.trasCancelar.estado === "cancelada" && r.prodTrasCancelar.reservado_hasta === null, `R10: el administrador la cancela y el artículo queda libre (${r.trasCancelar.estado})`);
+  ok(r.cancelarOtraVez.cuerpo?.ya === true && r.stripeTrasAdmin === 0 && r.devolucionesAdmin === 0, "R10: cambiar el estado no llama a Stripe ni devuelve dinero (el reembolso, si procede, en Stripe)");
+}
+
 try {
   const manejador = (await import("../api/pago.ts")).default;
+  comprobarReservas(await bateriaReservas(manejador));
   const r = await bateria(manejador);
 
   ok(r.sinClave.codigo === 200 && r.sinClave.cuerpo?.disponible === false, "P1: sin clave de Stripe no hay pago con tarjeta");
@@ -561,6 +760,27 @@ try {
     const archivo = join(carpeta, "api", `pago-control-${mutaciones.findIndex((x) => x[0] === nombre)}.ts`);
     writeFileSync(archivo, roto);
     const m = await bateria((await import(pathToFileURL(archivo).href)).default);
+    ok(detecta(m), `(control) sin la comprobación «${nombre}», ${texto}: la prueba SÍ lo detecta`);
+  }
+  // CONTROL de las reservas con señal (sección R).
+  const mutacionesR = [
+    ["reserva apagada", 'if (!a) throw new Rechazo(403, "las reservas con señal no están activas");', "", (m) => m.apagada.codigo !== 403, "apagada, «reserva» no se rechaza (R1)"],
+    ["casilla obligatoria", "if (b.acepta !== true) throw", "if (false) throw", (m) => m.sinAcepta.codigo === 200, "sin aceptar las condiciones se abre el pago (R4)"],
+    [
+      "señal del servidor",
+      "const senalCts = Math.round((precioCts * porcentaje) / 100);",
+      "const senalCts = Math.round(Number(b.importe) * 100) || Math.round((precioCts * porcentaje) / 100);",
+      (m) => m.sesionCrea?.campos?.["line_items[0][price_data][unit_amount]"] !== "11250",
+      "se cobra el importe que manda el navegador (R5)",
+    ],
+    ["a la venta", 'if (!p || p.status !== "PUBLISHED" || p.is_active !== true) throw', "if (!p) throw", (m) => m.borradorProd.codigo === 200, "se reserva un artículo en borrador (R4)"],
+  ];
+  for (const [i, [nombre, buscar, poner, detecta, texto]] of mutacionesR.entries()) {
+    const roto = fuente.replace(buscar, poner);
+    ok(roto !== fuente, `(control) se ha podido quitar la comprobación «${nombre}» en la copia de prueba`);
+    const archivo = join(carpeta, "api", `pago-control-r${i}.ts`);
+    writeFileSync(archivo, roto);
+    const m = await bateriaReservas((await import(pathToFileURL(archivo).href)).default);
     ok(detecta(m), `(control) sin la comprobación «${nombre}», ${texto}: la prueba SÍ lo detecta`);
   }
 } catch (e) {

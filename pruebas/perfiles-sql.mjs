@@ -135,6 +135,11 @@
  *    pedido, el dueño lo pone la base de datos, nota 1-5 y comentario ≤ 1000, nadie ve las de otro (el administrador sí),
  *    nadie las cambia ni borra, disparador sin security definer, la privacidad una vez; se aplica dos veces (con su «prueba
  *    de la prueba»: con las reglas abiertas, un cliente ve las de otro y valora lo no entregado).
+ *  - Reservar con señal (20261115150000_reservas_senal.sql): una fila de ajustes apagada y vacía que solo lee y cambia el
+ *    administrador; no se activa sin reglas, sin «Revisado por mi gestor» ni con la marca de borrador; escala 1-70 % y días
+ *    crecientes; cada cliente ve solo sus reservas y nadie las escribe desde el navegador; una activa por artículo; otro
+ *    cliente no compra un artículo reservado (quien lo reservó y el administrador, sí); disparadores sin security definer;
+ *    se aplica dos veces (con su «prueba de la prueba»).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -2102,6 +2107,127 @@ try {
     const ajena = await como(c50, "authenticated", U1, `insert into public.pedido_valoraciones (pedido_id, nota) values ('${PE2}', 4)`, { confirmar: true });
     ok(fuga.filas?.length === 1 && ajena.ok, "(control) con las reglas abiertas, un cliente ve las de otro y valora lo no entregado: la prueba SÍ lo detecta");
     await c50.end();
+  }
+
+  // Reservar con señal (mejora 14, 2026-11-15): 20261115150000_reservas_senal.sql. Con roles reales: los ajustes (una fila,
+  // apagada y vacía) solo los lee y cambia el administrador y no se activan sin reglas completas ni sin «Revisado por mi
+  // gestor»; la escala, del 1 al 70 % y con días crecientes; cada cliente ve SOLO sus reservas y nadie las escribe desde el
+  // navegador; una sola activa por artículo; y otro cliente no puede comprar un artículo reservado.
+  {
+    const RESERVAS = readFileSync("supabase/migrations/20261115150000_reservas_senal.sql", "utf8");
+    const PA = "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1";
+    const PB = "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2";
+    const ESQUEMA_R = `
+      create table public.products (id uuid primary key default gen_random_uuid(), title text not null, price_eur numeric not null default 0,
+        status text not null default 'PUBLISHED', is_active boolean not null default true);
+      create table public.pedido_items (id uuid primary key default gen_random_uuid(), pedido_id uuid, product_id uuid, titulo text not null default 'x',
+        precio_eur numeric not null default 0);
+      insert into public.products (id, title, price_eur) values ('${PA}', 'PlayStation 5 Slim', 450), ('${PB}', 'Mando DualSense', 60);`;
+    const c51 = await nuevaBase("vz_aislada_reservas_senal", ESQUEMA_R);
+    let repetidaR = true;
+    try {
+      for (const m of [RESERVAS, RESERVAS]) await c51.query(m);
+    } catch (e) {
+      repetidaR = false;
+      console.log(String(e.message));
+    }
+    ok(repetidaR, "Reservas con señal: la migración se aplica dos veces sin error");
+    const n = async (sql) => Number((await c51.query(sql)).rows[0].n);
+    const fila = (await c51.query("select * from public.reserva_ajustes")).rows;
+    ok(fila.length === 1 && fila[0].activa === false && fila[0].escala === null && fila[0].dias_max === null && fila[0].tipo_arras === null && fila[0].al_vencer === null && fila[0].texto_condiciones === null && fila[0].condiciones_revisadas === false, `Reservas con señal: una sola fila de ajustes, APAGADA y VACÍA (${JSON.stringify(fila)})`);
+    ok((await n("select count(*) as n from pg_trigger where tgname in ('reserva_ajustes_validar', 'pedido_items_reserva_senal')")) === 2, "Reservas con señal: sus 2 disparadores, sin duplicar");
+    ok((await n("select count(*) as n from pg_policies where tablename in ('reserva_ajustes', 'reservas')")) === 3, "Reservas con señal: sus 3 políticas (ajustes: leer y cambiar el administrador; reservas: leer), sin duplicar");
+    ok((await n("select count(*) as n from pg_proc where proname in ('reserva_ajustes_validar', 'pedido_items_reserva_senal') and prosecdef")) === 0, "Reservas con señal: las funciones de los disparadores NO son security definer");
+
+    // Ajustes: un cliente o un visitante no los leen ni los cambian.
+    const verAjU1 = await como(c51, "authenticated", U1, "select * from public.reserva_ajustes");
+    const verAjAnon = await como(c51, "anon", null, "select * from public.reserva_ajustes");
+    const cambiaAjU1 = await como(c51, "authenticated", U1, "update public.reserva_ajustes set condiciones_revisadas = true", { confirmar: true });
+    const altaAjU1 = await como(c51, "authenticated", U1, "insert into public.reserva_ajustes (id) values (1)");
+    ok(verAjU1.ok && verAjU1.filas.length === 0 && (!verAjAnon.ok || verAjAnon.filas.length === 0), "Reservas con señal: un cliente o un visitante no leen los ajustes");
+    ok(cambiaAjU1.cuantas === 0 && !altaAjU1.ok, "Reservas con señal: un cliente no cambia ni crea ajustes");
+    const verAjAdmin = await como(c51, "authenticated", ADMIN, "select activa from public.reserva_ajustes");
+    ok(verAjAdmin.ok && verAjAdmin.filas.length === 1, "Reservas con señal: el administrador lee los ajustes");
+    // No se activa sin reglas, sin revisar o con la marca de borrador; la escala, válida.
+    const sinReglas = await como(c51, "authenticated", ADMIN, "update public.reserva_ajustes set activa = true");
+    ok(!sinReglas.ok && /falta: la escala, los días máximos, el tipo de arras, qué pasa al vencer, el texto de las condiciones, la revisión del gestor/.test(sinReglas.mensaje ?? ""), `Reservas con señal: no se activa sin reglas (${sinReglas.mensaje ?? "entró"})`);
+    const pct80 = await como(c51, "authenticated", ADMIN, `update public.reserva_ajustes set escala = '[{"hasta_dias": 7, "porcentaje": 80}]'`);
+    const pct0 = await como(c51, "authenticated", ADMIN, `update public.reserva_ajustes set escala = '[{"hasta_dias": 7, "porcentaje": 0}]'`);
+    const decimal = await como(c51, "authenticated", ADMIN, `update public.reserva_ajustes set escala = '[{"hasta_dias": 7, "porcentaje": 10.5}]'`);
+    const decrece = await como(c51, "authenticated", ADMIN, `update public.reserva_ajustes set escala = '[{"hasta_dias": 10, "porcentaje": 10}, {"hasta_dias": 5, "porcentaje": 20}]'`);
+    const pasaMax = await como(c51, "authenticated", ADMIN, `update public.reserva_ajustes set escala = '[{"hasta_dias": 7, "porcentaje": 10}]', dias_max = 8`);
+    ok(!pct80.ok && !pct0.ok && !decimal.ok && /1 al 70/.test(pct80.mensaje ?? ""), `Reservas con señal: el porcentaje, entero del 1 al 70 (${pct80.mensaje ?? "entró"})`);
+    ok(!decrece.ok && /crecientes/.test(decrece.mensaje ?? "") && !pasaMax.ok && /último tramo/.test(pasaMax.mensaje ?? ""), `Reservas con señal: días crecientes y días máximos dentro de la escala (${decrece.mensaje ?? "entró"})`);
+    const REGLAS = `escala = '[{"hasta_dias": 7, "porcentaje": 10}, {"hasta_dias": 30, "porcentaje": 25}]', dias_max = 20, tipo_arras = 'penitenciales', al_vencer = 'Texto del dueño.'`;
+    const sinRevisar = await como(c51, "authenticated", ADMIN, `update public.reserva_ajustes set ${REGLAS}, texto_condiciones = 'Condiciones.', activa = true`);
+    ok(!sinRevisar.ok && /la revisión del gestor/.test(sinRevisar.mensaje ?? ""), `Reservas con señal: con las reglas pero sin «Revisado por mi gestor», no se activa (${sinRevisar.mensaje ?? "entró"})`);
+    const conMarca = await como(c51, "authenticated", ADMIN, `update public.reserva_ajustes set ${REGLAS}, texto_condiciones = 'BORRADOR · Pendiente de revisión del gestor. Condiciones.', condiciones_revisadas = true, activa = true`);
+    ok(!conMarca.ok && /marca de borrador/.test(conMarca.mensaje ?? ""), `Reservas con señal: con la marca de borrador en el texto, no se activa (${conMarca.mensaje ?? "entró"})`);
+    const tipoMalo = await como(c51, "authenticated", ADMIN, "update public.reserva_ajustes set tipo_arras = 'otras'");
+    ok(!tipoMalo.ok && tipoMalo.codigo === "23514", "Reservas con señal: el tipo de arras, solo penitenciales o confirmatorias");
+    const guarda = await como(c51, "authenticated", ADMIN, `update public.reserva_ajustes set ${REGLAS} returning activa, actualizado_por`, { confirmar: true });
+    ok(guarda.ok && guarda.filas[0].activa === false && guarda.filas[0].actualizado_por === ADMIN, "Reservas con señal: el administrador guarda reglas sin activarla (y queda quién lo cambió)");
+    const activa = await como(c51, "authenticated", ADMIN, "update public.reserva_ajustes set texto_condiciones = '  Condiciones revisadas.  ', condiciones_revisadas = true, activa = true returning activa, texto_condiciones", { confirmar: true });
+    ok(activa.ok && activa.filas[0].activa === true && activa.filas[0].texto_condiciones === "Condiciones revisadas.", `Reservas con señal: con todo puesto y revisado, se activa (${activa.mensaje ?? "ok"})`);
+
+    // Reservas: las crea el servidor (aquí, el rol del propio Postgres); cada cliente ve solo las suyas; nadie escribe.
+    const datosR = (uid, prod, estado) =>
+      `('${prod}', 'Artículo', '${uid}', 10, 25, 112.5, 450, now() + interval '10 days', '${estado}', 'penitenciales', 'Texto del dueño.', 'Condiciones revisadas.', '${"a".repeat(64)}', now())`;
+    const COLS = "(product_id, producto_titulo, user_id, dias, porcentaje, senal_eur, precio_eur, vence_en, estado, tipo_arras, al_vencer_texto, condiciones_texto, condiciones_hash, aceptadas_condiciones_en)";
+    await c51.query(`insert into public.reservas ${COLS} values ${datosR(U1, PA, "activa")}, ${datosR(U2, PB, "cancelada")}`);
+    await c51.query(`update public.products set reservado_hasta = now() + interval '10 days' where id = '${PA}'`);
+    const verU1 = await como(c51, "authenticated", U1, "select user_id from public.reservas");
+    const verU2 = await como(c51, "authenticated", U2, "select user_id from public.reservas");
+    const verAdmin = await como(c51, "authenticated", ADMIN, "select user_id from public.reservas");
+    const verAnon = await como(c51, "anon", null, "select user_id from public.reservas");
+    ok(verU1.ok && verU1.filas.length === 1 && verU1.filas[0].user_id === U1 && verU2.ok && verU2.filas.length === 1 && verU2.filas[0].user_id === U2, `Reservas con señal: cada cliente ve SOLO las suyas (${verU1.filas?.length}, ${verU2.filas?.length})`);
+    ok(verAdmin.ok && verAdmin.filas.length === 2 && (!verAnon.ok || verAnon.filas.length === 0), "Reservas con señal: el administrador las ve todas y un visitante ninguna");
+    const altaU1 = await como(c51, "authenticated", U1, `insert into public.reservas ${COLS} values ${datosR(U1, PB, "activa")}`);
+    const altaAdmin = await como(c51, "authenticated", ADMIN, `insert into public.reservas ${COLS} values ${datosR(U1, PB, "activa")}`);
+    const cambiaU1 = await como(c51, "authenticated", U1, "update public.reservas set senal_eur = 1, estado = 'completada'", { confirmar: true });
+    const cambiaAdmin = await como(c51, "authenticated", ADMIN, "update public.reservas set estado = 'completada'", { confirmar: true });
+    const borraU1 = await como(c51, "authenticated", U1, "delete from public.reservas", { confirmar: true });
+    ok(!altaU1.ok && !altaAdmin.ok && cambiaU1.cuantas === 0 && cambiaAdmin.cuantas === 0 && borraU1.cuantas === 0, "Reservas con señal: nadie crea, cambia ni borra reservas desde el navegador (ni el administrador: va por api/pago.ts)");
+    let dosActivas = null;
+    try {
+      await c51.query(`insert into public.reservas ${COLS} values ${datosR(U2, PA, "activa")}`);
+    } catch (e) {
+      dosActivas = e.code;
+    }
+    ok(dosActivas === "23505", `Reservas con señal: una sola reserva activa por artículo (${dosActivas ?? "entró"})`);
+    let pct71 = null;
+    try {
+      await c51.query(`insert into public.reservas ${COLS} values ('${PB}', 'x', '${U2}', 10, 71, 10, 450, now(), 'activa', 'penitenciales', 'x', 'x', '${"a".repeat(64)}', now())`);
+    } catch (e) {
+      pct71 = e.code;
+    }
+    ok(pct71 === "23514", "Reservas con señal: una reserva no puede pasar del 70 %");
+
+    // Otro cliente no compra un artículo reservado; quien lo reservó y el administrador, sí; uno sin reservar, cualquiera.
+    const compraU2 = await como(c51, "authenticated", U2, `insert into public.pedido_items (product_id) values ('${PA}')`);
+    const compraU1 = await como(c51, "authenticated", U1, `insert into public.pedido_items (product_id) values ('${PA}')`);
+    const compraAdmin = await como(c51, "authenticated", ADMIN, `insert into public.pedido_items (product_id) values ('${PA}')`);
+    const compraLibre = await como(c51, "authenticated", U2, `insert into public.pedido_items (product_id) values ('${PB}')`);
+    ok(!compraU2.ok && /reservado con señal/.test(compraU2.mensaje ?? ""), `Reservas con señal: otro cliente no puede comprar el artículo reservado (${compraU2.mensaje ?? "entró"})`);
+    ok(compraU1.ok && compraAdmin.ok && compraLibre.ok, "Reservas con señal: quien lo reservó y el administrador sí; un artículo sin reservar, cualquiera");
+    await c51.query(`update public.products set reservado_hasta = now() - interval '1 minute' where id = '${PA}'`);
+    const compraVencido = await como(c51, "authenticated", U2, `insert into public.pedido_items (product_id) values ('${PA}')`);
+    ok(compraVencido.ok, "Reservas con señal: pasada la hora, vuelve a poder comprarse");
+    const textoMig = RESERVAS.replace(/^--.*$/gm, "").toLowerCase();
+    ok(!/\b(drop\s|delete\s+from|truncate|grant\b|revoke\b|security\s+definer|to\s+(anon|public)\b|using\s*\(\s*true\s*\)|auth\.(users|identities|sessions|refresh_tokens))/.test(textoMig), "Reservas con señal: la migración no borra ni toca permisos delicados (nada que bloquee el guardián)");
+    await c51.end();
+
+    // PRUEBA DE LAS PRUEBAS: con la regla de lectura abierta, un cliente vería las reservas de otro; sin la comprobación de
+    // la revisión del gestor, se activaría sin revisar.
+    const abierta = RESERVAS.replace("using (user_id = (select auth.uid()) or (select public.is_admin()));", "using (true);")
+      .replace("if not new.condiciones_revisadas then v_faltan := array_append(v_faltan, 'la revisión del gestor'); end if;", "");
+    ok(abierta !== RESERVAS, "(control) se ha podido abrir la regla en la copia de prueba");
+    const c52 = await nuevaBase("vz_aislada_reservas_senal_abierta", ESQUEMA_R + abierta);
+    await c52.query(`insert into public.reservas ${COLS} values ${datosR(U2, PB, "activa")}`);
+    const fugaR = await como(c52, "authenticated", U1, "select user_id from public.reservas");
+    const sinGestor = await como(c52, "authenticated", ADMIN, `update public.reserva_ajustes set ${REGLAS}, texto_condiciones = 'Condiciones.', activa = true`);
+    ok(fugaR.filas?.length === 1 && sinGestor.ok, "(control) con las reglas abiertas, un cliente ve las reservas de otro y se activa sin revisar: la prueba SÍ lo detecta");
+    await c52.end();
   }
 
   // Opciones de los servicios (20261108230000_servicios_opciones.sql): el administrador escribe las opciones (Básica,

@@ -106,6 +106,12 @@
  * "Añadir a la cesta" y "Comprar ya" registran los eventos de conversión
  * "add_to_cart" y "buy_now" con { productId, price }.
  *
+ * Reservar con señal (mejora 14, 2026-11-15; ReservarConSenal): SOLO si GET /api/pago?reserva=ajustes dice que está
+ * activa (apagada y vacía hasta que el dueño ponga sus reglas y su gestor revise el texto). Hoja con días, % y € de la
+ * escala, vencimiento, arras, qué pasa al vencer, condiciones y casilla obligatoria; «Pagar señal» solo manda artículo y
+ * días (el importe lo calcula api/pago.ts). Si el artículo está reservado, «Reservado con señal hasta el …» y sin comprar.
+ * Mide reserva_abierta y reserva_pagar (lib/reservas.ts tiene el cálculo y los textos).
+ *
  * Conectado con:
  * - lib/supabase.ts → tablas products, product_media, categories, profiles.
  * - lib/analytics.ts → registro de "Producto {título}" y "Scroll" para el
@@ -123,6 +129,8 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  Linking,
+  Modal,
   PanResponder,
   Platform,
   Pressable,
@@ -143,7 +151,20 @@ import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../con
 import { sinEmojis } from "../../lib/admin/products.utils";
 import { contarVistaProducto, fijarAvisoPrecio, fijarMeGusta, misAvisosPrecio } from "../../lib/interaccion";
 import { marcarOrigenRegistro, medirCargaPantalla, trackEvent, trackEventThrottled } from "../../lib/analytics";
-import { productosReservadosPorOtros, RESERVA_MINUTOS, reservarProducto } from "../../lib/reservas";
+import {
+  EXPLICACION_ARRAS,
+  eurosReserva,
+  fechaReserva,
+  leerAjustesReserva,
+  porcentajeReserva,
+  productosReservadosPorOtros,
+  RESERVA_MINUTOS,
+  reservaDisponible,
+  reservarProducto,
+  senalReserva,
+  URL_PAGO,
+  type AjustesReservaPublicos,
+} from "../../lib/reservas";
 import {
   cargarTarifas,
   entregaEstimada,
@@ -664,7 +685,7 @@ export default function ProductoScreen() {
 
   // ?guia=1: la guía de Blue (components/Campanita.tsx) enseña esta ficha; esa demostración no cuenta como visita.
   // ?chat=1: vuelve de crear la cuenta o entrar desde «Preguntar por este artículo» y abre el chat (PreguntarArticulo).
-  const params = useLocalSearchParams<{ id?: string; guia?: string; chat?: string }>();
+  const params = useLocalSearchParams<{ id?: string; guia?: string; chat?: string; reserva?: string }>();
   const productId = typeof params.id === "string" ? params.id : "";
 
   const [loading, setLoading] = useState(true);
@@ -697,13 +718,27 @@ export default function ProductoScreen() {
 
   const reqSeqRef = useRef(0);
 
+  // Reservar con señal (mejora 14): la configuración pública (apagada → nada) y si el artículo ya está reservado.
+  const [ajustesReserva, setAjustesReserva] = useState<AjustesReservaPublicos | null>(null);
+  const reservadoSenalHasta = ajustesReserva?.reservado_hasta && Date.parse(ajustesReserva.reservado_hasta) > Date.now() ? ajustesReserva.reservado_hasta : null;
+
   const canBuy = useMemo(() => {
     if (!p) return false;
-    if (!isAdmin) return p.status === "PUBLICADA" && p.isActive && !reservadoPorOtro;
+    if (!isAdmin) return p.status === "PUBLICADA" && p.isActive && !reservadoPorOtro && !reservadoSenalHasta;
     return true;
-  }, [p, isAdmin, reservadoPorOtro]);
+  }, [p, isAdmin, reservadoPorOtro, reservadoSenalHasta]);
 
   const loadedId = p?.id ?? null;
+  useEffect(() => {
+    if (!loadedId) return;
+    let vivo = true;
+    leerAjustesReserva(loadedId).then((a) => {
+      if (vivo) setAjustesReserva(a);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [loadedId]);
   useEffect(() => {
     if (!loadedId) return;
     let vivo = true;
@@ -1733,6 +1768,15 @@ export default function ProductoScreen() {
                   </Text>
                 ) : null}
 
+                {reservadoSenalHasta ? (
+                  <Text
+                    nativeID="ficha-reservado-senal"
+                    style={{ color: COLORES_TEXTO.secundario, fontWeight: "800", fontSize: TAMANOS.minimo + 0.5, lineHeight: 19, textAlign: "center" }}
+                  >
+                    Reservado con señal hasta el {fechaReserva(reservadoSenalHasta)}.
+                  </Text>
+                ) : null}
+
                 <View style={{ gap: 10, width: "100%", maxWidth: 460 }}>
                   {/* Acción principal: una sola, clara. La secundaria, con contorno. */}
                   <Pressable
@@ -1778,6 +1822,11 @@ export default function ProductoScreen() {
                       Añadir a la cesta
                     </Text>
                   </Pressable>
+
+                  {/* Reservar con señal (mejora 14): SOLO si la tienda la ha activado con sus reglas; apagada, nada. */}
+                  {p.status === "PUBLICADA" && p.isActive && !reservadoPorOtro && !reservadoSenalHasta && ajustesReserva && reservaDisponible(ajustesReserva) ? (
+                    <ReservarConSenal producto={{ id: p.id, titulo: p.title, precio: p.priceEUR }} ajustes={ajustesReserva} cancelada={params.reserva === "cancelada"} />
+                  ) : null}
 
                   {/* Dudas (mejora 10): el chat de la tienda con este artículo adjunto; sin cuenta, invita a crearla. */}
                   <PreguntarArticulo productId={p.id} abrirAlEntrar={params.chat === "1"} />
@@ -1957,6 +2006,299 @@ function PreguntarArticulo({ productId, abrirAlEntrar }: { productId: string; ab
           </View>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+// --- Reservar con señal (mejora 14, aprobada por el dueño el 2026-11-15) ---------------------------------------------
+// Solo sale si GET /api/pago?reserva=ajustes dice que está activa y completa (reglas del dueño y texto revisado por su
+// gestor). La hoja enseña los días (hasta dias_max), el porcentaje y la señal de la escala, el vencimiento, el tipo de
+// arras explicado, qué pasa al vencer y las condiciones completas, con la casilla OBLIGATORIA. «Pagar señal» solo manda el
+// artículo y los días: el importe lo calcula el servidor con la base de datos. Solo con cuenta (sin cuenta, invita).
+function ReservarConSenal({
+  producto,
+  ajustes,
+  cancelada,
+}: {
+  producto: { id: string; titulo: string; precio: number };
+  ajustes: AjustesReservaPublicos;
+  cancelada: boolean;
+}) {
+  const escala = useMemo(() => ajustes.escala ?? [], [ajustes.escala]);
+  const diasMax = Number(ajustes.dias_max ?? 0);
+  const tipo = ajustes.tipo_arras ?? "penitenciales";
+  const [abierto, setAbierto] = useState(false);
+  const [conSesion, setConSesion] = useState<boolean | null>(null);
+  const [invitacion, setInvitacion] = useState(false);
+  const [dias, setDias] = useState(() => Math.max(1, Math.min(escala[0]?.hasta_dias ?? 1, diasMax || 1)));
+  const [acepta, setAcepta] = useState(false);
+  const [verCondiciones, setVerCondiciones] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState<string | null>(cancelada ? "Has cancelado el pago de la señal: el artículo no se ha reservado." : null);
+  const { width } = useWindowDimensions();
+
+  useEffect(() => {
+    let vivo = true;
+    supabase.auth
+      .getSession()
+      .then(({ data }) => vivo && setConSesion(!!data.session?.user))
+      .catch(() => vivo && setConSesion(false));
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  const porcentaje = porcentajeReserva(escala, dias);
+  const senal = porcentaje ? senalReserva(producto.precio, porcentaje) : 0;
+  const vence = Date.now() + dias * 86_400_000;
+  const arras = EXPLICACION_ARRAS[tipo];
+
+  const abrir = useCallback(() => {
+    if (conSesion === false) {
+      setInvitacion((v) => !v);
+      return;
+    }
+    setAbierto(true);
+    void trackEvent("reserva_abierta", "Ficha: reservar con señal", { path: `/producto/${producto.id}`, metadata: { productId: producto.id } });
+  }, [conSesion, producto.id]);
+
+  const crearCuenta = useCallback(() => {
+    marcarOrigenRegistro("reserva_senal");
+    AsyncStorage.setItem(VOLVER_TRAS_ACCESO_FICHA_KEY, JSON.stringify({ ruta: `/producto/${producto.id}`, hasta: Date.now() + 30 * 60_000 })).catch(() => {});
+    pushRoute("/perfil?acceso=registro" as Href);
+  }, [producto.id]);
+
+  const pagar = useCallback(async () => {
+    if (!acepta || enviando || !porcentaje) return;
+    setEnviando(true);
+    setError(null);
+    void trackEvent("reserva_pagar", "Ficha: pagar la señal", { path: `/producto/${producto.id}`, metadata: { dias, porcentaje } });
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) {
+        setError("Inicia sesión para reservar.");
+        return;
+      }
+      // Solo el artículo, los días y que acepta: el importe lo calcula el servidor.
+      const r = await fetch(URL_PAGO, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ accion: "reserva", producto: producto.id, dias, acepta: true }),
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; error?: string } | null;
+      if (r.ok && d?.url && /^https:\/\/checkout\.stripe\.com\//.test(d.url)) {
+        if (Platform.OS === "web" && typeof window !== "undefined") window.location.assign(d.url);
+        else await Linking.openURL(d.url);
+        return;
+      }
+      const motivo = d?.error ? `${d.error.charAt(0).toUpperCase()}${d.error.slice(1)}.` : "No se ha podido abrir el pago. Inténtalo de nuevo.";
+      setError(motivo);
+    } catch {
+      setError("No se ha podido abrir el pago: revisa tu conexión.");
+    } finally {
+      setEnviando(false);
+    }
+  }, [acepta, enviando, porcentaje, producto.id, dias]);
+
+  const boton = (props: { id: string; texto: string; onPress: () => void; disabled?: boolean; icono: React.ComponentProps<typeof Ionicons>["name"] }) => (
+    <Pressable
+      nativeID={props.id}
+      onPress={props.onPress}
+      disabled={props.disabled}
+      accessibilityRole="button"
+      accessibilityLabel={props.texto}
+      style={({ pressed }) => ({
+        width: TACTIL.minimo,
+        height: TACTIL.minimo,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: props.disabled ? 0.4 : pressed ? 0.7 : 1,
+      })}
+    >
+      <Ionicons name={props.icono} size={20} color={COLORS.text} />
+    </Pressable>
+  );
+
+  return (
+    <View nativeID="ficha-reserva-senal" style={{ gap: 8, alignItems: "stretch" }}>
+      <Pressable
+        nativeID="ficha-reservar-senal"
+        onPress={abrir}
+        accessibilityRole="button"
+        accessibilityLabel={`Reservar con señal ${producto.titulo}`}
+        style={({ pressed }) => ({
+          minHeight: TACTIL.minimo,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          paddingHorizontal: 14,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          backgroundColor: "#FFFFFF",
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Ionicons name="calendar-outline" size={16} color={COLORS.text} />
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>Reservar con señal</Text>
+      </Pressable>
+      {error && !abierto ? (
+        <Text nativeID="ficha-reserva-aviso" style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+          {error}
+        </Text>
+      ) : null}
+      {conSesion === false && invitacion ? (
+        <View nativeID="ficha-reserva-invitacion" style={{ alignItems: "center", gap: 8 }}>
+          <Text style={{ color: COLORES_TEXTO.texto, fontSize: TAMANOS.minimo, lineHeight: 19, textAlign: "center" }}>
+            Las reservas con señal son solo con cuenta: créala gratis y podrás apartar este artículo y seguir tu reserva en Mis pedidos.
+          </Text>
+          <Pressable
+            nativeID="ficha-reserva-crear-cuenta"
+            onPress={crearCuenta}
+            accessibilityRole="button"
+            style={({ pressed }) => ({ minHeight: TACTIL.minimo, justifyContent: "center", paddingHorizontal: 20, borderRadius: 999, backgroundColor: COLORS.accentDark, opacity: pressed ? 0.85 : 1 })}
+          >
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>Crear cuenta gratis</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <Modal visible={abierto} transparent animationType="fade" onRequestClose={() => setAbierto(false)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.45)", justifyContent: width >= 700 ? "center" : "flex-end", alignItems: "center" }}>
+          <View
+            nativeID="reserva-hoja"
+            style={{
+              width: "100%",
+              maxWidth: 520,
+              maxHeight: "92%",
+              backgroundColor: "#FFFFFF",
+              borderTopLeftRadius: 22,
+              borderTopRightRadius: 22,
+              borderBottomLeftRadius: width >= 700 ? 22 : 0,
+              borderBottomRightRadius: width >= 700 ? 22 : 0,
+            }}
+          >
+            <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 18 }}>Reservar con señal</Text>
+                <Pressable
+                  nativeID="reserva-cerrar"
+                  onPress={() => setAbierto(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cerrar"
+                  style={({ pressed }) => ({ width: TACTIL.minimo, height: TACTIL.minimo, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.6 : 1 })}
+                >
+                  <Ionicons name="close" size={24} color={COLORS.text} />
+                </Pressable>
+              </View>
+              <Text style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo + 0.5, lineHeight: 19 }} numberOfLines={2}>
+                {producto.titulo} · {eurosReserva(producto.precio)}
+              </Text>
+
+              <View style={{ gap: 6 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14 }}>¿Cuántos días quieres reservarlo?</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 14 }}>
+                  {boton({ id: "reserva-dias-menos", texto: "Un día menos", icono: "remove", onPress: () => setDias((d) => Math.max(1, d - 1)), disabled: dias <= 1 })}
+                  <Text nativeID="reserva-dias-valor" style={{ minWidth: 96, textAlign: "center", color: COLORS.text, fontWeight: "900", fontSize: 18 }}>
+                    {dias} {dias === 1 ? "día" : "días"}
+                  </Text>
+                  {boton({ id: "reserva-dias-mas", texto: "Un día más", icono: "add", onPress: () => setDias((d) => Math.min(diasMax, d + 1)), disabled: dias >= diasMax })}
+                </View>
+                <Text style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, textAlign: "center" }}>Como mucho {diasMax} días.</Text>
+              </View>
+
+              <View nativeID="reserva-calculo" style={{ borderRadius: 16, backgroundColor: COLORS.card, padding: 12, gap: 4 }}>
+                <Text nativeID="reserva-senal" style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+                  {porcentaje ? `Señal: ${porcentaje} % · ${eurosReserva(senal)}` : "Elige los días"}
+                </Text>
+                <Text nativeID="reserva-vence" style={{ color: COLORES_TEXTO.texto, fontSize: TAMANOS.minimo + 0.5, lineHeight: 19, textAlign: "center" }}>
+                  Vence el {fechaReserva(vence)} si pagas hoy.
+                </Text>
+                {porcentaje ? (
+                  <Text style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+                    El resto ({eurosReserva(Math.round((producto.precio - senal) * 100) / 100)}) se paga al completar la compra.
+                  </Text>
+                ) : null}
+              </View>
+
+              <View nativeID="reserva-arras" style={{ gap: 4 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14 }}>{arras.titulo}</Text>
+                <Text style={{ color: COLORES_TEXTO.texto, fontSize: TAMANOS.minimo + 0.5, lineHeight: 20 }}>{arras.texto}</Text>
+              </View>
+              <View nativeID="reserva-al-vencer" style={{ gap: 4 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14 }}>Qué pasa al vencer</Text>
+                <Text style={{ color: COLORES_TEXTO.texto, fontSize: TAMANOS.minimo + 0.5, lineHeight: 20 }}>{ajustes.al_vencer}</Text>
+              </View>
+
+              <Pressable
+                nativeID="reserva-condiciones-ver"
+                onPress={() => setVerCondiciones((v) => !v)}
+                accessibilityRole="button"
+                style={({ pressed }) => ({ minHeight: TACTIL.minimo, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+              >
+                <Text style={{ color: colorTextoAzul(14), fontWeight: "800", fontSize: 14 }}>
+                  {verCondiciones ? "Ocultar las condiciones completas" : "Leer las condiciones completas"}
+                </Text>
+              </Pressable>
+              {verCondiciones ? (
+                <Text nativeID="reserva-condiciones-texto" style={{ color: COLORES_TEXTO.texto, fontSize: TAMANOS.minimo + 0.5, lineHeight: 20 }}>
+                  {ajustes.texto_condiciones}
+                </Text>
+              ) : null}
+
+              <Pressable
+                nativeID="reserva-acepta"
+                onPress={() => setAcepta((v) => !v)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: acepta }}
+                aria-checked={acepta}
+                style={({ pressed }) => ({ minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", gap: 10, opacity: pressed ? 0.8 : 1 })}
+              >
+                <Ionicons name={acepta ? "checkbox" : "square-outline"} size={24} color={acepta ? COLORS.accent : COLORS.text} />
+                <Text style={{ flex: 1, color: COLORS.text, fontWeight: "700", fontSize: 14, lineHeight: 20 }}>
+                  He leído y acepto las condiciones de la reserva (arras {tipo})
+                </Text>
+              </Pressable>
+
+              {error ? (
+                <Text nativeID="reserva-error" style={{ color: "#B91C1C", fontWeight: "800", fontSize: 14, lineHeight: 20, textAlign: "center" }}>
+                  {error}
+                </Text>
+              ) : null}
+
+              <Pressable
+                nativeID="reserva-pagar"
+                onPress={pagar}
+                disabled={!acepta || enviando || !porcentaje}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !acepta || enviando || !porcentaje }}
+                style={({ pressed }) => ({
+                  minHeight: 52,
+                  borderRadius: 999,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: COLORS.accentDark,
+                  opacity: !acepta || !porcentaje ? 0.45 : pressed || enviando ? 0.85 : 1,
+                })}
+              >
+                {enviando ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>{porcentaje ? `Pagar señal · ${eurosReserva(senal)}` : "Pagar señal"}</Text>
+                )}
+              </Pressable>
+              <Text style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+                Se paga en la página segura de Stripe. Podrás seguir tu reserva en Mis pedidos.
+              </Text>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

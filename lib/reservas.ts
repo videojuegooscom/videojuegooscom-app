@@ -147,6 +147,121 @@ export async function productosReservadosPorOtros(ids: string[]): Promise<Set<st
   }
 }
 
+// --- Reservar con señal (mejora 14, 2026-11-15; migración 20261115150000_reservas_senal) ------------------------------
+// APAGADA Y VACÍA hasta que el dueño ponga sus reglas y su gestor revise el texto. La tienda pregunta a
+// GET /api/pago?reserva=ajustes (la tabla de ajustes solo la lee el administrador): si no dice «activa», no se enseña nada.
+// El cálculo de aquí es SOLO para enseñarlo: el importe que se cobra lo recalcula api/pago.ts con la base de datos.
+// Conectado con: api/pago.ts (ajustesReservaPublicos, crearReserva), app/producto/[id].tsx (ReservarConSenal),
+// app/(tabs)/perfil.tsx (MisReservasSenal) y app/admin/reservas.tsx.
+
+export type TramoReservaSenal = { hasta_dias: number; porcentaje: number };
+export type TipoArras = "penitenciales" | "confirmatorias";
+export type AjustesReservaPublicos = {
+  activa: boolean;
+  escala?: TramoReservaSenal[];
+  dias_max?: number;
+  tipo_arras?: TipoArras;
+  al_vencer?: string;
+  texto_condiciones?: string;
+  reservado_hasta?: string;
+};
+
+export const URL_PAGO = "/api/pago";
+export const MARCA_BORRADOR_RESERVA = "BORRADOR · Pendiente de revisión del gestor";
+
+// Explicación neutra de cada tipo de arras (orientativa; la confirma el gestor del dueño).
+export const EXPLICACION_ARRAS: Record<TipoArras, { titulo: string; texto: string }> = {
+  penitenciales: {
+    titulo: "Arras penitenciales",
+    texto:
+      "Permiten echarse atrás (artículo 1454 del Código Civil): si el comprador desiste, pierde la señal; si desiste la tienda, devuelve la señal duplicada.",
+  },
+  confirmatorias: {
+    titulo: "Arras confirmatorias",
+    texto:
+      "La señal es un adelanto del precio y confirma la compra: no permite desistir perdiéndola. Si una parte no cumple, la otra puede exigir que se cumpla o resolver la compra con indemnización.",
+  },
+};
+
+// Borrador genérico y prudente (sin cifras: el porcentaje, los días y qué pasa al vencer salen de las reglas del dueño).
+export const BORRADOR_CONDICIONES_RESERVA = `${MARCA_BORRADOR_RESERVA}
+
+Condiciones de la reserva con señal
+
+1. Qué es. Al pagar la señal, la tienda aparta el artículo para ti durante los días que elijas y no lo vende a otra persona mientras dure la reserva.
+2. Importe. La señal es el porcentaje del precio que corresponde a los días elegidos según la escala de la tienda. Se te enseña antes de pagar y se paga en la página segura de Stripe.
+3. Tipo de arras. La señal se entrega en concepto de arras del tipo indicado en la reserva, con los efectos que les da el Código Civil.
+4. Resto del precio. Lo que falta se paga al completar la compra, de la forma que acuerdes con la tienda, antes de que venza la reserva.
+5. Al vencer. Si la compra no se completa antes del vencimiento, se aplica lo indicado en «Qué pasa al vencer» de la reserva.
+6. Cancelación por la tienda. Si la tienda no puede entregar el artículo reservado, te devuelve la señal según el tipo de arras.
+7. Datos. Guardamos la reserva (artículo, importe, plazo y estas condiciones) unida a tu cuenta para gestionarla.
+
+Este texto es un borrador: no se enseña a ningún cliente mientras las reservas estén desactivadas.`;
+
+/** Valida la escala escrita: tramos con días enteros crecientes (1-365) y porcentaje entero del 1 al 70. */
+export function validarEscalaReserva(escala: TramoReservaSenal[]): string | null {
+  if (!escala.length) return "Añade al menos un tramo a la escala.";
+  if (escala.length > 12) return "La escala admite como mucho 12 tramos.";
+  let previo = 0;
+  for (const [i, t] of escala.entries()) {
+    if (!Number.isInteger(t.hasta_dias) || t.hasta_dias < 1 || t.hasta_dias > 365) return `Tramo ${i + 1}: los días tienen que ser un entero de 1 a 365.`;
+    if (t.hasta_dias <= previo) return `Tramo ${i + 1}: los días tienen que ser mayores que los del tramo anterior.`;
+    if (!Number.isInteger(t.porcentaje) || t.porcentaje < 1 || t.porcentaje > 70) return `Tramo ${i + 1}: el porcentaje tiene que ser un entero del 1 al 70.`;
+    previo = t.hasta_dias;
+  }
+  return null;
+}
+
+/** El porcentaje de esos días (primer tramo que los cubre) o null si pasan del último. */
+export function porcentajeReserva(escala: TramoReservaSenal[], dias: number): number | null {
+  return escala.find((t) => dias <= t.hasta_dias)?.porcentaje ?? null;
+}
+
+/** La señal en euros, al céntimo, como la calcula el servidor. */
+export function senalReserva(precioEur: number, porcentaje: number): number {
+  const precioCts = Math.round(precioEur * 100);
+  return Math.round((precioCts * porcentaje) / 100) / 100;
+}
+
+/** ¿La configuración pública está activa y completa? (si no, no se enseña nada). */
+export function reservaDisponible(a: AjustesReservaPublicos | null): boolean {
+  return !!a && a.activa === true && Array.isArray(a.escala) && a.escala.length > 0 && Number.isInteger(a.dias_max) && !!a.tipo_arras && !!a.al_vencer && !!a.texto_condiciones;
+}
+
+/** GET /api/pago?reserva=ajustes (con la sesión, si la hay). Ante cualquier fallo, apagada. */
+export async function leerAjustesReserva(productId?: string): Promise<AjustesReservaPublicos> {
+  try {
+    let token: string | null = null;
+    try {
+      const { data } = await supabase.auth.getSession();
+      token = data.session?.access_token ?? null;
+    } catch {
+      // sin sesión
+    }
+    const q = productId ? `&producto=${encodeURIComponent(productId)}` : "";
+    const r = await fetch(`${URL_PAGO}?reserva=ajustes${q}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const d = (await r.json().catch(() => null)) as AjustesReservaPublicos | null;
+    if (!r.ok || !d || typeof d !== "object") return { activa: false };
+    return { ...d, activa: d.activa === true };
+  } catch {
+    return { activa: false };
+  }
+}
+
+/** «15 de diciembre de 2026». */
+export function fechaReserva(iso: string | number): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Madrid" });
+}
+
+/** «12,50 €». */
+export function eurosReserva(n: number): string {
+  const c = Math.round((Number.isFinite(n) ? n : 0) * 100);
+  const [ent, dec] = (Math.abs(c) / 100).toFixed(2).split(".");
+  return `${c < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec} €`;
+}
+
 /** "14:05" a partir de los milisegundos que faltan. */
 export function formatoCuentaAtras(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));

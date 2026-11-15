@@ -160,6 +160,7 @@ import { fijarAvisoPrecio, LIKED_PRODUCTS_KEY, LIKED_SERVICES_KEY, meGustaLocale
 import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
 import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { eurosReserva, fechaReserva } from "../../lib/reservas";
 
 // Ficha a la que volver tras iniciar sesión o registrarse (la deja «Comprar ya» de la ficha).
 const VOLVER_TRAS_ACCESO_KEY = "videojuegoszaragoza:volver_tras_acceso";
@@ -3163,6 +3164,128 @@ function SegSeparador() {
   return <View style={{ height: 1, backgroundColor: SEG.line, width: "100%", maxWidth: 460 }} />;
 }
 
+// --- «Mis reservas» (Reservar con señal, mejora 14, 2026-11-15) -------------------------------------------------------
+// Las reservas del cliente (RLS: solo las suyas) con su estado y vencimiento. Sin reservas (o sin la migración
+// 20261115150000_reservas_senal aplicada), no sale nada. A la vuelta de Stripe (?reserva=ok&sesion=…), «pagada» solo lo
+// dice el servidor (api/pago.ts, «confirmar»), y se mide reserva_pagada sin datos personales.
+type FilaMiReserva = {
+  id: string;
+  producto_titulo: string | null;
+  dias: number;
+  porcentaje: number | string;
+  senal_eur: number | string;
+  vence_en: string;
+  estado: string;
+  creado_en: string;
+};
+
+const ESTADO_RESERVA: Record<string, string> = {
+  pendiente_pago: "Pendiente de pagar la señal",
+  activa: "Reservado",
+  completada: "Compra completada",
+  vencida: "Vencida",
+  cancelada: "Cancelada",
+};
+
+function MisReservasSenal() {
+  const [filas, setFilas] = useState<FilaMiReserva[] | null>(null);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  const cargar = useCallback(async () => {
+    try {
+      const { data: s } = await supabase.auth.getSession();
+      const uid = s.session?.user?.id;
+      if (!uid) return setFilas(null);
+      const { data, error } = await supabase
+        .from("reservas")
+        .select("id,producto_titulo,dias,porcentaje,senal_eur,vence_en,estado,creado_en")
+        .eq("user_id", uid)
+        .order("creado_en", { ascending: false })
+        .limit(20);
+      // Sin la tabla (migración sin aplicar) o sin permiso: no se enseña nada.
+      setFilas(error ? null : ((data ?? []) as FilaMiReserva[]).filter((f) => f.estado !== "pendiente_pago" || Date.parse(f.creado_en) > Date.now() - 32 * 60_000));
+    } catch {
+      setFilas(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    cargar();
+  }, [cargar]);
+
+  // Vuelta de Stripe tras pagar la señal.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.location?.search) return;
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("reserva") !== "ok") return;
+    const sesion = q.get("sesion") ?? "";
+    let vivo = true;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const resp = await fetch("/api/pago", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session?.access_token ?? ""}` },
+          body: JSON.stringify({ accion: "confirmar", sesion }),
+        });
+        const d = (await resp.json().catch(() => null)) as { pagado?: boolean; reserva?: string } | null;
+        if (!vivo) return;
+        if (resp.ok && d?.pagado && d.reserva) {
+          void trackEvent("reserva_pagada", "Reserva con señal: señal pagada");
+          setAviso({ ok: true, texto: "Señal recibida ✓ Tu reserva está activa: la ves aquí con su vencimiento." });
+          cargar();
+        } else setAviso({ ok: false, texto: "Aún no nos consta el pago de la señal. Si te lo han cobrado, en unos minutos aparecerá aquí." });
+      } catch {
+        if (vivo) setAviso({ ok: false, texto: "No hemos podido comprobar el pago: revisa tu conexión." });
+      } finally {
+        try {
+          q.delete("reserva");
+          q.delete("sesion");
+          window.history.replaceState(null, "", `${window.location.pathname}${q.toString() ? `?${q.toString()}` : ""}`);
+        } catch {
+          // sin historial
+        }
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [cargar]);
+
+  if (!aviso && (!filas || filas.length === 0)) return null;
+  return (
+    <View nativeID="mis-reservas" style={{ gap: 14, alignItems: "center", width: "100%" }}>
+      {aviso ? (
+        <LineaIcono id="mis-reservas-aviso" icono={aviso.ok ? "checkmark-circle" : "information-circle-outline"} color={aviso.ok ? SEG.ok : SEG.muted}>
+          {aviso.texto}
+        </LineaIcono>
+      ) : null}
+      {filas && filas.length ? (
+        <>
+          <SegTitulo>Mis reservas ({filas.length})</SegTitulo>
+          {filas.map((f, i) => {
+            const vencida = f.estado === "activa" && Date.parse(f.vence_en) <= Date.now();
+            const estado = vencida ? "Vencida" : ESTADO_RESERVA[f.estado] ?? f.estado;
+            return (
+              <View key={f.id} nativeID={`mi-reserva-${f.id}`} style={{ gap: 6, alignItems: "center", width: "100%", maxWidth: 460 }}>
+                {i > 0 ? <SegSeparador /> : null}
+                <Text style={{ color: SEG.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, textAlign: "center" }}>{f.producto_titulo ?? "Artículo reservado"}</Text>
+                <Text nativeID={`mi-reserva-estado-${f.id}`} style={{ color: f.estado === "activa" && !vencida ? SEG.ok : SEG.muted, fontWeight: "800", fontSize: TAMANOS.cuerpo, textAlign: "center" }}>
+                  {estado}
+                </Text>
+                <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+                  Señal {eurosReserva(Number(f.senal_eur))} ({Number(f.porcentaje)} %) · {f.dias} {f.dias === 1 ? "día" : "días"}
+                  {f.estado === "activa" || f.estado === "pendiente_pago" ? ` · vence el ${fechaReserva(f.vence_en)}` : ""}
+                </Text>
+              </View>
+            );
+          })}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 // --- «Me gusta» (dueño, 2026-11-03): los productos y servicios a los que el cliente ha dado «me gusta» -----------------
 // Junta los de su cuenta (api/interaccion.ts, «mis_me_gusta»: los da en cualquier dispositivo) con los de este
 // dispositivo (también los que dio sin sesión), los más recientes primero. Solo enseña lo que sigue a la venta, con la
@@ -3722,6 +3845,8 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
         </LineaIcono>
       ) : null}
       {numerosOk ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
+      {/* Reservar con señal (mejora 14): sin reservas, no sale nada. */}
+      <MisReservasSenal />
       {pedidos !== null ? (
         <View style={{ gap: 18, alignItems: "center", width: "100%" }}>
           <SegTitulo>Mis pedidos{pedidos.length ? ` (${pedidos.length})` : ""}</SegTitulo>
