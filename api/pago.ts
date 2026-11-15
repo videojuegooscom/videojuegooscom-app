@@ -60,6 +60,27 @@
  * Límites por IP (consumir_limite, compartido; en memoria con cupos reducidos si no responde): 10 pagos nuevos y 30
  * confirmaciones cada 10 minutos.
  *
+ * Avisos al móvil del dueño (dueño, 2026-11-15: «quiero que me llegue una notificación a mi móvil, con el resumen del
+ * pedido o servicio»; migración 20261115110000_avisos_movil). Van AQUÍ por el tope de 12 funciones de api/. Web Push
+ * estándar hecho con node:crypto, sin librerías: el contenido va cifrado para cada dispositivo (RFC 8291, aes128gcm) y
+ * firmado con la clave VAPID de la tienda (RFC 8292, JWT ES256), así que el servicio de avisos de Apple, Google o Mozilla
+ * no puede leerlo.
+ * - GET /api/pago?avisos=clave → { ok, configurado, clave } (la clave pública VAPID; sin las 3 variables, configurado
+ *   false y la tarjeta de Administración dice «Avisos sin configurar»).
+ * - POST { accion: "avisos_prueba", endpoint } (SOLO el administrador, a un dispositivo SUYO activo) → { ok, entregados }.
+ * - Solos: al apuntar un pedido pagado (webhook, «confirmar» o «crear» con la sesión ya cobrada) sale «Pedido pagado ·
+ *   349,99 €»; al apuntar un cobro de reparación, «Servicio pagado · 45,00 €» (o «Etiqueta pagada»); y en «referencia»
+ *   (la pantalla de confirmación del pedido, que solo puede pedir quien lo hizo) de un pedido de las 3 últimas horas,
+ *   pendiente y sin pagar online, «Pedido nuevo · pago en entrega» (o «· pago online sin terminar»). Cuerpo: «PlayStation 5
+ *   Slim (+1 más) · Ana G. · Envío a Zaragoza 50001 · VZ-AB12-CD34» (nombre de pila e inicial; sin teléfono, correo ni
+ *   dirección). Al tocarlo abre /admin/pedidos?buscar=VZ-… (o /admin/services). Una sola vez por pedido (nuevo y pagado)
+ *   y por cobro de reparación: se reclama en la base de datos ANTES de enviar (pedidos.aviso_admin_* y
+ *   service_requests.aviso_admin_sesion). Como mucho 4 s en total (ESPERA_AVISOS_MS) y nunca lanza: el cobro y la
+ *   respuesta a Stripe no dependen de los avisos. Un dispositivo que contesta 404/410 (suscripción caducada) se desactiva.
+ *   Cada envío se apunta en admin_avisos_registro (título, referencia y cuántos llegaron; sin datos de nadie).
+ * Variables de los avisos (las pone el dueño en Vercel): VAPID_PUBLIC_KEY (65 bytes, base64url sin relleno),
+ * VAPID_PRIVATE_KEY (32 bytes, base64url sin relleno) y VAPID_SUBJECT (mailto:…). Si faltan o no casan, no se envía nada.
+ *
  * Variables de entorno (Vercel → Settings → Environment Variables, solo servidor):
  * - STRIPE_SECRET_KEY: la clave secreta de Stripe (la pone el dueño; Claude no la ve). Sin ella no hay pago con tarjeta.
  * - STRIPE_WEBHOOK_SECRET (opcional): el secreto del aviso de Stripe (whsec_…).
@@ -68,8 +89,11 @@
  * Conectado con: app/checkout.tsx («Pagar con tarjeta» y la vuelta de Stripe), app/admin/pedidos.tsx (pagados con
  * tarjeta), app/admin/analytics.tsx (pago_tarjeta y pago_tarjeta_ok; recuento por forma de pago de pago_metodo),
  * pruebas/pago-api.mjs; reparación por envío:
- * app/(tabs)/perfil.tsx («Pagar la etiqueta», «Pagar y enviármelo», «Devuélvemelo»), app/admin/services.tsx.
+ * app/(tabs)/perfil.tsx («Pagar la etiqueta», «Pagar y enviármelo», «Devuélvemelo»), app/admin/services.tsx; avisos al
+ * móvil: components/AvisosMovil.tsx, lib/notificaciones.ts, public/sw-avisos.js y pruebas/avisos-api.mjs.
  */
+/// <reference types="node" />
+import { createCipheriv, createECDH, createHmac, createPrivateKey, randomBytes, sign as firmarEcdsa, type KeyObject } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const STRIPE = "https://api.stripe.com/v1";
@@ -420,7 +444,8 @@ async function marcarPagado(supabase: SupabaseClient, p: Pick<FilaPedido, "id" |
     console.error("pago: no se pudo apuntar el pago del pedido", p.numero, error.code ?? "");
     throw new Rechazo(500, "no se pudo apuntar el pago");
   }
-  await despertarVeoaura();
+  // A la vez: el puente de VeoAura (3 s como mucho) y el aviso al móvil del dueño (4 s como mucho, una vez por pedido).
+  await Promise.all([despertarVeoaura(), avisarConTope(() => avisarPedido(supabase, p.id, "pagado"))]);
 }
 
 // Pagado con tarjeta cuenta como pagado para VeoAura (dueño, 2026-11-06): se despierta el puente de vuelta para que, si
@@ -431,6 +456,265 @@ async function despertarVeoaura() {
   } catch {
     // lo hará la vuelta diaria del cron
   }
+}
+
+// --- Avisos al móvil del dueño (Web Push con node:crypto) -----------------------------------------------------------
+
+const ESPERA_AVISOS_MS = 4000;
+// Solo a los servicios de avisos de los navegadores (Google/Chrome y Android, Apple/Safari, Mozilla/Firefox y Microsoft).
+const ENDPOINT_PUSH_RE =
+  /^https:\/\/(fcm\.googleapis\.com|android\.googleapis\.com|web\.push\.apple\.com|[a-z0-9-]+\.push\.apple\.com|updates\.push\.services\.mozilla\.com|push\.services\.mozilla\.com|[a-z0-9.-]+\.notify\.windows\.com)\//i;
+type Vapid = { publica: string; privada: KeyObject; sujeto: string };
+type TipoAviso = "pedido_pagado" | "pedido_nuevo" | "servicio_pagado" | "prueba";
+type Aviso = { tipo: TipoAviso; titulo: string; cuerpo: string; url: string; tag: string; referencia: string | null };
+type FilaSuscripcion = { id: string; endpoint: string; p256dh: string; auth: string; fallos: number | null };
+
+const b64u = (b: Uint8Array) => Buffer.from(b).toString("base64url");
+const hmac256 = (clave: Uint8Array, datos: Uint8Array) => createHmac("sha256", clave).update(datos).digest();
+
+// Las 3 variables de Vercel. Sin ellas, mal escritas o si la pública no es la de la privada: null (no se envía nada).
+function vapidDelEntorno(): Vapid | null {
+  const publica = String(process.env.VAPID_PUBLIC_KEY ?? "").trim().replace(/=+$/, "");
+  const privada = String(process.env.VAPID_PRIVATE_KEY ?? "").trim().replace(/=+$/, "");
+  const sujeto = String(process.env.VAPID_SUBJECT ?? "").trim();
+  if (!/^[A-Za-z0-9_-]{80,100}$/.test(publica) || !/^[A-Za-z0-9_-]{40,50}$/.test(privada) || !/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/.test(sujeto)) return null;
+  try {
+    const pub = Buffer.from(publica, "base64url");
+    const d = Buffer.from(privada, "base64url");
+    if (pub.length !== 65 || pub[0] !== 4 || d.length !== 32) return null;
+    const ecdh = createECDH("prime256v1");
+    ecdh.setPrivateKey(d);
+    if (!ecdh.getPublicKey().equals(pub)) return null;
+    const clave = createPrivateKey({ key: { kty: "EC", crv: "P-256", d: b64u(d), x: b64u(pub.subarray(1, 33)), y: b64u(pub.subarray(33)) }, format: "jwk" });
+    return { publica: b64u(pub), privada: clave, sujeto };
+  } catch {
+    return null;
+  }
+}
+
+// RFC 8292: «vapid t=<JWT ES256 para el origen del servicio de avisos, 12 h>, k=<clave pública>».
+function cabeceraVapid(v: Vapid, endpoint: string): string {
+  const cab = b64u(Buffer.from(JSON.stringify({ typ: "JWT", alg: "ES256" })));
+  const carga = b64u(Buffer.from(JSON.stringify({ aud: new URL(endpoint).origin, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: v.sujeto })));
+  const firma = firmarEcdsa("sha256", Buffer.from(`${cab}.${carga}`), { key: v.privada, dsaEncoding: "ieee-p1363" });
+  return `vapid t=${cab}.${carga}.${b64u(firma)}, k=${v.publica}`;
+}
+
+// RFC 8291 (aes128gcm, un solo registro): clave efímera P-256, secreto ECDH con la clave del dispositivo, HKDF con su
+// «auth» y la sal, y AES-128-GCM. Cabecera: sal (16) | tamaño de registro (4) | longitud (1) | clave efímera (65).
+function cifrarAviso(texto: Uint8Array, p256dh: string, auth: string): Buffer {
+  const ua = Buffer.from(p256dh, "base64url");
+  const secreto = Buffer.from(auth, "base64url");
+  if (ua.length !== 65 || ua[0] !== 4 || secreto.length !== 16) throw new Error("suscripción no válida");
+  const ecdh = createECDH("prime256v1");
+  const efimera = ecdh.generateKeys();
+  const compartido = ecdh.computeSecret(ua);
+  const ikm = hmac256(hmac256(secreto, compartido), Buffer.concat([Buffer.from("WebPush: info\0", "latin1"), ua, efimera, Buffer.from([1])]));
+  const sal = randomBytes(16);
+  const prk = hmac256(sal, ikm);
+  const cek = hmac256(prk, Buffer.from("Content-Encoding: aes128gcm\0\x01", "latin1")).subarray(0, 16);
+  const nonce = hmac256(prk, Buffer.from("Content-Encoding: nonce\0\x01", "latin1")).subarray(0, 12);
+  const cifrador = createCipheriv("aes-128-gcm", cek, nonce);
+  const cifrado = Buffer.concat([cifrador.update(Buffer.concat([texto, Buffer.from([2])])), cifrador.final(), cifrador.getAuthTag()]);
+  const tam = Buffer.alloc(4);
+  tam.writeUInt32BE(4096);
+  return Buffer.concat([sal, tam, Buffer.from([efimera.length]), efimera, cifrado]);
+}
+
+async function enviarAUnDispositivo(v: Vapid, s: FilaSuscripcion, carga: Uint8Array): Promise<"ok" | "caducada" | "fallo"> {
+  if (!ENDPOINT_PUSH_RE.test(s.endpoint)) return "fallo";
+  try {
+    const r = await fetch(s.endpoint, {
+      method: "POST",
+      headers: {
+        TTL: "86400",
+        Urgency: "high",
+        "Content-Encoding": "aes128gcm",
+        "Content-Type": "application/octet-stream",
+        Authorization: cabeceraVapid(v, s.endpoint),
+      },
+      body: new Uint8Array(cifrarAviso(carga, s.p256dh, s.auth)),
+      signal: AbortSignal.timeout(ESPERA_AVISOS_MS - 500),
+    });
+    if (r.status >= 200 && r.status < 300) return "ok";
+    if (r.status === 404 || r.status === 410) return "caducada";
+    console.warn("avisos: el servicio de avisos no lo aceptó", r.status);
+    return "fallo";
+  } catch {
+    return "fallo";
+  }
+}
+
+// Manda el aviso a los dispositivos activos (o solo a uno, para la prueba), apunta cómo fue y lo registra.
+async function repartirAviso(supabase: SupabaseClient, v: Vapid, aviso: Aviso, solo?: { endpoint: string; uid: string }) {
+  let consulta = supabase.from("admin_avisos_suscripciones").select("id,endpoint,p256dh,auth,fallos").eq("activa", true).lt("fallos", 50).limit(20);
+  if (solo) consulta = consulta.eq("endpoint", solo.endpoint).eq("user_id", solo.uid);
+  const { data, error } = await consulta;
+  if (error) {
+    console.warn("avisos: no se pudieron leer los dispositivos", error.code ?? "");
+    return { entregados: 0, fallidos: 0, dispositivos: 0 };
+  }
+  const filas = (data ?? []) as FilaSuscripcion[];
+  if (!filas.length) return { entregados: 0, fallidos: 0, dispositivos: 0 };
+  const carga = Buffer.from(
+    JSON.stringify({ title: aviso.titulo, body: aviso.cuerpo, url: aviso.url, tag: aviso.tag, icon: "/icono-192.png", badge: "/icono-192.png", ts: Date.now() })
+  );
+  const resultados = await Promise.all(filas.map((s) => enviarAUnDispositivo(v, s, carga)));
+  const ahora = new Date().toISOString();
+  await Promise.all(
+    filas.map((s, i) =>
+      supabase
+        .from("admin_avisos_suscripciones")
+        .update(
+          resultados[i] === "ok"
+            ? { ultimo_envio_ok: ahora, fallos: 0 }
+            : resultados[i] === "caducada"
+              ? { activa: false, desactivada_en: ahora }
+              : { fallos: Number(s.fallos ?? 0) + 1 }
+        )
+        .eq("id", s.id)
+        .then(() => null, () => null)
+    )
+  );
+  const entregados = resultados.filter((r) => r === "ok").length;
+  await supabase
+    .from("admin_avisos_registro")
+    .insert({ tipo: aviso.tipo, titulo: aviso.titulo.slice(0, 120), referencia: aviso.referencia, entregados, fallidos: filas.length - entregados })
+    .then(() => null, () => null);
+  return { entregados, fallidos: filas.length - entregados, dispositivos: filas.length };
+}
+
+// Como mucho ESPERA_AVISOS_MS y nunca lanza: el cobro y la respuesta a Stripe no dependen de los avisos.
+async function avisarConTope(tarea: () => Promise<unknown>): Promise<void> {
+  // (any: con los tipos de Node y del navegador a la vez, setTimeout devuelve uno u otro según la sobrecarga)
+  let temporizador: any = undefined;
+  try {
+    await Promise.race([
+      tarea().catch((e) => console.warn("avisos: no se pudo avisar", String((e as Error)?.message ?? e).slice(0, 120))),
+      new Promise((fin) => {
+        temporizador = setTimeout(fin, ESPERA_AVISOS_MS);
+      }),
+    ]);
+  } catch {
+    // nunca rompe nada
+  } finally {
+    clearTimeout(temporizador);
+  }
+}
+
+// «349,99 €» · «1.299,00 €».
+function eurosAviso(n: number): string {
+  const c = Math.round((Number.isFinite(n) ? n : 0) * 100);
+  const [ent, dec] = (Math.abs(c) / 100).toFixed(2).split(".");
+  return `${c < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec} €`;
+}
+
+// «Ana Gómez López» → «Ana G.» (nombre de pila e inicial; nunca el nombre completo).
+function nombreCorto(nombre: unknown): string {
+  const partes = String(nombre ?? "").trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) return "";
+  const pila = partes[0].slice(0, 20);
+  const inicial = partes[1]?.[0] ? ` ${partes[1][0].toUpperCase()}.` : "";
+  return `${pila.charAt(0).toUpperCase()}${pila.slice(1)}${inicial}`;
+}
+
+const corta = (t: unknown, max: number) => {
+  const s = String(t ?? "").replace(/\s+/g, " ").trim();
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+};
+
+// El aviso de un pedido: «pagado» (al apuntar el cobro) o «nuevo» (al enseñar la confirmación al cliente). Se reclama
+// en la base de datos ANTES de enviar: si otro ya lo hizo (aviso de Stripe y vuelta del navegador a la vez), no se repite.
+async function avisarPedido(supabase: SupabaseClient, pedidoId: string, tipo: "pagado" | "nuevo") {
+  const v = vapidDelEntorno();
+  if (!v || !UUID_RE.test(pedidoId)) return;
+  let reclamo = supabase.from("pedidos").update({ aviso_admin_tipo: tipo, aviso_admin_enviado_en: new Date().toISOString() }).eq("id", pedidoId);
+  reclamo =
+    tipo === "pagado"
+      ? reclamo.or("aviso_admin_tipo.is.null,aviso_admin_tipo.neq.pagado")
+      : // Nuevo: solo si aún no salió ningún aviso, pendiente, de las 3 últimas horas y sin pagar online.
+        reclamo
+          .is("aviso_admin_enviado_en", null)
+          .eq("estado", "pendiente")
+          .gte("created_at", new Date(Date.now() - 3 * 3600_000).toISOString())
+          .or("pago_estado.is.null,pago_estado.neq.pagado");
+  const { data: reclamado, error } = await reclamo.select("id");
+  // Sin las columnas (migración sin aplicar) o ya avisado: nada.
+  if (error || !Array.isArray(reclamado) || reclamado.length === 0) return;
+  const { data: p } = await supabase.from("pedidos").select("*, pedido_items(titulo)").eq("id", pedidoId).maybeSingle<Record<string, any>>();
+  if (!p || p.origen === "tienda_fisica") return;
+  const items: { titulo?: string }[] = Array.isArray(p.pedido_items) ? p.pedido_items : [];
+  const referencia = typeof p.codigo_seguimiento === "string" && p.codigo_seguimiento ? p.codigo_seguimiento : null;
+  const articulos = items.length ? `${corta(items[0]?.titulo, 48)}${items.length > 1 ? ` (+${items.length - 1} más)` : ""}` : "";
+  const lugar = p.entrega === "recogida" ? "Recogida en mano" : `Envío a ${[corta(p.ciudad, 30), corta(p.codigo_postal, 10)].filter(Boolean).join(" ")}`.trim();
+  const titulo =
+    tipo === "pagado"
+      ? `Pedido pagado · ${eurosAviso(Number(p.pagado_eur ?? p.total_eur))}`
+      : p.pago_estado
+        ? "Pedido nuevo · pago online sin terminar"
+        : "Pedido nuevo · pago en entrega";
+  const cuerpo = [articulos, nombreCorto(p.nombre), lugar === "Envío a" ? "" : lugar, referencia ?? (p.numero ? `Nº interno ${p.numero}` : "")]
+    .filter(Boolean)
+    .join(" · ");
+  await repartirAviso(supabase, v, {
+    tipo: tipo === "pagado" ? "pedido_pagado" : "pedido_nuevo",
+    titulo,
+    cuerpo: corta(cuerpo, 180),
+    url: `/admin/pedidos?buscar=${encodeURIComponent(referencia ?? String(p.numero ?? ""))}`,
+    tag: `pedido-${pedidoId}`,
+    referencia,
+  });
+}
+
+// El aviso de un cobro de reparación (la etiqueta o la reparación / la vuelta): uno por sesión de Stripe.
+async function avisarSolicitud(supabase: SupabaseClient, f: FilaSolicitud, concepto: ConceptoSolicitud, s: SesionStripe) {
+  const v = vapidDelEntorno();
+  if (!v || !SESION_RE.test(s.id)) return;
+  const { data: reclamado, error } = await supabase
+    .from("service_requests")
+    .update({ aviso_admin_sesion: s.id })
+    .eq("id", f.id)
+    .or(`aviso_admin_sesion.is.null,aviso_admin_sesion.neq.${s.id}`)
+    .select("id");
+  if (error || !Array.isArray(reclamado) || reclamado.length === 0) return;
+  const { data: r } = await supabase.from("service_requests").select("*").eq("id", f.id).maybeSingle<Record<string, any>>();
+  const importe = eurosAviso(Number(s.amount_total ?? 0) / 100);
+  const referencia = f.codigo_seguimiento ?? null;
+  const que = concepto === "etiqueta" ? "Etiqueta de Correos" : f.diagnostico_resultado === "sin_arreglo" ? "Envío de vuelta" : "";
+  const cuerpo = [corta(f.service_title ?? r?.service_title, 48), que, nombreCorto(`${r?.nombre ?? ""} ${r?.apellido ?? ""}`), referencia].filter(Boolean).join(" · ");
+  await repartirAviso(supabase, v, {
+    tipo: "servicio_pagado",
+    titulo: `${concepto === "etiqueta" ? "Etiqueta pagada" : "Servicio pagado"} · ${importe}`,
+    cuerpo: corta(cuerpo, 180),
+    url: "/admin/services",
+    tag: `servicio-${f.id}-${concepto}`,
+    referencia,
+  });
+}
+
+// «Enviar aviso de prueba» (Administración → Pedidos): solo el administrador, a un dispositivo SUYO y activo.
+async function avisoDePrueba(supabase: SupabaseClient, req: any, b: Record<string, unknown>) {
+  const uid = await usuarioDeLaPeticion(supabase, req);
+  if (!(await esAdministrador(supabase, uid)) || !uid) throw new Rechazo(403, "solo para administradores");
+  const v = vapidDelEntorno();
+  if (!v) throw new Rechazo(503, "Avisos sin configurar");
+  const endpoint = typeof b.endpoint === "string" && b.endpoint.length <= 1000 && ENDPOINT_PUSH_RE.test(b.endpoint) ? b.endpoint : null;
+  if (!endpoint) throw new Rechazo(400, "dispositivo no válido");
+  const r = await repartirAviso(
+    supabase,
+    v,
+    {
+      tipo: "prueba",
+      titulo: "Aviso de prueba · VideojuegosZaragoza",
+      cuerpo: "Así te llegará cada pedido: «Pedido pagado · 349,99 €» con el artículo, el cliente y la entrega. Toca para abrir Pedidos.",
+      url: "/admin/pedidos",
+      tag: "prueba",
+      referencia: null,
+    },
+    { endpoint, uid }
+  );
+  if (r.dispositivos === 0) throw new Rechazo(404, "este dispositivo no tiene los avisos activados");
+  return { ok: true, entregados: r.entregados, fallidos: r.fallidos };
 }
 
 async function crearPago(supabase: SupabaseClient, clave: string, modo: Modo, req: any, b: Record<string, unknown>) {
@@ -591,6 +875,8 @@ async function marcarSolicitudPagada(supabase: SupabaseClient, f: FilaSolicitud,
     console.error("pago: no se pudo apuntar el pago de la solicitud", f.codigo_seguimiento ?? "", concepto, error.code ?? "");
     throw new Rechazo(500, "no se pudo apuntar el pago");
   }
+  // Aviso al móvil del dueño (4 s como mucho, uno por cobro de Stripe; nunca rompe el pago).
+  await avisarConTope(() => avisarSolicitud(supabase, f, concepto, s));
 }
 
 async function crearPagoSolicitud(supabase: SupabaseClient, clave: string, modo: Modo, req: any, b: Record<string, unknown>) {
@@ -721,12 +1007,15 @@ async function referenciaPedido(supabase: SupabaseClient, req: any, b: Record<st
   if (!claveCompra && !uid) throw new Rechazo(404, "pedido no encontrado");
   const { data: p, error } = await supabase
     .from("pedidos")
-    .select("numero,user_id,clave_unica,codigo_seguimiento")
+    .select("id,numero,user_id,clave_unica,codigo_seguimiento")
     .eq("numero", numero)
-    .maybeSingle<{ numero: number; user_id: string | null; clave_unica: string | null; codigo_seguimiento: string | null }>();
+    .maybeSingle<{ id: string; numero: number; user_id: string | null; clave_unica: string | null; codigo_seguimiento: string | null }>();
   if (error) throw new Rechazo(500, "no se pudo leer el pedido");
   const suyo = !!p && ((!!claveCompra && String(p.clave_unica ?? "").toLowerCase() === claveCompra) || (!!uid && p.user_id === uid));
   if (!p || !suyo) throw new Rechazo(404, "pedido no encontrado");
+  // Pedido sin pago online (o con el pago sin terminar) recién hecho: aviso «Pedido nuevo» al móvil del dueño, una sola
+  // vez y solo si es de las 3 últimas horas y sigue pendiente (lo comprueba avisarPedido en la base de datos).
+  if (typeof p.id === "string") await avisarConTope(() => avisarPedido(supabase, p.id, "nuevo"));
   return { ok: true, referencia: p.codigo_seguimiento ?? null };
 }
 
@@ -804,6 +1093,12 @@ export default async function handler(req: any, res: any) {
       supabaseUrl && claveServidor ? createClient(supabaseUrl, claveServidor, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
 
     if (req.method === "GET") {
+      // La clave pública de los avisos al móvil (es pública: la necesita el navegador para suscribirse).
+      if (/[?&]avisos=clave(&|$)/.test(String(req.url ?? "")) || req.query?.avisos === "clave") {
+        const v = vapidDelEntorno();
+        responder(res, 200, { ok: true, configurado: !!v, clave: v ? v.publica : null });
+        return;
+      }
       if (!modo || !supabase) {
         responder(res, 200, { ok: true, disponible: false, modo: null });
         return;
@@ -864,6 +1159,12 @@ export default async function handler(req: any, res: any) {
     if (b.accion === "referencia") {
       if (!(await consumirLimite(supabase, `pago:referencia:${cubo}`, LIMITE_CONFIRMAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
       responder(res, 200, await referenciaPedido(supabase, req, b));
+      return;
+    }
+    // Aviso de prueba al móvil del dueño (tampoco necesita Stripe).
+    if (b.accion === "avisos_prueba") {
+      if (!(await consumirLimite(supabase, `pago:avisos:${cubo}`, LIMITE_CREAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
+      responder(res, 200, await avisoDePrueba(supabase, req, b));
       return;
     }
     if (!modo) throw new Rechazo(503, "el pago con tarjeta no está configurado");

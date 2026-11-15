@@ -95,6 +95,8 @@ const CATALOGO = [
   { nombre: "escaparate-retorno", grupo: "api", archivo: P("escaparate-retorno") },
   // Pago con tarjeta (Stripe y Supabase simulados): importe de la base de datos, dueño del pedido, firma del aviso.
   { nombre: "pago-api", grupo: "api", archivo: P("pago-api") },
+  // Avisos al móvil del dueño (Web Push con node:crypto): cifrado aes128gcm, JWT VAPID, una sola vez y sin frenar el cobro.
+  { nombre: "avisos-api", grupo: "api", archivo: P("avisos-api") },
   // Ninguna prueba de navegador descarga fotos reales de Supabase (cuota de salida del plan): se comprueba aquí.
   { nombre: "sin-fotos-reales", grupo: "api", archivo: P("sin-fotos-reales") },
   { nombre: "lecciones-sql", grupo: "sql", archivo: P("lecciones-sql"), args: (c) => [c.servidor] },
