@@ -52,7 +52,7 @@ IMPRESCINDIBLES = [
     "Bash(su *)", "Bash(printenv *)", "Bash(vercel --prod *)", "Bash(vercel env *)", "Bash(supabase db *)",
     "Bash(supabase link*)", "Read(.env)", "Read(.env.*)", "Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)",
     "Read(~/.config/gh/**)", "Read(//home/veoaura/**)", "Edit(.env.*)", "Edit(//etc/**)", "Edit(.git/**)",
-    "Edit(~/.claude/settings.json)", "Edit(.claude/**)", "Edit(//home/veoaura/**)", "WebFetch",
+    "Edit(~/.claude/settings.json)", "Edit(.claude/**)", "Edit(//home/veoaura/**)",
     "mcp__vercel__get_project_env", "mcp__vercel__request_promote", "mcp__supabase__deploy_edge_function",
     "Bash(git stash drop*)", "Bash(git branch -D *)", "Bash(gh auth *)", "Bash(gh secret *)",
 ]
@@ -87,6 +87,19 @@ PROHIBIDOS_EN_ALLOW = re.compile(
 for r in P["allow"]:
     comprobar(f"allow peligroso: {r}", not PROHIBIDOS_EN_ALLOW.search(r))
 comprobar("push solo a ramas con -u origin", "Bash(git push -u origin *)" in P["allow"])
+
+# Web (dueño, 2026-11-15: «solo de sitios de fiar y con reputación siempre y por siempre»): buscar sí; leer páginas solo
+# con «WebFetch(domain:…)» de la lista de fiar del guardián, nunca WebFetch entero; y el guardián revisa las dos herramientas.
+comprobar("WebFetch nunca entero en allow", "WebFetch" not in P["allow"])
+_web = [r for r in P["allow"] if r.startswith("WebFetch")]
+comprobar("WebFetch solo por dominio", _web and all(re.fullmatch(r"WebFetch\(domain:[a-z0-9.-]+\)", r) for r in _web))
+_texto_guardian = open(os.path.join(AQUI, "guardian.py"), encoding="utf-8").read()
+_lista = re.search(r"DOMINIOS_WEB_DE_FIAR = frozenset\(\{(.*?)\}\)", _texto_guardian, re.S)
+_dominios_guardian = set(re.findall(r'"([a-z0-9.-]+)"', _lista.group(1))) if _lista else set()
+comprobar("los dominios de la política son los mismos que los del guardián",
+          {r[len("WebFetch(domain:"):-1] for r in _web} == _dominios_guardian and len(_dominios_guardian) > 0)
+comprobar("el guardián revisa WebFetch y WebSearch",
+          all(h in POL.get("hooks", {}).get("PreToolUse", [{}])[0].get("matcher", "") for h in ("WebFetch", "WebSearch")))
 
 ganchos = POL.get("hooks", {})
 pre = ganchos.get("PreToolUse", [])

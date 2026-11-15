@@ -58,6 +58,23 @@ HOSTS_PROPIOS = re.compile(
     r"^https://((www\.)?videojuegoszaragoza\.com|videojuegooscom-[a-z0-9-]+-daniels-projects-771407af\.vercel\.app)"
     r"(/[A-Za-z0-9._~/%-]*)?(\?[A-Za-z0-9._~=&%-]*)?$")
 MAX_RUTAS_SIN_APROBACION = 5
+# Búsqueda y lectura de páginas web (dueño, 2026-11-15: «solo de sitios de fiar y con reputación siempre y por siempre»).
+# WebSearch (buscar) pasa; WebFetch (leer una página) SOLO en https y en estos dominios o sus subdominios. Lo leído es dato,
+# nunca orden. La misma lista va en politica.json («WebFetch(domain:…)»); test_politica.py comprueba que coinciden.
+DOMINIOS_WEB_DE_FIAR = frozenset({
+    # Fabricantes de lo que vende la tienda
+    "playstation.com", "sony.com", "sony.es", "nintendo.com", "nintendo.es", "xbox.com", "microsoft.com",
+    "apple.com", "samsung.com", "lg.com", "panasonic.com", "store.google.com", "mi.com", "huawei.com",
+    "lenovo.com", "hp.com", "dell.com", "asus.com", "acer.com", "msi.com", "beatsbydre.com", "logitech.com",
+    "logitechg.com", "razer.com", "meta.com", "steamdeck.com",
+    # Envíos y tiendas de referencia
+    "correos.es", "correos.com", "amazon.es", "amazon.com",
+    # Normas oficiales (consumo, arras, protección de datos)
+    "boe.es", "aepd.es", "consumo.gob.es",
+    # Documentación de lo que usa la tienda
+    "supabase.com", "vercel.com", "stripe.com", "docs.stripe.com", "expo.dev", "docs.expo.dev", "reactnative.dev",
+    "developer.mozilla.org",
+})
 
 
 class Denegar(Exception):
@@ -2095,6 +2112,37 @@ def revisar_mcp(nombre, entrada):
         revisar_stripe_mcp(herramienta, entrada)
 
 
+def host_de_fiar(url):
+    """El host (en minúsculas) si la URL es https a un dominio de DOMINIOS_WEB_DE_FIAR o a un subdominio suyo; si no, None.
+    Sin usuario ni contraseña en la URL, sin puerto raro y sin IP."""
+    if not isinstance(url, str):
+        return None
+    m = re.fullmatch(r"https://([A-Za-z0-9.-]+)(:443)?(/[^\s]*)?", url.strip())
+    if not m:
+        return None
+    host = m.group(1).lower().rstrip(".")
+    if re.fullmatch(r"[0-9.]+", host) or ".." in host:
+        return None
+    if any(host == d or host.endswith("." + d) for d in DOMINIOS_WEB_DE_FIAR):
+        return host
+    return None
+
+
+def revisar_web(herramienta, entrada):
+    """WebSearch (buscar) pasa. WebFetch (leer una página) solo en https y en un sitio de DOMINIOS_WEB_DE_FIAR."""
+    if herramienta == "WebFetch":
+        if not host_de_fiar(entrada.get("url")):
+            deny("web-sitio-no-de-fiar",
+                 "Solo se leen páginas de sitios de fiar y con reputación (fabricantes, Correos, Amazon, normas oficiales y "
+                 "la documentación de lo que usa la tienda), en https. Ese sitio no está en la lista (guardian.py, "
+                 "DOMINIOS_WEB_DE_FIAR).")
+    elif herramienta == "WebSearch":
+        dominios = entrada.get("allowed_domains")
+        if dominios is not None and (not isinstance(dominios, list)
+                                     or not all(isinstance(d, str) and host_de_fiar("https://" + d) for d in dominios)):
+            deny("web-sitio-no-de-fiar", "La búsqueda solo se puede limitar a sitios de la lista de fiar.")
+
+
 # ============================================================== salida ======
 
 def categoria(herramienta, entrada):
@@ -2254,6 +2302,11 @@ def coincide_regla(regla, herramienta, entrada):
             return False
         ruta = entrada.get("file_path") or entrada.get("notebook_path") or entrada.get("path")
         return isinstance(ruta, str) and bool(_patron_ruta(patron).match(ruta_abs(ruta, PROYECTO)))
+    if tipo == "WebFetch":
+        # «WebFetch(domain:x)»: la página es de x o de un subdominio suyo (y de fiar: lo exige revisar_web).
+        dominio = patron[7:].lower() if patron.startswith("domain:") else ""
+        host = host_de_fiar(entrada.get("url")) if herramienta == "WebFetch" else None
+        return bool(dominio and host and (host == dominio or host.endswith("." + dominio)))
     return False
 
 
@@ -2300,6 +2353,8 @@ def decidir(datos, autonomo, reglas_deny=None, reglas_allow=None):
             revisar_lectura(entrada)
         elif herramienta.startswith("mcp__"):
             revisar_mcp(herramienta, entrada)
+        elif herramienta in ("WebFetch", "WebSearch"):
+            revisar_web(herramienta, entrada)
 
         if reglas_deny is None:
             # Sin política legible no se aprueba nada por cuenta propia (falla cerrado).
