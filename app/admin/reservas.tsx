@@ -8,8 +8,10 @@
  * - Tarjeta «Reservas con señal»: interruptor (NO deja activar si falta alguna regla, si «Revisado por mi gestor» no está
  *   marcado o si el texto aún dice «Pendiente de revisión del gestor»; lo comprueba también la base de datos), editor de la
  *   escala (filas «hasta N días → %»: 1-70 % y días crecientes), días máximos, tipo de arras con una explicación neutra de
- *   cada uno, «Qué pasa al vencer» (texto del dueño), el texto de las condiciones (precargado con un BORRADOR genérico) y la
- *   casilla «Revisado por mi gestor» (se desmarca sola al cambiar el texto).
+ *   cada uno, un plegable «Qué dice la ley» (penitenciales frente a confirmatorias con el ejemplo de una PS5 y enlaces al
+ *   BOE), «Qué pasa al vencer» (texto del dueño), el texto de las condiciones (precargado con el BORRADOR para el gestor de
+ *   lib/reservas.ts: dos variantes de arras y huecos [A DECIDIR POR EL DUEÑO]) y la casilla «Revisado por mi gestor» (se
+ *   desmarca sola al cambiar el texto).
  * - Uso (30 días, analítica propia sin datos personales): reserva_abierta, reserva_pagar y reserva_pagada.
  * - Lista de reservas (activas, vencidas, completadas o todas) con artículo, señal, vencimiento y estado; «Marcar completada»,
  *   «Cancelar» y «Marcar vencida» van por api/pago.ts («reserva_estado», solo el administrador): solo cambian el estado y
@@ -20,7 +22,7 @@
  * api/pago.ts, supabase/migrations/20261115150000_reservas_senal.sql y pruebas/perfil-datos.mjs (sección RESEN).
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar, Switch, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StatusBar, Switch, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -128,6 +130,7 @@ export default function AdminReservas() {
   const [alVencer, setAlVencer] = useState("");
   const [texto, setTexto] = useState("");
   const [revisado, setRevisado] = useState(false);
+  const [verLey, setVerLey] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [reservas, setReservas] = useState<Reserva[] | null>(null);
@@ -491,6 +494,54 @@ export default function AdminReservas() {
                         </View>
                       </Pressable>
                     ))}
+
+                    <View nativeID="reservas-ley" style={{ borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, backgroundColor: "#FFFFFF", paddingHorizontal: 12 }}>
+                      <Pressable
+                        nativeID="reservas-ley-abrir"
+                        onPress={() => setVerLey((v) => !v)}
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: verLey }}
+                        aria-expanded={verLey}
+                        style={({ pressed }) => ({ minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", gap: 8, opacity: pressed ? 0.7 : 1 })}
+                      >
+                        <Ionicons name="book-outline" size={18} color={COLORS.accent} />
+                        <Text style={{ flex: 1, color: COLORS.text, fontWeight: "800" }}>Qué dice la ley</Text>
+                        <Ionicons name={verLey ? "chevron-up" : "chevron-down"} size={18} color={COLORS.muted} />
+                      </Pressable>
+                      {verLey ? (
+                        <View nativeID="reservas-ley-texto" style={{ gap: 6, paddingBottom: 12 }}>
+                          {[
+                            "Ejemplo: una PS5 de 450 € con una señal del 20 % = 90 €.",
+                            "Arras penitenciales (art. 1454 del Código Civil): cada parte puede echarse atrás. Si el cliente no compra, pierde los 90 €; si la tienda no cumple, devuelve el doble: 180 €.",
+                            "Arras confirmatorias (lo que se entiende si no se pacta otra cosa): los 90 € son parte del precio y prueban la compra. Si alguien no cumple, la otra parte puede exigir que se cumpla o resolver la compra con indemnización de daños (art. 1124 del Código Civil).",
+                            "En ambos casos la tienda no puede quedarse la señal si el cliente renuncia sin dar algo equivalente si renuncia ella (art. 87.2 de la Ley de Consumidores). Y en la venta a distancia queda el desistimiento de 14 días naturales (arts. 102 a 108): tu gestor tiene que revisar cómo encaja.",
+                            "Explicación orientativa, citada de memoria: compruébala en el BOE con tu gestor.",
+                          ].map((l, i) => (
+                            <Text key={i} style={{ color: i === 0 ? COLORS.text : COLORS.muted, fontWeight: i === 0 ? "800" : "400", fontSize: TAMANOS.minimo + 0.5, lineHeight: 19 }}>
+                              {l}
+                            </Text>
+                          ))}
+                          <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 16 }}>
+                            {(
+                              [
+                                ["reservas-ley-cc", "Código Civil en el BOE", "https://www.boe.es/buscar/act.php?id=BOE-A-1889-4763"],
+                                ["reservas-ley-lgdcu", "Ley de Consumidores en el BOE", "https://www.boe.es/buscar/act.php?id=BOE-A-2007-20555"],
+                              ] as const
+                            ).map(([id, t, url]) => (
+                              <Pressable
+                                key={id}
+                                nativeID={id}
+                                onPress={() => Linking.openURL(url).catch(() => undefined)}
+                                accessibilityRole="link"
+                                style={({ pressed }) => ({ minHeight: TACTIL.minimo, justifyContent: "center", opacity: pressed ? 0.6 : 1 })}
+                              >
+                                <Text style={{ color: COLORS.accentText, fontWeight: "800", textDecorationLine: "underline", fontSize: TAMANOS.minimo + 0.5 }}>{t}</Text>
+                              </Pressable>
+                            ))}
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
 
                     {etiqueta("Qué pasa al vencer (lo verá el cliente antes de pagar)")}
                     {campo({ nativeID: "reservas-al-vencer", value: alVencer, onChangeText: setAlVencer, multiline: true, maxLength: 2000, placeholder: "Sin poner: escribe qué pasa si la compra no se completa a tiempo", style: { minHeight: 90 }, accessibilityLabel: "Qué pasa al vencer" })}
