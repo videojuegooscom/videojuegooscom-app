@@ -104,11 +104,25 @@ import CabeceraMarca from "../components/CabeceraMarca";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import SmartImage from "../components/SmartImage";
 import { abrirChatEquipo } from "../components/ProductChatThread";
-import { calcularEnvio, cargarDatosEnvio, cargarTarifas, fmtKg, hayEnviosDePago, limpiarCodigoPostal, pesoDeCompra, type ZonaEnvio } from "../lib/envio";
+import {
+  ajustesFranjasActuales,
+  calcularEnvio,
+  cargarAjustesFranjas,
+  cargarDatosEnvio,
+  cargarTarifas,
+  esZonaMismoDia,
+  fmtKg,
+  hayEnviosDePago,
+  limpiarCodigoPostal,
+  opcionesFranja,
+  pesoDeCompra,
+  type FranjaEntrega,
+  type ZonaEnvio,
+} from "../lib/envio";
 import { olvidarFilaPerfil, supabase } from "../lib/supabase";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
 import { trackEvent } from "../lib/analytics";
-import { CAMPO } from "../constants/theme";
+import { CAMPO, TACTIL } from "../constants/theme";
 import {
   ETIQUETAS_DIRECCION,
   MAX_DIRECCIONES,
@@ -374,6 +388,23 @@ async function referenciaDelPedido(numero: number, clave: string | null): Promis
   return null;
 }
 
+// La franja de entrega elegida (dueño, 2026-11-15): la apunta el servidor en el pedido (api/pago.ts, «franja»), solo a
+// quien lo hizo. Si falla, el pedido sigue adelante: la franja va también en el mensaje al chat de la tienda.
+async function guardarFranjaDelPedido(numero: number, clave: string | null, franja: FranjaEntrega, fecha: string): Promise<boolean> {
+  if (Platform.OS !== "web") return false;
+  try {
+    const r = await fetch("/api/pago", {
+      method: "POST",
+      headers: await cabecerasConSesion(),
+      body: JSON.stringify({ accion: "franja", numero, clave, franja, fecha }),
+    });
+    const d = (await r.json().catch(() => null)) as { ok?: boolean } | null;
+    return r.ok && !!d?.ok;
+  } catch {
+    return false;
+  }
+}
+
 // Resumen corto del pedido para el chat de la tienda cuando la cesta ya no está (al volver de Stripe).
 function textoDelPedido(referencia: string | null, pago: EstadoPago): string {
   const base = referencia ? `Hola, tengo el pedido ${referencia} en Videojuegoszaragoza.com.` : "Hola, tengo un pedido en Videojuegoszaragoza.com.";
@@ -571,6 +602,29 @@ export default function CheckoutScreen() {
   const articulosSoloMano = items.filter((it) => soloMano.includes(it.id));
   const bloqueoSoloMano = entrega === "envio" && articulosSoloMano.length > 0;
 
+  // Franjas de entrega (dueño, 2026-11-15): en mano y a domicilio con entrega propia el mismo día (zonas «local» y
+  // «local_lejos»), el cliente elige cuándo le viene bien entre las franjas que aún se pueden cumplir. Correos no.
+  const [ajFranjas, setAjFranjas] = useState(ajustesFranjasActuales);
+  useEffect(() => {
+    let vivo = true;
+    cargarAjustesFranjas().then((a) => {
+      if (vivo) setAjFranjas(a);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  const conFranja = entrega === "recogida" || (!faltaCodigo && esZonaMismoDia(envio.zona?.zona));
+  // relojFranjas: al pagar, si la franja elegida ya no llega a tiempo, se vuelven a calcular con la hora de ahora.
+  const [relojFranjas, setRelojFranjas] = useState(0);
+  const opcionesEntrega = useMemo(
+    () => (conFranja && relojFranjas >= 0 ? opcionesFranja(ajFranjas, new Date()) : []),
+    [conFranja, ajFranjas, relojFranjas]
+  );
+  const [franjaElegida, setFranjaElegida] = useState<{ franja: FranjaEntrega; fecha: string } | null>(null);
+  const opcionElegida = franjaElegida ? (opcionesEntrega.find((o) => o.franja === franjaElegida.franja && o.fecha === franjaElegida.fecha) ?? null) : null;
+  const franjaOk = !conFranja || opcionesEntrega.length === 0 || !!opcionElegida;
+
   // Cada dato del formulario: si está vacío y si vale. Con envíos de pago, sin un código postal completo no se sabe el
   // envío (ni el total). En mano no se piden dirección, código postal ni ciudad.
   const campos = useMemo(() => {
@@ -611,7 +665,7 @@ export default function CheckoutScreen() {
     (perfilDir.lista ? perfilDir.lista.length < MAX_DIRECCIONES : !perfilDir.tieneUna);
 
   // La tienda no envía a esa zona desde la web: se pide escribir antes (ver el aviso de la entrega).
-  const formOk = items.length > 0 && envio.disponible && !bloqueoSoloMano && camposMal.length === 0;
+  const formOk = items.length > 0 && envio.disponible && !bloqueoSoloMano && camposMal.length === 0 && franjaOk;
 
   // Qué falta para poder pagar, en una línea justo encima del botón (dueño, 2026-11-11: «di QUÉ falta»).
   const textoFalta = formOk
@@ -624,7 +678,9 @@ export default function CheckoutScreen() {
           ? `Falta: ${listaCampos(camposMal.filter((c) => c.vacio).map((c) => c.clave))}`
           : camposMal.length
             ? `Revisa: ${listaCampos(camposMal.map((c) => c.clave))}`
-            : null;
+            : !franjaOk
+              ? "Falta: elegir cuándo te viene bien"
+              : null;
 
   // Al tocar el botón desactivado: al primer dato que falta, marcado en rojo hasta que se arregle.
   const camposRef = useRef<Partial<Record<CampoClave, TextInput | null>>>({});
@@ -637,11 +693,15 @@ export default function CheckoutScreen() {
       return;
     }
     const primero = camposMal[0];
+    if (!primero && !franjaOk) {
+      if (web) document.getElementById("pago-franjas")?.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
     const input = primero ? camposRef.current[primero.clave] : null;
     if (!input) return;
     if (web) (input as unknown as HTMLElement).scrollIntoView?.({ block: "center" });
     input.focus();
-  }, [bloqueoSoloMano, envio.disponible, camposMal]);
+  }, [bloqueoSoloMano, envio.disponible, camposMal, franjaOk]);
   const marcado = (clave: CampoClave) => marcarFaltan && camposMal.some((c) => c.clave === clave);
   const refCampo = (clave: CampoClave) => (r: TextInput | null) => {
     camposRef.current[clave] = r;
@@ -663,6 +723,7 @@ export default function CheckoutScreen() {
     );
     lines.push("");
     lines.push(entrega === "recogida" ? "Entrega: en mano en Cuarte de Huerva" : "Entrega: envío a domicilio");
+    if (conFranja && opcionElegida) lines.push(`Cuándo: ${opcionElegida.etiqueta.replace(/^(Hoy|Mañana)/, (t) => t.toLowerCase())} (${opcionElegida.fecha.split("-").reverse().join("/")})`);
     lines.push("");
     if (items.length > 0) {
       lines.push("Pedido:");
@@ -692,7 +753,7 @@ export default function CheckoutScreen() {
         : "¿Me confirmáis la disponibilidad, el pago y el envío?"
     );
     return lines.join("\n");
-  }, [items, total, shipping, fullName, email, phone, address1, postalCode, city, notes, entrega]);
+  }, [items, total, shipping, fullName, email, phone, address1, postalCode, city, notes, entrega, conFranja, opcionElegida]);
 
   // Abre el chat de la tienda con el pedido; sin sesión, Blue IA con el pedido como contexto.
   const [abriendoChat, setAbriendoChat] = useState(false);
@@ -949,6 +1010,14 @@ export default function CheckoutScreen() {
       return;
     }
 
+    // La franja elegida puede haber pasado su hora de corte con la página abierta: se vuelven a calcular y se pide otra.
+    if (conFranja && opcionElegida && !opcionesFranja(ajFranjas, new Date()).some((o) => o.franja === opcionElegida.franja && o.fecha === opcionElegida.fecha)) {
+      setFranjaElegida(null);
+      setRelojFranjas((n) => n + 1);
+      setErr("Esa hora de entrega ya no llega a tiempo: elige otra.");
+      return;
+    }
+
     enviandoRef.current = true;
     setSubmitting(true);
     try {
@@ -1062,6 +1131,20 @@ export default function CheckoutScreen() {
         });
         await markBuyNowSoldIfApplies(items);
       }
+      // Franja de entrega: al pedido (en el servidor) y a la analítica propia (solo la franja y si es hoy o mañana).
+      if (numero && conFranja && opcionElegida) {
+        await guardarFranjaDelPedido(numero, claveCompra, opcionElegida.franja, opcionElegida.fecha);
+        if (!repetido) {
+          trackEvent("entrega_franja_elegida", "Entrega: franja elegida", {
+            path: "/checkout",
+            metadata: {
+              franja: opcionElegida.franja,
+              cuando: opcionElegida.dias === 0 ? "hoy" : opcionElegida.dias === 1 ? "manana" : "otro_dia",
+              entrega: entrega === "recogida" ? "mano" : "domicilio",
+            },
+          });
+        }
+      }
 
       // 2) Con el pedido registrado, la cesta se vacía y se muestra la confirmación (con la referencia, sin el número
       //    interno). Si no se pudo guardar, la cesta se queda como estaba para volver a intentarlo.
@@ -1100,7 +1183,7 @@ export default function CheckoutScreen() {
       setSubmitting(false);
       enviandoRef.current = false;
     }
-  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, shipping, envio.zona, buildTextoPedido, pagoTarjeta, ofreceGuardarTel, guardarTel, perfilTel.uid, direccionCoincide, direccionTocada, perfilDir.lista, ofreceGuardarDir, guardarDir]);
+  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, shipping, envio.zona, buildTextoPedido, pagoTarjeta, ofreceGuardarTel, guardarTel, perfilTel.uid, direccionCoincide, direccionTocada, perfilDir.lista, ofreceGuardarDir, guardarDir, conFranja, opcionElegida, ajFranjas]);
 
   // --- Confirmación y «No se ha hecho el pago» (dueño, 2026-11-11: «intuitiva, práctica y profesional») ---------------
   // Siempre dice qué ha pasado (título), con qué pedido (su referencia VZ-…) y qué no se ha cobrado; UNA sola píldora azul
@@ -1636,11 +1719,61 @@ export default function CheckoutScreen() {
                 </>
               ) : null}
 
+              {/* ¿Cuándo te viene bien? (dueño, 2026-11-15): en mano y a domicilio con entrega propia, obligatorio. */}
+              {conFranja && opcionesEntrega.length > 0 ? (
+                <View
+                  nativeID="pago-franjas"
+                  accessibilityRole="radiogroup"
+                  accessibilityLabel="¿Cuándo te viene bien?"
+                  style={{ alignItems: "center", gap: 8, paddingTop: 4 }}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>¿Cuándo te viene bien?</Text>
+                  {/* Una fila por día (hoy arriba, el siguiente día de reparto debajo), la mañana a la izquierda. */}
+                  {[...new Set(opcionesEntrega.map((o) => o.fecha))].map((fecha) => (
+                  <View key={fecha} style={{ flexDirection: "row", justifyContent: "center", gap: 8, width: "100%", maxWidth: 420 }}>
+                    {opcionesEntrega.filter((o) => o.fecha === fecha).map((o) => {
+                      const activa = opcionElegida?.franja === o.franja && opcionElegida?.fecha === o.fecha;
+                      const falta = marcarFaltan && !franjaOk;
+                      return (
+                        <Pressable
+                          key={`${o.fecha}-${o.franja}`}
+                          nativeID={`pago-franja-${o.fecha}-${o.franja}`}
+                          onPress={() => setFranjaElegida({ franja: o.franja, fecha: o.fecha })}
+                          role="radio"
+                          aria-checked={activa}
+                          accessibilityLabel={`${o.etiqueta.replace("–", " a ")}`}
+                          style={({ pressed }) => ({
+                            flex: 1,
+                            maxWidth: 206,
+                            minHeight: TACTIL.minimo,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            paddingVertical: 8,
+                            paddingHorizontal: 10,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: activa ? COLORS.accent : falta ? COLORS.danger : COLORS.border,
+                            backgroundColor: activa ? COLORS.accent2 : "#FFFFFF",
+                            opacity: pressed ? 0.7 : 1,
+                          })}
+                        >
+                          <Text style={{ color: COLORS.text, fontWeight: activa ? "900" : "800", fontSize: 14, textAlign: "center" }}>{o.etiqueta}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  ))}
+                  <Text nativeID="pago-franjas-ayuda" style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
+                    Te avisamos por el chat de la tienda cuando salgamos.
+                  </Text>
+                </View>
+              ) : null}
+
               <Field
                 label="Notas (opcional)"
                 value={notes}
                 onChangeText={setNotes}
-                placeholder="Ej.: por la tarde, portal B..."
+                placeholder="Ej.: portal B, llamar al timbre..."
                 multiline
               />
             </View>

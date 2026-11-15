@@ -307,7 +307,7 @@ export function calcularEtiquetaReparacion(
   if (cp.length !== 5) return { estado: "sin_cp" };
   if (!zonas) return { estado: "sin_tarifa", zona: null };
   const zona = zonaDeEntrega(zonas, "envio", cp);
-  if (zona?.zona === "local") return { estado: "local" };
+  if (esZonaMismoDia(zona?.zona)) return { estado: "local" };
   if (!zona || !zona.activa || !zona.tramos) return { estado: "sin_tarifa", zona };
   const pesoKg = Math.round(Math.max(1, Math.min(10, Math.round(aparatos))) * pesoAparatoKg * 1000) / 1000;
   return { estado: "ok", precio: calcularEnvio(zonas, { entrega: "envio", codigoPostal: cp, productos: 0, pesoKg }).precio, pesoKg, zona };
@@ -315,17 +315,29 @@ export function calcularEtiquetaReparacion(
 
 /** ¿Alguna zona tiene tramos de Correos activos? (sin ninguna, la reparación por envío no se puede ofrecer) */
 export function hayTarifaCorreos(zonas: ZonaEnvio[] | null): boolean {
-  return !!zonas && zonas.some((z) => z.activa && z.zona !== "mano" && z.zona !== "local" && !!z.tramos);
+  return !!zonas && zonas.some((z) => z.activa && z.zona !== "mano" && !esZonaMismoDia(z.zona) && !!z.tramos);
 }
 
 // --- Entrega estimada en la ficha del producto (mejora 4 «Ficha de confianza», dueño 2026-11-14) -----------------------
 // Los mismos plazos que dicen el pago (app/checkout.tsx) y «Quiénes somos»: en Zaragoza y Cuarte de Huerva, el mismo día;
 // al resto de España sale en 1-2 días laborables y llega en 72 h como máximo. Se cuentan días laborables sin domingos
-// (de lunes a sábado; los festivos no se tienen en cuenta) desde la fecha de hoy en Madrid. No hay hora de corte en la
-// tienda, así que no se inventa ninguna: se dice «si lo pides hoy». Siempre «Entrega estimada», nunca garantizada.
+// (de lunes a sábado; los festivos no se tienen en cuenta) desde la fecha de hoy en Madrid. El mismo día va con la
+// primera franja que aún se puede cumplir (franjas del dueño, más abajo: «Llega hoy entre las 17:15 y las 19:00» y «si
+// lo pides hoy antes de las 16:30»). Siempre «Entrega estimada», nunca garantizada.
 
-/** Códigos del mismo día si las tarifas aún no se pueden leer (los de la zona «local» de 20261104210000_tarifas_envio.sql). */
-export const CODIGOS_MISMO_DIA = "50001-50022, 50410";
+/**
+ * Zonas de entrega propia el mismo día (dueño, 2026-11-15; migración 20261115180000_franjas_entrega.sql): «local» (9,97 €:
+ * Cuarte y Santa Fe, Cadrete, María de Huerva y Zaragoza hasta la Plaza España) y «local_lejos» (13,97 €: el resto de
+ * Zaragoza, Muel y La Muela). Llevan franjas de entrega y nunca van por Correos.
+ */
+export const ZONAS_MISMO_DIA = ["local", "local_lejos"] as const;
+
+export function esZonaMismoDia(zona: string | null | undefined): boolean {
+  return zona === "local" || zona === "local_lejos";
+}
+
+/** Códigos del mismo día si las tarifas aún no se pueden leer (los de «local» y «local_lejos» juntos). */
+export const CODIGOS_MISMO_DIA = "50001-50022, 50196, 50410, 50420, 50430, 50450";
 
 export type TipoEntregaEstimada = "mismo_dia" | "peninsula" | "islas" | "sin_cp";
 
@@ -337,11 +349,16 @@ export type TipoEntregaEstimada = "mismo_dia" | "peninsula" | "islas" | "sin_cp"
 export function tipoEntregaPorCodigo(codigoPostal: string | null | undefined, zonas?: ZonaEnvio[] | null): TipoEntregaEstimada {
   const cp = limpiarCodigoPostal(codigoPostal);
   if (cp.length !== 5) return "sin_cp";
-  const local = zonas?.find((z) => z.zona === "local" && z.activa);
-  const zonasLocal: ZonaEnvio[] = [
-    { zona: "local", nombre: "", codigos: local?.codigos ?? CODIGOS_MISMO_DIA, precio_eur: 0, gratis_desde_eur: null, activa: true, orden: 0, tramos: null },
-  ];
-  if (zonaDeEntrega(zonasLocal, "envio", cp)?.zona === "local") return "mismo_dia";
+  if (zonas && zonas.some((z) => esZonaMismoDia(z.zona))) {
+    // Con las tarifas: la zona que le toca de verdad (la más concreta), si es de entrega propia y está activa.
+    const z = zonaDeEntrega(zonas, "envio", cp);
+    if (z && esZonaMismoDia(z.zona) && z.activa) return "mismo_dia";
+  } else {
+    const zonasLocal: ZonaEnvio[] = [
+      { zona: "local", nombre: "", codigos: CODIGOS_MISMO_DIA, precio_eur: 0, gratis_desde_eur: null, activa: true, orden: 0, tramos: null },
+    ];
+    if (zonaDeEntrega(zonasLocal, "envio", cp)?.zona === "local") return "mismo_dia";
+  }
   if (/^(07|35|38|51|52)/.test(cp)) return "islas";
   return "peninsula";
 }
@@ -400,7 +417,11 @@ export type EntregaEstimada = {
  * domingo). Resto de España: sale en 1-2 días laborables y llega en 72 h como máximo, así que entre el 2.º y el 3.er día
  * laborable desde hoy (sin domingos).
  */
-export function entregaEstimada(tipo: Exclude<TipoEntregaEstimada, "sin_cp">, ahora: Date = new Date()): EntregaEstimada {
+export function entregaEstimada(
+  tipo: Exclude<TipoEntregaEstimada, "sin_cp">,
+  ahora: Date = new Date(),
+  ajustes: AjustesFranjas = ajustesFranjasActuales()
+): EntregaEstimada {
   const { dow } = hoyEnMadrid(ahora);
   if (tipo === "islas") {
     return {
@@ -412,6 +433,22 @@ export function entregaEstimada(tipo: Exclude<TipoEntregaEstimada, "sin_cp">, ah
     };
   }
   if (tipo === "mismo_dia") {
+    // Con franjas (dueño, 2026-11-15): la primera franja que aún se puede cumplir con el margen de corte.
+    const primera = opcionesFranja(ajustes, ahora)[0];
+    if (primera) {
+      const dias = primera.dias;
+      const cuando = dias === 0 ? "hoy" : dias === 1 ? `mañana, ${DIAS_SEMANA[(dow + dias) % 7]},` : `el ${DIAS_SEMANA[(dow + dias) % 7]}`;
+      return {
+        tipo,
+        titulo: `Llega ${cuando} entre las ${primera.desde} y las ${primera.hasta}`,
+        detalle:
+          dias === 0
+            ? `Entrega estimada en Zaragoza y alrededores si lo pides hoy antes de las ${primera.corte}.`
+            : "Entrega estimada en Zaragoza y alrededores: hoy ya no quedan horas de entrega.",
+        desdeDias: dias,
+        hastaDias: dias,
+      };
+    }
     const dias = diasHastaLaborable(dow, 0);
     return {
       tipo,
@@ -439,6 +476,191 @@ export function gratisDesdeMinimo(zonas: ZonaEnvio[] | null): number | null {
     .filter((z) => z.zona !== "mano" && z.activa && (z.precio_eur > 0 || !!z.tramos) && z.gratis_desde_eur !== null)
     .map((z) => z.gratis_desde_eur as number);
   return importes.length ? Math.min(...importes) : null;
+}
+
+// --- Franjas de entrega en el mismo día (dueño, 2026-11-15) ---------------------------------------------------------
+// «Entregas inmediatas el mismo día entre las 11:00 y las 12:45 por las mañanas y de 17:15 a 19:00 por las tardes, y así
+// podemos gestionar mejor los costes». Valen para la zona «local» (Zaragoza y Cuarte de Huerva) y la entrega en mano;
+// Correos no. Las franjas, el margen de corte (minutos antes de que empiece cada franja; 30 por defecto, propuesta) y si
+// hay reparto el sábado los cambia el dueño en Administración → Tarifas de envío (tabla entrega_franjas_ajustes, migración
+// 20261115180000_franjas_entrega.sql, que solo lee y escribe el administrador). La tienda los recibe del servidor
+// (GET /api/pago?franjas=ajustes, que los lee con la clave del servidor); sin respuesta usa FRANJAS_POR_DEFECTO, los
+// mismos valores que pone la migración. El domingo nunca hay reparto. Todo con la fecha y la hora de Madrid.
+
+export type FranjaEntrega = "manana" | "tarde";
+
+export type AjustesFranjas = {
+  manana_desde: string;
+  manana_hasta: string;
+  tarde_desde: string;
+  tarde_hasta: string;
+  margen_minutos: number;
+  /** De lunes a viernes, las dos franjas siempre. El sábado y el domingo, cada franja por separado. */
+  sabado_manana: boolean;
+  sabado_tarde: boolean;
+  domingo_manana: boolean;
+  domingo_tarde: boolean;
+};
+
+/**
+ * Los mismos valores que pone 20261115180000_franjas_entrega.sql (si no se pueden leer los del dueño). Dueño, 2026-11-15:
+ * margen de 45 minutos (mañana hasta las 10:15, tarde hasta las 16:30), el sábado mañana y tarde, el domingo solo tarde.
+ */
+export const FRANJAS_POR_DEFECTO: AjustesFranjas = {
+  manana_desde: "11:00",
+  manana_hasta: "12:45",
+  tarde_desde: "17:15",
+  tarde_hasta: "19:00",
+  margen_minutos: 45,
+  sabado_manana: true,
+  sabado_tarde: true,
+  domingo_manana: false,
+  domingo_tarde: true,
+};
+
+const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** «HH:MM» (o «HH:MM:SS», como lo devuelve un time de PostgreSQL) → «HH:MM», o null si no vale. */
+export function horaCorta(v: unknown): string | null {
+  const t = String(v ?? "").trim().slice(0, 5);
+  return HORA_RE.test(t) ? t : null;
+}
+
+const aMinutos = (h: string) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5));
+const deMinutos = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+/** Unos ajustes leídos (de la base de datos o del servidor) con lo que falte o no valga puesto por defecto. */
+export function normalizarAjustesFranjas(fila: Record<string, unknown> | null | undefined): AjustesFranjas {
+  if (!fila) return FRANJAS_POR_DEFECTO;
+  const d = FRANJAS_POR_DEFECTO;
+  const margen = Number(fila.margen_minutos);
+  const aj: AjustesFranjas = {
+    manana_desde: horaCorta(fila.manana_desde) ?? d.manana_desde,
+    manana_hasta: horaCorta(fila.manana_hasta) ?? d.manana_hasta,
+    tarde_desde: horaCorta(fila.tarde_desde) ?? d.tarde_desde,
+    tarde_hasta: horaCorta(fila.tarde_hasta) ?? d.tarde_hasta,
+    margen_minutos: Number.isInteger(margen) && margen >= 0 && margen <= 240 ? margen : d.margen_minutos,
+    sabado_manana: typeof fila.sabado_manana === "boolean" ? fila.sabado_manana : d.sabado_manana,
+    sabado_tarde: typeof fila.sabado_tarde === "boolean" ? fila.sabado_tarde : d.sabado_tarde,
+    domingo_manana: typeof fila.domingo_manana === "boolean" ? fila.domingo_manana : d.domingo_manana,
+    domingo_tarde: typeof fila.domingo_tarde === "boolean" ? fila.domingo_tarde : d.domingo_tarde,
+  };
+  // Una franja al revés no se usa: vuelve a la de siempre.
+  if (aMinutos(aj.manana_desde) >= aMinutos(aj.manana_hasta)) Object.assign(aj, { manana_desde: d.manana_desde, manana_hasta: d.manana_hasta });
+  if (aMinutos(aj.tarde_desde) >= aMinutos(aj.tarde_hasta)) Object.assign(aj, { tarde_desde: d.tarde_desde, tarde_hasta: d.tarde_hasta });
+  return aj;
+}
+
+let ajustesFranjasCache: AjustesFranjas = FRANJAS_POR_DEFECTO;
+let ajustesFranjasPromesa: Promise<AjustesFranjas> | null = null;
+
+/** Los ajustes de franjas que la tienda tiene ahora (los del dueño una vez cargados; si no, los de siempre). */
+export function ajustesFranjasActuales(): AjustesFranjas {
+  return ajustesFranjasCache;
+}
+
+/** Carga (una vez por visita) las franjas que ha puesto el dueño. Nunca falla: sin respuesta, las de siempre. */
+export function cargarAjustesFranjas(): Promise<AjustesFranjas> {
+  if (ajustesFranjasPromesa) return ajustesFranjasPromesa;
+  ajustesFranjasPromesa = (async () => {
+    if (typeof fetch !== "function" || typeof window === "undefined") return ajustesFranjasCache;
+    try {
+      const r = await fetch("/api/pago?franjas=ajustes");
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; ajustes?: Record<string, unknown> | null } | null;
+      if (r.ok && d?.ok && d.ajustes) ajustesFranjasCache = normalizarAjustesFranjas(d.ajustes);
+    } catch {
+      // sin conexión: las de siempre
+    }
+    return ajustesFranjasCache;
+  })();
+  return ajustesFranjasPromesa;
+}
+
+/** Tras guardar en Administración: la tienda (en esta visita) usa ya los nuevos. */
+export function fijarAjustesFranjas(aj: AjustesFranjas) {
+  ajustesFranjasCache = aj;
+  ajustesFranjasPromesa = Promise.resolve(aj);
+}
+
+/** Minutos desde las 00:00 en Madrid. */
+export function minutosEnMadrid(ahora: Date = new Date()): number {
+  const partes = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(ahora);
+  const n = (t: string) => Number(partes.find((p) => p.type === t)?.value ?? 0);
+  return (n("hour") % 24) * 60 + n("minute");
+}
+
+export type OpcionFranja = {
+  franja: FranjaEntrega;
+  /** La fecha de la entrega, «AAAA-MM-DD» (Madrid). */
+  fecha: string;
+  /** Días naturales desde hoy (0 = hoy). */
+  dias: number;
+  desde: string;
+  hasta: string;
+  /** Hasta qué hora de ese día se puede pedir para esa franja (inicio − margen). */
+  corte: string;
+  /** «Hoy 11:00–12:45», «Mañana 17:15–19:00» o «Lunes 11:00–12:45». */
+  etiqueta: string;
+};
+
+/** ¿Hay reparto en esa franja ese día de la semana (0 = domingo)? De lunes a viernes, siempre; fin de semana, según el dueño. */
+export function hayRepartoEn(dow: number, franja: FranjaEntrega, ajustes: AjustesFranjas): boolean {
+  if (dow === 0) return franja === "manana" ? ajustes.domingo_manana : ajustes.domingo_tarde;
+  if (dow === 6) return franja === "manana" ? ajustes.sabado_manana : ajustes.sabado_tarde;
+  return true;
+}
+
+/**
+ * Las franjas que se pueden elegir ahora: las de los dos primeros días de reparto que tienen alguna franja a tiempo (hoy
+ * solo las que empiezan dentro de más de «margen» minutos). Si hoy ya pasaron o ese día no hay reparto, empieza el
+ * siguiente día con reparto. El fin de semana, solo las franjas que el dueño tiene activadas.
+ */
+export function opcionesFranja(ajustes: AjustesFranjas = ajustesFranjasActuales(), ahora: Date = new Date()): OpcionFranja[] {
+  const { y, m, d, dow } = hoyEnMadrid(ahora);
+  const ahoraMin = minutosEnMadrid(ahora);
+  const franjas: { franja: FranjaEntrega; desde: string; hasta: string }[] = [
+    { franja: "manana", desde: ajustes.manana_desde, hasta: ajustes.manana_hasta },
+    { franja: "tarde", desde: ajustes.tarde_desde, hasta: ajustes.tarde_hasta },
+  ];
+  const salida: OpcionFranja[] = [];
+  let diasConReparto = 0;
+  for (let dias = 0; dias <= 10 && diasConReparto < 2; dias++) {
+    const dowDia = (dow + dias) % 7;
+    const f = new Date(Date.UTC(y, m - 1, d + dias));
+    const fecha = `${f.getUTCFullYear()}-${String(f.getUTCMonth() + 1).padStart(2, "0")}-${String(f.getUTCDate()).padStart(2, "0")}`;
+    const nombre = dias === 0 ? "Hoy" : dias === 1 ? "Mañana" : DIAS_SEMANA[dowDia].charAt(0).toUpperCase() + DIAS_SEMANA[dowDia].slice(1);
+    let alguna = false;
+    for (const fr of franjas) {
+      if (!hayRepartoEn(dowDia, fr.franja, ajustes)) continue;
+      const corteMin = aMinutos(fr.desde) - ajustes.margen_minutos;
+      if (dias === 0 && ahoraMin > corteMin) continue;
+      alguna = true;
+      salida.push({ ...fr, fecha, dias, corte: deMinutos(Math.max(0, corteMin)), etiqueta: `${nombre} ${fr.desde}–${fr.hasta}` });
+    }
+    if (alguna) diasConReparto++;
+  }
+  return salida;
+}
+
+/** «mañana (11:00–12:45)» / «tarde (17:15–19:00)» para Administración y el chat. */
+export function nombreFranja(franja: string | null | undefined, ajustes: AjustesFranjas = ajustesFranjasActuales()): string | null {
+  if (franja === "manana") return `mañana (${ajustes.manana_desde}–${ajustes.manana_hasta})`;
+  if (franja === "tarde") return `tarde (${ajustes.tarde_desde}–${ajustes.tarde_hasta})`;
+  return null;
+}
+
+/** La fecha de hoy en Madrid como «AAAA-MM-DD». */
+export function fechaHoyMadrid(ahora: Date = new Date()): string {
+  const { y, m, d } = hoyEnMadrid(ahora);
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/** «lunes 16/11» para una fecha «AAAA-MM-DD». */
+export function fechaCortaEntrega(fecha: string | null | undefined): string | null {
+  const mt = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(fecha ?? ""));
+  if (!mt) return null;
+  const dow = new Date(Date.UTC(+mt[1], +mt[2] - 1, +mt[3])).getUTCDay();
+  return `${DIAS_SEMANA[dow]} ${mt[3]}/${mt[2]}`;
 }
 
 // --- Seguimiento del pedido (mejora 5, 2026-11-14) ------------------------------------------------------------------

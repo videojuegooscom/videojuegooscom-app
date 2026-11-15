@@ -66,6 +66,9 @@
  * - Valoración tras la entrega (mejora 11, 2026-11-15; migración 20261115100000): en cada pedido entregado, la nota del
  *   cliente con sus estrellas y su comentario (las bajas, 1-2, en rojo) o «Sin valorar» con cuándo se le pide (3 días
  *   tras «entregado»); recuento y media arriba (#pedidos-valoraciones). Sin la migración, nada.
+ * - Franjas de entrega (dueño, 2026-11-15; migración 20261115180000): en cada pedido, el día y la franja que eligió el
+ *   cliente (#pedido-franja-N) y el filtro «Reparto de hoy» (los de hoy sin entregar ni cancelar), agrupado por franja
+ *   (mañana / tarde) para planificar la ruta. Sin la migración, nada.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
@@ -75,9 +78,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
 import {
+  cargarAjustesFranjas,
   cargarSeguimientoPedidos,
   cargarTarifas,
   enlaceSeguimientoEnvio,
+  fechaCortaEntrega,
+  fechaHoyMadrid,
+  nombreFranja,
   fechaHoraPaso,
   fmtKg,
   pasosDelPedido,
@@ -107,6 +114,9 @@ type Pedido = {
   ciudad: string | null;
   notas: string | null;
   total_eur: number;
+  // Franja de la entrega en el mismo día que eligió el cliente (migración 20261115180000).
+  entrega_franja?: "manana" | "tarde" | null;
+  entrega_fecha?: string | null;
   pedido_items: PedidoItem[];
   // Número de seguimiento (migración 20261031170000; puede no existir aún): el cliente lo escribe en «Mis seguimientos»
   // para añadir el pedido a su cuenta. id_veoaura: la ficha se creó en VeoAura.
@@ -248,7 +258,9 @@ export default function PedidosAdmin() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [filtro, setFiltro] = useState<Estado | "activos" | "todos" | "sin_vincular" | "veoaura" | "pagados_tarjeta" | "pago_sin_terminar" | "en_tienda">("activos");
+  const [filtro, setFiltro] = useState<Estado | "activos" | "todos" | "sin_vincular" | "veoaura" | "pagados_tarjeta" | "pago_sin_terminar" | "en_tienda" | "reparto_hoy">("activos");
+  // false = la franja de entrega aún no existe (migración 20261115180000 sin aplicar): ni filtro ni franja.
+  const [franjaOk, setFranjaOk] = useState(false);
   // false = aún no hay ventas en mano (migración 20261111170000 sin aplicar): ni filtro ni recuento.
   const [ventasOk, setVentasOk] = useState(false);
   // false = aún no hay columnas de pago con tarjeta (migración 20261105120000 sin aplicar): no se enseñan.
@@ -304,6 +316,9 @@ export default function PedidosAdmin() {
     const METODO = ",pago_metodo";
     // Ventas en mano de VeoAura (migración 20261111170000).
     const VENTA = ",origen,veoaura_venta_id,venta_forma_pago";
+    // Franja de entrega elegida al pagar (migración 20261115180000).
+    const FRANJA = ",entrega_franja,entrega_fecha";
+    let conFranja = true;
     let conVenta = true;
     let conMetodo = true;
     let conDevolucion = true;
@@ -311,11 +326,12 @@ export default function PedidosAdmin() {
     let conEnvio = true;
     let conNumeros = true;
     const columnas = () =>
-      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}`;
+      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}${conFranja ? FRANJA : ""}`;
     let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(columnas());
-    for (let vuelta = 0; vuelta < 6 && res.error; vuelta++) {
+    for (let vuelta = 0; vuelta < 7 && res.error; vuelta++) {
       const msg = String(res.error.message ?? "");
-      if (conVenta && /origen|veoaura_venta_id|venta_forma_pago/.test(msg)) conVenta = false;
+      if (conFranja && /entrega_franja|entrega_fecha/.test(msg)) conFranja = false;
+      else if (conVenta && /origen|veoaura_venta_id|venta_forma_pago/.test(msg)) conVenta = false;
       else if (conMetodo && /pago_metodo/.test(msg)) conMetodo = false;
       else if (conDevolucion && /devuelto_eur|devuelto_en/.test(msg)) conDevolucion = false;
       else if (conPago && /pago_estado|pago_modo|pago_referencia|pagado_eur|pagado_en/.test(msg)) conPago = false;
@@ -330,6 +346,8 @@ export default function PedidosAdmin() {
     if (conEnvio) cargarTarifas().then(setZonas);
     setNumerosOk(!res.error && conNumeros);
     setVentasOk(!res.error && conVenta);
+    setFranjaOk(!res.error && conFranja);
+    if (conFranja) cargarAjustesFranjas();
     const { data, error } = res;
     if (error) {
       const msg = String(error.message ?? "").toLowerCase();
@@ -410,6 +428,14 @@ export default function PedidosAdmin() {
     }
   }
 
+  const repartoDeHoy = useMemo(() => {
+    const hoy = fechaHoyMadrid();
+    const orden = (p: Pedido) => (p.entrega_franja === "manana" ? 0 : 1);
+    return pedidos
+      .filter((p) => p.entrega_fecha === hoy && !!p.entrega_franja && p.estado !== "cancelado" && p.estado !== "entregado")
+      .sort((a, b) => orden(a) - orden(b) || a.numero - b.numero);
+  }, [pedidos]);
+
   const visiblesPorEstado = useMemo(() => {
     if (filtro === "todos") return pedidos;
     // En curso: también los cancelados que siguen pagados con tarjeta sin devolver (falta devolver el pago).
@@ -421,8 +447,10 @@ export default function PedidosAdmin() {
     if (filtro === "pagados_tarjeta") return pedidos.filter((p) => p.pago_estado === "pagado");
     if (filtro === "pago_sin_terminar") return pedidos.filter((p) => p.pago_estado === "iniciado");
     if (filtro === "en_tienda") return pedidos.filter(enTienda);
+    // Reparto de hoy: los de hoy (fecha de Madrid) sin cancelar ni entregar, primero la mañana y luego la tarde.
+    if (filtro === "reparto_hoy") return repartoDeHoy;
     return pedidos.filter((p) => p.estado === filtro);
-  }, [pedidos, filtro]);
+  }, [pedidos, filtro, repartoDeHoy]);
 
   // Ventas en mano (VeoAura): cuántas, cuántas ya están en la cuenta del cliente, cuántas esperan a que se registre y su
   // importe.
@@ -645,6 +673,7 @@ export default function PedidosAdmin() {
         ]
       : []),
     ...(ventasOk ? [{ value: "en_tienda" as const, label: `En tienda (${resumenTienda.total})` }] : []),
+    ...(franjaOk ? [{ value: "reparto_hoy" as const, label: `Reparto de hoy (${repartoDeHoy.length})` }] : []),
   ];
 
   return (
@@ -847,9 +876,19 @@ export default function PedidosAdmin() {
               No hay pedidos en esta lista.
             </Text>
           ) : (
-            visibles.map((p) => (
+            visibles.map((p, i) => (
+              <React.Fragment key={p.id}>
+              {/* Reparto de hoy: un encabezado por franja (mañana / tarde) con cuántos lleva, para planificar la ruta. */}
+              {filtro === "reparto_hoy" && !busqueda.trim() && (i === 0 || visibles[i - 1].entrega_franja !== p.entrega_franja) ? (
+                <View nativeID={`pedidos-reparto-${p.entrega_franja}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingTop: 8 }}>
+                  <Ionicons name={p.entrega_franja === "manana" ? "sunny-outline" : "partly-sunny-outline"} size={18} color={COLORS.text} />
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+                    {(nombreFranja(p.entrega_franja) ?? "").replace(/^./, (c) => c.toUpperCase())} · {visibles.filter((x) => x.entrega_franja === p.entrega_franja).length}{" "}
+                    {visibles.filter((x) => x.entrega_franja === p.entrega_franja).length === 1 ? "pedido" : "pedidos"}
+                  </Text>
+                </View>
+              ) : null}
               <View
-                key={p.id}
                 style={{ gap: 8, alignItems: "center", paddingVertical: 16, borderTopWidth: 1, borderTopColor: COLORS.border }}
               >
                 {/* La referencia (lo que ve el cliente) es el dato principal; el número interno, en pequeño. */}
@@ -859,6 +898,14 @@ export default function PedidosAdmin() {
                 <Text style={{ color: COLORS.muted, textAlign: "center" }}>
                   {fmtFecha(p.created_at)} · {enTienda(p) ? "Compra en tienda" : p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
                 </Text>
+                {franjaOk && p.entrega_franja && p.entrega_fecha ? (
+                  <View nativeID={`pedido-franja-${p.numero}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+                    <Ionicons name="time-outline" size={16} color={COLORS.text} />
+                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                      {p.entrega_fecha === fechaHoyMadrid() ? "Hoy" : fechaCortaEntrega(p.entrega_fecha)} · {nombreFranja(p.entrega_franja)}
+                    </Text>
+                  </View>
+                ) : null}
                 {p.codigo_seguimiento ? (
                   <Text nativeID={`pedido-interno-${p.numero}`} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
                     Nº interno {p.numero}
@@ -1199,6 +1246,7 @@ export default function PedidosAdmin() {
                 </>
                 )}
               </View>
+              </React.Fragment>
             ))
           )}
         </View>

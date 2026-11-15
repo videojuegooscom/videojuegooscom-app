@@ -1773,6 +1773,64 @@ try {
     ok(/^Enviamos con Correos\. .*el peso del pedido con su embalaje/.test(polK), `Kilos: la política de envíos dice que va con Correos y por el peso (${polK.slice(0, 80)})`);
     await c41.end();
 
+    // Franjas de entrega y zonas de entrega propia (20261115180000_franjas_entrega.sql, encima de las tarifas por kilos y
+    // de 20261115130000): la tabla de ajustes (una fila, solo el administrador la lee y la cambia, con sus valores y checks),
+    // las columnas del pedido (solo «manana» / «tarde»; el cliente no las cambia), la zona «local» recortada (9,97 € igual)
+    // y «local_lejos» a 13,97 €; zona_envio y calcular_envio eligen bien (50410 → local, 50015 → local_lejos, 28001 →
+    // peninsula). Sin permisos delicados. Se aplica dos veces sin cambiar nada.
+    {
+      const FRANJAS = readFileSync("supabase/migrations/20261115180000_franjas_entrega.sql", "utf8");
+      const Z997 = readFileSync("supabase/migrations/20261115130000_envio_zaragoza_997.sql", "utf8");
+      ok(!/\b(drop|delete|truncate|grant|revoke|security definer|auth\.users)\b|to anon|using \(true\)/i.test(FRANJAS.replace(/--.*$/gm, "")), "Franjas: la migración no lleva drop, delete, truncate, grant, revoke, security definer, anon, using (true) ni auth.users");
+      const cF = await nuevaBase("vz_aislada_franjas_entrega", ESQUEMA_T + ESQUEMA_K + TARIFAS + CORREOS_K);
+      await cF.query(KILOS);
+      await cF.query(Z997);
+      let repetidaF = true;
+      try {
+        await cF.query(FRANJAS);
+        await cF.query(FRANJAS);
+      } catch (e) {
+        repetidaF = false;
+        console.log(String(e.message));
+      }
+      const filasF = (await cF.query("select manana_desde::text md, manana_hasta::text mh, tarde_desde::text td, tarde_hasta::text th, margen_minutos m, sabado_manana sm, sabado_tarde st, domingo_manana dm, domingo_tarde dt from public.entrega_franjas_ajustes")).rows;
+      ok(repetidaF && filasF.length === 1 && JSON.stringify(filasF[0]) === JSON.stringify({ md: "11:00:00", mh: "12:45:00", td: "17:15:00", th: "19:00:00", m: 45, sm: true, st: true, dm: false, dt: true }), `Franjas: se aplica dos veces, una sola fila con las franjas del dueño (45 min, sábado las dos, domingo solo tarde) (${JSON.stringify(filasF)})`);
+      const zonasF = Object.fromEntries((await cF.query("select zona, precio_eur::text p, codigos, nombre, orden, activa, tramos from public.tarifas_envio")).rows.map((r) => [r.zona, r]));
+      ok(zonasF.local?.p === "9.97" && zonasF.local.codigos === "50410, 50420, 50430, 50001, 50004-50009, 50012, 50019" && zonasF.local.nombre === "A domicilio cerca de Cuarte y Zaragoza sur (el mismo día)", `Franjas: «local» con sus códigos y nombre nuevos, a 9,97 € (${JSON.stringify(zonasF.local)})`);
+      ok(zonasF.local_lejos?.p === "13.97" && zonasF.local_lejos.orden === 25 && zonasF.local_lejos.activa === true && zonasF.local_lejos.tramos === null && /50450, 50196/.test(zonasF.local_lejos.codigos), `Franjas: «local_lejos» nueva a 13,97 €, orden 25, activa y sin tramos (${JSON.stringify(zonasF.local_lejos)})`);
+      const asigna = (await cF.query("select public.zona_envio('envio', '50410') a, public.zona_envio('envio', '50015') b, public.zona_envio('envio', '28001') c, public.zona_envio('envio', '50450') d, public.zona_envio('envio', '50005') e, public.zona_envio('envio', '50196') f, public.zona_envio('recogida', null) g")).rows[0];
+      ok(JSON.stringify(asigna) === JSON.stringify({ a: "local", b: "local_lejos", c: "peninsula", d: "local_lejos", e: "local", f: "local_lejos", g: "mano" }), `Franjas: zona_envio asigna 50410 → local, 50015 → local_lejos, 28001 → peninsula, Muel y La Muela → local_lejos, 50005 → local, en mano → mano (${JSON.stringify(asigna)})`);
+      const precios = (await cF.query("select public.calcular_envio('envio', '50410', 100, 2)::text a, public.calcular_envio('envio', '50015', 100, 2)::text b")).rows[0];
+      ok(precios.a === "9.97" && precios.b === "13.97", `Franjas: calcular_envio cobra 9,97 € cerca y 13,97 € en el resto de Zaragoza (${JSON.stringify(precios)})`);
+      // RLS: solo el administrador lee y cambia; un cliente y un visitante ni la leen ni la cambian.
+      const pol = (await cF.query("select policyname, roles::text r, cmd, coalesce(qual, '') || coalesce(with_check, '') e from pg_policies where tablename = 'entrega_franjas_ajustes' order by 1")).rows;
+      ok(pol.length === 2 && pol.every((x) => x.r === "{authenticated}" && /is_admin/.test(x.e)) && (await cF.query("select relrowsecurity from pg_class where oid = 'public.entrega_franjas_ajustes'::regclass")).rows[0].relrowsecurity, `Franjas: RLS con 2 reglas, solo con sesión y de administrador (${pol.map((x) => `${x.policyname}/${x.cmd}`).join(", ")})`);
+      const leeAnon = await como(cF, "anon", null, "select * from public.entrega_franjas_ajustes");
+      const leeU1 = await como(cF, "authenticated", U1, "select * from public.entrega_franjas_ajustes");
+      const leeAdmin = await como(cF, "authenticated", ADMIN, "select margen_minutos from public.entrega_franjas_ajustes");
+      ok(leeAnon.ok && leeAnon.filas.length === 0 && leeU1.ok && leeU1.filas.length === 0 && leeAdmin.ok && leeAdmin.filas.length === 1, `Franjas: el visitante y el cliente no leen los ajustes; el administrador sí (${leeAnon.filas?.length}/${leeU1.filas?.length}/${leeAdmin.filas?.length})`);
+      const cambiaU1 = await como(cF, "authenticated", U1, "update public.entrega_franjas_ajustes set margen_minutos = 5", { confirmar: true });
+      const creaU1 = await como(cF, "authenticated", U1, "insert into public.entrega_franjas_ajustes (id) values (2)");
+      ok(cambiaU1.ok && cambiaU1.cuantas === 0 && !creaU1.ok, `Franjas: un cliente no cambia ni crea ajustes (${cambiaU1.cuantas} · ${creaU1.codigo})`);
+      const cambiaAdmin = await como(cF, "authenticated", ADMIN, "update public.entrega_franjas_ajustes set margen_minutos = 30, domingo_manana = true", { confirmar: true });
+      ok(cambiaAdmin.ok && cambiaAdmin.cuantas === 1 && (await cF.query("select margen_minutos from public.entrega_franjas_ajustes")).rows[0].margen_minutos === 30, "Franjas: el administrador cambia el margen y el domingo por la mañana");
+      const alReves = await como(cF, "authenticated", ADMIN, "update public.entrega_franjas_ajustes set manana_desde = '13:00'");
+      const pisan = await como(cF, "authenticated", ADMIN, "update public.entrega_franjas_ajustes set manana_hasta = '18:00'");
+      const margenMal = await como(cF, "authenticated", ADMIN, "update public.entrega_franjas_ajustes set margen_minutos = 500");
+      const otraFila = await cF.query("insert into public.entrega_franjas_ajustes (id) values (2)").then(() => true, () => false);
+      ok(!alReves.ok && !pisan.ok && !margenMal.ok && !otraFila, `Franjas: no se guarda una franja al revés, solapada, un margen de 500 ni otra fila (${alReves.codigo}/${pisan.codigo}/${margenMal.codigo})`);
+      // Columnas del pedido: solo «manana» / «tarde»; el cliente no las cambia (solo el administrador o el servidor).
+      await cF.query(`insert into public.pedidos (user_id, nombre, email, telefono, entrega, codigo_postal) values ('${U1}', 'Ana', 'ana@example.com', '600111222', 'envio', '50410')`);
+      const franjaMal = await cF.query("update public.pedidos set entrega_franja = 'noche' where nombre = 'Ana'").then(() => true, () => false);
+      const franjaBien = await cF.query("update public.pedidos set entrega_franja = 'tarde', entrega_fecha = '2026-11-16' where nombre = 'Ana'").then(() => true, () => false);
+      const clienteCambia = await como(cF, "authenticated", U1, "update public.pedidos set entrega_franja = 'manana' where nombre = 'Ana'", { confirmar: true });
+      const tras = (await cF.query("select entrega_franja, entrega_fecha::text f from public.pedidos where nombre = 'Ana'")).rows[0];
+      ok(!franjaMal && franjaBien && clienteCambia.ok && clienteCambia.cuantas === 0 && tras.entrega_franja === "tarde" && tras.f === "2026-11-16", `Franjas: el pedido solo admite mañana o tarde y el cliente no cambia su franja (${JSON.stringify(tras)})`);
+      const leeCliente = await como(cF, "authenticated", U1, "select entrega_franja, entrega_fecha::text f from public.pedidos");
+      ok(leeCliente.ok && leeCliente.filas.length === 1 && leeCliente.filas[0].entrega_franja === "tarde", "Franjas: el cliente ve la franja de su pedido");
+      await cF.end();
+    }
+
     // PRUEBA DE LAS PRUEBAS: sin el disparador de los artículos, el pedido no tendría peso y pagaría como 2 kg.
     const sinPesoPedido = KILOS.replace(/do \$\$\nbegin\n  if not exists \(select 1 from pg_trigger where tgname = 'trg_pedido_items_peso'[\s\S]*?end \$\$;\n/, "");
     ok(sinPesoPedido !== KILOS, "(control) se ha podido quitar el disparador del peso en la copia de prueba");

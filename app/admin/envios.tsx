@@ -43,7 +43,20 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
-import { calcularEnvio, fmtKg, PESO_SIN_DATO_KG, type Entrega, type TramoEnvio, type ZonaEnvio } from "../../lib/envio";
+import {
+  calcularEnvio,
+  fijarAjustesFranjas,
+  FRANJAS_POR_DEFECTO,
+  fmtKg,
+  horaCorta,
+  normalizarAjustesFranjas,
+  opcionesFranja,
+  PESO_SIN_DATO_KG,
+  type AjustesFranjas,
+  type Entrega,
+  type TramoEnvio,
+  type ZonaEnvio,
+} from "../../lib/envio";
 
 // "on-drag" en web cierra el teclado con cualquier desplazamiento (también el del navegador al enfocar un campo).
 const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
@@ -657,10 +670,250 @@ export default function AdminEnvios() {
                   </Text>
                 </View>
               ) : null}
+
+              <EditorFranjas compacto={isMobile} />
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
       )}
+    </View>
+  );
+}
+
+// --- Franjas de entrega en el mismo día (dueño, 2026-11-15; migración 20261115180000_franjas_entrega.sql) ------------
+// El dueño cambia aquí las dos franjas, el margen de corte y qué franjas hay el sábado y el domingo (de lunes a viernes,
+// las dos). La tienda las recibe del servidor (api/pago.ts) y, sin la migración, usa las de siempre (lib/envio.ts).
+// Debajo, cuántos pedidos han elegido cada franja en los últimos 30 días.
+type BorradorFranjas = Omit<AjustesFranjas, "margen_minutos"> & { margen: string };
+const MIGRACION_FRANJAS = "supabase/migrations/20261115180000_franjas_entrega.sql";
+
+function EditorFranjas({ compacto }: { compacto: boolean }) {
+  const [cargando, setCargando] = useState(true);
+  const [sinTabla, setSinTabla] = useState(false);
+  const [guardado, setGuardado] = useState<AjustesFranjas>(FRANJAS_POR_DEFECTO);
+  const [b, setB] = useState<BorradorFranjas>({ ...FRANJAS_POR_DEFECTO, margen: String(FRANJAS_POR_DEFECTO.margen_minutos) });
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
+  const [uso, setUso] = useState<{ manana: number; tarde: number } | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from("entrega_franjas_ajustes")
+        .select("manana_desde,manana_hasta,tarde_desde,tarde_hasta,margen_minutos,sabado_manana,sabado_tarde,domingo_manana,domingo_tarde")
+        .eq("id", 1)
+        .maybeSingle();
+      if (!vivo) return;
+      if (error || !data) {
+        setSinTabla(true);
+      } else {
+        const aj = normalizarAjustesFranjas(data as Record<string, unknown>);
+        setGuardado(aj);
+        setB({ ...aj, margen: String(aj.margen_minutos) });
+      }
+      // Uso en 30 días (sin la columna, nada).
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const r = await supabase.from("pedidos").select("entrega_franja").not("entrega_franja", "is", null).gte("created_at", desde).limit(1000);
+      if (!vivo) return;
+      if (!r.error && Array.isArray(r.data)) {
+        const filas = r.data as { entrega_franja: string | null }[];
+        setUso({ manana: filas.filter((f) => f.entrega_franja === "manana").length, tarde: filas.filter((f) => f.entrega_franja === "tarde").length });
+      }
+      setCargando(false);
+    })().catch(() => {
+      if (vivo) {
+        setSinTabla(true);
+        setCargando(false);
+      }
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  const margen = /^\d{1,3}$/.test(b.margen.trim()) ? Number(b.margen.trim()) : NaN;
+  const horas = [b.manana_desde, b.manana_hasta, b.tarde_desde, b.tarde_hasta].map((h) => horaCorta(h));
+  const aMin = (h: string) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5));
+  const error = horas.some((h) => !h)
+    ? "Escribe las horas como 11:00."
+    : aMin(horas[0]!) >= aMin(horas[1]!) || aMin(horas[2]!) >= aMin(horas[3]!)
+      ? "Cada franja tiene que empezar antes de terminar."
+      : aMin(horas[1]!) > aMin(horas[2]!)
+        ? "La franja de mañana tiene que terminar antes de la de tarde."
+        : !Number.isInteger(margen) || margen > 240
+          ? "El margen va de 0 a 240 minutos."
+          : null;
+  const nuevo: AjustesFranjas | null = error
+    ? null
+    : {
+        manana_desde: horas[0]!,
+        manana_hasta: horas[1]!,
+        tarde_desde: horas[2]!,
+        tarde_hasta: horas[3]!,
+        margen_minutos: margen,
+        sabado_manana: b.sabado_manana,
+        sabado_tarde: b.sabado_tarde,
+        domingo_manana: b.domingo_manana,
+        domingo_tarde: b.domingo_tarde,
+      };
+  const cambiado = !!nuevo && JSON.stringify(nuevo) !== JSON.stringify(guardado);
+  const corte = (desde: string | null) => (desde && Number.isInteger(margen) ? (() => { const m = Math.max(0, aMin(desde) - margen); return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; })() : "—");
+  const ahora = nuevo ? opcionesFranja(nuevo).map((o) => o.etiqueta).join(" · ") : "";
+
+  async function guardar() {
+    if (!nuevo || !cambiado) return;
+    setGuardando(true);
+    setMsg(null);
+    const { data: u } = await supabase.auth.getUser();
+    const { error: e } = await supabase
+      .from("entrega_franjas_ajustes")
+      .update({ ...nuevo, updated_at: new Date().toISOString(), updated_by: u?.user?.id ?? null })
+      .eq("id", 1);
+    setGuardando(false);
+    if (e) {
+      setMsg({ tipo: "error", texto: "No se han podido guardar las franjas." });
+      return;
+    }
+    setGuardado(nuevo);
+    fijarAjustesFranjas(nuevo);
+    setMsg({ tipo: "ok", texto: "Franjas guardadas: la tienda ya las usa." });
+  }
+
+  const campoHora = (id: string, valor: string, poner: (t: string) => void, etiqueta: string) => (
+    <TextInput
+      nativeID={id}
+      value={valor}
+      onChangeText={(t) => {
+        poner(t);
+        setMsg(null);
+      }}
+      placeholder="00:00"
+      maxLength={5}
+      inputMode="numeric"
+      accessibilityLabel={etiqueta}
+      placeholderTextColor="rgba(11,33,56,0.45)"
+      style={{ flex: 1, minWidth: 0, minHeight: CAMPO.alto, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: "#FFFFFF", paddingHorizontal: 12, color: COLORS.text, fontSize: CAMPO.letra, fontWeight: "800", textAlign: "center" }}
+    />
+  );
+  const interruptor = (id: string, texto: string, valor: boolean, poner: (v: boolean) => void) => (
+    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: TACTIL.minimo }}>
+      <Text style={{ color: COLORS.text, fontWeight: "800", flexShrink: 1 }}>{texto}</Text>
+      <Switch
+        nativeID={id}
+        value={valor}
+        onValueChange={(v) => {
+          poner(v);
+          setMsg(null);
+        }}
+        accessibilityLabel={texto}
+      />
+    </View>
+  );
+  const fila = (titulo: string, desde: React.ReactNode, hasta: React.ReactNode) => (
+    <View style={{ gap: 6 }}>
+      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>{titulo}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        {desde}
+        <Text style={{ color: COLORS.muted, fontWeight: "900" }}>a</Text>
+        {hasta}
+      </View>
+    </View>
+  );
+
+  return (
+    <View nativeID="envios-franjas" style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: compacto ? 14 : 18, gap: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        <Ionicons name="time-outline" size={18} color={COLORS.accent} />
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>Franjas de entrega el mismo día</Text>
+      </View>
+      <Text nativeID="envios-franjas-explicacion" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 19, textAlign: "center" }}>
+        Para la entrega a domicilio en Zaragoza y alrededores y la entrega en mano (Correos no). Al pagar, el cliente elige
+        una franja de hoy o del siguiente día de reparto. El margen es hasta cuántos minutos antes de que empiece una franja se
+        puede pedir para ella: con {Number.isInteger(margen) ? margen : "—"} minutos, la mañana se pide hasta las {corte(horas[0])} y la tarde hasta
+        las {corte(horas[2])}. De lunes a viernes hay las dos franjas.
+      </Text>
+      {cargando ? (
+        <ActivityIndicator color={COLORS.accent} />
+      ) : sinTabla ? (
+        <Text nativeID="envios-franjas-sin-migracion" style={{ color: COLORS.danger, fontWeight: "800", textAlign: "center", lineHeight: 20 }}>
+          Falta aplicar la migración {MIGRACION_FRANJAS}: mientras, la tienda usa 11:00–12:45 y 17:15–19:00, 45 minutos de margen, el
+          sábado las dos y el domingo solo la tarde.
+        </Text>
+      ) : (
+        <>
+          {fila(
+            "Mañana",
+            campoHora("envios-franja-manana-desde", b.manana_desde, (t) => setB((x) => ({ ...x, manana_desde: t })), "Mañana, desde"),
+            campoHora("envios-franja-manana-hasta", b.manana_hasta, (t) => setB((x) => ({ ...x, manana_hasta: t })), "Mañana, hasta")
+          )}
+          {fila(
+            "Tarde",
+            campoHora("envios-franja-tarde-desde", b.tarde_desde, (t) => setB((x) => ({ ...x, tarde_desde: t })), "Tarde, desde"),
+            campoHora("envios-franja-tarde-hasta", b.tarde_hasta, (t) => setB((x) => ({ ...x, tarde_hasta: t })), "Tarde, hasta")
+          )}
+          <View style={{ gap: 6 }}>
+            <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Margen de corte (minutos antes de cada franja)</Text>
+            <TextInput
+              nativeID="envios-franja-margen"
+              value={b.margen}
+              onChangeText={(t) => {
+                setB((x) => ({ ...x, margen: t }));
+                setMsg(null);
+              }}
+              inputMode="numeric"
+              maxLength={3}
+              accessibilityLabel="Margen de corte en minutos"
+              style={{ minHeight: CAMPO.alto, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: "#FFFFFF", paddingHorizontal: 12, color: COLORS.text, fontSize: CAMPO.letra, fontWeight: "800", textAlign: "center" }}
+            />
+          </View>
+          {interruptor("envios-franja-sabado-manana", "Sábado por la mañana", b.sabado_manana, (v) => setB((x) => ({ ...x, sabado_manana: v })))}
+          {interruptor("envios-franja-sabado-tarde", "Sábado por la tarde", b.sabado_tarde, (v) => setB((x) => ({ ...x, sabado_tarde: v })))}
+          {interruptor("envios-franja-domingo-manana", "Domingo por la mañana", b.domingo_manana, (v) => setB((x) => ({ ...x, domingo_manana: v })))}
+          {interruptor("envios-franja-domingo-tarde", "Domingo por la tarde", b.domingo_tarde, (v) => setB((x) => ({ ...x, domingo_tarde: v })))}
+          {error ? (
+            <Text nativeID="envios-franjas-error" style={{ color: COLORS.danger, fontWeight: "800", textAlign: "center" }}>
+              {error}
+            </Text>
+          ) : (
+            <Text nativeID="envios-franjas-ahora" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19, textAlign: "center" }}>
+              Ahora el cliente vería: {ahora || "ninguna franja"}
+            </Text>
+          )}
+          <Pressable
+            nativeID="envios-franjas-guardar"
+            onPress={guardar}
+            disabled={!cambiado || guardando}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              alignSelf: "center",
+              width: "100%",
+              maxWidth: 420,
+              minHeight: 50,
+              borderRadius: 999,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              backgroundColor: COLORS.accent,
+              opacity: !cambiado || guardando ? 0.5 : pressed ? 0.88 : 1,
+            })}
+          >
+            {guardando ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="save-outline" size={18} color="#FFFFFF" />}
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>Guardar franjas</Text>
+          </Pressable>
+          {msg ? (
+            <Text nativeID="envios-franjas-mensaje" style={{ color: msg.tipo === "ok" ? COLORS.success : COLORS.danger, fontWeight: "800", textAlign: "center" }}>
+              {msg.texto}
+            </Text>
+          ) : null}
+        </>
+      )}
+      {uso ? (
+        <Text nativeID="envios-franjas-uso" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+          Pedidos con franja (30 días) · mañana: {uso.manana} · tarde: {uso.tarde}
+        </Text>
+      ) : null}
     </View>
   );
 }

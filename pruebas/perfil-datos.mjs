@@ -383,7 +383,7 @@
  *    (último primero, sin repetidos, como mucho 12); con 2 no sale, con 3 sí; retirado fuera (y del historial); no si son
  *    justo los de «Recién llegado»; «Quitar» y «Borrar historial» de 44 px; tocar abre la ficha; la oferta no se mueve;
  *    analítica con ids y cuántos (nada si se rechazó) y la tarjeta «Vistos recientemente (30 días)»; 360, 390 y 1280.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC|RAPI|COMPA|VISTOS|CHATP|AVISOM]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC|RAPI|COMPA|VISTOS|CHATP|AVISOM|FRANJ]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -948,6 +948,27 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     // Reservar con señal (mejora 14): fuera de la sección RESEN, apagada (como la deja la migración), sin contar como consulta
     // del pago con tarjeta.
     if (url.pathname === "/api/pago" && metodo === "GET" && url.searchParams.get("reserva") === "ajustes") return json({ ok: true, activa: false });
+    // Franjas de entrega (sección FRANJ): GET ?franjas=ajustes como el servidor (las de `estado.franjas` o null: la tienda
+    // usa las de siempre) y POST «franja», que se apunta en `estado.franjasGuardadas` (como el pedido en la base de datos).
+    if (url.pathname === "/api/pago" && metodo === "GET" && url.searchParams.get("franjas") === "ajustes") {
+      estado.franjasPedidas = (estado.franjasPedidas ?? 0) + 1;
+      return json({ ok: true, ajustes: estado.franjas ?? null });
+    }
+    if (url.pathname === "/api/pago" && metodo === "POST" && /"accion":"franja"/.test(peticion.postData() ?? "")) {
+      estado.franjasGuardadas = [...(estado.franjasGuardadas ?? []), { cuerpo: JSON.parse(peticion.postData() ?? "{}"), auth: peticion.headers()["authorization"] ?? "" }];
+      return json({ ok: true, guardada: true });
+    }
+    // La tabla de ajustes de franjas (Administración → Tarifas de envío): sin `estado.franjasTabla`, sin la migración.
+    if (url.pathname.endsWith("/rest/v1/entrega_franjas_ajustes")) {
+      if (!estado.franjasTabla) return json({ code: "PGRST205", message: "Could not find the table 'public.entrega_franjas_ajustes' in the schema cache" }, 404);
+      if (metodo === "PATCH") {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        estado.franjasTablaGuardada = [...(estado.franjasTablaGuardada ?? []), cuerpo];
+        estado.franjasTabla = { ...estado.franjasTabla, ...cuerpo };
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+      return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(estado.franjasTabla) : json([estado.franjasTabla]);
+    }
     if (url.pathname === "/api/pago" && estado.pago) {
       const auth = peticion.headers()["authorization"] ?? "";
       if (metodo === "GET") {
@@ -8152,7 +8173,11 @@ async function seccionTE() {
     ok(/no se puede enviar sin su caja original: elige «Entrega en mano» o escríbenos/.test(aviso) && (await confirmar.getAttribute("aria-disabled")) === "true", `TE: a domicilio con un artículo solo en mano lo explica y no deja confirmar (${aviso.slice(0, 90)})`);
     await p.locator("#pago-entrega-recogida").click();
     await p.waitForTimeout(400);
-    ok((await p.locator("#pago-solo-mano").count()) === 0 && (await confirmar.getAttribute("aria-disabled")) !== "true", "TE: con «Entrega en mano» desaparece el aviso y ya deja confirmar");
+    // En mano hay que elegir la franja (dueño, 2026-11-15; sección FRANJ): la primera que salga.
+    ok((await p.locator("#pago-solo-mano").count()) === 0 && (await p.locator("#pago-franjas").count()) === 1, "TE: con «Entrega en mano» desaparece el aviso y pide la franja");
+    await p.locator('#pago-franjas [role="radio"]').first().click();
+    await p.waitForTimeout(300);
+    ok((await confirmar.getAttribute("aria-disabled")) !== "true", "TE: con la franja elegida ya deja confirmar");
     ok(p.errores.length === 0, `TE: solo en mano sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   });
@@ -14521,9 +14546,10 @@ async function seccionFCONF() {
     await ctx.clock.install({ time: new Date("2026-11-13T10:00:00Z") });
     const p = await abrirFicha(ctx, estado);
     const tipo = () => p.locator("#ficha-entrega").getAttribute("data-tipo").catch(() => "");
-    ok((await tipo()) === "mismo_dia" && (await texto(p, "#ficha-entrega-titulo")) === "Llega hoy", `FCONF: con el CP 50410 del perfil, «Llega hoy» (${await tipo()} · ${await texto(p, "#ficha-entrega-titulo")})`);
+    // Con las franjas (dueño, 2026-11-15; sección FRANJ): a las 11:00 ya pasó el corte de la mañana (10:15), así que la tarde.
+    ok((await tipo()) === "mismo_dia" && (await texto(p, "#ficha-entrega-titulo")) === "Llega hoy entre las 17:15 y las 19:00", `FCONF: con el CP 50410 del perfil, «Llega hoy entre las 17:15 y las 19:00» (${await tipo()} · ${await texto(p, "#ficha-entrega-titulo")})`);
     const detalle = await texto(p, "#ficha-entrega-detalle");
-    ok(/Entrega estimada/.test(detalle) && /si lo pides hoy/.test(detalle) && !/garantiza/i.test(detalle), `FCONF: dice «Entrega estimada … si lo pides hoy», sin garantizarlo (${detalle})`);
+    ok(/Entrega estimada/.test(detalle) && /si lo pides hoy antes de las 16:30/.test(detalle) && !/garantiza/i.test(detalle), `FCONF: dice «Entrega estimada … si lo pides hoy antes de las 16:30», sin garantizarlo (${detalle})`);
     ok(/Código postal 50410 \(de tu perfil\)/.test(await texto(p, "#ficha-entrega-cp-actual")), `FCONF: dice de dónde sale el código (${await texto(p, "#ficha-entrega-cp-actual")})`);
     ok((await texto(p, "#ficha-revisado")) === "Revisado por nuestro equipo" && (await texto(p, "#ficha-garantia")) === "Garantía de 12 meses", `FCONF: con lo que marcó el dueño, «Revisado por nuestro equipo» y «Garantía de 12 meses» (${await texto(p, "#ficha-confianza")})`);
     await esperar(p, () => evento(estado, "ficha_entrega_estimada").length > 0);
@@ -14549,7 +14575,7 @@ async function seccionFCONF() {
     await capturar(p, "FCONF1-peninsula-390");
     await campo.fill("50001");
     await p.waitForTimeout(300);
-    ok((await tipo()) === "mismo_dia" && (await texto(p, "#ficha-entrega-titulo")) === "Llega hoy", `FCONF: con 50001 (Zaragoza), otra vez «Llega hoy» (${await texto(p, "#ficha-entrega-titulo")})`);
+    ok((await tipo()) === "mismo_dia" && (await texto(p, "#ficha-entrega-titulo")) === "Llega hoy entre las 17:15 y las 19:00", `FCONF: con 50001 (Zaragoza), otra vez «Llega hoy» con la franja (${await texto(p, "#ficha-entrega-titulo")})`);
     await campo.fill("07001");
     await p.waitForTimeout(300);
     ok((await tipo()) === "islas" && /Baleares, Canarias, Ceuta y Melilla/.test(await texto(p, "#ficha-entrega-detalle")) && !/Llega/.test(await texto(p, "#ficha-entrega-titulo")), `FCONF: con 07001 (Baleares), sin fecha: «pregúntanos» (${await texto(p, "#ficha-entrega")})`);
@@ -14573,7 +14599,9 @@ async function seccionFCONF() {
     ok((await p.locator("#ficha-entrega").getAttribute("data-tipo").catch(() => "")) === "sin_cp", "FCONF: sin código postal, el tipo es sin_cp");
     const local = await texto(p, "#ficha-entrega-local");
     const resto = await texto(p, "#ficha-entrega-resto");
-    ok(local === "Zaragoza y Cuarte de Huerva: llega mañana, lunes", `FCONF: domingo en Madrid → Zaragoza «llega mañana, lunes» (con la fecha de Madrid, no la del navegador) (${local})`);
+    // Domingo (dueño, 2026-11-15): solo la tarde; a las 00:30 del domingo en Madrid, hoy por la tarde (con la hora del
+    // navegador, sábado 23:30, diría «mañana, domingo»).
+    ok(local === "Zaragoza y Cuarte de Huerva: llega hoy entre las 17:15 y las 19:00", `FCONF: domingo en Madrid → Zaragoza «llega hoy entre las 17:15 y las 19:00» (con la fecha de Madrid, no la del navegador) (${local})`);
     ok(resto === "Resto de España: llega entre el miércoles y el jueves", `FCONF: y el resto de España «entre el miércoles y el jueves» (${resto})`);
     ok(!llegaDomingo(await texto(p, "#ficha-entrega")) && /sin contar domingos/.test(await texto(p, "#ficha-entrega-detalle")), `FCONF: sin domingos (${await texto(p, "#ficha-entrega-detalle")})`);
     ok((await p.locator("#ficha-confianza").count()) === 0 && (await p.locator("#ficha-revisado").count()) === 0 && (await p.locator("#ficha-garantia").count()) === 0, "FCONF: sin marcar por el dueño, ni insignia ni garantía");
@@ -14591,7 +14619,7 @@ async function seccionFCONF() {
     ok((await p.locator("#ficha-entrega-perfil").count()) === 1, "FCONF: con el campo, «Guárdalo en Mi perfil»");
     await p.locator("#ficha-entrega-cp").fill("50410");
     await p.waitForTimeout(300);
-    ok((await texto(p, "#ficha-entrega-titulo")) === "Llega mañana, lunes", `FCONF: el domingo, en Cuarte «Llega mañana, lunes» (${await texto(p, "#ficha-entrega-titulo")})`);
+    ok((await texto(p, "#ficha-entrega-titulo")) === "Llega hoy entre las 17:15 y las 19:00", `FCONF: el domingo, en Cuarte «Llega hoy entre las 17:15 y las 19:00» (solo la tarde) (${await texto(p, "#ficha-entrega-titulo")})`);
     await p.locator("#ficha-entrega-perfil").click();
     await p.waitForURL(/\/perfil/, { timeout: 10000 }).catch(() => {});
     ok(/\/perfil/.test(p.url()), `FCONF: «Guárdalo en Mi perfil» lleva a Mi perfil (${p.url().replace(BASE, "")})`);
@@ -18540,8 +18568,321 @@ async function seccionRESEN() {
   }
 }
 
+// ===== FRANJ) Franjas de la entrega en el mismo día (dueño, 2026-11-15; migración 20261115180000_franjas_entrega.sql):
+// con el reloj fijado en Madrid (navegador en UTC), el pago ofrece solo las franjas que se pueden cumplir con 45 minutos
+// de margen (sábado mañana y tarde, domingo solo tarde, y con los sábados apagados se los salta); el selector es
+// obligatorio en mano y a domicilio con entrega propia (zonas «local» 9,97 € y «local_lejos» 13,97 €), Correos no lo pide;
+// la franja se guarda en el pedido (api/pago.ts «franja») y se mide sin datos personales; la ficha dice la franja;
+// Administración → Pedidos «Reparto de hoy» por franja, el editor de Tarifas de envío y la línea de Analítica; 360/390/1280,
+// sin errores de JavaScript y campos de 16 px. Sesión, datos, reloj y servidor simulados. ===========================
+async function seccionFRANJ() {
+  const FOTO = (n) => `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/franjas/${n}.jpg`;
+  const A1 = "00000000-0000-4000-8000-0000000000f1";
+  const CESTA = [{ id: A1, title: "PlayStation 5 Slim", subtitle: "Consolas · Muy buen estado", priceEUR: 399, qty: 1, imageUrl: FOTO(1) }];
+  const zona = (z, nombre, codigos, precio, orden) => ({ zona: z, nombre, codigos, precio_eur: precio, gratis_desde_eur: null, activa: true, orden, tramos: null, updated_at: "2026-11-15T10:00:00Z", updated_by: null });
+  const TARIFAS = [
+    zona("mano", "Entrega en mano (Cuarte de Huerva o un punto acordado)", null, 0, 10),
+    zona("local", "A domicilio cerca de Cuarte y Zaragoza sur (el mismo día)", "50410, 50420, 50430, 50001, 50004-50009, 50012, 50019", 9.97, 20),
+    zona("local_lejos", "A domicilio en el resto de Zaragoza, Muel y La Muela (el mismo día)", "50450, 50196, 50002, 50003, 50010, 50011, 50013-50018, 50020-50022", 13.97, 25),
+    zona("peninsula", "Resto de la España peninsular (sale en 1-2 días, llega en 72 h como máximo)", "*", 6.9, 30),
+  ];
+  const perfil = () => [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", foto_url: null }];
+  const conCesta = (ctx) =>
+    ctx.addInitScript((articulos) => {
+      try {
+        if (!localStorage.getItem("videojuegoos_cart_v1")) localStorage.setItem("videojuegoos_cart_v1", JSON.stringify(articulos.map((a) => ({ ...a, reservedUntil: Date.now() + 14 * 60000 }))));
+      } catch {
+        // sin almacenamiento
+      }
+    }, CESTA);
+  // El texto visible, sin los iconos (Ionicons usa caracteres privados).
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+  const chips =(p) => p.locator('#pago-franjas [role="radio"]').allInnerTexts().then((l) => l.map((t) => t.replace(/\s+/g, " ").trim()));
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const sinDesborde = (p) => p.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= window.innerWidth + 1);
+  const letraCampos = (p) => p.evaluate(() => [...document.querySelectorAll("input, textarea")].filter((e) => e.offsetParent !== null && e.type !== "checkbox").map((e) => parseFloat(getComputedStyle(e).fontSize)));
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `FRANJ: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+  const abrirPago = async (hora, extra = {}, vista = {}) => {
+    const estado = { filas: perfil(), guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: TARIFAS, pedidoNumero: 101, ...extra };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { timezoneId: "UTC", ...vista });
+    await ctx.clock.install({ time: new Date(hora) });
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await p.locator("#pago-envio").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    return { estado, ctx, p };
+  };
+
+  // FRANJ1) El reloj (hora de Madrid, el navegador en UTC; noviembre = UTC+1). Entrega en mano: las franjas de hoy que
+  // aún llegan con 45 minutos de margen y el siguiente día de reparto; sábado mañana y tarde, domingo solo tarde.
+  const CASOS = [
+    { nombre: "lunes 10:00", hora: "2026-11-16T09:00:00Z", esperado: ["Hoy 11:00–12:45", "Hoy 17:15–19:00", "Mañana 11:00–12:45", "Mañana 17:15–19:00"] },
+    { nombre: "lunes 10:20 (pasado el corte de las 10:15)", hora: "2026-11-16T09:20:00Z", esperado: ["Hoy 17:15–19:00", "Mañana 11:00–12:45", "Mañana 17:15–19:00"] },
+    { nombre: "lunes 12:00", hora: "2026-11-16T11:00:00Z", esperado: ["Hoy 17:15–19:00", "Mañana 11:00–12:45", "Mañana 17:15–19:00"] },
+    { nombre: "lunes 18:00", hora: "2026-11-16T17:00:00Z", esperado: ["Mañana 11:00–12:45", "Mañana 17:15–19:00", "Miércoles 11:00–12:45", "Miércoles 17:15–19:00"] },
+    { nombre: "sábado 10:00", hora: "2026-11-21T09:00:00Z", esperado: ["Hoy 11:00–12:45", "Hoy 17:15–19:00", "Mañana 17:15–19:00"] },
+    { nombre: "sábado 18:00", hora: "2026-11-21T17:00:00Z", esperado: ["Mañana 17:15–19:00", "Lunes 11:00–12:45", "Lunes 17:15–19:00"] },
+    { nombre: "domingo 10:00", hora: "2026-11-22T09:00:00Z", esperado: ["Hoy 17:15–19:00", "Mañana 11:00–12:45", "Mañana 17:15–19:00"] },
+    { nombre: "domingo 18:00", hora: "2026-11-22T17:00:00Z", esperado: ["Mañana 11:00–12:45", "Mañana 17:15–19:00", "Martes 11:00–12:45", "Martes 17:15–19:00"] },
+    {
+      nombre: "sábado 10:00 con los sábados apagados",
+      hora: "2026-11-21T09:00:00Z",
+      franjas: { manana_desde: "11:00", manana_hasta: "12:45", tarde_desde: "17:15", tarde_hasta: "19:00", margen_minutos: 45, sabado_manana: false, sabado_tarde: false, domingo_manana: false, domingo_tarde: true },
+      esperado: ["Mañana 17:15–19:00", "Lunes 11:00–12:45", "Lunes 17:15–19:00"],
+    },
+  ];
+  for (const c of CASOS) {
+    await bloque(`FRANJ1 ${c.nombre}`, async () => {
+      const { estado, ctx, p } = await abrirPago(c.hora, c.franjas ? { franjas: c.franjas } : {});
+      await p.locator("#pago-entrega-recogida").click();
+      await p.locator("#pago-franjas").waitFor({ timeout: 8000 }).catch(() => {});
+      const l = await chips(p);
+      ok(JSON.stringify(l) === JSON.stringify(c.esperado), `FRANJ: ${c.nombre} → ${c.esperado.join(" · ")} (${l.join(" · ") || "ninguna"})`);
+      ok(!l.some((t) => /Domingo/.test(t)), `FRANJ: ${c.nombre}: ningún «Domingo …» por la mañana ni chips con el nombre del domingo (${l.join(" · ")})`);
+      if (c.franjas) ok((estado.franjasPedidas ?? 0) >= 1, "FRANJ: la tienda pide al servidor las franjas del dueño (GET ?franjas=ajustes)");
+      ok(p.errores.length === 0, `FRANJ1 ${c.nombre}: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
+  // FRANJ2) A domicilio, lunes 12:00: 50015 (resto de Zaragoza) → 13,97 € y franjas obligatorias; 50410 (Cuarte) → 9,97 €
+  // y franjas; 28001 (Correos) → sin franjas. Se elige «Hoy 17:15–19:00», se confirma y se guarda en el pedido.
+  await bloque("FRANJ2 pago", async () => {
+    const { estado, ctx, p } = await abrirPago("2026-11-16T11:00:00Z");
+    const confirmar = p.locator("#pago-confirmar").getByRole("button", { name: /Confirmar pedido/ });
+    await p.getByPlaceholder("600 000 000").fill("600111222");
+    await p.getByPlaceholder("Calle, número, piso...").fill("Calle Mayor 5, 3º B");
+    await p.getByPlaceholder("Zaragoza").fill("Zaragoza");
+    await p.getByPlaceholder("50001").fill("28001");
+    await p.waitForTimeout(400);
+    ok((await p.locator("#pago-franjas").count()) === 0 && (await confirmar.getAttribute("aria-disabled")) !== "true", `FRANJ: con 28001 (Correos) no se pide franja y deja confirmar (${await texto(p, "#pago-envio")})`);
+    await p.getByPlaceholder("50001").fill("50015");
+    await p.waitForTimeout(400);
+    ok(/^Envío \(A domicilio en el resto de Zaragoza, Muel y La Muela\): 13,97€$/.test(await texto(p, "#pago-envio")), `FRANJ: 50015 → «resto de Zaragoza, Muel y La Muela», 13,97 € (${await texto(p, "#pago-envio")})`);
+    ok(JSON.stringify(await chips(p)) === JSON.stringify(["Hoy 17:15–19:00", "Mañana 11:00–12:45", "Mañana 17:15–19:00"]), `FRANJ: y pide la franja (${(await chips(p)).join(" · ")})`);
+    ok(/¿Cuándo te viene bien\?/.test(await texto(p, "#pago-franjas")) && (await texto(p, "#pago-franjas-ayuda")) === "Te avisamos por el chat de la tienda cuando salgamos.", `FRANJ: con su pregunta y el aviso corto (${await texto(p, "#pago-franjas-ayuda")})`);
+    const altos = await p.evaluate(() => [...document.querySelectorAll('#pago-franjas [role="radio"]')].map((e) => Math.round(e.getBoundingClientRect().height)));
+    ok(altos.length === 3 && altos.every((a) => a >= 44), `FRANJ: los chips miden 44 px o más (${altos.join(", ")})`);
+    ok((await confirmar.getAttribute("aria-disabled")) === "true" && (await texto(p, "#pago-falta")).includes("Falta: elegir cuándo te viene bien"), `FRANJ: sin franja no deja confirmar y dice qué falta (${await texto(p, "#pago-falta")})`);
+    await p.getByPlaceholder("50001").fill("50410");
+    await p.waitForTimeout(400);
+    ok(/^Envío \(A domicilio cerca de Cuarte y Zaragoza sur\): 9,97€$/.test(await texto(p, "#pago-envio")) && (await p.locator("#pago-franjas").count()) === 1, `FRANJ: 50410 → «cerca de Cuarte y Zaragoza sur», 9,97 €, con franjas (${await texto(p, "#pago-envio")})`);
+    await p.locator('#pago-franjas [role="radio"]', { hasText: "Hoy 17:15–19:00" }).click();
+    await p.waitForTimeout(300);
+    const marcada = await p.evaluate(() => {
+      const e = document.getElementById("pago-franja-2026-11-16-tarde");
+      return e ? { checked: e.getAttribute("aria-checked"), selected: e.getAttribute("aria-selected"), borde: getComputedStyle(e).borderTopColor } : null;
+    });
+    ok(!!marcada && (marcada.checked === "true" || marcada.selected === "true") && marcada.borde === "rgb(30, 167, 232)" && (await confirmar.getAttribute("aria-disabled")) !== "true", `FRANJ: al elegir «Hoy 17:15–19:00» queda marcada y deja confirmar (${JSON.stringify(marcada)})`);
+    await capturar(p, "FRANJ2-pago-franja-390");
+    await confirmar.click();
+    await p.getByText("¡Gracias por tu pedido!", { exact: true }).waitFor({ timeout: 15000 }).catch(() => {});
+    for (let i = 0; i < 20 && !evento(estado, "entrega_franja_elegida").length; i++) await p.waitForTimeout(250);
+    const g = estado.franjasGuardadas?.[0]?.cuerpo ?? {};
+    ok(g.accion === "franja" && g.numero === 101 && g.franja === "tarde" && g.fecha === "2026-11-16" && /^[0-9a-f-]{36}$/.test(g.clave ?? ""), `FRANJ: se guarda en el pedido con su clave (${JSON.stringify(g)})`);
+    const ev = evento(estado, "entrega_franja_elegida");
+    ok(ev.length === 1 && JSON.stringify(ev[0].metadata) === JSON.stringify({ franja: "tarde", cuando: "hoy", entrega: "domicilio" }), `FRANJ: se mide «entrega_franja_elegida» solo con franja, cuándo y tipo (${JSON.stringify(ev[0]?.metadata ?? null)})`);
+    ok(!/Calle Mayor|50410|600111222/.test(JSON.stringify(ev)), "FRANJ: la analítica no lleva datos personales");
+    ok(p.errores.length === 0, `FRANJ2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // FRANJ2b) Con la analítica rechazada: se guarda la franja y no se mide nada.
+  await bloque("FRANJ2b sin analítica", async () => {
+    const { estado, ctx, p } = await abrirPago("2026-11-16T09:00:00Z", { aceptaAnalitica: false });
+    await p.getByPlaceholder("600 000 000").fill("600111222");
+    await p.locator("#pago-entrega-recogida").click();
+    await p.locator('#pago-franjas [role="radio"]', { hasText: "Hoy 11:00–12:45" }).click();
+    await p.locator("#pago-confirmar").getByRole("button", { name: /Confirmar pedido/ }).click();
+    await p.getByText("¡Gracias por tu pedido!", { exact: true }).waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok(estado.franjasGuardadas?.[0]?.cuerpo?.franja === "manana" && !evento(estado, "entrega_franja_elegida").length, "FRANJ: en mano, la franja se guarda y sin consentimiento no se mide");
+    await ctx.close();
+  });
+
+  // FRANJ2c) La página abierta pasa la hora de corte: lunes 10:10 elige «Hoy 11:00–12:45», a las 10:16 confirma (la
+  // reserva de la cesta, de 15 minutos, sigue viva) → no guarda el pedido, pide otra franja y ya no la ofrece.
+  await bloque("FRANJ2c corte pasado", async () => {
+    const { estado, ctx, p } = await abrirPago("2026-11-16T09:10:00Z");
+    await p.getByPlaceholder("600 000 000").fill("600111222");
+    await p.locator("#pago-entrega-recogida").click();
+    await p.locator('#pago-franjas [role="radio"]', { hasText: "Hoy 11:00–12:45" }).click();
+    await p.clock.fastForward("06:00");
+    await p.locator("#pago-confirmar").getByRole("button", { name: /Confirmar pedido/ }).click();
+    await p.waitForTimeout(600);
+    ok(/Esa hora de entrega ya no llega a tiempo: elige otra\./.test(await texto(p, "#pago-error")) && !(estado.pedidosCreados ?? []).length && !(estado.franjasGuardadas ?? []).length, `FRANJ: pasado el corte no guarda el pedido y pide otra franja (${await texto(p, "#pago-error")})`);
+    ok(!(await chips(p)).includes("Hoy 11:00–12:45") && (await chips(p))[0] === "Hoy 17:15–19:00", `FRANJ: y ya no ofrece la mañana de hoy (${(await chips(p)).join(" · ")})`);
+    ok(p.errores.length === 0, `FRANJ2c: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // FRANJ3) 360, 390 y 1280 px: el selector cabe, sin desbordes y los campos a 16 px.
+  for (const v of VISTAS) {
+    await bloque(`FRANJ3 ${v.nombre}`, async () => {
+      const { ctx, p } = await abrirPago("2026-11-16T09:00:00Z", {}, v.vista);
+      await p.locator("#pago-entrega-recogida").click();
+      await p.locator("#pago-franjas").waitFor({ timeout: 8000 }).catch(() => {});
+      await p.evaluate(() => document.getElementById("pago-franjas")?.scrollIntoView({ block: "center" }));
+      await p.waitForTimeout(300);
+      ok((await chips(p)).length === 4 && (await sinDesborde(p)), `FRANJ (${v.nombre}): las 4 franjas sin desbordar`);
+      const letras = await letraCampos(p);
+      ok(letras.length > 0 && letras.every((l) => l >= 16), `FRANJ (${v.nombre}): campos a 16 px (${[...new Set(letras)].join(", ")})`);
+      await capturar(p, `FRANJ3-pago-${v.nombre}`);
+      ok(p.errores.length === 0, `FRANJ3 (${v.nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
+  // FRANJ4) La ficha: con el CP 50410 del perfil, lunes 16:00 → «Llega hoy entre las 17:15 y las 19:00» y «antes de las
+  // 16:30»; lunes 17:00 → mañana, martes, por la mañana. Con las tarifas: 50015 también es mismo día, 28001 no.
+  await bloque("FRANJ4 ficha", async () => {
+    const ID = "00000000-0000-4000-8000-0000000000f4";
+    const producto = { id: ID, title: "PlayStation 5 Slim", description: "Consola en buen estado.", price_eur: 399, status: "PUBLISHED", is_active: true, category_id: null, images: [], updated_at: "2026-11-14T10:00:00Z", created_at: "2026-11-14T10:00:00Z", condition: "GOOD", like_count: 0, reference: null, caracteristicas: null, mantenimiento: null, category: null, solo_entrega_mano: false };
+    const fila = { user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", telefono: null, codigo_postal: "50410", localidad: "Cuarte", direccion: "Calle Mayor 5", piso: null, direcciones: [{ etiqueta: "casa", codigo_postal: "50410", localidad: "Cuarte", direccion: "Calle Mayor 5", piso: null, predeterminada: true }] };
+    for (const [hora, titulo, detalle] of [
+      ["2026-11-16T15:00:00Z", "Llega hoy entre las 17:15 y las 19:00", /si lo pides hoy antes de las 16:30/],
+      ["2026-11-16T16:00:00Z", "Llega mañana, martes, entre las 11:00 y las 12:45", /hoy ya no quedan horas de entrega/],
+    ]) {
+      const estado = { filas: [fila], guardados: [], aceptaAnalitica: true, producto, fotosProducto: [], tarifas: TARIFAS };
+      const ctx = await contexto(navegador, CLIENTE, "user", estado, { timezoneId: "UTC" });
+      await ctx.clock.install({ time: new Date(hora) });
+      const p = await pagina(ctx, `/producto/${ID}`);
+      await p.locator("#ficha-entrega").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      ok((await texto(p, "#ficha-entrega-titulo")) === titulo, `FRANJ: la ficha a las ${hora.slice(11, 16)} UTC dice «${titulo}» (${await texto(p, "#ficha-entrega-titulo")})`);
+      ok(detalle.test(await texto(p, "#ficha-entrega-detalle")), `FRANJ: y explica el corte (${await texto(p, "#ficha-entrega-detalle")})`);
+      if (hora.startsWith("2026-11-16T15")) {
+        await capturar(p, "FRANJ4-ficha-390");
+        await p.locator("#ficha-entrega-cambiar").click();
+        await p.locator("#ficha-entrega-cp").waitFor({ timeout: 8000 }).catch(() => {});
+        await p.locator("#ficha-entrega-cp").fill("50015");
+        await p.waitForTimeout(300);
+        ok((await p.locator("#ficha-entrega").getAttribute("data-tipo")) === "mismo_dia", "FRANJ: 50015 (resto de Zaragoza) también es mismo día");
+        await p.locator("#ficha-entrega-cp").fill("28001");
+        await p.waitForTimeout(300);
+        ok((await p.locator("#ficha-entrega").getAttribute("data-tipo")) === "peninsula", "FRANJ: 28001 va por Correos");
+      }
+      ok(p.errores.length === 0, `FRANJ4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  });
+
+  // FRANJ5) Administración → Pedidos: el día y la franja de cada pedido y «Reparto de hoy» agrupado por franja (sin los
+  // cancelados ni los de otro día).
+  await bloque("FRANJ5 Pedidos", async () => {
+    const base = (n, extra) => ({
+      id: `0d000000-0000-4000-8000-0000000001${n}`, numero: 100 + n, created_at: "2026-11-16T08:00:00Z", estado: "pendiente", entrega: "envio",
+      nombre: `Cliente ${n}`, email: `c${n}@example.com`, telefono: "600111222", direccion: "Calle Mayor 5", codigo_postal: "50410", ciudad: "Cuarte", notas: null,
+      total_eur: 408.97, productos_eur: 399, envio_eur: 9.97, zona_envio: "local", envio_manual: false, user_id: null, codigo_seguimiento: `VZ-AAAA-00${n}A`,
+      id_veoaura: null, vinculado_en: null, nota_admin: null, pedido_items: [{ id: `0f000000-0000-4000-8000-0000000001${n}`, product_id: A1, titulo: "PlayStation 5 Slim", precio_eur: 399 }],
+      ...extra,
+    });
+    const pedidos = [
+      base(11, { entrega_franja: "tarde", entrega_fecha: "2026-11-16" }),
+      base(12, { entrega_franja: "manana", entrega_fecha: "2026-11-16" }),
+      base(13, { entrega_franja: "tarde", entrega_fecha: "2026-11-17" }),
+      base(14, { entrega_franja: "manana", entrega_fecha: "2026-11-16", estado: "cancelado" }),
+      base(15, { entrega: "recogida", entrega_franja: "tarde", entrega_fecha: "2026-11-16" }),
+    ];
+    const estado = { guardados: [], tarifas: TARIFAS, pedidosAdmin: pedidos };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, { timezoneId: "UTC" });
+    await ctx.clock.install({ time: new Date("2026-11-16T09:00:00Z") });
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#pedido-titulo-111").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok((await texto(p, "#pedido-franja-111")) === "Hoy · tarde (17:15–19:00)" && (await texto(p, "#pedido-franja-113")) === "martes 17/11 · tarde (17:15–19:00)", `FRANJ: cada pedido dice su día y su franja (${await texto(p, "#pedido-franja-111")} | ${await texto(p, "#pedido-franja-113")})`);
+    const chip = p.getByText(/^Reparto de hoy \(\d+\)$/);
+    ok((await chip.innerText().catch(() => "")) === "Reparto de hoy (3)", `FRANJ: «Reparto de hoy (3)»: sin el cancelado ni el de mañana (${await chip.innerText().catch(() => "no está")})`);
+    await chip.click();
+    await p.waitForTimeout(400);
+    const orden = await p.evaluate(() => [...document.querySelectorAll('[id^="pedidos-reparto-"], [id^="pedido-titulo-"]')].map((e) => e.id));
+    ok(JSON.stringify(orden) === JSON.stringify(["pedidos-reparto-manana", "pedido-titulo-112", "pedidos-reparto-tarde", "pedido-titulo-111", "pedido-titulo-115"]), `FRANJ: agrupado por franja, mañana y luego tarde (${orden.join(", ")})`);
+    ok(/^Mañana \(11:00–12:45\) · 1 pedido$/.test(await texto(p, "#pedidos-reparto-manana")) && /^Tarde \(17:15–19:00\) · 2 pedidos$/.test(await texto(p, "#pedidos-reparto-tarde")), `FRANJ: con cuántos lleva cada franja (${await texto(p, "#pedidos-reparto-manana")} | ${await texto(p, "#pedidos-reparto-tarde")})`);
+    await capturar(p, "FRANJ5-reparto-hoy-390");
+    ok((await sinDesborde(p)) && p.errores.length === 0, `FRANJ5: sin desbordes ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // FRANJ6) Administración → Tarifas de envío: el editor de franjas (45 minutos explicado, cambiar el margen y el domingo
+  // por la mañana, guardar), una hora mal escrita no se guarda; sin la migración, lo dice. 360/390/1280.
+  await bloque("FRANJ6 Tarifas", async () => {
+    const tabla = { id: 1, manana_desde: "11:00:00", manana_hasta: "12:45:00", tarde_desde: "17:15:00", tarde_hasta: "19:00:00", margen_minutos: 45, sabado_manana: true, sabado_tarde: true, domingo_manana: false, domingo_tarde: true };
+    const estado = { guardados: [], tarifas: TARIFAS, franjasTabla: { ...tabla } };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, { timezoneId: "UTC" });
+    await ctx.clock.install({ time: new Date("2026-11-16T09:00:00Z") });
+    const p = await pagina(ctx, "/admin/envios");
+    await p.locator("#envios-franja-margen").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(400);
+    ok((await p.locator("#envios-franja-manana-desde").inputValue()) === "11:00" && (await p.locator("#envios-franja-tarde-hasta").inputValue()) === "19:00" && (await p.locator("#envios-franja-margen").inputValue()) === "45", "FRANJ: el editor carga las franjas del dueño (11:00 … 19:00, 45 minutos)");
+    const expl = await texto(p, "#envios-franjas-explicacion");
+    ok(/con 45 minutos, la mañana se pide hasta las 10:15 y la tarde hasta las 16:30/.test(expl) && /Correos no/.test(expl), `FRANJ: explica el margen con sus horas (${expl.slice(0, 140)})`);
+    ok(/Hoy 11:00–12:45 · Hoy 17:15–19:00/.test(await texto(p, "#envios-franjas-ahora")), `FRANJ: y lo que vería ahora el cliente (${await texto(p, "#envios-franjas-ahora")})`);
+    const letras = await p.evaluate(() => ["envios-franja-manana-desde", "envios-franja-margen"].map((i) => parseFloat(getComputedStyle(document.getElementById(i)).fontSize)));
+    ok(letras.every((l) => l >= 16), `FRANJ: los campos del editor a 16 px (${letras.join(", ")})`);
+    await p.locator("#envios-franja-manana-desde").fill("25:00");
+    await p.waitForTimeout(200);
+    ok(/Escribe las horas como 11:00/.test(await texto(p, "#envios-franjas-error")) && (await p.locator("#envios-franjas-guardar").getAttribute("aria-disabled")) === "true", "FRANJ: una hora mal escrita no deja guardar");
+    await p.locator("#envios-franja-manana-desde").fill("11:00");
+    await p.locator("#envios-franja-margen").fill("30");
+    await p.locator("#envios-franja-domingo-manana").click();
+    await p.waitForTimeout(300);
+    ok(/con 30 minutos, la mañana se pide hasta las 10:30 y la tarde hasta las 16:45/.test(await texto(p, "#envios-franjas-explicacion")), "FRANJ: al cambiar el margen, la explicación cambia (10:30 y 16:45)");
+    await p.locator("#envios-franjas-guardar").click();
+    for (let i = 0; i < 20 && !(estado.franjasTablaGuardada ?? []).length; i++) await p.waitForTimeout(200);
+    const g = estado.franjasTablaGuardada?.[0] ?? {};
+    ok(g.margen_minutos === 30 && g.domingo_manana === true && g.manana_desde === "11:00" && g.sabado_tarde === true, `FRANJ: guarda el margen y el domingo por la mañana (${JSON.stringify(g)})`);
+    ok(/Franjas guardadas/.test(await texto(p, "#envios-franjas-mensaje")), "FRANJ: y lo confirma");
+    ok(p.errores.length === 0, `FRANJ6: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+    for (const v of VISTAS) {
+      const e2 = { guardados: [], tarifas: TARIFAS, franjasTabla: { ...tabla } };
+      const c2 = await contexto(navegador, ADMIN, "admin", e2, { timezoneId: "UTC", ...v.vista });
+      await c2.clock.install({ time: new Date("2026-11-16T09:00:00Z") });
+      const q = await pagina(c2, "/admin/envios");
+      await q.locator("#envios-franjas").waitFor({ timeout: 30000 }).catch(() => {});
+      await q.evaluate(() => document.getElementById("envios-franjas")?.scrollIntoView({ block: "start" }));
+      await q.waitForTimeout(400);
+      ok((await sinDesborde(q)) && q.errores.length === 0, `FRANJ (${v.nombre}): el editor de franjas sin desbordes ni errores`);
+      await capturar(q, `FRANJ6-editor-${v.nombre}`);
+      await c2.close();
+    }
+    const e3 = { guardados: [], tarifas: TARIFAS };
+    const c3 = await contexto(navegador, ADMIN, "admin", e3);
+    const r = await pagina(c3, "/admin/envios");
+    await r.locator("#envios-franjas-sin-migracion").waitFor({ timeout: 30000 }).catch(() => {});
+    ok(/Falta aplicar la migración supabase\/migrations\/20261115180000_franjas_entrega\.sql/.test(await texto(r, "#envios-franjas-sin-migracion")) && r.errores.length === 0, "FRANJ: sin la migración, el editor lo dice (sin errores)");
+    await c3.close();
+  });
+
+  // FRANJ7) Analítica: el reparto por franja de los últimos 30 días.
+  await bloque("FRANJ7 Analítica", async () => {
+    const ev = (franja, cuando) => ({ event_name: "entrega_franja_elegida", label: "Entrega: franja elegida", path: "/checkout", created_at: new Date().toISOString(), session_id: "s", metadata: { franja, cuando, entrega: "domicilio" } });
+    const estado = { guardados: [], embudo: [{ step_label: "Inicio", sessions: 3 }], eventos: [ev("manana", "hoy"), ev("tarde", "hoy"), ev("tarde", "manana")] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-franjas").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = await texto(p, "#analitica-franjas");
+    ok(/mañana 1 · tarde 2 · para hoy 2 · para otro día 1/.test(t), `FRANJ: Analítica cuenta las franjas elegidas (${t})`);
+    ok(p.errores.length === 0, `FRANJ7: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "FRANJ") await seccionFRANJ();
   if (SOLO === "RESEN") await seccionRESEN();
   if (SOLO === "AVISOM") await seccionAVISOM();
   if (SOLO === "CHATP") await seccionCHATP();
@@ -19660,6 +20001,7 @@ try {
   await seccionCAMBC();
   await seccionRESEN();
   await seccionCAMPOS16();
+  await seccionFRANJ();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
