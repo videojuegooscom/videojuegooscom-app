@@ -6,6 +6,18 @@
       "fecha": "2026-10-12",
       "motivo": "El usuario pidió que Claude aplique los cambios de Supabase.",
       "sustituida_por": "guardian.py revisar_migracion: solo migraciones idénticas a un archivo de supabase/migrations/ ya en origin/main, sin DROP/DELETE/TRUNCATE ni permisos delicados; todo lo demás se deniega."
+    },
+    {
+      "regla": "WebFetch",
+      "fecha": "2026-11-15",
+      "motivo": "El dueño pidió que Claude pueda leer páginas para buscar datos (pesos y medidas de fabricante, tarifas de Correos), «solo de sitios de fiar y con reputación siempre y por siempre».",
+      "sustituida_por": "politica.json allow «WebFetch(domain:…)» solo para la lista de sitios de fiar y guardian.py revisar_web: deniega cualquier página que no sea https de un dominio de DOMINIOS_WEB_DE_FIAR (o subdominio suyo), también en modo autónomo."
+    },
+    {
+      "regla": "WebSearch",
+      "fecha": "2026-11-15",
+      "motivo": "El dueño pidió que Claude pueda buscar en internet los datos que necesita la tienda.",
+      "sustituida_por": "politica.json allow «WebSearch» (solo buscar, sin abrir páginas) y guardian.py revisar_web: si la búsqueda se limita a dominios, tienen que ser de la lista de fiar; las páginas solo se abren con WebFetch y en sitios de fiar."
     }
   ]
 }
