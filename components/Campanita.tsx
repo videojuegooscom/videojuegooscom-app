@@ -125,6 +125,12 @@
  *     pedido sin valorar (pedido_valoraciones), Blue dice UNA vez «¿Qué tal tu pedido VZ-…? Valóralo en 10 segundos»
  *     (lleva a Mis pedidos; queda dicho al enseñarse, DICHOS_KEY) y se mide valoracion_pedida (origen blue). Se mira en el
  *     mismo repaso de los seguimientos (sin sondeo nuevo) y solo si hay pedidos entregados aún sin resolver.
+ * - Blue en momentos clave (mejora 12, 2026-11-15; ConsejoBlue): consejos UNA vez por dispositivo en los primeros momentos
+ *   (primera vez en la cesta con artículos: la compra en 3 pasos con «Ir a pagar» y «Ahora no»; el catálogo; una ficha; el
+ *   primer «Comparar»; tras crear la cuenta). Esperan su turno en la cola de «decir», nunca dos a la vez ni con la guía
+ *   abierta, en su propia tarjeta (también donde Blue no se ve) que no tapa los botones de comprar ni la barra de comparar.
+ *   «No volver a mostrar consejos» (en la tarjeta y en «Mis avisos») los apaga todos; los avisos de pedidos, precio y
+ *   valoración siguen. Analítica: consejo_mostrado / _seguido / _cerrado y consejos_desactivados (#analitica-consejos).
  *   · Solo el admin: ventas de artículos de VeoAura que aún no se han podido confirmar a
  *     VeoAura (tabla escaparate_salida) → panel Escaparate.
  *   · Solo el admin: pedidos y reparaciones en curso sin ningún cambio desde hace 48 h (updated_at de pedidos y
@@ -187,7 +193,8 @@ import { alRecargar } from "./TirarParaActualizar";
 import { useMiPerfilAbierto, usePerfilObligatorioVisible } from "./PerfilPublico";
 import { suscribirVisorFotos, visorFotosAbierto } from "./ImageLightbox";
 import { MejorasModal, VALORACION_ESPERA_MS, cargarValoracionesPedidos, entregadoEnDe, tocaValorarPedido } from "./ReviewModal";
-import { CAMPO, COLORES_TEXTO, TAMANOS } from "../constants/theme";
+import { useAlturaBarraComparar, useComparar } from "./CategoryProductsShelf";
+import { CAMPO, COLORES_TEXTO, colorTextoAzul, TACTIL, TAMANOS } from "../constants/theme";
 import { cargarAjustesReparacionEnvio, cargarHistorialPedidos } from "../lib/envio";
 
 const COLORS = {
@@ -444,6 +451,139 @@ async function apuntarDicho(clave: string): Promise<void> {
   }
 }
 
+// --- Blue en momentos clave (mejora 12, 2026-11-15) -----------------------------------------------------------------
+// Consejos de los primeros momentos: la primera vez en la cesta con artículos (la primera compra en 3 pasos, con «Ir a
+// pagar»), en el catálogo, en una ficha, al tocar «Comparar» por primera vez y tras crear la cuenta. Cada uno UNA vez por
+// dispositivo (queda dicho al enseñarse: «consejo:<momento>» en DICHOS_KEY), nunca con la guía abierta ni dos a la vez:
+// esperan su turno en la cola de «decir», como los demás mensajes. «No volver a mostrar consejos» (en el propio consejo y
+// en «Mis avisos» del panel de Blue) los apaga todos en el dispositivo (CONSEJOS_OFF_KEY); los avisos importantes
+// (pedidos, precio, valoración) siguen. Se miden consejo_mostrado / _seguido / _cerrado (solo el momento) y
+// consejos_desactivados en Administración → Analítica («Consejos de Blue»). Se prueba con la sección MOMB de
+// pruebas/perfil-datos.mjs.
+type MomentoBlue = "cesta" | "catalogo" | "ficha" | "comparar" | "cuenta";
+const CONSEJOS_OFF_KEY = "videojuegoszaragoza:blue_consejos_off";
+// Una cuenta es nueva si se creó hace menos de un día (user.created_at de Supabase Auth): así se reconoce su primer inicio.
+const CUENTA_NUEVA_MS = 24 * 60 * 60 * 1000;
+// Lo que el consejo se deja a la vista antes de cerrarse solo (más que un mensaje: la cesta trae 3 pasos y dos botones).
+const CONSEJO_VISIBLE_MS = 20000;
+let consejosApagados: boolean | null = null;
+const oyentesConsejos = new Set<() => void>();
+function avisarConsejos() {
+  for (const f of [...oyentesConsejos]) f();
+}
+function suscribirConsejos(f: () => void) {
+  oyentesConsejos.add(f);
+  return () => {
+    oyentesConsejos.delete(f);
+  };
+}
+async function leerConsejosApagados(): Promise<boolean> {
+  if (consejosApagados === null) {
+    try {
+      consejosApagados = (await AsyncStorage.getItem(CONSEJOS_OFF_KEY)) === "1";
+    } catch {
+      consejosApagados = false;
+    }
+    avisarConsejos();
+  }
+  return consejosApagados;
+}
+function useConsejosApagados(): boolean {
+  const apagados = useSyncExternalStore(suscribirConsejos, () => consejosApagados === true, () => false);
+  useEffect(() => {
+    void leerConsejosApagados();
+  }, []);
+  return apagados;
+}
+function cambiarConsejos(apagar: boolean, desde: "consejo" | "panel") {
+  consejosApagados = apagar;
+  avisarConsejos();
+  if (apagar) AsyncStorage.setItem(CONSEJOS_OFF_KEY, "1").catch(() => {});
+  else AsyncStorage.removeItem(CONSEJOS_OFF_KEY).catch(() => {});
+  if (apagar) void trackEvent("consejos_desactivados", "Blue: consejos desactivados", { metadata: { desde } });
+}
+
+type ContenidoConsejo = { titulo: string; texto?: string; pasos?: string[]; accion?: { texto: string; ruta: string } };
+function contenidoConsejo(m: MomentoBlue, pago: PagoOnlineGuia | null): ContenidoConsejo {
+  if (m === "cesta") {
+    // Las formas de pago, solo si el servidor ofrece el pago online (GET /api/pago, como el checkout: Apple Pay y Google
+    // Pay van con la tarjeta en la página de Stripe). Si no se sabe, no se promete ninguna.
+    const pagar = pago?.disponible ? "Paga seguro (tarjeta, Apple Pay o Google Pay)" : "Confirma y paga tu pedido";
+    return { titulo: "Tu compra en 3 pasos", pasos: ["Revisa tu cesta", "Tus datos de entrega", pagar], accion: { texto: "Ir a pagar", ruta: "/checkout" } };
+  }
+  if (m === "catalogo") return { titulo: "Encuentra lo tuyo", texto: "Con el icono de filtros eliges precio y estado. O busca: prueba «play 5»." };
+  if (m === "ficha") return { titulo: "Antes de decidirte", texto: "Puedes ampliar las fotos, ver cuándo te llega y preguntarnos por este artículo." };
+  if (m === "comparar") return { titulo: "Comparar", texto: "Elige hasta 3 y pulsa «Comparar» abajo." };
+  return {
+    titulo: "¡Ya tienes cuenta!",
+    texto: "Te avisamos si baja de precio lo que sigues, ves el seguimiento de tu pedido y lo tienes todo en Mis pedidos.",
+    accion: { texto: "Ver Mis pedidos", ruta: "/perfil?tab=seguimientos" },
+  };
+}
+// Dónde tiene sentido cada consejo (la cola se vacía al cambiar de pantalla; «cuenta», en cualquiera de la tienda).
+function momentoEnPantalla(m: MomentoBlue, pathname: string): boolean {
+  if (m === "cesta") return pathname.startsWith("/cesta");
+  if (m === "catalogo") return pathname.startsWith("/catalogo");
+  if (m === "ficha") return pathname.startsWith("/producto/");
+  if (m === "comparar") return pathname.startsWith("/catalogo") || pathname.startsWith("/producto/");
+  return !/^\/(admin|checkout|blue-ia|chat|vender|perfil)/.test(pathname);
+}
+// Formas de pago online que ofrece el servidor (GET /api/pago, la misma consulta que el checkout). null = no se sabe.
+async function consultarPagoOnline(): Promise<PagoOnlineGuia | null> {
+  if (Platform.OS !== "web") return null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    const r = await fetch("/api/pago", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; disponible?: boolean; klarna?: boolean; bizum?: boolean } | null;
+    return r.ok && d?.ok ? { disponible: d.disponible === true, klarna: d.klarna === true, bizum: d.bizum === true } : null;
+  } catch {
+    return null;
+  }
+}
+// Lo que un consejo nunca tapa: «Comprar ya» / «Añadir a la cesta», «Ir a pagar», la barra de comparar y su «Comparar»,
+// el «Volver» flotante, el buscador de Inicio y las pestañas.
+const NO_TAPAR = [
+  "#ficha-comprar-ya",
+  "#ficha-anadir-cesta",
+  // (el botón «Ir a pagar» entero, como BOTON_IR_A_PAGAR de la guía)
+  "div:has(> #cesta-pagar)",
+  "#comparar-barra",
+  "#boton-atras-flotante",
+  '[aria-label="Volver atrás"]',
+  "#buscador-flotante > *",
+  '[data-testid^="pestana-"]',
+  "#blue-flotante",
+];
+// Sitio del consejo (solo web): abajo (sobre las pestañas, la barra de comparar y el «Volver» flotante) o, si ahí tapa algo
+// de NO_TAPAR, arriba bajo la cabecera; si tapa en los dos, se esconde hasta que quede libre (como Blue).
+function sitioConsejo(alto: number): { top: number } | null {
+  if (typeof document === "undefined" || typeof window === "undefined") return { top: 80 };
+  const vh = window.innerHeight;
+  const cajas: DOMRect[] = [];
+  for (const sel of NO_TAPAR) {
+    try {
+      document.querySelectorAll(sel).forEach((e) => {
+        const r = e.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < vh) cajas.push(r);
+      });
+    } catch {
+      // selector no admitido por el navegador (:has): se ignora
+    }
+  }
+  // Abajo: por encima de lo fijo de la parte de abajo (pestañas, barra de comparar, «Volver» flotante).
+  let suelo = vh - 12;
+  for (const r of cajas) if (r.top > vh * 0.6) suelo = Math.min(suelo, r.top - 10);
+  const cruza = (top: number) => cajas.some((r) => r.left < window.innerWidth && r.right > 0 && r.top < top + alto && r.bottom > top);
+  const abajo = Math.round(suelo - alto);
+  if (abajo > 70 && !cruza(abajo)) return { top: abajo };
+  // Arriba: bajo la cabecera (y bajo lo fijo de arriba que no se debe tapar).
+  let techo = 72;
+  for (const r of cajas) if (r.bottom < vh * 0.3) techo = Math.max(techo, r.bottom + 8);
+  if (techo + alto < vh - 12 && !cruza(techo)) return { top: Math.round(techo) };
+  return null;
+}
+
 // Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(value: number) {
   const v = Number(value);
@@ -544,6 +684,12 @@ type Bocadillo = {
   // fuera del panel nunca (filtro central en la cola y al pintarlo: aunque un mensaje de la tienda se quede esperando
   // turno al entrar en el panel, no se ve allí).
   panel?: boolean;
+  // Consejo de un primer momento (mejora 12): espera su turno en la misma cola, pero se enseña en su propia tarjeta
+  // (ConsejoBlue), también en pantallas sin Blue (la cesta, el catálogo). `trasAccion`: lo pide un toque («Comparar»), así
+  // que no espera los 15 s de leer la pantalla (sí los 15 s tras el mensaje anterior).
+  consejo?: MomentoBlue;
+  trasAccion?: boolean;
+  detalle?: ContenidoConsejo;
 };
 
 // --- Blue propone información de la tienda (solo el dueño, en el panel de administración) ---
@@ -811,6 +957,8 @@ export default function Campanita() {
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
   const [panelOpen, setPanelOpen] = useState(false);
+  const panelOpenRef = useRef(false);
+  panelOpenRef.current = panelOpen;
   // «Mejoras en la tienda»: la cajita de ideas que se abre desde el Asistente.
   const [mejorasAbierta, setMejorasAbierta] = useState(false);
   // «Vender» es una página (app/vender.tsx), no una ventana emergente.
@@ -852,6 +1000,7 @@ export default function Campanita() {
   const [avisoSelector, setAvisoSelector] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [cuentaNueva, setCuentaNueva] = useState(false);
   const [unreadChats, setUnreadChats] = useState(0);
   const [likedUnavailable, setLikedUnavailable] = useState<string[]>([]);
   const [novedadesPending, setNovedadesPending] = useState(false);
@@ -905,25 +1054,39 @@ export default function Campanita() {
   const atenderColaRef = useRef<() => void>(() => {});
   // Con el visor de fotos abierto Blue no se ve: lo que tenga que decir espera a que se cierre.
   const visorFotos = useSyncExternalStore(suscribirVisorFotos, visorFotosAbierto, () => false);
+  // Consejo de un primer momento a la vista (mejora 12): mientras está, nada más sale (nunca dos a la vez).
+  const [consejo, setConsejo] = useState<Bocadillo | null>(null);
+  const consejoRef = useRef<Bocadillo | null>(null);
+  consejoRef.current = consejo;
   atenderColaRef.current = () => {
     if (turnoMensajeRef.current) clearTimeout(turnoMensajeRef.current);
     turnoMensajeRef.current = null;
-    // Dentro del panel, solo los mensajes de Administración; fuera, ninguno de ellos.
+    // Dentro del panel, solo los mensajes de Administración; fuera, ninguno de ellos. Los consejos, solo en su pantalla.
     const enPanelAhora = pantallaRef.current.startsWith("/admin");
-    colaMensajesRef.current = colaMensajesRef.current.filter((b) => !!b.panel === enPanelAhora);
+    colaMensajesRef.current = colaMensajesRef.current.filter((b) => !!b.panel === enPanelAhora && (!b.consejo || momentoEnPantalla(b.consejo, pantallaRef.current)));
     const siguiente = colaMensajesRef.current[0];
     // En una pantalla sin Blue no se dice nada (no se gasta el mensaje): al cambiar de pantalla la cola se vacía y cada
-    // pantalla con Blue vuelve a pedir los suyos.
-    if (!siguiente || visorFotos || !pantallaConBlue(pantallaRef.current)) return;
+    // pantalla con Blue vuelve a pedir los suyos. Los consejos tienen su tarjeta y salen también donde Blue no está.
+    // Con un consejo a la vista, lo siguiente espera a que se cierre (al cerrarse se vuelve a atender la cola).
+    if (!siguiente || visorFotos || consejoRef.current || (!siguiente.consejo && !pantallaConBlue(pantallaRef.current))) return;
+    // Con el panel de Blue abierto no sale nada (quedaría detrás del panel), y un consejo no sale encima de un mensaje que
+    // aún se ve: espera un poco.
+    if (panelOpenRef.current || (siguiente.consejo && bocadilloRef.current)) {
+      turnoMensajeRef.current = setTimeout(() => atenderColaRef.current(), 2000);
+      return;
+    }
     const ahora = Date.now();
-    const listo = Math.max(entradaPantallaRef.current + MENSAJE_TRAS_ENTRAR_MS, ultimoMensajeRef.current + ENTRE_MENSAJES_MS);
+    const listo = Math.max(siguiente.trasAccion ? 0 : entradaPantallaRef.current + MENSAJE_TRAS_ENTRAR_MS, ultimoMensajeRef.current + ENTRE_MENSAJES_MS);
     if (ahora < listo) {
       turnoMensajeRef.current = setTimeout(() => atenderColaRef.current(), listo - ahora);
       return;
     }
     colaMensajesRef.current.shift();
     ultimoMensajeRef.current = ahora;
-    setBocadillo(siguiente);
+    if (siguiente.consejo) {
+      setBocadillo(null);
+      setConsejo(siguiente);
+    } else setBocadillo(siguiente);
     if (colaMensajesRef.current.length) turnoMensajeRef.current = setTimeout(() => atenderColaRef.current(), ENTRE_MENSAJES_MS);
   };
   const decir = useCallback((b: Bocadillo) => {
@@ -1049,6 +1212,9 @@ export default function Campanita() {
       const { data } = await supabase.auth.getSession();
       const user = data.session?.user ?? null;
       setIsLoggedIn(!!user);
+      // Cuenta recién creada (menos de un día): Blue le cuenta sus ventajas una vez (consejo «cuenta», mejora 12).
+      const creada = user?.created_at ? Date.parse(user.created_at) : NaN;
+      setCuentaNueva(Number.isFinite(creada) && Date.now() - creada < CUENTA_NUEVA_MS);
       if (!user) {
         setIsAdmin(false);
         return;
@@ -1767,6 +1933,8 @@ export default function Campanita() {
     colaMensajesRef.current = [];
     if (turnoMensajeRef.current) clearTimeout(turnoMensajeRef.current);
     turnoMensajeRef.current = null;
+    // El consejo a la vista es de su pantalla: al salir de ella se va (ya quedó dicho al enseñarse).
+    setConsejo((c) => (c?.consejo && !momentoEnPantalla(c.consejo, pathname) ? null : c));
   }, [pathname]);
   useEffect(
     () => () => {
@@ -2361,6 +2529,91 @@ export default function Campanita() {
     if (guiaAbierta) ponerOcultoScroll(false);
   }, [guiaAbierta, ponerOcultoScroll]);
 
+  // --- Blue en momentos clave (mejora 12): consejos de los primeros momentos ------------------------------------------
+  const consejosOff = useConsejosApagados();
+  // Primer «Comparar»: la lista del comparador crece después de leerla del dispositivo (lo ya guardado no cuenta).
+  const { lista: listaComparar, leido: compararLeido } = useComparar();
+  const altoBarraComparar = useAlturaBarraComparar();
+  const comparadosAntesRef = useRef<number | null>(null);
+  const [momentoComparar, setMomentoComparar] = useState(false);
+  useEffect(() => {
+    if (!compararLeido) return;
+    const antes = comparadosAntesRef.current;
+    comparadosAntesRef.current = listaComparar.length;
+    if (antes !== null && listaComparar.length > antes) setMomentoComparar(true);
+  }, [compararLeido, listaComparar.length]);
+  // Con la guía abierta (o «Completa tu perfil», o Administración) no hay consejos; el que estuviera a la vista se va.
+  const sinConsejos = consejosOff || enAdmin || guiaAbierta || perfilObligatorio || miPerfilAbierto;
+  useEffect(() => {
+    if (!sinConsejos) return;
+    setConsejo(null);
+    colaMensajesRef.current = colaMensajesRef.current.filter((b) => !b.consejo);
+  }, [sinConsejos]);
+  const enCestaConArticulos = pathname.startsWith("/cesta") && reservas.length > 0;
+  useEffect(() => {
+    if (sinConsejos || !aparecido || consejo) return;
+    const candidatos: MomentoBlue[] = [];
+    if (enCestaConArticulos) candidatos.push("cesta");
+    if (momentoComparar && momentoEnPantalla("comparar", pathname)) candidatos.push("comparar");
+    if (pathname.startsWith("/catalogo")) candidatos.push("catalogo");
+    if (pathname.startsWith("/producto/")) candidatos.push("ficha");
+    if (cuentaNueva && isLoggedIn && momentoEnPantalla("cuenta", pathname)) candidatos.push("cuenta");
+    const pendientes = candidatos.filter((m) => !yaDicho.has(`consejo:${m}`));
+    if (!pendientes.length) return;
+    let vivo = true;
+    (async () => {
+      // Con el aviso de cookies sin contestar Blue no habla (lo taparía).
+      if ((await getAnalyticsConsent()) === null || !vivo || (await leerConsejosApagados())) return;
+      const dichos = await cargarDichos();
+      if (!vivo) return;
+      for (const m of pendientes) if (dichos.has(`consejo:${m}`)) yaDicho.add(`consejo:${m}`);
+      const m = pendientes.find((x) => !dichos.has(`consejo:${x}`));
+      if (!m) {
+        if (momentoComparar && pendientes.includes("comparar")) setMomentoComparar(false);
+        return;
+      }
+      const pago = m === "cesta" ? await consultarPagoOnline() : null;
+      if (!vivo) return;
+      const detalle = contenidoConsejo(m, pago);
+      decir({ id: `consejo:${m}`, texto: detalle.titulo, consejo: m, trasAccion: m === "comparar", detalle });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [sinConsejos, aparecido, consejo, enCestaConArticulos, momentoComparar, pathname, cuentaNueva, isLoggedIn, decir]);
+  // Al enseñarse queda dicho en el dispositivo (no vuelve a salir) y se mide (solo el momento).
+  useEffect(() => {
+    if (!consejo?.consejo) return;
+    yaDicho.add(consejo.id);
+    void apuntarDicho(consejo.id);
+    void trackEvent("consejo_mostrado", "Blue: consejo mostrado", { metadata: { momento: consejo.consejo } });
+    if (consejo.consejo === "comparar") setMomentoComparar(false);
+  }, [consejo]);
+  const cerrarConsejo = useCallback((como: "seguido" | "cerrado" | "solo") => {
+    const c = consejoRef.current;
+    consejoRef.current = null;
+    setConsejo(null);
+    if (c?.consejo && como !== "solo") {
+      void trackEvent(como === "seguido" ? "consejo_seguido" : "consejo_cerrado", como === "seguido" ? "Blue: consejo seguido" : "Blue: consejo cerrado", {
+        metadata: { momento: c.consejo },
+      });
+    }
+    // Lo que esperaba turno puede salir ya (con los 15 s entre mensajes de siempre).
+    setTimeout(() => atenderColaRef.current(), 0);
+    return c;
+  }, []);
+  const seguirConsejo = useCallback(() => {
+    const c = cerrarConsejo("seguido");
+    if (c?.detalle?.accion) router.push(c.detalle.accion.ruta as Href);
+  }, [cerrarConsejo]);
+  const cerrarConsejoX = useCallback(() => void cerrarConsejo("cerrado"), [cerrarConsejo]);
+  const consejoSolo = useCallback(() => void cerrarConsejo("solo"), [cerrarConsejo]);
+  const apagarConsejosAqui = useCallback(() => {
+    cambiarConsejos(true, "consejo");
+    colaMensajesRef.current = colaMensajesRef.current.filter((b) => !b.consejo);
+    void cerrarConsejo("solo");
+  }, [cerrarConsejo]);
+
   // El toque lo gestiona un Pressable (clic normal, fiable en Safari del iPhone). Blue ya no se arrastra: va fijo arriba
   // a la derecha (dueño, 2026-11-04).
 
@@ -2556,12 +2809,26 @@ export default function Campanita() {
 
   // Antes de los 10 s (o en un chat) Blue no existe en pantalla.
   // Tampoco en el panel de administración (petición del dueño): allí no hace falta.
+  // El consejo de un primer momento va en su propia tarjeta: también donde Blue no se ve (la cesta, el catálogo).
+  const capaConsejo =
+    consejo?.detalle && !sinConsejos ? (
+      <ConsejoBlue
+        detalle={consejo.detalle}
+        momento={consejo.consejo ?? "ficha"}
+        oculto={visorFotos || panelOpen}
+        alturaBarra={altoBarraComparar}
+        onSeguir={seguirConsejo}
+        onCerrar={cerrarConsejoX}
+        onSolo={consejoSolo}
+        onApagar={apagarConsejosAqui}
+      />
+    ) : null;
   if (avisoSelector && enForo && !enAdmin && !guiaAbierta) return <AvisoSelector onCerrar={() => setAvisoSelector(false)} />;
   // Con la guía abierta se sigue montando aunque la guía pase por una pantalla de chat (Foro,
   // Blue IA): Blue no se ve ahí (sigue escondido), pero la guía no puede desaparecer.
   // En el panel de administración Blue solo aparece para el dueño (propone información de la
   // tienda); a cualquier otra persona no se le monta nunca allí.
-  if (!ready || (sinBlue && !guiaAbierta) || (enAdmin && !isAdmin) || !aparecido || ((perfilObligatorio || miPerfilAbierto) && !guiaAbierta)) return null;
+  if (!ready || (sinBlue && !guiaAbierta) || (enAdmin && !isAdmin) || !aparecido || ((perfilObligatorio || miPerfilAbierto) && !guiaAbierta)) return capaConsejo;
 
   const derecha = sitio.lado === "r";
   // Los mensajes salen DEBAJO de Blue, pegados a su borde derecho y creciendo hacia abajo, con el ancho que quepa.
@@ -3149,6 +3416,19 @@ export default function Campanita() {
                 {/* Ajustes de los avisos de la tienda. */}
                 <TituloSeccionBlue texto="Mis avisos" />
                 <View style={{ alignSelf: "stretch", gap: 10 }}>
+                  {/* Consejos de los primeros momentos (mejora 12): apagarlos aquí es lo mismo que «No volver a mostrar
+                      consejos»; los avisos de pedidos, precio y valoración no dependen de esto. */}
+                  <View nativeID="blue-ajuste-consejos" style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48 }}>
+                    <IconoCirculoBlue icono="bulb-outline" />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", flex: 1 }}>Consejos de Blue en los primeros pasos</Text>
+                    <Switch
+                      value={!consejosOff}
+                      onValueChange={(v) => cambiarConsejos(!v, "panel")}
+                      trackColor={{ false: "#D9E3EC", true: COLORS.accentSoft }}
+                      thumbColor={!consejosOff ? COLORS.accent : "#F4F4F5"}
+                      accessibilityLabel="Consejos de Blue en los primeros pasos"
+                    />
+                  </View>
                   {isLoggedIn ? (
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48 }}>
                       <IconoCirculoBlue icono="bag-add-outline" />
@@ -3379,7 +3659,132 @@ export default function Campanita() {
 
       {/* «Mejoras en la tienda» (desde el Asistente). */}
       <MejorasModal visible={mejorasAbierta} onClose={() => setMejorasAbierta(false)} origen="blue" />
+
+      {capaConsejo}
     </>
+  );
+}
+
+// Tarjeta del consejo de un primer momento (mejora 12): discreta, en cristal como los mensajes de Blue, con su X de 44 px,
+// el botón del consejo si lo tiene («Ir a pagar», «Ver Mis pedidos») con «Ahora no», y «No volver a mostrar consejos».
+// Nunca tapa «Comprar ya» / «Añadir a la cesta», «Ir a pagar» ni la barra de comparar (sitioConsejo): si no hay sitio
+// libre, se esconde hasta que lo haya. Se cierra sola a los 20 s a la vista.
+function ConsejoBlue({
+  detalle,
+  momento,
+  oculto,
+  alturaBarra,
+  onSeguir,
+  onCerrar,
+  onSolo,
+  onApagar,
+}: {
+  detalle: ContenidoConsejo;
+  momento: MomentoBlue;
+  oculto: boolean;
+  alturaBarra: number;
+  onSeguir: () => void;
+  onCerrar: () => void;
+  onSolo: () => void;
+  onApagar: () => void;
+}) {
+  const web = Platform.OS === "web";
+  const [alto, setAlto] = useState(0);
+  const [top, setTop] = useState<number | null>(web ? null : 0);
+  useEffect(() => {
+    if (!web || typeof document === "undefined") return;
+    const mirar = () => setTop(sitioConsejo(alto || 180)?.top ?? null);
+    mirar();
+    const t = setInterval(mirar, 600);
+    document.addEventListener("scroll", mirar, { capture: true, passive: true });
+    window.addEventListener("resize", mirar);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("scroll", mirar, { capture: true });
+      window.removeEventListener("resize", mirar);
+    };
+  }, [web, alto, alturaBarra]);
+  const visible = !oculto && top !== null;
+  useEffect(() => {
+    if (!visible) return;
+    const t = setTimeout(onSolo, CONSEJO_VISIBLE_MS);
+    return () => clearTimeout(t);
+  }, [visible, onSolo]);
+  // Si en un minuto no ha encontrado sitio libre, se retira: no deja a Blue sin turno en esa pantalla.
+  useEffect(() => {
+    const t = setTimeout(onSolo, 60000);
+    return () => clearTimeout(t);
+  }, [onSolo]);
+  const boton = { minHeight: TACTIL.minimo, minWidth: TACTIL.minimo, alignItems: "center" as const, justifyContent: "center" as const };
+  return (
+    <View
+      nativeID="blue-consejo"
+      pointerEvents="box-none"
+      style={{
+        position: (web ? "fixed" : "absolute") as "absolute",
+        left: 16,
+        right: 16,
+        ...(web ? { top: top ?? 0 } : { bottom: 90 }),
+        alignItems: "center",
+        zIndex: 100000,
+        elevation: 21,
+        opacity: visible ? 1 : 0,
+      }}
+    >
+      <View
+        nativeID={`blue-consejo-${momento}`}
+        pointerEvents={visible ? "auto" : "none"}
+        accessibilityRole="alert"
+        onLayout={(e) => setAlto(Math.round(e.nativeEvent.layout.height))}
+        style={{ ...CRISTAL, backgroundColor: "rgba(255,255,255,0.94)", width: "100%", maxWidth: 360, paddingLeft: 14, paddingVertical: 6, paddingRight: 2, gap: 4 }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Ionicons name="sparkles-outline" size={18} color={COLORS.accent} />
+          <Text nativeID="blue-consejo-titulo" style={{ ...TEXTO_CRISTAL, fontWeight: "900", fontSize: 15, flex: 1 }}>
+            {detalle.titulo}
+          </Text>
+          <Pressable nativeID="blue-consejo-cerrar" onPress={onCerrar} accessibilityRole="button" accessibilityLabel="Cerrar el consejo" style={boton}>
+            <Ionicons name="close" size={20} color={COLORS.muted} />
+          </Pressable>
+        </View>
+        {detalle.texto ? (
+          <Text nativeID="blue-consejo-texto" style={{ ...TEXTO_CRISTAL, fontSize: 14, lineHeight: 20, fontWeight: "600", paddingRight: 12 }}>
+            {detalle.texto}
+          </Text>
+        ) : null}
+        {detalle.pasos ? (
+          <View nativeID="blue-consejo-pasos" style={{ gap: 6, paddingRight: 12 }}>
+            {detalle.pasos.map((p, i) => (
+              <View key={p} nativeID={`blue-consejo-paso-${i + 1}`} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: COLORS.accentSoft, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ color: colorTextoAzul(TAMANOS.minimo), fontWeight: "900", fontSize: TAMANOS.minimo }}>{i + 1}</Text>
+                </View>
+                <Text style={{ ...TEXTO_CRISTAL, fontSize: 14, fontWeight: "700", flex: 1 }}>{p}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        {detalle.accion ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingRight: 12, marginTop: 2 }}>
+            <Pressable
+              nativeID="blue-consejo-seguir"
+              onPress={onSeguir}
+              accessibilityRole="button"
+              style={{ ...boton, paddingHorizontal: 18, borderRadius: 999, backgroundColor: COLORS.accent, flexDirection: "row", gap: 6 }}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{detalle.accion.texto}</Text>
+              <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+            </Pressable>
+            <Pressable nativeID="blue-consejo-ahora-no" onPress={onCerrar} accessibilityRole="button" style={{ ...boton, paddingHorizontal: 10 }}>
+              <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 14 }}>Ahora no</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        <Pressable nativeID="blue-consejo-apagar" onPress={onApagar} accessibilityRole="button" style={{ ...boton, alignSelf: "flex-start" }}>
+          <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, textDecorationLine: "underline" }}>No volver a mostrar consejos</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -4517,19 +4922,11 @@ function GuiaBlue({
   // nombra las que existen. null = aún no se sabe o no hay servidor (dist estático): texto sin formas concretas.
   const [pagoOnline, setPagoOnline] = useState<PagoOnlineGuia | null>(null);
   useEffect(() => {
-    if (Platform.OS !== "web") return;
     let vivo = true;
-    (async () => {
-      try {
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token;
-        const r = await fetch("/api/pago", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-        const d = (await r.json().catch(() => null)) as { ok?: boolean; disponible?: boolean; klarna?: boolean; bizum?: boolean } | null;
-        if (vivo && r.ok && d?.ok) setPagoOnline({ disponible: d.disponible === true, klarna: d.klarna === true, bizum: d.bizum === true });
-      } catch {
-        // sin servidor: sin formas de pago concretas
-      }
-    })();
+    // (sin servidor: sin formas de pago concretas)
+    void consultarPagoOnline().then((p) => {
+      if (vivo && p) setPagoOnline(p);
+    });
     return () => {
       vivo = false;
     };
