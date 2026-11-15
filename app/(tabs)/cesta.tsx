@@ -37,6 +37,11 @@
  * los añade aquí mismo (anadirProducto, con su reserva). Sin consola o sin nada que encaje, no sale. Se mide como
  * complemento_mostrado / _tocado / _anadido (Administración → Analítica).
  *
+ * «Cambio de consola» (mejora 13, 2026-11-15; LineaCambioConsola): con una consola en la cesta, o si el cliente con sesión
+ * ya compró una (pedidos + pedido_items), una línea discreta bajo el resumen abre app/vender.tsx en modo cambio
+ * (?cambio=1&desde=cesta&para=<consola que compra>). Sin cifras. Se mide como cambio_cesta_mostrado / _tocado / _enviado
+ * (Administración → Analítica) y la solicitud sale marcada en Administración → Cotizaciones (sección CAMBC de las pruebas).
+ *
  * Diseño (dueño, 2026-11-04): iconos sueltos, sin burbujas alrededor (quitar
  * es una papelera roja; «Vaciar cesta», «Seguir comprando» y Blue son textos
  * con su icono), la foto entera sobre blanco y el precio en el azul de la
@@ -59,7 +64,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import CategoryProductsShelf, { CompletaTuCompra } from "../../components/CategoryProductsShelf";
+import CategoryProductsShelf, { CompletaTuCompra, tipoDeArticulo } from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import SiteFooter from "../../components/SiteFooter";
@@ -74,7 +79,7 @@ import {
 } from "../../lib/reservas";
 import { supabase } from "../../lib/supabase";
 import { trackEvent } from "../../lib/analytics";
-import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { colorTextoAzul, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -276,6 +281,83 @@ function replaceRoute(route: Href) {
 // La pregunta que recibe Blue IA (la misma idea que su sugerencia «Ayúdame a elegir»): que pregunte antes de recomendar.
 const PREGUNTA_ELEGIR =
   "Ayúdame a elegir un artículo. Pregúntame lo que necesites saber (presupuesto, qué busco, para qué lo quiero) antes de recomendarme algo.";
+
+// «Cambio de consola» (mejora 13, 2026-11-15): si hay una consola en la cesta, o el cliente con sesión ya compró una, una
+// línea discreta bajo el resumen abre Vender en modo cambio (campo vacío para su consola y, de referencia, la que compra).
+// Sin cifras: el valor es orientativo y lo confirma la tienda tras revisarla. Analítica: cambio_cesta_mostrado (una vez por
+// visita de la app) y cambio_cesta_tocado, con solo si venía de la cesta o de una compra anterior.
+let cambioCestaMostrado = false;
+let comproConsolaCache: { uid: string; compro: boolean } | null = null;
+
+async function clienteComproConsola(): Promise<boolean> {
+  try {
+    const { data: s } = await supabase.auth.getSession();
+    const uid = s.session?.user?.id;
+    if (!uid) return false;
+    if (comproConsolaCache?.uid === uid) return comproConsolaCache.compro;
+    const ped = await supabase.from("pedidos").select("id").eq("user_id", uid).neq("estado", "cancelado").limit(50);
+    const ids = ((ped.data ?? []) as { id: string }[]).map((p) => String(p.id));
+    let compro = false;
+    if (!ped.error && ids.length) {
+      const it = await supabase.from("pedido_items").select("titulo").in("pedido_id", ids).limit(500);
+      compro = !it.error && ((it.data ?? []) as { titulo: string | null }[]).some((x) => tipoDeArticulo(String(x.titulo ?? "")) === "consola");
+    }
+    comproConsolaCache = { uid, compro };
+    return compro;
+  } catch {
+    return false;
+  }
+}
+
+function LineaCambioConsola({ titulos }: { titulos: string[] }) {
+  const consolaCesta = titulos.find((t) => tipoDeArticulo(t) === "consola") ?? null;
+  const [compro, setCompro] = useState(false);
+  useEffect(() => {
+    if (consolaCesta) return;
+    let vivo = true;
+    void clienteComproConsola().then((c) => {
+      if (vivo) setCompro(c);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [consolaCesta]);
+  const visible = !!consolaCesta || compro;
+  const origen = consolaCesta ? "cesta" : "compra";
+  useEffect(() => {
+    if (!visible || cambioCestaMostrado) return;
+    cambioCestaMostrado = true;
+    void trackEvent("cambio_cesta_mostrado", "Cesta: cambio de consola mostrado", { metadata: { origen } });
+  }, [visible, origen]);
+  if (!visible) return null;
+  const tam = 14;
+  return (
+    <Pressable
+      nativeID="cesta-cambio-consola"
+      onPress={() => {
+        void trackEvent("cambio_cesta_tocado", "Cesta: cambio de consola tocado", { metadata: { origen } });
+        const para = consolaCesta ? `&para=${encodeURIComponent(consolaCesta.slice(0, 80))}` : "";
+        pushRoute(`/vender?cambio=1&desde=cesta${para}` as Href);
+      }}
+      accessibilityRole="link"
+      accessibilityLabel="¿Tienes una consola que ya no usas? Cámbiala y te descontamos su valor. Ver cuánto me dais"
+      style={({ pressed }) => ({
+        alignSelf: "center",
+        maxWidth: 460,
+        minHeight: TACTIL.minimo,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        justifyContent: "center",
+        opacity: pressed ? 0.6 : 1,
+      })}
+    >
+      <Text style={{ color: COLORS.muted, fontSize: tam, lineHeight: 20, fontWeight: "700", textAlign: "center" }}>
+        ¿Tienes una consola que ya no usas? Cámbiala y te descontamos su valor ·{" "}
+        <Text style={{ color: colorTextoAzul(tam), fontWeight: "900" }}>Ver cuánto me dais</Text>
+      </Text>
+    </Pressable>
+  );
+}
 
 // «Blue, ayúdame a elegir un artículo»: lleva a la conversación con Blue IA con la pregunta ya enviada.
 function BotonBlueElegir({ conArticulos }: { conArticulos: boolean }) {
@@ -752,6 +834,7 @@ export default function CestaScreen() {
   );
 
   const idsCesta = useMemo(() => items.map((it) => it.id), [items]);
+  const titulosCesta = useMemo(() => items.map((it) => it.title), [items]);
 
   useEffect(() => {
     if (bootedRef.current) return;
@@ -981,6 +1064,9 @@ export default function CestaScreen() {
             </View>
 
             <AccionTexto nativeID="cesta-seguir" texto="Seguir comprando" icon="arrow-back" onPress={() => replaceRoute("/" as Href)} />
+
+            {/* Cambio de consola (mejora 13): solo con una consola en la cesta o si el cliente ya compró una. */}
+            <LineaCambioConsola titulos={titulosCesta} />
           </View>
           ) : null}
           </View>

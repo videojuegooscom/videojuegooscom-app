@@ -96,6 +96,8 @@
  * - «Consejos de Blue (30 días)» (#analitica-consejos, mejora 12 «Blue en momentos clave» del 2026-11-15): eventos
  *   consejo_mostrado, consejo_seguido y consejo_cerrado (solo el momento: cesta, catálogo, ficha, comparar, cuenta) y
  *   consejos_desactivados de components/Campanita.tsx; por momento, mostrados, seguidos y cerrados, y cuántos los apagaron.
+ * - «Cambio de consola desde la cesta (30 días)» (#analitica-cambio-cesta, mejora 13 del 2026-11-15): cambio_cesta_mostrado
+ *   y cambio_cesta_tocado (app/(tabs)/cesta.tsx) y cambio_cesta_enviado (components/VenderAhoraModal.tsx); solo recuentos.
  * - «Vistos recientemente (30 días)» (#analitica-vistos, mejora 9 del 2026-11-14): eventos vistos_mostrado (n),
  *   visto_tocado (id y posición), visto_quitado y vistos_borrados de Inicio (components/CategoryProductsShelf.tsx →
  *   VistosRecientemente; solo ids); veces mostrado, toques, quitados/borrados y los 5 productos más revisitados.
@@ -1079,6 +1081,28 @@ export default function AdminAnalytics() {
         filas: MOMENTOS_CONSEJO.map(([m, nombre]) => ({ momento: nombre, mostrados: cuenta("consejo_mostrado", m), seguidos: cuenta("consejo_seguido", m), cerrados: cuenta("consejo_cerrado", m) })),
         desactivados: filas.filter((f) => f.event_name === "consejos_desactivados").length,
       });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Cambio de consola desde la cesta (mejora 13, 2026-11-15): en 30 días, veces que la cesta enseña la línea, toques y
+  // solicitudes enviadas desde ahí. Solo recuentos.
+  const [cambioCesta, setCambioCesta] = useState<{ mostrado: number; tocado: number; enviados: number } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const NOMBRES = ["cambio_cesta_mostrado", "cambio_cesta_tocado", "cambio_cesta_enviado"];
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data, error } = await supabase.from("analytics_events").select("event_name").in("event_name", NOMBRES).gte("created_at", desde).limit(5000);
+      if (!vivo) return;
+      if (error || !Array.isArray(data)) {
+        setCambioCesta(null);
+        return;
+      }
+      const cuenta = (n: string) => (data as { event_name: string }[]).filter((f) => f.event_name === n).length;
+      setCambioCesta({ mostrado: cuenta("cambio_cesta_mostrado"), tocado: cuenta("cambio_cesta_tocado"), enviados: cuenta("cambio_cesta_enviado") });
     })();
     return () => {
       vivo = false;
@@ -2529,6 +2553,21 @@ export default function AdminAnalytics() {
                       Los desactivaron {consejos.desactivados} {consejos.desactivados === 1 ? "vez" : "veces"}
                     </Text>
                   </View>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Cambio de consola desde la cesta (30 días)"
+              subtitle="La línea «¿Tienes una consola que ya no usas?» que sale en la cesta con una consola (o si el cliente ya compró una): veces que se enseña, toques en «Ver cuánto me dais» y solicitudes de cambio enviadas desde ahí (en Cotizaciones, con su filtro). Solo recuentos; solo visitantes que aceptaron la analítica."
+            >
+              {!cambioCesta ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se ha podido cargar el cambio de consola.</Text>
+              ) : (
+                <View nativeID="analitica-cambio-cesta" style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10 }}>
+                  <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                    Mostrado {cambioCesta.mostrado} · tocado {cambioCesta.tocado} · enviados {cambioCesta.enviados}
+                  </Text>
                 </View>
               )}
             </SectionCard>

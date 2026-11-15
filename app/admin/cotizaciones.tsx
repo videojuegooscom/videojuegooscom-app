@@ -17,6 +17,8 @@
  *   confirmación de mayoría de edad), el método/valor de contacto elegido y
  *   cómo entrega el artículo (recogida en su domicilio con dirección, o él
  *   se desplaza, con su disponibilidad horaria).
+ * - «Cambio desde la cesta» (mejora 13, 2026-11-15): las solicitudes que llegan de la línea de la cesta salen con su
+ *   etiqueta («· para comprar: …») y tienen su filtro (#cotizaciones-filtro-cesta).
  * - Filtro rápido por estado + buscador por nombre, artículo, ciudad o
  *   contacto.
  * - Tema claro (fondo blanco, texto azul marino, acentos azul claro) con
@@ -80,7 +82,8 @@ import {
   StatCard,
 } from "../../lib/admin/products.components";
 import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "../../lib/admin/products.utils";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, colorTextoAzul, TACTIL, TAMANOS } from "../../constants/theme";
+import { leerMarcaCambioCesta } from "../../components/VenderAhoraModal";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -240,17 +243,24 @@ function ChipButton({
   );
 }
 
+// «Cambio de consola» desde la cesta (mejora 13, 2026-11-15): la marca que el formulario pone delante del motivo o del
+// problema (components/VenderAhoraModal.tsx → marcaCambioCesta). Se enseña como etiqueta y se quita del texto.
+const marcaDe = (r: SellRequestRow) => leerMarcaCambioCesta(r.funciona_bien ? r.motivo_venta : r.descripcion_problema);
+
 function FilterPill({
   label,
   active,
   onPress,
+  nativeID,
 }: {
   label: string;
   active: boolean;
   onPress: () => void;
+  nativeID?: string;
 }) {
   return (
     <Pressable
+      nativeID={nativeID}
       onPress={onPress}
       style={({ pressed }) => ({
         minHeight: TACTIL.minimo,
@@ -287,6 +297,9 @@ export default function AdminCotizaciones() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<SellRequestStatus | "todas">("todas");
+  // «Cambio desde la cesta» (mejora 13): solo las solicitudes que llegan de la línea de la cesta.
+  const [soloCesta, setSoloCesta] = useState(false);
+  const cuantasCesta = useMemo(() => items.filter((r) => marcaDe(r).desdeCesta).length, [items]);
   const [confirmDelete, setConfirmDelete] = useState<SellRequestRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -312,6 +325,7 @@ export default function AdminCotizaciones() {
 
     return items.filter((r) => {
       if (statusFilter !== "todas" && r.status !== statusFilter) return false;
+      if (soloCesta && !marcaDe(r).desdeCesta) return false;
       if (!q) return true;
 
       return (
@@ -322,7 +336,7 @@ export default function AdminCotizaciones() {
         String(r.contacto ?? "").toLowerCase().includes(q)
       );
     });
-  }, [items, search, statusFilter]);
+  }, [items, search, statusFilter, soloCesta]);
 
   async function load() {
     setLoading(true);
@@ -515,6 +529,12 @@ export default function AdminCotizaciones() {
               <FilterPill label="Revisadas" active={statusFilter === "revisado"} onPress={() => setStatusFilter("revisado")} />
               <FilterPill label="Contactadas" active={statusFilter === "contactado"} onPress={() => setStatusFilter("contactado")} />
               <FilterPill label="Descartadas" active={statusFilter === "descartado"} onPress={() => setStatusFilter("descartado")} />
+              <FilterPill
+                nativeID="cotizaciones-filtro-cesta"
+                label={`Cambio desde la cesta (${cuantasCesta})`}
+                active={soloCesta}
+                onPress={() => setSoloCesta((v) => !v)}
+              />
             </View>
           </View>
 
@@ -532,6 +552,7 @@ export default function AdminCotizaciones() {
             {filteredItems.map((r) => {
                 const st = STATUS_COLORS[r.status];
                 const isBusy = busyId === r.id;
+                const marca = marcaDe(r);
 
                 return (
                   <View
@@ -617,9 +638,12 @@ export default function AdminCotizaciones() {
                       </Text>
                     </View>
 
-                    <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                      {r.funciona_bien ? r.motivo_venta : r.descripcion_problema}
-                    </Text>
+                    {marca.desdeCesta ? (
+                      <Text nativeID={`cotizacion-cesta-${r.id}`} style={{ color: colorTextoAzul(13), fontWeight: "900", fontSize: 13, lineHeight: 19 }}>
+                        {marca.para ? `Cambio desde la cesta · para comprar: ${marca.para}` : "Cambio desde la cesta"}
+                      </Text>
+                    ) : null}
+                    <Text style={{ color: COLORS.muted, lineHeight: 20 }}>{marca.resto}</Text>
 
                     <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20 }}>
                       {r.opcion_venta === "domicilio"
