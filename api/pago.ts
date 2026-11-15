@@ -88,12 +88,14 @@
  * - GET /api/pago?reserva=ajustes[&producto=<uuid>] → { ok, activa } y, SOLO si está activa, completa y el pago online se
  *   puede usar (pagoDisponible), las reglas públicas (escala, dias_max, tipo_arras, al_vencer, texto_condiciones); con
  *   producto, también reservado_hasta (si está reservado ahora). La tabla de ajustes solo la lee el administrador (RLS):
- *   esta respuesta es la única puerta pública y no lleva nada más.
+ *   esta respuesta es la única puerta pública y no lleva nada más. Si el texto de las condiciones o «al vencer» aún tiene
+ *   notas internas del borrador («[A DECIDIR», «NOTA PARA EL GESTOR», «PUNTO A REVISAR», «comprobar en el BOE», «BORRADOR»,
+ *   las dos variantes o una marca {…} desconocida), cuenta como apagada (y no se puede reservar).
  * - POST { accion: "reserva", producto, dias, acepta: true } (con sesión) → { ok, url }. TODO se recalcula aquí con la
  *   configuración y el precio de la base de datos (lo que mande el navegador como importe o porcentaje no cuenta): el
  *   porcentaje es el del primer tramo de la escala que cubre esos días, la señal = precio × porcentaje (al céntimo), el
  *   producto tiene que estar a la venta y sin otra reserva (activa, o pendiente de pago de otra persona). Se guarda la
- *   reserva «pendiente_pago» con una copia de las condiciones aceptadas (y su SHA-256) y se abre Stripe por la señal; el
+ *   reserva «pendiente_pago» con una copia de las condiciones aceptadas YA RELLENADAS con sus cifras (y su SHA-256) y se abre Stripe por la señal; el
  *   artículo queda apartado mientras dura el pago (31 min). Rechazos: apagada o incompleta 403, sin sesión 401, sin aceptar
  *   las condiciones 400, días fuera de la escala 400, no está a la venta 409, ya reservado 409.
  * - La confirmación («confirmar» y el aviso de Stripe) reconoce la reserva por metadata[reserva_id]: si Stripe la cobró por
@@ -1205,6 +1207,37 @@ function escalaReservaValida(e: unknown): TramoReserva[] | null {
   return salida;
 }
 
+// Texto que ve el cliente (2026-11-15; la misma lógica que lib/reservas.ts y el disparador reserva_ajustes_validar de la
+// migración 20261115190000_reserva_texto_cliente): con una nota interna del borrador, ni se enseña ni se reserva.
+const MARCAS_RESERVA = ["porcentaje", "dias", "fecha_vencimiento", "senal_eur", "precio_eur"];
+const NOTAS_INTERNAS_RESERVA = [/\[A DECIDIR/i, /NOTA PARA EL GESTOR/i, /PUNTO A REVISAR/i, /comprobar en el BOE/i, /BORRADOR/i];
+
+function tieneNotasInternasReserva(texto: string): boolean {
+  if (NOTAS_INTERNAS_RESERVA.some((re) => re.test(texto))) return true;
+  if (/\bVARIANTE\s+A\b/i.test(texto) && /\bVARIANTE\s+B\b/i.test(texto)) return true;
+  return [...texto.matchAll(/\{([^{}]*)\}/g)].some((m) => !MARCAS_RESERVA.includes(m[1]));
+}
+
+// «15 de diciembre de 2026» y «12,50 €», como lib/reservas.ts (fechaReserva y eurosReserva).
+function fechaDeReserva(ms: number): string {
+  return new Date(ms).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Madrid" });
+}
+function eurosDeReserva(cts: number): string {
+  const [ent, dec] = (Math.abs(cts) / 100).toFixed(2).split(".");
+  return `${cts < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec} €`;
+}
+
+// Las condiciones con las marcas rellenadas con los datos de esta reserva (lo que acepta y se guarda).
+function rellenarCondicionesReserva(texto: string, d: { porcentaje: number; dias: number; venceMs: number; senalCts: number; precioCts: number }): string {
+  const pct = `${Number.isInteger(d.porcentaje) ? d.porcentaje : d.porcentaje.toFixed(2).replace(".", ",")} %`;
+  return texto
+    .replace(/\{porcentaje\}(?:[  ]?%)?/g, () => pct)
+    .replace(/\{dias\}(?:[  ]d[ií]as?\b)?/g, () => `${d.dias} ${d.dias === 1 ? "día" : "días"}`)
+    .replace(/\{fecha_vencimiento\}/g, () => fechaDeReserva(d.venceMs))
+    .replace(/\{senal_eur\}(?:[  ]?€)?/g, () => eurosDeReserva(d.senalCts))
+    .replace(/\{precio_eur\}(?:[  ]?€)?/g, () => eurosDeReserva(d.precioCts));
+}
+
 // El porcentaje de esos días: el del primer tramo que los cubre. null si pasan del último.
 function porcentajeDeReserva(escala: TramoReserva[], dias: number): number | null {
   return escala.find((t) => dias <= t.hasta_dias)?.porcentaje ?? null;
@@ -1220,6 +1253,10 @@ async function ajustesReservaActivos(supabase: SupabaseClient): Promise<AjustesR
   const alVencer = typeof data.al_vencer === "string" ? data.al_vencer.trim() : "";
   const texto = typeof data.texto_condiciones === "string" ? data.texto_condiciones.trim() : "";
   if (!escala || !Number.isInteger(diasMax) || diasMax < 1 || diasMax > escala[escala.length - 1].hasta_dias || !tipo || !alVencer || !texto || MARCA_BORRADOR_RE.test(texto)) {
+    return null;
+  }
+  if (tieneNotasInternasReserva(texto) || tieneNotasInternasReserva(alVencer)) {
+    console.error("pago: las reservas con señal están activas pero el texto aún tiene notas internas; no se enseñan");
     return null;
   }
   return { escala, dias_max: diasMax, tipo_arras: tipo, al_vencer: alVencer, texto_condiciones: texto };
@@ -1314,6 +1351,11 @@ async function crearReserva(supabase: SupabaseClient, clave: string, modo: Modo,
   if (senalCts < MINIMO_CENTIMOS) throw new Rechazo(409, "la señal de este artículo sería de menos de 0,50 €");
   const ahora = Date.now();
   const titulo = corta(p.title ?? "Artículo", 120);
+  const venceMs = ahora + dias * DIA_MS;
+  // La copia (y su huella) es la del texto YA RELLENADO con los datos de esta reserva: lo mismo que vio el cliente.
+  const datosTexto = { porcentaje, dias, venceMs, senalCts, precioCts };
+  const condiciones = rellenarCondicionesReserva(a.texto_condiciones, datosTexto).slice(0, 20000);
+  const alVencerTexto = rellenarCondicionesReserva(a.al_vencer, datosTexto).slice(0, 2000);
   const { data: fila, error: errAlta } = await supabase
     .from("reservas")
     .insert({
@@ -1324,12 +1366,12 @@ async function crearReserva(supabase: SupabaseClient, clave: string, modo: Modo,
       porcentaje,
       senal_eur: senalCts / 100,
       precio_eur: precioCts / 100,
-      vence_en: new Date(ahora + dias * DIA_MS).toISOString(),
+      vence_en: new Date(venceMs).toISOString(),
       estado: "pendiente_pago",
       tipo_arras: a.tipo_arras,
-      al_vencer_texto: a.al_vencer,
-      condiciones_texto: a.texto_condiciones,
-      condiciones_hash: createHash("sha256").update(a.texto_condiciones, "utf8").digest("hex"),
+      al_vencer_texto: alVencerTexto,
+      condiciones_texto: condiciones,
+      condiciones_hash: createHash("sha256").update(condiciones, "utf8").digest("hex"),
       aceptadas_condiciones_en: new Date(ahora).toISOString(),
     })
     .select("id")

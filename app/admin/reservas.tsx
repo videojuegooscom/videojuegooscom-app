@@ -34,6 +34,7 @@ import {
   EXPLICACION_ARRAS,
   eurosReserva,
   fechaReserva,
+  problemasTextoClienteReserva,
   URL_PAGO,
   validarEscalaReserva,
   type TipoArras,
@@ -238,6 +239,8 @@ export default function AdminReservas() {
     if (!d.texto_condiciones) f.push("el texto de las condiciones");
     if (!d.condiciones_revisadas) f.push("marcar «Revisado por mi gestor»");
     if (d.texto_condiciones && MARCA_RE.test(d.texto_condiciones)) f.push("quitar la marca «BORRADOR · Pendiente de revisión del gestor» del texto");
+    // Nada interno puede llegar al cliente (la misma comprobación que api/pago.ts y el disparador).
+    f.push(...problemasTextoClienteReserva(d.texto_condiciones, d.al_vencer));
     return f;
   }, [leido]);
 
@@ -567,6 +570,9 @@ export default function AdminReservas() {
                       style: { minHeight: 220 },
                       accessibilityLabel: "Condiciones de la reserva",
                     })}
+                    <Text nativeID="reservas-marcas-ayuda" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                      {"{porcentaje}, {dias}, {fecha_vencimiento}, {senal_eur} y {precio_eur} se rellenan solas con los datos de cada reserva (por ejemplo «20 %», «14 días», «30 de noviembre de 2026», «90,00 €»). Las notas internas del borrador hay que quitarlas: con ellas no se puede activar."}
+                    </Text>
 
                     <Pressable
                       nativeID="reservas-revisado"

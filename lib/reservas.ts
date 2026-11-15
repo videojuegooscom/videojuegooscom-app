@@ -185,27 +185,27 @@ export const EXPLICACION_ARRAS: Record<TipoArras, { titulo: string; texto: strin
 
 // Borrador de condiciones (2026-11-15) para que lo revise el gestor del dueño: dos variantes del tipo de arras, huecos
 // [A DECIDIR POR EL DUEÑO] y la base legal de cada apartado («comprobar en el BOE»: citada de memoria, sin consultar).
-// Sin cifras del negocio: las marcas {porcentaje}, {dias}, {fecha_vencimiento}, {senal_eur} y {precio_eur} son huecos
-// (hoy NO se sustituyen solas; la hoja de reserva ya enseña esas cifras al cliente antes de pagar).
+// Sin cifras del negocio: las marcas {porcentaje}, {dias}, {fecha_vencimiento}, {senal_eur} y {precio_eur} se rellenan
+// solas con los datos de cada reserva (rellenarCondicionesReserva). Las notas internas impiden activarla.
 export const BORRADOR_CONDICIONES_RESERVA = `${MARCA_BORRADOR_RESERVA}
 
 Condiciones de la reserva con señal
 
-NOTA PARA EL GESTOR (borrar antes de activar): el apartado 4 tiene dos variantes (A, arras penitenciales; B, arras confirmatorias); hay que dejar solo la que elija el dueño. Hay que rellenar o quitar cada [A DECIDIR POR EL DUEÑO]. Las marcas entre llaves ({porcentaje}, {dias}, {fecha_vencimiento}, {senal_eur}, {precio_eur}) hoy no se sustituyen solas: decidir si se cambian por «los de tu reserva» o se pide a la tienda que las rellene. Las citas legales son de memoria. PUNTO A REVISAR: el apartado 8 (desistimiento de 14 días naturales).
+NOTA PARA EL GESTOR (borrar antes de activar): el apartado 4 tiene dos variantes (A, arras penitenciales; B, arras confirmatorias); hay que dejar solo la que elija el dueño. Hay que rellenar o quitar cada [A DECIDIR POR EL DUEÑO]. Las marcas entre llaves ({porcentaje}, {dias}, {fecha_vencimiento}, {senal_eur}, {precio_eur}) se rellenan solas con los datos de cada reserva: no hay que tocarlas. Esta nota, los huecos, los «comprobar en el BOE», la palabra BORRADOR y la variante que no se use hay que quitarlos: mientras estén, la tienda no deja activar las reservas. Las citas legales son de memoria. PUNTO A REVISAR: el apartado 8 (desistimiento de 14 días naturales).
 
 1. Quién vende. [A DECIDIR POR EL DUEÑO: nombre o razón social, NIF, dirección a efectos de notificaciones y correo de contacto.] (LGDCU, art. 97: información previa en contratos a distancia; comprobar en el BOE)
 
-2. Qué es la reserva. Al pagar la señal, la tienda aparta para ti el artículo indicado en tu reserva durante {dias} días, hasta el {fecha_vencimiento}, y no lo vende a otra persona mientras dure la reserva. (Código Civil, art. 1454, y LGDCU, art. 97; comprobar en el BOE)
+2. Qué es la reserva. Al pagar la señal, la tienda aparta para ti el artículo indicado en tu reserva durante {dias}, hasta el {fecha_vencimiento}, y no lo vende a otra persona mientras dure la reserva. (Código Civil, art. 1454, y LGDCU, art. 97; comprobar en el BOE)
 
-3. Precio y señal. Precio total del artículo: {precio_eur} €, impuestos incluidos. Gastos de envío o de entrega: [A DECIDIR POR EL DUEÑO: si los hay, cuánto y cuándo se pagan]. La señal es el {porcentaje} % del precio: {senal_eur} €. Se te enseña antes de pagar y se paga con tarjeta en la página segura de Stripe. (LGDCU, art. 97: precio total, gastos de envío y forma de pago; comprobar en el BOE)
+3. Precio y señal. Precio total del artículo: {precio_eur}, impuestos incluidos. Gastos de envío o de entrega: [A DECIDIR POR EL DUEÑO: si los hay, cuánto y cuándo se pagan]. La señal es el {porcentaje} del precio: {senal_eur}. Se te enseña antes de pagar y se paga con tarjeta en la página segura de Stripe. (LGDCU, art. 97: precio total, gastos de envío y forma de pago; comprobar en el BOE)
 
 4. Tipo de arras (dejar SOLO una variante).
 
-VARIANTE A · Arras penitenciales. La señal se entrega como arras penitenciales del artículo 1454 del Código Civil: cada parte puede echarse atrás. Si tú decides no comprar, pierdes la señal ({senal_eur} €). Si es la tienda la que se echa atrás o no te entrega el artículo, te devuelve el doble de la señal. (Código Civil, art. 1454; reciprocidad: LGDCU, art. 87.2; comprobar en el BOE)
+VARIANTE A · Arras penitenciales. La señal se entrega como arras penitenciales del artículo 1454 del Código Civil: cada parte puede echarse atrás. Si tú decides no comprar, pierdes la señal ({senal_eur}). Si es la tienda la que se echa atrás o no te entrega el artículo, te devuelve el doble de la señal. (Código Civil, art. 1454; reciprocidad: LGDCU, art. 87.2; comprobar en el BOE)
 
-VARIANTE B · Arras confirmatorias. La señal ({senal_eur} €) es parte del precio y prueba de la compra: se descuenta del precio total y no sirve para echarse atrás perdiéndola. Si una de las partes no cumple, la otra puede exigir que se cumpla la compra o resolverla con indemnización de daños y perjuicios. Si es la tienda la que no te entrega el artículo, te devuelve toda la señal más los daños y perjuicios que procedan. [A DECIDIR POR EL DUEÑO: si el cliente no completa la compra, qué hace la tienda: exigir el pago, resolver y devolver la señal, o resolver y reclamar daños; revisarlo con el gestor.] (Código Civil, art. 1124; reciprocidad: LGDCU, art. 87.2; comprobar en el BOE)
+VARIANTE B · Arras confirmatorias. La señal ({senal_eur}) es parte del precio y prueba de la compra: se descuenta del precio total y no sirve para echarse atrás perdiéndola. Si una de las partes no cumple, la otra puede exigir que se cumpla la compra o resolverla con indemnización de daños y perjuicios. Si es la tienda la que no te entrega el artículo, te devuelve toda la señal más los daños y perjuicios que procedan. [A DECIDIR POR EL DUEÑO: si el cliente no completa la compra, qué hace la tienda: exigir el pago, resolver y devolver la señal, o resolver y reclamar daños; revisarlo con el gestor.] (Código Civil, art. 1124; reciprocidad: LGDCU, art. 87.2; comprobar en el BOE)
 
-5. Resto del precio. Lo que falta ({precio_eur} € menos {senal_eur} €) se paga [A DECIDIR POR EL DUEÑO: cómo (tarjeta en la tienda online, Bizum, al recoger…) y cuándo (antes del {fecha_vencimiento}, antes del envío o en la entrega)]. Plazo de entrega una vez pagado todo: [A DECIDIR POR EL DUEÑO]. (LGDCU, art. 97: forma de pago y plazo de entrega; comprobar en el BOE)
+5. Resto del precio. Lo que falta ({precio_eur} menos {senal_eur}) se paga [A DECIDIR POR EL DUEÑO: cómo (tarjeta en la tienda online, Bizum, al recoger…) y cuándo (antes del {fecha_vencimiento}, antes del envío o en la entrega)]. Plazo de entrega una vez pagado todo: [A DECIDIR POR EL DUEÑO]. (LGDCU, art. 97: forma de pago y plazo de entrega; comprobar en el BOE)
 
 6. Al vencer. Si el {fecha_vencimiento} la compra no se ha completado: [A DECIDIR POR EL DUEÑO: qué pasa (la reserva se cancela y el artículo vuelve a la venta; si la señal se pierde o se devuelve según el tipo de arras; si se puede alargar la reserva)]. Lo mismo se enseña en «Qué pasa al vencer» antes de pagar. (Código Civil, arts. 1454 y 1124; comprobar en el BOE)
 
@@ -218,6 +218,56 @@ VARIANTE B · Arras confirmatorias. La señal ({senal_eur} €) es parte del pre
 10. Datos. Guardamos la reserva (artículo, importe, plazo y estas condiciones) unida a tu cuenta para gestionarla.
 
 Este texto es un borrador: no se enseña a ningún cliente mientras las reservas estén desactivadas.`;
+
+// --- Texto que ve el cliente (dueño, 2026-11-15: «que no ponga nada extraño») --------------------------------------------
+// Las cinco marcas se rellenan solas con los datos de CADA reserva (en la hoja de la ficha, en Mis reservas y en la copia
+// que guarda el servidor). Cualquier nota interna del borrador impide activar y enseñar: lo comprueban esta función (en
+// Administración), api/pago.ts (misma lógica) y el disparador reserva_ajustes_validar (migración
+// 20261115190000_reserva_texto_cliente).
+export const MARCAS_RESERVA = ["porcentaje", "dias", "fecha_vencimiento", "senal_eur", "precio_eur"] as const;
+export type DatosCondicionesReserva = { porcentaje: number; dias: number; vence: string | number; senal_eur: number; precio_eur: number };
+
+/** El texto con las marcas ya rellenadas: «20 %», «14 días», «30 de noviembre de 2026», «90,00 €». */
+export function rellenarCondicionesReserva(texto: string, d: DatosCondicionesReserva): string {
+  const pct = Number(d.porcentaje);
+  const dias = Number(d.dias);
+  const pctTxt = `${Number.isInteger(pct) ? pct : pct.toFixed(2).replace(".", ",")} %`;
+  // Si el texto ya trae la unidad detrás («{precio_eur} €»), no se repite.
+  return texto
+    .replace(/\{porcentaje\}(?:[  ]?%)?/g, () => pctTxt)
+    .replace(/\{dias\}(?:[  ]d[ií]as?\b)?/g, () => `${dias} ${dias === 1 ? "día" : "días"}`)
+    .replace(/\{fecha_vencimiento\}/g, () => fechaReserva(d.vence))
+    .replace(/\{senal_eur\}(?:[  ]?€)?/g, () => eurosReserva(Number(d.senal_eur)))
+    .replace(/\{precio_eur\}(?:[  ]?€)?/g, () => eurosReserva(Number(d.precio_eur)));
+}
+
+const NOTAS_INTERNAS_RESERVA: { re: RegExp; que: string }[] = [
+  { re: /\[A DECIDIR/i, que: "los huecos «[A DECIDIR…]»" },
+  { re: /NOTA PARA EL GESTOR/i, que: "la «NOTA PARA EL GESTOR»" },
+  { re: /PUNTO A REVISAR/i, que: "el «PUNTO A REVISAR»" },
+  { re: /comprobar en el BOE/i, que: "las notas «comprobar en el BOE»" },
+  { re: /BORRADOR/i, que: "la palabra «BORRADOR»" },
+];
+
+/** Las notas internas que tiene un texto (vacío = se puede enseñar al cliente). */
+export function notasInternasReserva(texto: string | null | undefined): string[] {
+  const t = texto ?? "";
+  const f = NOTAS_INTERNAS_RESERVA.filter((n) => n.re.test(t)).map((n) => n.que);
+  if (/\bVARIANTE\s+A\b/i.test(t) && /\bVARIANTE\s+B\b/i.test(t)) f.push("una de las dos variantes (dejar solo la VARIANTE A o la B)");
+  const raras = [...new Set([...t.matchAll(/\{([^{}]*)\}/g)].map((m) => m[1]).filter((m) => !(MARCAS_RESERVA as readonly string[]).includes(m)))];
+  for (const m of raras) f.push(`la marca «{${m}}» (solo se rellenan solas {porcentaje}, {dias}, {fecha_vencimiento}, {senal_eur} y {precio_eur})`);
+  return f;
+}
+
+/** Lo que hay que quitar del texto de las condiciones y de «Qué pasa al vencer» antes de activar (lista para el dueño). */
+export function problemasTextoClienteReserva(condiciones: string | null | undefined, alVencer: string | null | undefined): string[] {
+  const salida: string[] = [];
+  const c = notasInternasReserva(condiciones);
+  const v = notasInternasReserva(alVencer);
+  if (c.length) salida.push(`quitar del texto de las condiciones ${c.join(", ")}`);
+  if (v.length) salida.push(`quitar de «Qué pasa al vencer» ${v.join(", ")}`);
+  return salida;
+}
 
 /** Valida la escala escrita: tramos con días enteros crecientes (1-365) y porcentaje entero del 1 al 70. */
 export function validarEscalaReserva(escala: TramoReservaSenal[]): string | null {
@@ -246,7 +296,18 @@ export function senalReserva(precioEur: number, porcentaje: number): number {
 
 /** ¿La configuración pública está activa y completa? (si no, no se enseña nada). */
 export function reservaDisponible(a: AjustesReservaPublicos | null): boolean {
-  return !!a && a.activa === true && Array.isArray(a.escala) && a.escala.length > 0 && Number.isInteger(a.dias_max) && !!a.tipo_arras && !!a.al_vencer && !!a.texto_condiciones;
+  return (
+    !!a &&
+    a.activa === true &&
+    Array.isArray(a.escala) &&
+    a.escala.length > 0 &&
+    Number.isInteger(a.dias_max) &&
+    !!a.tipo_arras &&
+    !!a.al_vencer &&
+    !!a.texto_condiciones &&
+    // Con una nota interna, nada (el servidor y la base de datos ya lo impiden; esto es la última red).
+    problemasTextoClienteReserva(a.texto_condiciones, a.al_vencer).length === 0
+  );
 }
 
 /** GET /api/pago?reserva=ajustes (con la sesión, si la hay). Ante cualquier fallo, apagada. */

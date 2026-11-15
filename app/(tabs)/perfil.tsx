@@ -160,7 +160,7 @@ import { fijarAvisoPrecio, LIKED_PRODUCTS_KEY, LIKED_SERVICES_KEY, meGustaLocale
 import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
 import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
-import { eurosReserva, fechaReserva } from "../../lib/reservas";
+import { eurosReserva, fechaReserva, rellenarCondicionesReserva } from "../../lib/reservas";
 
 // Ficha a la que volver tras iniciar sesión o registrarse (la deja «Comprar ya» de la ficha).
 const VOLVER_TRAS_ACCESO_KEY = "videojuegoszaragoza:volver_tras_acceso";
@@ -3177,10 +3177,21 @@ type FilaMiReserva = {
   vence_en: string;
   estado: string;
   creado_en: string;
+  precio_eur?: number | string | null;
+  condiciones_texto?: string | null;
+  al_vencer_texto?: string | null;
 };
 
+// Los datos de la reserva para rellenar las marcas de su copia (las nuevas ya vienen rellenadas del servidor).
+function datosDeMiReserva(f: FilaMiReserva) {
+  const pct = Number(f.porcentaje);
+  const senal = Number(f.senal_eur);
+  const precio = Number(f.precio_eur);
+  return { porcentaje: pct, dias: f.dias, vence: f.vence_en, senal_eur: senal, precio_eur: Number.isFinite(precio) && precio > 0 ? precio : pct > 0 ? Math.round((senal * 10000) / pct) / 100 : senal };
+}
+
 const ESTADO_RESERVA: Record<string, string> = {
-  pendiente_pago: "Pendiente de pagar la señal",
+  pendiente_pago: "Pendiente de pago",
   activa: "Reservado",
   completada: "Compra completada",
   vencida: "Vencida",
@@ -3190,6 +3201,7 @@ const ESTADO_RESERVA: Record<string, string> = {
 function MisReservasSenal() {
   const [filas, setFilas] = useState<FilaMiReserva[] | null>(null);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [abierta, setAbierta] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -3198,7 +3210,7 @@ function MisReservasSenal() {
       if (!uid) return setFilas(null);
       const { data, error } = await supabase
         .from("reservas")
-        .select("id,producto_titulo,dias,porcentaje,senal_eur,vence_en,estado,creado_en")
+        .select("id,producto_titulo,dias,porcentaje,senal_eur,precio_eur,vence_en,estado,creado_en,condiciones_texto,al_vencer_texto")
         .eq("user_id", uid)
         .order("creado_en", { ascending: false })
         .limit(20);
@@ -3277,6 +3289,29 @@ function MisReservasSenal() {
                   Señal {eurosReserva(Number(f.senal_eur))} ({Number(f.porcentaje)} %) · {f.dias} {f.dias === 1 ? "día" : "días"}
                   {f.estado === "activa" || f.estado === "pendiente_pago" ? ` · vence el ${fechaReserva(f.vence_en)}` : ""}
                 </Text>
+                {f.condiciones_texto ? (
+                  <Pressable
+                    nativeID={`mi-reserva-condiciones-ver-${f.id}`}
+                    onPress={() => setAbierta((a) => (a === f.id ? null : f.id))}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({ minHeight: TACTIL.minimo, justifyContent: "center", paddingHorizontal: 4, opacity: pressed ? 0.6 : 1 })}
+                  >
+                    <Text style={{ color: SEG.accentTexto, fontWeight: "900", fontSize: TAMANOS.minimo }}>
+                      {abierta === f.id ? "Ocultar las condiciones" : "Ver las condiciones aceptadas"}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {abierta === f.id && f.condiciones_texto ? (
+                  <View nativeID={`mi-reserva-condiciones-${f.id}`} style={{ gap: 8, width: "100%" }}>
+                    {f.al_vencer_texto ? (
+                      <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                        <Text style={{ fontWeight: "900", color: SEG.text }}>Qué pasa al vencer: </Text>
+                        {rellenarCondicionesReserva(f.al_vencer_texto, datosDeMiReserva(f))}
+                      </Text>
+                    ) : null}
+                    <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, lineHeight: 18 }}>{rellenarCondicionesReserva(f.condiciones_texto, datosDeMiReserva(f))}</Text>
+                  </View>
+                ) : null}
               </View>
             );
           })}
