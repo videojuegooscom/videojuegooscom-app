@@ -493,7 +493,17 @@ const PR1 = "b1000000-0000-4000-8000-000000000001"; // a la venta, 450 €
 const PR2 = "b1000000-0000-4000-8000-000000000002"; // borrador
 const PR3 = "b1000000-0000-4000-8000-000000000003"; // oculto
 const PR4 = "b1000000-0000-4000-8000-000000000004"; // a la venta, 99,99 €
-const TEXTO_OK = "Condiciones de la reserva con señal (revisadas por el gestor).";
+// Con las cinco marcas (la de {precio_eur} con «€» detrás: no se repite): el servidor guarda el texto YA RELLENADO.
+const TEXTO_OK = "Condiciones de la reserva con señal (revisadas por el gestor): {dias}, hasta el {fecha_vencimiento}; señal del {porcentaje} del precio ({senal_eur} de {precio_eur} €).";
+const NOTAS_INTERNAS = [
+  ["[A DECIDIR", "[A DECIDIR POR EL DUEÑO: plazo]"],
+  ["NOTA PARA EL GESTOR", "NOTA PARA EL GESTOR: revisar."],
+  ["PUNTO A REVISAR", "[PUNTO A REVISAR POR EL GESTOR: desistimiento]"],
+  ["comprobar en el BOE", "(LGDCU, art. 97; comprobar en el BOE)"],
+  ["BORRADOR", "BORRADOR"],
+  ["VARIANTE A y B", "VARIANTE A · Arras penitenciales. VARIANTE B · Arras confirmatorias."],
+  ["marca desconocida", "Hola, {nombre_cliente}."],
+];
 const AJUSTES_OK = {
   id: 1, activa: true, escala: [{ hasta_dias: 7, porcentaje: 10 }, { hasta_dias: 30, porcentaje: 25 }], dias_max: 20, tipo_arras: "penitenciales",
   al_vencer: "Texto del dueño sobre el vencimiento.", texto_condiciones: TEXTO_OK, condiciones_revisadas: true,
@@ -528,6 +538,20 @@ async function bateriaReservas(manejador) {
   r.sinDias = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 5, acepta: true } });
   resv.ajustes = { ...AJUSTES_OK, escala: [{ hasta_dias: 7, porcentaje: 80 }] };
   r.escalaMala = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 5, acepta: true } });
+  // R2b: activa, revisada y completa, pero con una nota interna del borrador (en las condiciones o en «al vencer»): ni se
+  // enseña ni se reserva. Con una sola variante y solo las cinco marcas conocidas, sí.
+  r.notas = [];
+  for (const [nombre, nota] of NOTAS_INTERNAS) {
+    for (const campo of ["texto_condiciones", "al_vencer"]) {
+      resv.ajustes = { ...AJUSTES_OK, [campo]: `${AJUSTES_OK[campo]} ${nota}` };
+      const get = await pedirUrl(manejador, `/api/pago?reserva=ajustes&producto=${PR1}`);
+      const post = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "reserva", producto: PR1, dias: 5, acepta: true } });
+      r.notas.push({ nombre, campo, activa: get.cuerpo?.activa, conTexto: "texto_condiciones" in (get.cuerpo ?? {}) || "al_vencer" in (get.cuerpo ?? {}), codigo: post.codigo });
+    }
+  }
+  resv.ajustes = { ...AJUSTES_OK, texto_condiciones: `${TEXTO_OK} Tipo de arras: VARIANTE A, penitenciales.` };
+  r.unaVarianteGet = await pedirUrl(manejador, "/api/pago?reserva=ajustes");
+  r.altasTrasNotas = resv.altas.length;
   r.postTrasApagada = registro.stripePost - postAntes;
   // R3: activa y completa.
   resv.ajustes = { ...AJUSTES_OK };
@@ -609,6 +633,11 @@ function comprobarReservas(r) {
   ok(r.apagada.codigo === 403, `R1: apagada, «reserva» se rechaza (${r.apagada.codigo} ${r.apagada.cuerpo?.error})`);
   ok(r.sinRevisarGet.cuerpo?.activa === false && r.sinRevisar.codigo === 403, `R2: sin «Revisado por mi gestor», ni se ofrece ni se cobra (${r.sinRevisar.codigo})`);
   ok(r.borrador.codigo === 403 && r.sinDias.codigo === 403 && r.escalaMala.codigo === 403, `R2: con la marca de borrador, sin días máximos o con un 80 %, tampoco (${r.borrador.codigo}, ${r.sinDias.codigo}, ${r.escalaMala.codigo})`);
+  for (const n of r.notas) {
+    ok(n.activa === false && !n.conTexto && n.codigo === 403, `R2b: con «${n.nombre}» en ${n.campo === "al_vencer" ? "«al vencer»" : "las condiciones"}, los ajustes públicos salen apagados y sin el texto, y no se reserva (${JSON.stringify(n)})`);
+  }
+  ok(r.unaVarianteGet.cuerpo?.activa === true && /VARIANTE A/.test(r.unaVarianteGet.cuerpo?.texto_condiciones ?? ""), `R2b: con UNA sola variante y solo las marcas conocidas, sí se enseña (${r.unaVarianteGet.cuerpo?.activa})`);
+  ok(r.altasTrasNotas === 0, "R2b: con notas internas no se guarda ninguna reserva");
   ok(r.postTrasApagada === 0, "R1-R2: sin reglas completas no se llama a Stripe");
   const g = r.activaGet.cuerpo ?? {};
   ok(g.activa === true && g.dias_max === 20 && g.tipo_arras === "penitenciales" && g.texto_condiciones === TEXTO_OK && JSON.stringify(g.escala) === JSON.stringify(AJUSTES_OK.escala) && !("condiciones_revisadas" in g) && !("id" in g), `R3: activa y completa, la tienda recibe solo las reglas públicas (${JSON.stringify(g).slice(0, 200)})`);
@@ -625,7 +654,11 @@ function comprobarReservas(r) {
   ok(/^Señal de reserva · PlayStation 5 Slim · VideojuegosZaragoza$/.test(c["line_items[0][price_data][product_data][name]"] ?? ""), `R5: el concepto del cobro (${c["line_items[0][price_data][product_data][name]"]})`);
   const f = r.reserva1;
   ok(f.estado === "pendiente_pago" && f.user_id === CLIENTE && f.dias === 10 && f.porcentaje === 25 && f.senal_eur === 112.5 && f.precio_eur === 450 && f.tipo_arras === "penitenciales", `R5: la reserva se guarda pendiente, de quien la pide y con lo calculado en el servidor (${JSON.stringify({ e: f.estado, d: f.dias, p: f.porcentaje, s: f.senal_eur })})`);
-  ok(f.condiciones_texto === TEXTO_OK && f.condiciones_hash === createHash("sha256").update(TEXTO_OK).digest("hex") && !!f.aceptadas_condiciones_en && f.al_vencer_texto === AJUSTES_OK.al_vencer, "R5: con la copia de las condiciones aceptadas, su SHA-256 y la hora");
+  const fechaVence = new Date(Date.parse(f.vence_en)).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Madrid" });
+  const rellenado = `Condiciones de la reserva con señal (revisadas por el gestor): 10 días, hasta el ${fechaVence}; señal del 25 % del precio (112,50 € de 450,00 €).`;
+  ok(f.condiciones_texto === rellenado, `R5: la copia guardada es el texto YA RELLENADO con los datos de la reserva (${f.condiciones_texto})`);
+  ok(!/\{[^{}]*\}/.test(f.condiciones_texto ?? "{") && /^\d{1,2} de [a-z]+ de \d{4}$/.test(fechaVence), `R5: sin ninguna marca {…} y con la fecha «30 de noviembre de 2026» (${fechaVence})`);
+  ok(f.condiciones_hash === createHash("sha256").update(rellenado, "utf8").digest("hex") && f.condiciones_hash !== createHash("sha256").update(TEXTO_OK).digest("hex") && !!f.aceptadas_condiciones_en && f.al_vencer_texto === AJUSTES_OK.al_vencer, "R5: su SHA-256 es la del texto rellenado (no la de la plantilla), con la hora y «al vencer»");
   const apartado = Date.parse(r.prod1.reservado_hasta ?? "") - Date.now();
   ok(apartado > 29 * 60_000 && apartado < 32 * 60_000, `R5: el artículo queda apartado mientras dura el pago (${Math.round(apartado / 60000)} min)`);
   ok(r.otroPendiente.codigo === 409, `R6: mientras una persona paga la señal, otra no puede reservarlo (${r.otroPendiente.codigo})`);
@@ -774,6 +807,8 @@ try {
       "se cobra el importe que manda el navegador (R5)",
     ],
     ["a la venta", 'if (!p || p.status !== "PUBLISHED" || p.is_active !== true) throw', "if (!p) throw", (m) => m.borradorProd.codigo === 200, "se reserva un artículo en borrador (R4)"],
+    ["sin notas internas", "if (tieneNotasInternasReserva(texto) || tieneNotasInternasReserva(alVencer)) {", "if (false) {", (m) => m.notas.some((n) => n.activa !== false || n.codigo !== 403), "el texto con notas internas llega al cliente (R2b)"],
+    ["texto rellenado", "condiciones_texto: condiciones,", "condiciones_texto: a.texto_condiciones,", (m) => /\{dias\}/.test(m.reserva1?.condiciones_texto ?? ""), "se guarda la plantilla sin rellenar (R5)"],
   ];
   for (const [i, [nombre, buscar, poner, detecta, texto]] of mutacionesR.entries()) {
     const roto = fuente.replace(buscar, poner);

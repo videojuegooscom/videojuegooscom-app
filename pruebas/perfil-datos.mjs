@@ -18270,7 +18270,10 @@ async function seccionRESEN() {
   const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
   const TEXTO = "Condiciones de la reserva con señal revisadas por el gestor.";
   const AL_VENCER = "Texto del dueño sobre qué pasa al vencer.";
-  const PUBLICA = { ok: true, activa: true, escala: [{ hasta_dias: 7, porcentaje: 10 }, { hasta_dias: 30, porcentaje: 25 }], dias_max: 20, tipo_arras: "penitenciales", al_vencer: AL_VENCER, texto_condiciones: TEXTO };
+  // Lo que da el servidor activo: con las cinco marcas, que la hoja rellena con lo elegido (y «€» detrás de una: no se repite).
+  const TEXTO_M = "La reserva dura {dias}, hasta el {fecha_vencimiento}: señal del {porcentaje} ({senal_eur}) sobre {precio_eur} €.";
+  const AL_VENCER_M = "Si el {fecha_vencimiento} no se ha completado la compra, la reserva se cancela.";
+  const PUBLICA = { ok: true, activa: true, escala: [{ hasta_dias: 7, porcentaje: 10 }, { hasta_dias: 30, porcentaje: 25 }], dias_max: 20, tipo_arras: "penitenciales", al_vencer: AL_VENCER_M, texto_condiciones: TEXTO_M };
   const VACIOS = { id: 1, activa: false, escala: null, dias_max: null, tipo_arras: null, al_vencer: null, texto_condiciones: null, condiciones_revisadas: false };
   const VISTAS = [
     { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
@@ -18479,7 +18482,7 @@ async function seccionRESEN() {
     ok((await texto(p, "#reserva-dias-valor")) === "8 días" && (await texto(p, "#reserva-senal")) === "Señal: 25 % · 112,50 €", `RESEN3 (${nombre}): con 8 días, el tramo siguiente: 25 % = 112,50 € (${await texto(p, "#reserva-senal")})`);
     ok((await texto(p, "#reserva-vence")) === `Vence el ${fecha(8)} si pagas hoy.`, `RESEN3 (${nombre}): la fecha de vencimiento (${await texto(p, "#reserva-vence")})`);
     ok(/Arras penitenciales/.test(await texto(p, "#reserva-arras")) && /1454/.test(await texto(p, "#reserva-arras")), `RESEN3 (${nombre}): explica el tipo de arras`);
-    ok((await texto(p, "#reserva-al-vencer")) === `Qué pasa al vencer ${AL_VENCER}`, `RESEN3 (${nombre}): qué pasa al vencer, con el texto del dueño (${await texto(p, "#reserva-al-vencer")})`);
+    ok((await texto(p, "#reserva-al-vencer")) === `Qué pasa al vencer Si el ${fecha(8)} no se ha completado la compra, la reserva se cancela.`, `RESEN3 (${nombre}): qué pasa al vencer, con el texto del dueño y la fecha rellenada (${await texto(p, "#reserva-al-vencer")})`);
     ok((await alto(p, "#reserva-dias-mas")) >= 44 && (await alto(p, "#reserva-acepta")) >= 44 && (await alto(p, "#reserva-condiciones-ver")) >= 44, `RESEN3 (${nombre}): días, casilla y enlace de 44 px`);
     const d = await sinDesborde(p);
     ok(d.a <= d.v + 1, `RESEN3 (${nombre}): la hoja no ensancha la página (${d.a}/${d.v})`);
@@ -18493,8 +18496,16 @@ async function seccionRESEN() {
       ok((await texto(p, "#reserva-dias-valor")) === "20 días" && (await p.locator("#reserva-dias-mas").getAttribute("aria-disabled")) === "true", `RESEN3: no pasa de los días máximos (${await texto(p, "#reserva-dias-valor")})`);
       for (let i = 0; i < 12; i++) await p.locator("#reserva-dias-menos").click();
       await p.locator("#reserva-condiciones-ver").click();
-      ok((await texto(p, "#reserva-condiciones-texto")) === TEXTO, "RESEN3: «Leer las condiciones completas» enseña el texto entero");
-      ok(/He leído y acepto las condiciones de la reserva \(arras penitenciales\)/.test(await texto(p, "#reserva-acepta")), "RESEN3: la casilla dice qué se acepta");
+      const cond = await texto(p, "#reserva-condiciones-texto");
+      ok(cond === `La reserva dura 8 días, hasta el ${fecha(8)}: señal del 25 % (112,50 €) sobre 450,00 €.`, `RESEN3: «Leer las condiciones completas» enseña el texto entero con las marcas RELLENADAS (${cond})`);
+      ok(!/[{}]/.test(cond + (await texto(p, "#reserva-hoja"))), "RESEN3: en la hoja no queda ninguna marca {…}");
+      await p.locator("#reserva-dias-menos").click();
+      await p.waitForTimeout(150);
+      const cond7 = await texto(p, "#reserva-condiciones-texto");
+      ok(cond7 === `La reserva dura 7 días, hasta el ${fecha(7)}: señal del 10 % (45,00 €) sobre 450,00 €.`, `RESEN3: al cambiar los días, el texto se rellena con los nuevos datos (${cond7})`);
+      await p.locator("#reserva-dias-mas").click();
+      await p.waitForTimeout(150);
+      ok(/He leído y acepto las condiciones de la reserva$/.test(await texto(p, "#reserva-acepta")) && !/arras/i.test(await texto(p, "#reserva-acepta")), `RESEN3: la casilla dice qué se acepta, sin jerga (${await texto(p, "#reserva-acepta")})`);
       await p.locator("#reserva-acepta").click();
       ok((await p.locator("#reserva-acepta").getAttribute("aria-checked")) === "true" && (await texto(p, "#reserva-pagar")) === "Pagar señal · 112,50 €", `RESEN3: marcada, «Pagar señal · 112,50 €» (${await texto(p, "#reserva-pagar")})`);
       await capturar(p, "RESEN3-hoja-aceptada-390");
@@ -18540,7 +18551,9 @@ async function seccionRESEN() {
 
   // RESEN5) «Mis reservas» (360, 390 y 1280) con su estado y vencimiento; en 390, la vuelta de Stripe la confirma el servidor.
   for (const { nombre, vista } of VISTAS) {
-    const rs = { publica: { ok: true, activa: false }, reservas: [reserva("d0000000-0000-4000-8000-000000000001", "activa", 8), reserva("d0000000-0000-4000-8000-000000000004", "cancelada", 2, { producto_titulo: "Mando DualSense", senal_eur: 6, porcentaje: 10, dias: 3 })] };
+    // La 001 trae una copia con marcas sin rellenar (como una antigua): Mis reservas las rellena con SUS datos.
+    const copia = { condiciones_texto: "Señal del {porcentaje} ({senal_eur}) por {dias}, hasta el {fecha_vencimiento}; precio {precio_eur}.", al_vencer_texto: "El {fecha_vencimiento} se cancela." };
+    const rs = { publica: { ok: true, activa: false }, reservas: [reserva("d0000000-0000-4000-8000-000000000001", "activa", 8, copia), reserva("d0000000-0000-4000-8000-000000000004", "cancelada", 2, { producto_titulo: "Mando DualSense", senal_eur: 6, porcentaje: 10, dias: 3 })] };
     const estado = { filas: perfil, guardados: [], aceptaAnalitica: true };
     const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
     await simular(ctx, rs);
@@ -18552,6 +18565,12 @@ async function seccionRESEN() {
     ok((await texto(p, "#mi-reserva-estado-d0000000-0000-4000-8000-000000000001")) === "Reservado" && (await texto(p, "#mi-reserva-estado-d0000000-0000-4000-8000-000000000004")) === "Cancelada", `RESEN5 (${nombre}): con su estado`);
     const linea = await texto(p, "#mi-reserva-d0000000-0000-4000-8000-000000000001");
     ok(linea.includes("Señal 112,50 € (25 %) · 10 días · vence el") && linea.includes(fecha(8)), `RESEN5 (${nombre}): la señal, los días y el vencimiento (${linea})`);
+    const ID1 = "d0000000-0000-4000-8000-000000000001";
+    ok((await p.locator(`#mi-reserva-condiciones-${ID1}`).count()) === 0 && (await alto(p, `#mi-reserva-condiciones-ver-${ID1}`)) >= 44 && (await p.locator("#mi-reserva-condiciones-ver-d0000000-0000-4000-8000-000000000004").count()) === 0, `RESEN5 (${nombre}): «Ver las condiciones aceptadas» (44 px) empieza plegado y solo sale si hay copia`);
+    await p.locator(`#mi-reserva-condiciones-ver-${ID1}`).click();
+    const copiaVista = await texto(p, `#mi-reserva-condiciones-${ID1}`);
+    ok(copiaVista === `Qué pasa al vencer: El ${fecha(8)} se cancela. Señal del 25 % (112,50 €) por 10 días, hasta el ${fecha(8)}; precio 450,00 €.`, `RESEN5 (${nombre}): Mis reservas enseña las condiciones con las marcas RELLENADAS con los datos de la reserva (${copiaVista})`);
+    ok(!/[{}]/.test(await texto(p, "#mis-reservas")), `RESEN5 (${nombre}): en Mis reservas no queda ninguna marca {…}`);
     const d = await sinDesborde(p);
     ok(d.a <= d.v + 1, `RESEN5 (${nombre}): no se ensancha (${d.a}/${d.v})`);
     if (nombre === "390") {
@@ -18564,6 +18583,87 @@ async function seccionRESEN() {
     await p.locator("#mis-reservas").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, `RESEN5-mis-reservas-${nombre}`);
     ok(p.errores.length === 0, `RESEN5 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RESEN6) Administración (390): con las reglas puestas y revisadas, cada nota interna del borrador (en las condiciones o en
+  // «Qué pasa al vencer») impide activar y la lista «Para activarlas falta» dice exactamente qué quitar; limpio, se activa.
+  {
+    const LIMPIO = "Reserva de {dias} hasta el {fecha_vencimiento}: señal del {porcentaje} ({senal_eur}) sobre {precio_eur}. VARIANTE A · Arras penitenciales.";
+    const LISTOS = { id: 1, activa: false, escala: [{ hasta_dias: 7, porcentaje: 10 }, { hasta_dias: 30, porcentaje: 25 }], dias_max: 20, tipo_arras: "penitenciales", al_vencer: AL_VENCER, texto_condiciones: LIMPIO, condiciones_revisadas: true };
+    const NOTAS = [
+      ["[A DECIDIR", "[A DECIDIR POR EL DUEÑO: plazo]", /huecos «\[A DECIDIR…\]»/],
+      ["NOTA PARA EL GESTOR", "NOTA PARA EL GESTOR: revisar.", /NOTA PARA EL GESTOR/],
+      ["PUNTO A REVISAR", "[PUNTO A REVISAR POR EL GESTOR: desistimiento]", /PUNTO A REVISAR/],
+      ["comprobar en el BOE", "(LGDCU, art. 97; comprobar en el BOE)", /comprobar en el BOE/],
+      ["BORRADOR", "BORRADOR", /palabra «BORRADOR»/],
+      ["VARIANTE A y B", "VARIANTE B · Arras confirmatorias.", /dos variantes/],
+      ["marca desconocida", "Hola, {nombre_cliente}.", /marca «\{nombre_cliente\}»/],
+    ];
+    const rs = { ajustes: { ...LISTOS }, reservas: [], eventos: [] };
+    const estado = { filas: perfilAdmin, guardados: [] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    await simular(ctx, rs);
+    const p = await pagina(ctx, "/admin/reservas");
+    await p.locator("#reservas-ajustes").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    ok((await p.locator("#reservas-faltan").count()) === 0, `RESEN6: con las reglas puestas, revisadas y el texto limpio, no falta nada (${await texto(p, "#reservas-faltan")})`);
+    ok(/se rellenan solas/.test(await texto(p, "#reservas-marcas-ayuda")), "RESEN6: Administración explica que las cinco marcas se rellenan solas");
+    const probar = async (campo, valor) => {
+      await p.locator("#reservas-condiciones").fill(campo === "condiciones" ? valor : LIMPIO);
+      await p.locator("#reservas-al-vencer").fill(campo === "al_vencer" ? valor : AL_VENCER);
+      if ((await p.locator("#reservas-revisado").getAttribute("aria-checked")) !== "true") await p.locator("#reservas-revisado").click();
+      await p.waitForTimeout(120);
+      const faltan = await texto(p, "#reservas-faltan");
+      await p.locator("#reservas-interruptor").click();
+      await p.waitForTimeout(250);
+      return { faltan, mensaje: await texto(p, "#reservas-mensaje") };
+    };
+    for (const [nombre, nota, dice] of NOTAS) {
+      const c = await probar("condiciones", `${LIMPIO} ${nota}`);
+      ok(/quitar del texto de las condiciones/.test(c.faltan) && dice.test(c.faltan) && !/Revisado por mi gestor/.test(c.faltan), `RESEN6: con «${nombre}» en las condiciones, «Para activarlas falta» lo dice (${c.faltan.slice(0, 200)})`);
+      ok(/No se puede activar/.test(c.mensaje) && dice.test(c.mensaje) && !(rs.patches ?? []).some((x) => x.activa === true), `RESEN6: y el interruptor NO la activa ni manda nada (${c.mensaje.slice(0, 160)})`);
+      const v = await probar("al_vencer", `${AL_VENCER} ${nota === "VARIANTE B · Arras confirmatorias." ? "VARIANTE A y VARIANTE B." : nota}`);
+      ok(/quitar de «Qué pasa al vencer»/.test(v.faltan) && dice.test(v.faltan) && !(rs.patches ?? []).some((x) => x.activa === true), `RESEN6: con «${nombre}» en «Qué pasa al vencer», tampoco y lo dice (${v.faltan.slice(0, 200)})`);
+    }
+    await capturar(p, "RESEN6-admin-notas-internas-390");
+    await p.locator("#reservas-condiciones").fill(LIMPIO);
+    await p.locator("#reservas-al-vencer").fill(AL_VENCER);
+    if ((await p.locator("#reservas-revisado").getAttribute("aria-checked")) !== "true") await p.locator("#reservas-revisado").click();
+    await p.waitForTimeout(150);
+    ok((await p.locator("#reservas-faltan").count()) === 0, "RESEN6: limpio otra vez, ya no falta nada");
+    await p.locator("#reservas-interruptor").click();
+    await esperar(p, async () => (rs.patches ?? []).some((x) => x.activa === true));
+    const g = (rs.patches ?? []).find((x) => x.activa === true) ?? {};
+    ok(g.texto_condiciones === LIMPIO && g.al_vencer === AL_VENCER, `RESEN6: con el texto limpio (marcas conocidas y una sola variante) se activa (${JSON.stringify(g).slice(0, 160)})`);
+    ok(p.errores.length === 0, `RESEN6: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RESEN7) Apagada (390), con un artículo ya reservado: ni la ficha, ni Mis seguimientos, ni la cesta ni el pago hablan de
+  // señales ni de arras; la ficha solo dice, en neutro, hasta cuándo está reservado.
+  {
+    const hasta = new Date(Date.now() + 5 * 86_400_000).toISOString();
+    const rs = { publica: { ok: true, activa: false, reservado_hasta: hasta }, reservas: [] };
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await simular(ctx, rs);
+    const cuerpo = (pg) => pg.evaluate(() => document.body.innerText).catch(() => "");
+    const p = await pagina(ctx, `/producto/${PROD}`);
+    await p.locator("#ficha-reservado-senal").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok((await texto(p, "#ficha-reservado-senal")) === `Este artículo está reservado hasta el ${fecha(5)}.`, `RESEN7: la ficha dice en neutro hasta cuándo está reservado (${await texto(p, "#ficha-reservado-senal")})`);
+    const enFicha = await cuerpo(p);
+    ok(!/señal|arras|\{[a-z_]+\}/i.test(enFicha) && (await p.locator("#ficha-reservar-senal").count()) === 0, `RESEN7: APAGADA, la ficha no habla de señales, arras ni marcas (${(enFicha.match(/.{0,40}(señal|arras).{0,40}/i) ?? [""])[0]})`);
+    await capturar(p, "RESEN7-ficha-reservado-apagada-390");
+    for (const ruta of ["/perfil?tab=seguimientos", "/cesta", "/checkout", "/"]) {
+      const s = await pagina(ctx, ruta);
+      await s.waitForTimeout(3500);
+      const t = await cuerpo(s);
+      ok(t.length > 0 && !/señal|arras|reservar con/i.test(t) && (await s.locator("#mis-reservas").count()) === 0, `RESEN7: APAGADA, ${ruta} no enseña nada de reservas con señal (${(t.match(/.{0,40}(señal|arras|reservar con).{0,40}/i) ?? [""])[0]})`);
+      ok(s.errores.length === 0, `RESEN7: ${ruta} sin errores de JavaScript (${s.errores[0] ?? "ninguno"})`);
+    }
+    ok(p.errores.length === 0, `RESEN7: ficha sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
 }

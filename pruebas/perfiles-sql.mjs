@@ -2286,6 +2286,59 @@ try {
     const sinGestor = await como(c52, "authenticated", ADMIN, `update public.reserva_ajustes set ${REGLAS}, texto_condiciones = 'Condiciones.', activa = true`);
     ok(fugaR.filas?.length === 1 && sinGestor.ok, "(control) con las reglas abiertas, un cliente ve las reservas de otro y se activa sin revisar: la prueba SÍ lo detecta");
     await c52.end();
+
+    // Texto listo para el cliente (20261115190000_reserva_texto_cliente.sql): el disparador sigue haciendo todo lo de antes y
+    // además no deja activar con notas internas del borrador en las condiciones o en «al vencer»; con un texto limpio (las
+    // cinco marcas conocidas y una sola variante), sí.
+    const TEXTO_CLI = readFileSync("supabase/migrations/20261115190000_reserva_texto_cliente.sql", "utf8");
+    const c53 = await nuevaBase("vz_aislada_reserva_texto_cliente", ESQUEMA_R);
+    let repetidaT = true;
+    try {
+      for (const m of [RESERVAS, TEXTO_CLI, TEXTO_CLI]) await c53.query(m);
+    } catch (e) {
+      repetidaT = false;
+      console.log(String(e.message));
+    }
+    ok(repetidaT, "Texto del cliente: la migración se aplica (dos veces) sobre la de reservas sin error");
+    ok(Number((await c53.query("select count(*) as n from pg_proc where proname = 'reserva_ajustes_validar' and prosecdef")).rows[0].n) === 0, "Texto del cliente: la función del disparador sigue SIN security definer");
+    const q = (s) => `'${s.replace(/'/g, "''")}'`;
+    const LIMPIO = "Reserva de {dias} hasta el {fecha_vencimiento}: señal del {porcentaje} ({senal_eur} de {precio_eur}). VARIANTE A · Arras penitenciales.";
+    const NOTAS = [
+      ["[A DECIDIR", "[A DECIDIR POR EL DUEÑO: plazo]", /huecos «\[A DECIDIR…\]»/],
+      ["NOTA PARA EL GESTOR", "NOTA PARA EL GESTOR: revisar.", /NOTA PARA EL GESTOR/],
+      ["PUNTO A REVISAR", "[PUNTO A REVISAR POR EL GESTOR: desistimiento]", /PUNTO A REVISAR/],
+      ["comprobar en el BOE", "(LGDCU, art. 97; comprobar en el BOE)", /comprobar en el BOE/],
+      ["BORRADOR", "BORRADOR", /palabra «BORRADOR»/],
+      ["VARIANTE A y B", "VARIANTE B · Arras confirmatorias.", /dos variantes/],
+      ["marca desconocida", "Hola, {nombre_cliente}.", /marca «\{nombre_cliente\}»/],
+    ];
+    const REGLAS_T = `escala = '[{"hasta_dias": 7, "porcentaje": 10}, {"hasta_dias": 30, "porcentaje": 25}]', dias_max = 20, tipo_arras = 'penitenciales', condiciones_revisadas = true`;
+    const intentar = (cond, vencer) => como(c53, "authenticated", ADMIN, `update public.reserva_ajustes set ${REGLAS_T}, texto_condiciones = ${q(cond)}, al_vencer = ${q(vencer)}, activa = true returning activa`);
+    const sinReglasT = await como(c53, "authenticated", ADMIN, "update public.reserva_ajustes set activa = true");
+    ok(!sinReglasT.ok && /falta: la escala, los días máximos, el tipo de arras, qué pasa al vencer, el texto de las condiciones, la revisión del gestor/.test(sinReglasT.mensaje ?? ""), `Texto del cliente: sigue sin activarse sin reglas, con la misma lista (${sinReglasT.mensaje ?? "entró"})`);
+    const pct80T = await como(c53, "authenticated", ADMIN, `update public.reserva_ajustes set escala = '[{"hasta_dias": 7, "porcentaje": 80}]'`);
+    const marcaT = await intentar("BORRADOR · Pendiente de revisión del gestor. Condiciones.", "Texto del dueño.");
+    ok(!pct80T.ok && /1 al 70/.test(pct80T.mensaje ?? "") && !marcaT.ok && /marca de borrador/.test(marcaT.mensaje ?? ""), "Texto del cliente: sigue validando la escala y la marca de borrador de antes");
+    for (const [nombre, nota, dice] of NOTAS) {
+      const enCond = await intentar(`${LIMPIO} ${nota}`, "Texto del dueño.");
+      ok(!enCond.ok && /quitar del texto de las condiciones/.test(enCond.mensaje ?? "") && dice.test(enCond.mensaje ?? ""), `Texto del cliente: con «${nombre}» en las condiciones no se activa y dice qué quitar (${enCond.mensaje ?? "entró"})`);
+      const enVencer = await intentar(LIMPIO, `Texto del dueño. ${nota === "VARIANTE B · Arras confirmatorias." ? "VARIANTE A y VARIANTE B." : nota}`);
+      ok(!enVencer.ok && /quitar de «Qué pasa al vencer»/.test(enVencer.mensaje ?? "") && dice.test(enVencer.mensaje ?? ""), `Texto del cliente: con «${nombre}» en «al vencer» tampoco (${enVencer.mensaje ?? "entró"})`);
+    }
+    const limpio = await intentar(LIMPIO, "Si el {fecha_vencimiento} no se ha completado la compra, la reserva se cancela.");
+    ok(limpio.ok && limpio.filas?.[0]?.activa === true, `Texto del cliente: con un texto limpio (las cinco marcas y una sola variante), sí se activa (${limpio.mensaje ?? "ok"})`);
+    const textoMigT = TEXTO_CLI.replace(/^--.*$/gm, "").toLowerCase();
+    ok(!/\b(drop\s|delete\s+from|truncate|grant\b|revoke\b|security\s+definer|to\s+(anon|public)\b|using\s*\(\s*true\s*\)|auth\.(users|identities|sessions|refresh_tokens))/.test(textoMigT), "Texto del cliente: la migración no borra ni toca permisos delicados (nada que bloquee el guardián)");
+    await c53.end();
+    // PRUEBA DE LAS PRUEBAS: sin la comprobación de las notas, una «NOTA PARA EL GESTOR» se activaría.
+    const sinNotas = TEXTO_CLI.replace("if array_length(v_notas, 1) > 0 then", "if false then");
+    ok(sinNotas !== TEXTO_CLI, "(control) se ha podido quitar la comprobación de las notas en la copia de prueba");
+    const c54 = await nuevaBase("vz_aislada_reserva_texto_cliente_sin", ESQUEMA_R);
+    await c54.query(RESERVAS);
+    await c54.query(sinNotas);
+    const fuga = await como(c54, "authenticated", ADMIN, `update public.reserva_ajustes set ${REGLAS_T}, texto_condiciones = ${q(`${LIMPIO} NOTA PARA EL GESTOR: revisar.`)}, al_vencer = 'Texto.', activa = true returning activa`);
+    ok(fuga.ok, "(control) sin la comprobación, se activaría con una «NOTA PARA EL GESTOR»: la prueba SÍ lo detecta");
+    await c54.end();
   }
 
   // Opciones de los servicios (20261108230000_servicios_opciones.sql): el administrador escribe las opciones (Básica,

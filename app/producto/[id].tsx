@@ -109,7 +109,8 @@
  * Reservar con señal (mejora 14, 2026-11-15; ReservarConSenal): SOLO si GET /api/pago?reserva=ajustes dice que está
  * activa (apagada y vacía hasta que el dueño ponga sus reglas y su gestor revise el texto). Hoja con días, % y € de la
  * escala, vencimiento, arras, qué pasa al vencer, condiciones y casilla obligatoria; «Pagar señal» solo manda artículo y
- * días (el importe lo calcula api/pago.ts). Si el artículo está reservado, «Reservado con señal hasta el …» y sin comprar.
+ * días (el importe lo calcula api/pago.ts). Si el artículo está reservado, «Este artículo está reservado hasta el …» y sin comprar.
+ * Las condiciones y «Qué pasa al vencer» se enseñan con las marcas rellenadas (rellenarCondicionesReserva).
  * Mide reserva_abierta y reserva_pagar (lib/reservas.ts tiene el cálculo y los textos).
  *
  * Conectado con:
@@ -158,6 +159,7 @@ import {
   leerAjustesReserva,
   porcentajeReserva,
   productosReservadosPorOtros,
+  rellenarCondicionesReserva,
   RESERVA_MINUTOS,
   reservaDisponible,
   reservarProducto,
@@ -1774,7 +1776,8 @@ export default function ProductoScreen() {
                     nativeID="ficha-reservado-senal"
                     style={{ color: COLORES_TEXTO.secundario, fontWeight: "800", fontSize: TAMANOS.minimo + 0.5, lineHeight: 19, textAlign: "center" }}
                   >
-                    Reservado con señal hasta el {fechaReserva(reservadoSenalHasta)}.
+                    {/* Sin «señal»: también sale con las reservas apagadas (un artículo ya reservado no se ofrece). */}
+                    Este artículo está reservado hasta el {fechaReserva(reservadoSenalHasta)}.
                   </Text>
                 ) : null}
 
@@ -2053,6 +2056,10 @@ function ReservarConSenal({
   const senal = porcentaje ? senalReserva(producto.precio, porcentaje) : 0;
   const vence = Date.now() + dias * 86_400_000;
   const arras = EXPLICACION_ARRAS[tipo];
+  // Las marcas ({porcentaje}, {dias}…) rellenadas con lo elegido: lo mismo que guardará el servidor.
+  const datosTexto = { porcentaje: porcentaje ?? 0, dias, vence, senal_eur: senal, precio_eur: producto.precio };
+  const condiciones = rellenarCondicionesReserva(ajustes.texto_condiciones ?? "", datosTexto);
+  const alVencer = rellenarCondicionesReserva(ajustes.al_vencer ?? "", datosTexto);
 
   const abrir = useCallback(() => {
     if (conSesion === false) {
@@ -2233,7 +2240,7 @@ function ReservarConSenal({
               </View>
               <View nativeID="reserva-al-vencer" style={{ gap: 4 }}>
                 <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14 }}>Qué pasa al vencer</Text>
-                <Text style={{ color: COLORES_TEXTO.texto, fontSize: TAMANOS.minimo + 0.5, lineHeight: 20 }}>{ajustes.al_vencer}</Text>
+                <Text style={{ color: COLORES_TEXTO.texto, fontSize: TAMANOS.minimo + 0.5, lineHeight: 20 }}>{alVencer}</Text>
               </View>
 
               <Pressable
@@ -2248,7 +2255,7 @@ function ReservarConSenal({
               </Pressable>
               {verCondiciones ? (
                 <Text nativeID="reserva-condiciones-texto" style={{ color: COLORES_TEXTO.texto, fontSize: TAMANOS.minimo + 0.5, lineHeight: 20 }}>
-                  {ajustes.texto_condiciones}
+                  {condiciones}
                 </Text>
               ) : null}
 
@@ -2262,7 +2269,7 @@ function ReservarConSenal({
               >
                 <Ionicons name={acepta ? "checkbox" : "square-outline"} size={24} color={acepta ? COLORS.accent : COLORS.text} />
                 <Text style={{ flex: 1, color: COLORS.text, fontWeight: "700", fontSize: 14, lineHeight: 20 }}>
-                  He leído y acepto las condiciones de la reserva (arras {tipo})
+                  He leído y acepto las condiciones de la reserva
                 </Text>
               </Pressable>
 
