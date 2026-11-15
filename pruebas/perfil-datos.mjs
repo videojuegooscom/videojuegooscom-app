@@ -179,6 +179,10 @@
  *    primer «Comparar» y la cuenta nueva, una vez por dispositivo y sin repetirse al recargar; nunca dos a la vez; no tapan
  *    «Comprar ya» / «Añadir a la cesta», «Ir a pagar» ni la barra de comparar; «No volver a mostrar consejos» los apaga y
  *    deja los avisos de pedido; Analítica («Consejos de Blue»); 360/390/1280. Se lanza con SOLO = MOMB y en la pasada completa.
+ *  - CAMBC) Cambio de consola (mejora 13): la línea de la cesta sale con una consola en la cesta (o si el cliente compró una)
+ *    y no con un mando; sin cifras; abre Vender en modo cambio con «para comprar: …»; la solicitud se guarda marcada;
+ *    Cotizaciones la marca y la filtra; Analítica cuenta mostrado/tocado/enviados; 360/390/1280; campos de 16 px.
+ *    Se lanza con SOLO = CAMBC y en la pasada completa.
  *  - FS) Ficha de servicio con el formato de la de producto (galería, visor con zoom, botones iguales, pestañas,
  *    «Volver atrás», sin bloques de más) y su uso en Administración → Analítica, en el móvil y en el ordenador.
  *
@@ -17931,12 +17935,287 @@ async function seccionMOMB() {
   }
 }
 
+// ===== CAMBC) Cambio de consola desde la cesta (mejora 13, 2026-11-15) ===============================================
+// app/(tabs)/cesta.tsx → LineaCambioConsola: sale bajo el resumen SOLO con una consola en la cesta o si el cliente con sesión
+// ya compró una (pedidos + pedido_items); con un mando no; texto sin cifras, 13-15 px, enlace azul de texto, 44 px de alto.
+// Abre Vender en modo cambio (?cambio=1&desde=cesta&para=…) con el campo del artículo vacío y «para comprar: …»; al
+// enviarla, la solicitud va marcada («[Cambio desde la cesta · para comprar: …]») y se mide cambio_cesta_enviado;
+// Cotizaciones la marca y la filtra; Analítica cuenta mostrado / tocado / enviados. 360/390/1280. Todo simulado. ==========
+async function seccionCAMBC() {
+  const CATS = [{ id: "c0000000-0000-4000-8000-0000000000c5", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true }];
+  const ID = (n) => `e0000000-0000-4000-8000-0000000002${String(n).padStart(2, "0")}`;
+  const art = (n, title, price_eur) => ({
+    id: ID(n), title, description: "Artículo de prueba.", price_eur, status: "PUBLISHED", is_active: true, condition: "GOOD", category_id: CATS[0].id,
+    category: { id: CATS[0].id, name: CATS[0].name, slug: CATS[0].slug }, created_at: new Date(Date.UTC(2026, 10, 1 + n)).toISOString(), updated_at: "2026-11-14T10:00:00Z",
+    view_count: n, images: [], like_count: 0, reference: null, revisado: false, garantia_meses: null, solo_entrega_mano: false,
+  });
+  const PRODUCTOS = [art(1, "Playstation 5 Slim Con Lector", 450), art(2, "Mando ps5 blanco", 60)];
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const nuevoEstado = () => ({ filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS });
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/[-]/g, "").replace(/\s+/g, " ").trim()).catch(() => "");
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !(await cond()); i++) await p.waitForTimeout(250);
+  };
+  const LINEA = "#cesta-cambio-consola";
+  const enCesta = (ctx, a) =>
+    ctx.addInitScript((x) => {
+      try {
+        localStorage.setItem("videojuegoszaragoza:blue_consejos_off", "1");
+        if (!localStorage.getItem("videojuegoos_cart_v1")) localStorage.setItem("videojuegoos_cart_v1", JSON.stringify([{ ...x, reservedUntil: Date.now() + 14 * 60000 }]));
+      } catch {
+        // sin almacenamiento
+      }
+    }, { id: a.id, title: a.title, subtitle: "PlayStation 5", priceEUR: a.price_eur, qty: 1, imageUrl: null });
+  // Compras del cliente (solo la lectura de la cesta: select=id de pedidos y select=titulo de pedido_items).
+  const conCompras = (ctx, titulos) =>
+    ctx.route("**/rest/v1/{pedidos,pedido_items}*", (r) => {
+      const q = r.request();
+      const u = new URL(q.url());
+      if (q.method() !== "GET") return r.fallback();
+      const sel = u.searchParams.get("select");
+      if (u.pathname.endsWith("/pedidos") && sel === "id") return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(titulos.length ? [{ id: "a0000000-0000-4000-8000-0000000009c1" }] : []) });
+      if (u.pathname.endsWith("/pedido_items") && sel === "titulo") return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(titulos.map((titulo) => ({ titulo }))) });
+      return r.fallback();
+    });
+  const medidas = (p) =>
+    p.evaluate((sel) => {
+      const e = document.querySelector(sel);
+      if (!e) return null;
+      const r = e.getBoundingClientRect();
+      const tx = e.querySelector("div[dir], div") ?? e;
+      const enlace = [...e.querySelectorAll("span, div")].find((x) => /Ver cuánto me dais/.test(x.textContent ?? "") && !/consola/.test(x.textContent ?? ""));
+      return {
+        h: Math.round(r.height), l: Math.round(r.left), r: Math.round(r.right), vw: window.innerWidth,
+        letra: parseFloat(getComputedStyle(tx).fontSize), letraEnlace: enlace ? parseFloat(getComputedStyle(enlace).fontSize) : 0,
+        colorEnlace: enlace ? getComputedStyle(enlace).color : "", colorTexto: getComputedStyle(tx).color,
+      };
+    }, LINEA);
+
+  // CAMBC1) Con solo un mando en la cesta (y sin consolas compradas) no sale la línea ni se mide nada.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await enCesta(ctx, PRODUCTOS[1]);
+    await conCompras(ctx, []);
+    const p = await pagina(ctx, "/cesta");
+    await p.locator("#cesta-pagar").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    ok((await p.locator(LINEA).count()) === 0, "CAMBC: con un mando en la cesta (y sin consolas compradas) no sale el cambio de consola");
+    ok(evento(estado, "cambio_cesta_mostrado").length === 0, "CAMBC: y no se mide cambio_cesta_mostrado");
+    ok(p.errores.length === 0, `CAMBC1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CAMBC2) Cesta vacía: no hay resumen ni línea.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCompras(ctx, ["PS5 Digital Edition"]);
+    const p = await pagina(ctx, "/cesta");
+    await p.waitForTimeout(4000);
+    ok((await p.locator(LINEA).count()) === 0, "CAMBC: con la cesta vacía no sale");
+    await ctx.close();
+  }
+
+  // CAMBC3) Con una consola en la cesta (360, 390 y 1280): sale bajo el resumen, sin cifras, 13-15 px, enlace azul, 44 px de
+  // alto, sin desbordar. En 390, «Ver cuánto me dais» abre Vender en modo cambio con «para comprar: …» y se rellena y envía.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await enCesta(ctx, PRODUCTOS[0]);
+    await conCompras(ctx, []);
+    const p = await pagina(ctx, "/cesta");
+    const sale = await p.locator(LINEA).waitFor({ timeout: 40000 }).then(() => true, () => false);
+    ok(sale, `CAMBC (${nombre}): con una consola en la cesta sale el cambio de consola`);
+    const t = await texto(p, LINEA);
+    ok(t === "¿Tienes una consola que ya no usas? Cámbiala y te descontamos su valor · Ver cuánto me dais", `CAMBC (${nombre}): el texto (${t})`);
+    ok(!/\d/.test(t), `CAMBC (${nombre}): el texto no lleva cifras`);
+    const debajo = await p.evaluate(() => {
+      const a = document.getElementById("cesta-pagar")?.getBoundingClientRect();
+      const b = document.getElementById("cesta-cambio-consola")?.getBoundingClientRect();
+      return !!a && !!b && b.top >= a.bottom;
+    });
+    ok(debajo, `CAMBC (${nombre}): va bajo el resumen («Ir a pagar»)`);
+    const m = await medidas(p);
+    ok(!!m && m.h >= 44 && m.l >= 0 && m.r <= m.vw, `CAMBC (${nombre}): zona táctil de 44 px y cabe (${JSON.stringify(m)})`);
+    ok(!!m && m.letra >= 13 && m.letra <= 15 && m.letraEnlace >= 13 && m.letraEnlace <= 15, `CAMBC (${nombre}): letra discreta de 13-15 px (${m?.letra}/${m?.letraEnlace})`);
+    ok(!!m && m.colorEnlace === "rgb(10, 120, 180)" && m.colorTexto !== m.colorEnlace, `CAMBC (${nombre}): el enlace va en azul de texto #0A78B4 (${m?.colorEnlace} / ${m?.colorTexto})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `CAMBC (${nombre}): la cesta no se ensancha (${d.a}/${d.v})`);
+    await p.locator(LINEA).scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `CAMBC3-cesta-${nombre}`);
+    await esperar(p, async () => evento(estado, "cambio_cesta_mostrado").length > 0);
+    ok(JSON.stringify(evento(estado, "cambio_cesta_mostrado").map((e) => e.metadata)) === '[{"origen":"cesta"}]', `CAMBC (${nombre}): se mide cambio_cesta_mostrado una vez, sin datos personales (${JSON.stringify(evento(estado, "cambio_cesta_mostrado").map((e) => e.metadata))})`);
+    if (nombre === "390") {
+      const guardadas = [];
+      await ctx.route("**/rest/v1/sell_requests*", (r) => {
+        const q = r.request();
+        if (q.method() === "OPTIONS") return r.fallback();
+        if (q.method() !== "POST") return r.fallback();
+        guardadas.push(JSON.parse(q.postData() ?? "{}"));
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      });
+      await ctx.route("**/rest/v1/rpc/get_or_create_sell_request_chat*", (r) =>
+        r.request().method() === "OPTIONS" ? r.fallback() : r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify("f0000000-0000-4000-8000-0000000009c2") })
+      );
+      await ctx.route("**/rest/v1/product_chat_messages*", (r) => (r.request().method() === "POST" ? r.fulfill({ status: 201, headers: CORS, body: "" }) : r.fallback()));
+      await p.locator(LINEA).click();
+      await p.waitForURL(/\/vender/, { timeout: 15000 }).catch(() => {});
+      await p.locator("#vender-cambio-cesta").waitFor({ timeout: 20000 }).catch(() => {});
+      const u = new URL(p.url());
+      ok(u.pathname === "/vender" && u.searchParams.get("cambio") === "1" && u.searchParams.get("desde") === "cesta" && u.searchParams.get("para") === "Playstation 5 Slim Con Lector", `CAMBC: abre Vender en modo cambio con la consola que compra (${u.pathname}${u.search})`);
+      const ctxTexto = await texto(p, "#vender-cambio-cesta");
+      ok(/Cambio desde la cesta · para comprar: Playstation 5 Slim Con Lector/.test(ctxTexto) && /precio orientativo y lo confirmamos nosotros tras revisarla/.test(ctxTexto), `CAMBC: Vender enseña el contexto y que el valor es orientativo (${ctxTexto})`);
+      ok(!/\d/.test(ctxTexto.replace("Playstation 5 Slim", "")), "CAMBC: el contexto de Vender no promete cifras");
+      const campoArticulo = p.getByPlaceholder("Ej: PlayStation 5 con dos mandos");
+      ok((await campoArticulo.inputValue().catch(() => "x")) === "", "CAMBC: el campo de la consola que entrega llega vacío");
+      await esperar(p, async () => evento(estado, "cambio_cesta_tocado").length > 0);
+      ok(JSON.stringify(evento(estado, "cambio_cesta_tocado").map((e) => e.metadata)) === '[{"origen":"cesta"}]', "CAMBC: se mide cambio_cesta_tocado (solo el origen)");
+      const letras = await p.evaluate(() => [...document.querySelectorAll("input, textarea")].filter((e) => e.getBoundingClientRect().width > 0).map((e) => parseFloat(getComputedStyle(e).fontSize)));
+      ok(letras.length > 0 && letras.every((x) => x >= 16), `CAMBC: los campos de Vender miden 16 px o más (${letras.join(",")})`);
+      await capturar(p, "CAMBC3-vender-390");
+      // Se rellena y se envía.
+      await p.getByPlaceholder("Tu nombre").fill("Ana");
+      await p.getByPlaceholder("Tu apellido").fill("García");
+      await campoArticulo.fill("PS4 Pro 1 TB");
+      await p.getByPlaceholder("Ej: Zaragoza").fill("Zaragoza");
+      await p.getByPlaceholder("Ej: 150€").fill("120€");
+      const ELEGIR = ["Femenino", "Sí", "Gmail", "Me desplazo a entregarlo", "Mañana"];
+      for (let i = 0; i < 8; i++) {
+        const boton = p.getByText("Elegir", { exact: true }).first();
+        if (!(await boton.isVisible().catch(() => false))) break;
+        await boton.click();
+        await p.waitForTimeout(300);
+        // Cada opción se usa una vez (la elegida queda escrita en su botón y no hay que volver a tocarla).
+        for (const op of [...ELEGIR]) {
+          const o = p.getByText(op, { exact: true }).last();
+          if (await o.isVisible().catch(() => false)) {
+            await o.click();
+            ELEGIR.splice(ELEGIR.indexOf(op), 1);
+            break;
+          }
+        }
+        await p.waitForTimeout(300);
+      }
+      await p.getByPlaceholder("tunombre@gmail.com").fill("ana.prueba@gmail.com").catch(() => {});
+      await p.getByText("Confirmo que soy mayor de 18 años").click();
+      await p.waitForTimeout(4200);
+      await p.getByText("Enviar Formulario").first().click();
+      await esperar(p, async () => guardadas.length > 0, 40);
+      await capturar(p, "CAMBC3-vender-enviado-390");
+      const g = guardadas[0] ?? {};
+      ok(String(g.motivo_venta ?? "").startsWith("[Cambio desde la cesta · para comprar: Playstation 5 Slim Con Lector] Quiero cambiarlo por otro artículo de la tienda: Playstation 5 Slim Con Lector"), `CAMBC: la solicitud se guarda marcada como cambio desde la cesta (${String(g.motivo_venta ?? "nada").slice(0, 160)})`);
+      ok(g.articulo === "PS4 Pro 1 TB", `CAMBC: con la consola que entrega (${g.articulo})`);
+      await esperar(p, async () => evento(estado, "cambio_cesta_enviado").length > 0);
+      ok(JSON.stringify(evento(estado, "cambio_cesta_enviado").map((e) => e.metadata)) === '[{"con_referencia":true}]', `CAMBC: se mide cambio_cesta_enviado sin datos personales (${JSON.stringify(evento(estado, "cambio_cesta_enviado").map((e) => e.metadata))})`);
+    }
+    ok(p.errores.length === 0, `CAMBC3 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CAMBC4) Con un mando en la cesta pero una consola comprada antes: sale (origen «compra») y abre Vender sin «para comprar».
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await enCesta(ctx, PRODUCTOS[1]);
+    await conCompras(ctx, ["Juego FIFA 25", "PS5 Digital Edition"]);
+    const p = await pagina(ctx, "/cesta");
+    const sale = await p.locator(LINEA).waitFor({ timeout: 40000 }).then(() => true, () => false);
+    ok(sale, "CAMBC: si el cliente ya compró una consola, sale aunque en la cesta haya solo un mando");
+    await esperar(p, async () => evento(estado, "cambio_cesta_mostrado").length > 0);
+    ok(evento(estado, "cambio_cesta_mostrado")[0]?.metadata?.origen === "compra", "CAMBC: y se mide con origen «compra»");
+    await p.locator(LINEA).click().catch(() => {});
+    await p.locator("#vender-cambio-cesta").waitFor({ timeout: 20000 }).catch(() => {});
+    const u = new URL(p.url());
+    ok(u.searchParams.get("cambio") === "1" && u.searchParams.get("desde") === "cesta" && !u.searchParams.get("para"), `CAMBC: abre Vender en modo cambio sin consola de referencia (${u.search})`);
+    ok((await texto(p, "#vender-cambio-cesta")).startsWith("Cambio desde la cesta Escribe"), `CAMBC: con «Cambio desde la cesta» (${await texto(p, "#vender-cambio-cesta")})`);
+    ok(p.errores.length === 0, `CAMBC4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CAMBC5) Administración → Cotizaciones (390 y 1280): la solicitud de la cesta sale marcada («Cambio desde la cesta · para
+  // comprar: …», sin la marca en el texto) y el filtro «Cambio desde la cesta (1)» deja solo esa.
+  const SOLICITUD = (id, articulo, motivo) => ({
+    id, created_at: "2026-11-15T10:00:00Z", updated_at: "2026-11-15T10:00:00Z", nombre: "Ana", apellido: "García", articulo, funciona_bien: true, motivo_venta: motivo,
+    descripcion_problema: null, ciudad: "Zaragoza", precio_estimado: "120€", metodo_contacto: "gmail", contacto: "ana.prueba@gmail.com", opcion_venta: "entrega", direccion: null,
+    disponibilidad: "manana", mayor_edad: true, genero: "femenino", status: "nuevo",
+  });
+  const S1 = "b0000000-0000-4000-8000-0000000009c1";
+  const S2 = "b0000000-0000-4000-8000-0000000009c2";
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const estado = {
+      filas: [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }],
+      guardados: [],
+      tablas: {
+        sell_requests: [
+          SOLICITUD(S1, "PS4 Pro 1 TB", "[Cambio desde la cesta · para comprar: Playstation 5 Slim Con Lector] Quiero cambiarlo por otro artículo de la tienda: Playstation 5 Slim Con Lector"),
+          SOLICITUD(S2, "Nintendo Switch OLED", "Ya no la uso"),
+        ],
+        sell_request_media: [],
+      },
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/cotizaciones");
+    await p.getByText("Nintendo Switch OLED").first().waitFor({ timeout: 40000 }).catch(() => {});
+    const marca = await texto(p, `#cotizacion-cesta-${S1}`);
+    ok(marca === "Cambio desde la cesta · para comprar: Playstation 5 Slim Con Lector", `CAMBC (${nombre}): Cotizaciones marca la que viene de la cesta (${marca})`);
+    ok((await p.locator(`#cotizacion-cesta-${S2}`).count()) === 0, `CAMBC (${nombre}): y no la otra`);
+    const cuerpo = await p.evaluate(() => document.body.innerText);
+    ok(!cuerpo.includes("[Cambio desde la cesta"), `CAMBC (${nombre}): la marca no se ve como texto crudo`);
+    const filtro = await texto(p, "#cotizaciones-filtro-cesta");
+    ok(filtro === "Cambio desde la cesta (1)", `CAMBC (${nombre}): el filtro dice cuántas hay (${filtro})`);
+    const altoFiltro = await p.locator("#cotizaciones-filtro-cesta").evaluate((e) => e.getBoundingClientRect().height).catch(() => 0);
+    ok(altoFiltro >= 44, `CAMBC (${nombre}): el filtro mide 44 px (${altoFiltro})`);
+    await p.locator("#cotizaciones-filtro-cesta").click();
+    await p.waitForTimeout(500);
+    ok((await p.getByText("Nintendo Switch OLED").count()) === 0 && (await p.getByText("PS4 Pro 1 TB").count()) > 0, `CAMBC (${nombre}): el filtro deja solo las de la cesta`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `CAMBC (${nombre}): Cotizaciones no se ensancha (${d.a}/${d.v})`);
+    await capturar(p, `CAMBC5-cotizaciones-${nombre}`);
+    await p.locator("#cotizaciones-filtro-cesta").click();
+    await p.waitForTimeout(400);
+    ok((await p.getByText("Nintendo Switch OLED").count()) > 0, `CAMBC (${nombre}): al quitar el filtro vuelven todas`);
+    ok(p.errores.length === 0, `CAMBC5 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CAMBC6) Administración → Analítica (390 y 1280): «Cambio de consola desde la cesta (30 días)» con mostrado, tocado y enviados.
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const ev = (n, k, metadata = {}) => Array.from({ length: k }, () => ({ event_name: n, metadata, created_at: new Date(Date.now() - 2 * 86400000).toISOString(), session_id: "x", step_label: n }));
+    const estado = {
+      filas: [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }],
+      guardados: [],
+      embudo: [],
+      eventos: [...ev("cambio_cesta_mostrado", 7, { origen: "cesta" }), ...ev("cambio_cesta_tocado", 3, { origen: "cesta" }), ...ev("cambio_cesta_enviado", 1, { con_referencia: true })],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-cambio-cesta").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = await texto(p, "#analitica-cambio-cesta");
+    ok(t === "Mostrado 7 · tocado 3 · enviados 1", `CAMBC (${nombre}): Analítica cuenta el cambio de consola (${t})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `CAMBC (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#analitica-cambio-cesta").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `CAMBC6-analitica-${nombre}`);
+    ok(p.errores.length === 0, `CAMBC6 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "AVISOM") await seccionAVISOM();
   if (SOLO === "CHATP") await seccionCHATP();
   if (SOLO === "VALOR") await seccionVALOR();
   if (SOLO === "MOMB") await seccionMOMB();
+  if (SOLO === "CAMBC") await seccionCAMBC();
   if (SOLO === "VISTOS") await seccionVISTOS();
   if (SOLO === "COMPA") await seccionCOMPA();
   if (SOLO === "RAPI") await seccionRAPI();
@@ -19046,6 +19325,7 @@ try {
   await seccionAVISOM();
   await seccionVALOR();
   await seccionMOMB();
+  await seccionCAMBC();
   await seccionCAMPOS16();
   }
 } catch (e) {

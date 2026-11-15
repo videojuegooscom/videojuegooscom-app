@@ -693,6 +693,20 @@ function newSellRequestId(): string {
   });
 }
 
+// «Cambio de consola» desde la cesta (mejora 13): marca que va delante del motivo o del problema guardado.
+// app/admin/cotizaciones.tsx la reconoce con leerMarcaCambioCesta, la enseña como etiqueta y la quita del texto.
+const PREFIJO_CAMBIO_CESTA = "[Cambio desde la cesta";
+export function marcaCambioCesta(paraComprar: string): string {
+  const para = paraComprar.replace(/[[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 80);
+  return `${PREFIJO_CAMBIO_CESTA}${para ? ` · para comprar: ${para}` : ""}] `;
+}
+export function leerMarcaCambioCesta(texto: string | null | undefined): { desdeCesta: boolean; para: string; resto: string } {
+  const t = String(texto ?? "");
+  const m = /^\[Cambio desde la cesta(?: · para comprar: ([^\]]*))?\]\s*/.exec(t);
+  if (!m) return { desdeCesta: false, para: "", resto: t };
+  return { desdeCesta: true, para: (m[1] ?? "").trim(), resto: t.slice(m[0].length) };
+}
+
 type SellRequestPayload = {
   id: string;
   nombre: string;
@@ -722,6 +736,8 @@ export default function VenderAhoraModal({
   articuloInicial = "",
   cambio = false,
   problemaInicial = "",
+  cambioDesdeCesta = false,
+  paraComprar = "",
 }: {
   visible: boolean;
   onClose: () => void;
@@ -735,6 +751,10 @@ export default function VenderAhoraModal({
   // Desde «Te lo compramos» de una reparación sin arreglo (app/(tabs)/perfil.tsx, parte 2 de la reparación por envío):
   // la nota del diagnóstico, ya escrita como el problema que tiene.
   problemaInicial?: string;
+  // «Cambio de consola» desde la cesta (mejora 13, 2026-11-15): la solicitud se guarda marcada (MARCA_CAMBIO_CESTA, que
+  // Administración → Cotizaciones reconoce y filtra) y, de referencia, la consola que compra (paraComprar, puede ir vacía).
+  cambioDesdeCesta?: boolean;
+  paraComprar?: string;
 }) {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
@@ -751,7 +771,9 @@ export default function VenderAhoraModal({
   const [articulo, setArticulo] = useState(articuloInicial);
   // Con una nota de «sin arreglo» (reparación por envío) ya se sabe que no funciona y la nota va en el problema.
   const [funcionaBien, setFuncionaBien] = useState<boolean | null>(problemaInicial ? false : null);
-  const [motivoVenta, setMotivoVenta] = useState(cambio ? "Quiero cambiarlo por otro artículo de la tienda: " : "");
+  const [motivoVenta, setMotivoVenta] = useState(
+    cambio ? `Quiero cambiarlo por otro artículo de la tienda: ${cambioDesdeCesta && paraComprar ? paraComprar : ""}` : ""
+  );
   const [descripcionProblema, setDescripcionProblema] = useState(problemaInicial);
   const [ciudad, setCiudad] = useState("");
   const [precioEstimado, setPrecioEstimado] = useState("");
@@ -1121,14 +1143,18 @@ export default function VenderAhoraModal({
     setSending(true);
 
     const requestId = newSellRequestId();
+    // Cambio desde la cesta: la marca va delante del texto que se guarda (motivo o problema), para que Administración la
+    // vea y la filtre sin columnas nuevas; la persona no la puede borrar porque no está en el campo.
+    const marca = cambioDesdeCesta ? marcaCambioCesta(paraComprar) : "";
     const payload: SellRequestPayload = {
       id: requestId,
       nombre: cleanNombre,
       apellido: cleanApellido,
       articulo: cleanArticulo,
       funciona_bien: funcionaBien,
-      motivo_venta: funcionaBien ? cleanMotivo : null,
-      descripcion_problema: !funcionaBien ? cleanProblema : null,
+      // Tope de 600 (sell_requests_longitudes_check) también con la marca delante.
+      motivo_venta: funcionaBien ? `${marca}${cleanMotivo}`.slice(0, 600) : null,
+      descripcion_problema: !funcionaBien ? `${marca}${cleanProblema}`.slice(0, 600) : null,
       ciudad: cleanCiudad,
       precio_estimado: cleanPrecio,
       metodo_contacto: metodoContacto === "gmail" ? "gmail" : null,
@@ -1146,6 +1172,8 @@ export default function VenderAhoraModal({
       const { error } = await supabase.from("sell_requests").insert(payload);
       if (error) throw error;
       const insertedRow = { id: requestId };
+      // Analítica propia (Administración → Analítica, «Cambio de consola desde la cesta»): sin datos de la persona.
+      if (cambioDesdeCesta) void trackEvent("cambio_cesta_enviado", "Cesta: cambio de consola enviado", { metadata: { con_referencia: !!paraComprar } });
 
       // La solicitud ya está guardada. Si hay fotos/vídeo, se suben aparte:
       // un fallo aquí no debe hacer parecer que se perdió toda la solicitud.
@@ -1574,6 +1602,20 @@ export default function VenderAhoraModal({
                           ? "Cambio: cuéntanos qué entregas y, en el motivo, qué artículo de la tienda quieres. Te contactamos con una propuesta."
                           : "Cuéntanos lo básico y te contactamos con una propuesta."}
                       </Text>
+                      {cambioDesdeCesta ? (
+                        <View
+                          nativeID="vender-cambio-cesta"
+                          style={{ marginTop: 10, alignSelf: "center", maxWidth: 520, borderRadius: 14, backgroundColor: "#F3F8FD", paddingVertical: 10, paddingHorizontal: 14, gap: 4 }}
+                        >
+                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, lineHeight: 20, textAlign: "center" }}>
+                            {paraComprar ? `Cambio desde la cesta · para comprar: ${paraComprar}` : "Cambio desde la cesta"}
+                          </Text>
+                          <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 14, lineHeight: 20, textAlign: "center" }}>
+                            Escribe la consola que entregas. Te damos un precio orientativo y lo confirmamos nosotros tras revisarla; ese
+                            valor se descuenta de tu compra.
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
 
                     {/* Nombre + Apellido (+ Género cuando caben 3 columnas) */}
