@@ -175,6 +175,10 @@
  *    una vez; «Valorar compra» (44 px) en Mis pedidos; una por pedido; 1-2 abre el chat con «Sobre mi pedido VZ-…: » sin
  *    enviar; 4-5 agradece; Administración (Pedidos, ficha del cliente y Analítica); sin la migración no rompe; 360/390/1280.
  *    Se lanza con SOLO = VALOR y en la pasada completa.
+ *  - MOMB) Blue en momentos clave (mejora 12): consejos de la cesta (3 pasos e «Ir a pagar»), el catálogo, la ficha, el
+ *    primer «Comparar» y la cuenta nueva, una vez por dispositivo y sin repetirse al recargar; nunca dos a la vez; no tapan
+ *    «Comprar ya» / «Añadir a la cesta», «Ir a pagar» ni la barra de comparar; «No volver a mostrar consejos» los apaga y
+ *    deja los avisos de pedido; Analítica («Consejos de Blue»); 360/390/1280. Se lanza con SOLO = MOMB y en la pasada completa.
  *  - FS) Ficha de servicio con el formato de la de producto (galería, visor con zoom, botones iguales, pestañas,
  *    «Volver atrás», sin bloques de más) y su uso en Administración → Analítica, en el móvil y en el ordenador.
  *
@@ -17603,11 +17607,336 @@ async function seccionAVISOM() {
   }
 }
 
+// ===== MOMB) Blue en momentos clave (mejora 12, 2026-11-15) =========================================================
+// Consejos de los primeros momentos (components/Campanita.tsx → ConsejoBlue): la cesta con artículos (3 pasos e «Ir a
+// pagar»), el catálogo, la ficha, el primer «Comparar» y la cuenta nueva; cada uno UNA vez por dispositivo (no se repite al
+// recargar), nunca dos a la vez (ni con un mensaje de Blue), sin tapar «Comprar ya» / «Añadir a la cesta», «Ir a pagar» ni
+// la barra de comparar; X de 44 px; «No volver a mostrar consejos» los apaga todos y deja los avisos de pedido; Analítica
+// «Consejos de Blue (30 días)». 360/390/1280 sin desbordes ni errores. Todo simulado. =============================
+async function seccionMOMB() {
+  const CATS = [{ id: "c0000000-0000-4000-8000-0000000000b5", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true }];
+  const ID = (n) => `e0000000-0000-4000-8000-0000000001${String(n).padStart(2, "0")}`;
+  const art = (n, title, price_eur) => ({
+    id: ID(n), title, description: "Consola de prueba.", price_eur, status: "PUBLISHED", is_active: true, condition: "GOOD", category_id: CATS[0].id,
+    category: { id: CATS[0].id, name: CATS[0].name, slug: CATS[0].slug }, created_at: new Date(Date.UTC(2026, 10, 1 + n)).toISOString(), updated_at: "2026-11-14T10:00:00Z",
+    view_count: n, images: [], like_count: 0, reference: null, revisado: false, garantia_meses: null, solo_entrega_mano: false,
+  });
+  const PRODUCTOS = [art(1, "Playstation 5 Slim Con Lector", 450), art(2, "Mando ps5 blanco", 60), art(3, "PS5 Digital Edition", 380)];
+  const fotosCatalogo = PRODUCTOS.map((p, i) => ({ id: `mb${i}`, product_id: p.id, kind: "image", public_url: `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/momb/${i}.jpg`, file_name: `${i}.jpg`, sort_order: 0, is_cover: true, duration_seconds: null }));
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const nuevoEstado = (extra = {}) => ({ filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS, fotosCatalogo, ...extra });
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/[-]/g, "").replace(/\s+/g, " ").trim()).catch(() => "");
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !(await cond()); i++) await p.waitForTimeout(250);
+  };
+  const DICHOS = "videojuegoszaragoza:blue_avisos_dichos";
+  const dichos = (p) => p.evaluate((k) => localStorage.getItem(k) ?? "", DICHOS);
+  // El consejo a la vista (su tarjeta, con opacidad 1), o null.
+  const consejoVisible = (p) =>
+    p.evaluate(() => {
+      const capa = document.getElementById("blue-consejo");
+      const c = capa?.firstElementChild;
+      if (!capa || !c || getComputedStyle(capa).opacity !== "1") return null;
+      return c.id.replace("blue-consejo-", "");
+    });
+  const esperarConsejo = (p, momento, ms) =>
+    p.waitForFunction((m) => {
+      const capa = document.getElementById("blue-consejo");
+      return !!capa && getComputedStyle(capa).opacity === "1" && capa.firstElementChild?.id === `blue-consejo-${m}`;
+    }, momento, { timeout: ms }).then(() => true, () => false);
+  // Ningún consejo a la vista durante `ms` (no se repite).
+  const sinConsejo = async (p, ms) => {
+    const fin = Date.now() + ms;
+    while (Date.now() < fin) {
+      if (await consejoVisible(p)) return false;
+      await p.waitForTimeout(500);
+    }
+    return true;
+  };
+  // Si la tarjeta del consejo cruza alguno de estos elementos (solo los que se ven).
+  const tapa = (p, selectores) =>
+    p.evaluate((sels) => {
+      const c = document.getElementById("blue-consejo")?.firstElementChild?.getBoundingClientRect();
+      if (!c) return [];
+      const out = [];
+      for (const s of sels) {
+        for (const e of document.querySelectorAll(s)) {
+          const r = e.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0 && c.left < r.right && r.left < c.right && c.top < r.bottom && r.top < c.bottom) out.push(s);
+        }
+      }
+      return out;
+    }, selectores);
+  const botones44 = (p) =>
+    p.evaluate(() => [...document.querySelectorAll('#blue-consejo [role="button"]')].map((e) => ({ id: e.id, h: Math.round(e.getBoundingClientRect().height), w: Math.round(e.getBoundingClientRect().width) })));
+  const cabe = (p) =>
+    p.evaluate(() => {
+      const r = document.getElementById("blue-consejo")?.firstElementChild?.getBoundingClientRect();
+      return r ? { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom), vw: window.innerWidth, vh: window.innerHeight } : null;
+    });
+  // Vigía: cuenta las veces que un consejo y un mensaje de Blue se ven a la vez (cada 200 ms).
+  const vigia = (ctx) =>
+    ctx.addInitScript(() => {
+      window.__dosALaVez = 0;
+      setInterval(() => {
+        const capa = document.getElementById("blue-consejo");
+        const consejo = !!capa && getComputedStyle(capa).opacity === "1";
+        const m = document.getElementById("blue-mensaje")?.getBoundingClientRect();
+        if (consejo && m && m.width > 0) window.__dosALaVez++;
+      }, 200);
+    });
+  const conCesta = (ctx) =>
+    ctx.addInitScript((a) => {
+      try {
+        if (!localStorage.getItem("videojuegoos_cart_v1")) localStorage.setItem("videojuegoos_cart_v1", JSON.stringify([{ ...a, reservedUntil: Date.now() + 14 * 60000 }]));
+      } catch {
+        // sin almacenamiento
+      }
+    }, { id: ID(1), title: PRODUCTOS[0].title, subtitle: "PlayStation 5", priceEUR: 450, qty: 1, imageUrl: null });
+  // GET /api/pago: el pago online está activo (como en la tienda).
+  const conPago = (ctx) => ctx.route("**/api/pago*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, disponible: true, klarna: false, bizum: false }) }));
+
+  // MOMB1) Catálogo (390): el primer «Comparar» trae su consejo («Elige hasta 3 y pulsa «Comparar» abajo») sin tapar la barra;
+  // al cerrarlo con la X (44 px) sale, a su turno, el del catálogo (filtros y «play 5»); nunca dos a la vez; quedan dichos
+  // y al recargar no se repiten. Se mide consejo_mostrado / consejo_cerrado solo con el momento.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await vigia(ctx);
+    const p = await pagina(ctx, "/catalogo");
+    await p.locator(`#comparar-${ID(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator(`#comparar-${ID(1)}`).click();
+    const comp = await esperarConsejo(p, "comparar", 30000);
+    ok(comp, "MOMB: el primer «Comparar» trae su consejo");
+    ok(/Elige hasta 3 y pulsa «Comparar» abajo/.test(await texto(p, "#blue-consejo-texto")), `MOMB: el consejo de comparar dice «Elige hasta 3 y pulsa Comparar abajo» (${await texto(p, "#blue-consejo-texto")})`);
+    await p.waitForTimeout(800);
+    ok((await tapa(p, ["#comparar-barra"])).length === 0, "MOMB: el consejo de comparar no tapa la barra de comparar");
+    const b = await botones44(p);
+    ok(b.length >= 2 && b.every((x) => x.h >= 44 && x.w >= 44), `MOMB: la X y «No volver a mostrar consejos» miden 44 px o más (${JSON.stringify(b)})`);
+    await capturar(p, "MOMB1-comparar-390");
+    ok((await consejoVisible(p)) === "comparar", "MOMB: solo un consejo a la vez (el del catálogo espera su turno)");
+    await p.locator("#blue-consejo-cerrar").click();
+    const cat = await esperarConsejo(p, "catalogo", 30000);
+    ok(cat, "MOMB: después, a su turno, el consejo del catálogo");
+    ok(/precio y estado/.test(await texto(p, "#blue-consejo-texto")) && /play 5/.test(await texto(p, "#blue-consejo-texto")), `MOMB: el del catálogo explica los filtros de precio y estado y «prueba play 5» (${await texto(p, "#blue-consejo-texto")})`);
+    await capturar(p, "MOMB1-catalogo-390");
+    await p.locator("#blue-consejo-cerrar").click();
+    await esperar(p, async () => evento(estado, "consejo_cerrado").length >= 2);
+    const mostrados = evento(estado, "consejo_mostrado").map((e) => e.metadata?.momento);
+    const cerrados = evento(estado, "consejo_cerrado").map((e) => JSON.stringify(e.metadata));
+    ok(mostrados.join(",") === "comparar,catalogo", `MOMB: se mide consejo_mostrado con el momento (${mostrados.join(",")})`);
+    ok(cerrados.join("|") === '{"momento":"comparar"}|{"momento":"catalogo"}', `MOMB: y consejo_cerrado solo con el momento (${cerrados.join("|")})`);
+    const g = await dichos(p);
+    ok(g.includes("consejo:comparar") && g.includes("consejo:catalogo"), "MOMB: quedan dichos en el dispositivo");
+    await p.reload({ waitUntil: "load" });
+    await p.locator(`#comparar-${ID(2)}`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator(`#comparar-${ID(2)}`).click().catch(() => {});
+    ok(await sinConsejo(p, 28000), "MOMB: al recargar (y volver a comparar) no se repiten");
+    ok((await p.evaluate(() => window.__dosALaVez)) === 0, "MOMB1: nunca un consejo y un mensaje de Blue a la vez");
+    ok(p.errores.length === 0, `MOMB1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // MOMB2) Ficha (390): «Puedes ampliar las fotos, ver cuándo te llega y preguntarnos por este artículo»; bajando la ficha
+  // nunca tapa «Comprar ya» / «Añadir a la cesta»; no coincide con los mensajes de Blue de la ficha; no se repite.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await vigia(ctx);
+    const p = await pagina(ctx, `/producto/${ID(1)}`);
+    const sale = await esperarConsejo(p, "ficha", 60000);
+    ok(sale, "MOMB: la primera ficha trae su consejo");
+    ok(/Puedes ampliar las fotos, ver cuándo te llega y preguntarnos por este artículo/.test(await texto(p, "#blue-consejo-texto")), `MOMB: el de la ficha (${await texto(p, "#blue-consejo-texto")})`);
+    await capturar(p, "MOMB2-ficha-390");
+    const pasos = await p.evaluate(async () => {
+      const boton = document.getElementById("ficha-comprar-ya");
+      let s = boton?.parentElement ?? null;
+      while (s && !(s.scrollHeight > s.clientHeight + 10 && /auto|scroll/.test(getComputedStyle(s).overflowY))) s = s.parentElement;
+      const desplazable = s ?? document.scrollingElement;
+      const cruza = (a, b) => !!a && !!b && a.width > 0 && b.width > 0 && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const out = [];
+      const max = desplazable.scrollHeight - desplazable.clientHeight;
+      for (let y = 0; y <= max + 100; y += 120) {
+        desplazable.scrollTop = Math.min(y, max);
+        await new Promise((r) => setTimeout(r, 750));
+        const capa = document.getElementById("blue-consejo");
+        if (!capa) break;
+        const visible = getComputedStyle(capa).opacity === "1";
+        const rc = capa.firstElementChild?.getBoundingClientRect();
+        const tapaCompra = visible && ["ficha-comprar-ya", "ficha-anadir-cesta"].some((id) => cruza(rc, document.getElementById(id)?.getBoundingClientRect()));
+        out.push({ y: desplazable.scrollTop, visible, tapaCompra });
+        if (desplazable.scrollTop >= max) break;
+      }
+      desplazable.scrollTop = 0;
+      return out;
+    });
+    ok(pasos.length > 0 && pasos.every((x) => !x.tapaCompra), `MOMB: bajando la ficha el consejo nunca tapa «Comprar ya» / «Añadir a la cesta» (${JSON.stringify(pasos.filter((x) => x.tapaCompra).slice(0, 3))} de ${pasos.length})`);
+    await p.waitForTimeout(400);
+    await p.locator("#blue-consejo-cerrar").click().catch(() => {});
+    await p.reload({ waitUntil: "load" });
+    ok(await sinConsejo(p, 40000), "MOMB: al volver a la ficha no se repite");
+    ok((await p.evaluate(() => window.__dosALaVez)) === 0, "MOMB2: nunca un consejo y un mensaje de Blue a la vez");
+    ok(p.errores.length === 0, `MOMB2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // MOMB3) Cesta con un artículo (360, 390 y 1280): la compra en 3 pasos («Revisa tu cesta · Tus datos de entrega · Paga
+  // seguro (tarjeta, Apple Pay o Google Pay)») con «Ir a pagar» y «Ahora no»; no tapa «Ir a pagar» ni las pestañas; cabe.
+  // En 390, «Ir a pagar» lleva al pago (consejo_seguido) y al volver a la cesta no se repite.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await vigia(ctx);
+    await conCesta(ctx);
+    await conPago(ctx);
+    const p = await pagina(ctx, "/cesta");
+    const sale = await esperarConsejo(p, "cesta", 45000);
+    ok(sale, `MOMB (${nombre}): la primera vez en la cesta con artículos sale la compra en 3 pasos`);
+    const pasos = await Promise.all([1, 2, 3].map((i) => texto(p, `#blue-consejo-paso-${i}`)));
+    ok(pasos.join(" · ") === "1 Revisa tu cesta · 2 Tus datos de entrega · 3 Paga seguro (tarjeta, Apple Pay o Google Pay)" && (await p.locator('[id^="blue-consejo-paso-"]').count()) === 3, `MOMB (${nombre}): 3 pasos (${pasos.join(" · ")})`);
+    ok(/Ir a pagar/.test(await texto(p, "#blue-consejo-seguir")) && /Ahora no/.test(await texto(p, "#blue-consejo-ahora-no")), `MOMB (${nombre}): con «Ir a pagar» y «Ahora no»`);
+    await p.waitForTimeout(800);
+    const tapados = await tapa(p, ["div:has(> #cesta-pagar)", '[data-testid^="pestana-"]']);
+    ok(tapados.length === 0, `MOMB (${nombre}): no tapa «Ir a pagar» ni las pestañas (${tapados.join(", ") || "nada"})`);
+    const b = await botones44(p);
+    ok(b.length === 4 && b.every((x) => x.h >= 44 && x.w >= 44), `MOMB (${nombre}): X, «Ir a pagar», «Ahora no» y «No volver a mostrar consejos» de 44 px (${JSON.stringify(b)})`);
+    const c = await cabe(p);
+    const d = await sinDesborde(p);
+    ok(!!c && c.l >= 0 && c.r <= c.vw && c.t >= 0 && c.b <= c.vh && d.a <= d.v + 1, `MOMB (${nombre}): el consejo cabe y la cesta no se ensancha (${JSON.stringify(c)} · ${d.a}/${d.v})`);
+    await capturar(p, `MOMB3-cesta-${nombre}`);
+    if (nombre === "390") {
+      await p.locator("#blue-consejo-seguir").click();
+      await p.waitForURL(/\/checkout/, { timeout: 15000 }).then(
+        () => ok(true, "MOMB: «Ir a pagar» del consejo lleva al pago"),
+        () => ok(false, `MOMB: «Ir a pagar» debía llevar al pago (${p.url()})`)
+      );
+      await esperar(p, async () => evento(estado, "consejo_seguido").length > 0);
+      ok(JSON.stringify(evento(estado, "consejo_seguido").map((e) => e.metadata)) === '[{"momento":"cesta"}]', `MOMB: se mide consejo_seguido (${JSON.stringify(evento(estado, "consejo_seguido").map((e) => e.metadata))})`);
+      await p.goto(`${BASE}/cesta`, { waitUntil: "load" });
+      ok(await sinConsejo(p, 28000), "MOMB: al volver a la cesta no se repite");
+    }
+    ok((await p.evaluate(() => window.__dosALaVez)) === 0, `MOMB3 (${nombre}): nunca dos a la vez`);
+    ok(p.errores.length === 0, `MOMB3 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // MOMB4) Cuenta recién creada (390): en Inicio, una vez, las ventajas de la cuenta (avisos de bajada de precio,
+  // seguimiento del pedido, Mis pedidos) con «Ver Mis pedidos»; no se repite al volver. Una cuenta antigua no lo recibe
+  // (el resto de pasadas lo comprueban: su CLIENTE es de enero).
+  {
+    const nueva = { ...CLIENTE, created_at: new Date(Date.now() - 2 * 3600000).toISOString() };
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, nueva, "user", estado);
+    await vigia(ctx);
+    const p = await pagina(ctx, "/");
+    const sale = await esperarConsejo(p, "cuenta", 50000);
+    ok(sale, "MOMB: tras crear la cuenta, Blue cuenta sus ventajas");
+    const t = await texto(p, "#blue-consejo-texto");
+    ok(/baja de precio/.test(t) && /seguimiento de tu pedido/.test(t) && /Mis pedidos/.test(t), `MOMB: avisos de bajada de precio, seguimiento y Mis pedidos (${t})`);
+    await capturar(p, "MOMB4-cuenta-390");
+    await p.locator("#blue-consejo-seguir").click();
+    await p.waitForURL(/\/perfil\?tab=seguimientos/, { timeout: 15000 }).then(
+      () => ok(true, "MOMB: «Ver Mis pedidos» lleva a Mis pedidos"),
+      () => ok(false, `MOMB: «Ver Mis pedidos» debía llevar a Mis pedidos (${p.url()})`)
+    );
+    await p.goto(`${BASE}/`, { waitUntil: "load" });
+    ok(await sinConsejo(p, 28000), "MOMB: al volver a Inicio no se repite");
+    ok(p.errores.length === 0, `MOMB4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // MOMB5) «No volver a mostrar consejos» (390): apaga todos los consejos del dispositivo (ni la ficha ni la cesta los traen
+  // después) y se mide consejos_desactivados; los avisos de pedido siguen («Tu pedido … está enviado · Ver seguimiento»).
+  {
+    const PID = "a0000000-0000-4000-8000-0000000009b1";
+    const s = { estadoPedido: "preparado" };
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await vigia(ctx);
+    await conCesta(ctx);
+    await ctx.route("**/rest/v1/{pedidos,service_requests}*", (r) => {
+      const q = r.request();
+      if (q.method() === "OPTIONS") return r.fallback();
+      const pedidos = new URL(q.url()).pathname.endsWith("/pedidos");
+      const cuerpo = pedidos ? [{ id: PID, numero: 901, codigo_seguimiento: "VZ-MB01-0001", estado: s.estadoPedido, entrega: "envio", devuelto_en: null }] : [];
+      return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(cuerpo) });
+    });
+    await ctx.addInitScript(([clave, pid]) => {
+      try {
+        if (!localStorage.getItem(clave)) localStorage.setItem(clave, JSON.stringify({ p: { [pid]: "preparado" }, r: {} }));
+      } catch {
+        // sin almacenamiento
+      }
+    }, [`videojuegoszaragoza:seguimientos_vistos:${CLIENTE.id}`, PID]);
+    const p = await pagina(ctx, "/catalogo");
+    const sale = await esperarConsejo(p, "catalogo", 45000);
+    ok(sale, "MOMB: (dispositivo nuevo) sale el consejo del catálogo");
+    await p.locator("#blue-consejo-apagar").click();
+    await esperar(p, async () => evento(estado, "consejos_desactivados").length > 0);
+    ok(evento(estado, "consejos_desactivados").length === 1 && (await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:blue_consejos_off"))) === "1", "MOMB: «No volver a mostrar consejos» los apaga en el dispositivo y se mide consejos_desactivados");
+    ok((await consejoVisible(p)) === null, "MOMB: y el consejo se va");
+    await p.goto(`${BASE}/producto/${ID(1)}`, { waitUntil: "load" });
+    ok(await sinConsejo(p, 35000), "MOMB: apagados, la ficha ya no trae consejo");
+    await p.goto(`${BASE}/cesta`, { waitUntil: "load" });
+    ok(await sinConsejo(p, 25000), "MOMB: ni la cesta");
+    s.estadoPedido = "enviado";
+    await p.goto(`${BASE}/`, { waitUntil: "load" });
+    const aviso = await p
+      .waitForFunction(() => /Tu pedido VZ-MB01-0001 está enviado · Ver seguimiento/.test(document.getElementById("blue-mensaje")?.textContent ?? ""), null, { timeout: 50000 })
+      .then(() => true, () => false);
+    ok(aviso, "MOMB: con los consejos apagados, Blue sigue avisando del pedido («Tu pedido VZ-MB01-0001 está enviado · Ver seguimiento»)");
+    if (aviso) await capturar(p, "MOMB5-aviso-pedido-390");
+    ok(p.errores.length === 0, `MOMB5: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // MOMB6) Administración → Analítica (390 y 1280): «Consejos de Blue (30 días)» por momento (mostrados, seguidos y
+  // cerrados) y cuántos los desactivaron; cabe a lo ancho.
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const ev = (n, k, metadata = {}) => Array.from({ length: k }, () => ({ event_name: n, metadata, created_at: new Date(Date.now() - 2 * 86400000).toISOString(), session_id: "x", step_label: n }));
+    const estado = {
+      filas: [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }],
+      guardados: [],
+      embudo: [],
+      eventos: [
+        ...ev("consejo_mostrado", 5, { momento: "cesta" }), ...ev("consejo_seguido", 2, { momento: "cesta" }), ...ev("consejo_cerrado", 1, { momento: "cesta" }),
+        ...ev("consejo_mostrado", 3, { momento: "catalogo" }), ...ev("consejo_cerrado", 2, { momento: "catalogo" }), ...ev("consejo_mostrado", 1, { momento: "cuenta" }),
+        ...ev("consejos_desactivados", 2, { desde: "consejo" }),
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-consejos").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const cesta = await texto(p, "#analitica-consejo-cesta");
+    const cat = await texto(p, "#analitica-consejo-catalogo");
+    const cuenta = await texto(p, "#analitica-consejo-cuenta");
+    ok(/Primera compra \(cesta\) Mostrados 5 · seguidos 2 · cerrados 1/.test(cesta), `MOMB (${nombre}): Analítica, la cesta (${cesta})`);
+    ok(/Mostrados 3 · seguidos 0 · cerrados 2/.test(cat) && /Mostrados 1 · seguidos 0 · cerrados 0/.test(cuenta), `MOMB (${nombre}): el catálogo y la cuenta (${cat} | ${cuenta})`);
+    ok(/Los desactivaron 2 veces/.test(await texto(p, "#analitica-consejos-desactivados")), `MOMB (${nombre}): cuántos los desactivaron (${await texto(p, "#analitica-consejos-desactivados")})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `MOMB (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#analitica-consejos").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `MOMB6-analitica-${nombre}`);
+    ok(p.errores.length === 0, `MOMB6 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "AVISOM") await seccionAVISOM();
   if (SOLO === "CHATP") await seccionCHATP();
   if (SOLO === "VALOR") await seccionVALOR();
+  if (SOLO === "MOMB") await seccionMOMB();
   if (SOLO === "VISTOS") await seccionVISTOS();
   if (SOLO === "COMPA") await seccionCOMPA();
   if (SOLO === "RAPI") await seccionRAPI();
@@ -18716,6 +19045,7 @@ try {
   await seccionCHATP();
   await seccionAVISOM();
   await seccionVALOR();
+  await seccionMOMB();
   await seccionCAMPOS16();
   }
 } catch (e) {

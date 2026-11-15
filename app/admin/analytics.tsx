@@ -93,6 +93,9 @@
  * - «Comparador (30 días)» (#analitica-comparador, mejora 8 «Comparar 2-3 productos» del 2026-11-14): eventos
  *   comparar_abierto (n e ids), comparar_anadir_cesta (app/comparar.tsx), comparar_anadido y comparar_quitado
  *   (components/CategoryProductsShelf.tsx); veces abierto, media de productos, añadidos a la cesta y los 5 más comparados.
+ * - «Consejos de Blue (30 días)» (#analitica-consejos, mejora 12 «Blue en momentos clave» del 2026-11-15): eventos
+ *   consejo_mostrado, consejo_seguido y consejo_cerrado (solo el momento: cesta, catálogo, ficha, comparar, cuenta) y
+ *   consejos_desactivados de components/Campanita.tsx; por momento, mostrados, seguidos y cerrados, y cuántos los apagaron.
  * - «Vistos recientemente (30 días)» (#analitica-vistos, mejora 9 del 2026-11-14): eventos vistos_mostrado (n),
  *   visto_tocado (id y posición), visto_quitado y vistos_borrados de Inicio (components/CategoryProductsShelf.tsx →
  *   VistosRecientemente; solo ids); veces mostrado, toques, quitados/borrados y los 5 productos más revisitados.
@@ -176,6 +179,14 @@ type DatePreset = "today" | "7d" | "30d" | "90d" | "all" | "custom";
 const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
 // «Velocidad de la tienda (30 días)»: pantallas y tramos de ancho que mide lib/analytics.ts (medirCargaPantalla).
+// Momentos de los consejos de Blue (components/Campanita.tsx → MomentoBlue) y su nombre en la tarjeta.
+const MOMENTOS_CONSEJO: [string, string][] = [
+  ["cesta", "Primera compra (cesta)"],
+  ["catalogo", "Catálogo"],
+  ["ficha", "Ficha de producto"],
+  ["comparar", "Comparar"],
+  ["cuenta", "Cuenta nueva"],
+];
 const PANTALLAS_VELOCIDAD = ["inicio", "catalogo", "producto"];
 const ANCHOS_VELOCIDAD = ["movil", "tableta", "ordenador"];
 const NOMBRE_PANTALLA_VELOCIDAD: Record<string, string> = { inicio: "Inicio", catalogo: "Catálogo", producto: "Ficha" };
@@ -1036,6 +1047,37 @@ export default function AdminAnalytics() {
         anadidos: filas.filter((f) => f.event_name === "comparar_anadido").length,
         quitados: filas.filter((f) => f.event_name === "comparar_quitado").length,
         top: ids.map((id) => ({ id, titulo: titulos.get(id) ?? "Producto retirado", n: veces.get(id) ?? 0 })),
+      });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Consejos de Blue en momentos clave (mejora 12, 2026-11-15): en 30 días, por momento, cuántas veces se enseña el consejo,
+  // cuántas se sigue (su botón) y cuántas se cierra (X o «Ahora no»), y cuántos dispositivos los apagaron. Solo el momento.
+  const [consejos, setConsejos] = useState<{ filas: { momento: string; mostrados: number; seguidos: number; cerrados: number }[]; desactivados: number } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const NOMBRES = ["consejo_mostrado", "consejo_seguido", "consejo_cerrado", "consejos_desactivados"];
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data, error } = await supabase
+        .from("analytics_events")
+        .select("event_name, metadata")
+        .in("event_name", NOMBRES)
+        .gte("created_at", desde)
+        .limit(5000);
+      if (!vivo) return;
+      if (error || !Array.isArray(data)) {
+        setConsejos(null);
+        return;
+      }
+      const filas = (data as { event_name: string; metadata: Record<string, unknown> | null }[]).filter((f) => NOMBRES.includes(f.event_name));
+      const cuenta = (nombre: string, m: string) => filas.filter((f) => f.event_name === nombre && f.metadata?.momento === m).length;
+      setConsejos({
+        filas: MOMENTOS_CONSEJO.map(([m, nombre]) => ({ momento: nombre, mostrados: cuenta("consejo_mostrado", m), seguidos: cuenta("consejo_seguido", m), cerrados: cuenta("consejo_cerrado", m) })),
+        desactivados: filas.filter((f) => f.event_name === "consejos_desactivados").length,
       });
     })();
     return () => {
@@ -2456,6 +2498,36 @@ export default function AdminAnalytics() {
                         </View>
                       ))
                     )}
+                  </View>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Consejos de Blue (30 días)"
+              subtitle="Los consejos que Blue da una vez por dispositivo en los primeros momentos (primera compra, catálogo, ficha, comparar y cuenta nueva): cuántas veces se enseñan, se siguen y se cierran, y cuántos los desactivaron. Solo el momento, sin datos de nadie; solo visitantes que aceptaron la analítica."
+            >
+              {!consejos ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se han podido cargar los consejos.</Text>
+              ) : (
+                <View nativeID="analitica-consejos" style={{ gap: 8 }}>
+                  {consejos.filas.map((f, i) => (
+                    <View
+                      key={f.momento}
+                      nativeID={`analitica-consejo-${MOMENTOS_CONSEJO[i][0]}`}
+                      style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, gap: 2 }}
+                    >
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>{f.momento}</Text>
+                      <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo }}>
+                        Mostrados {f.mostrados} · seguidos {f.seguidos} · cerrados {f.cerrados}
+                      </Text>
+                    </View>
+                  ))}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="notifications-off-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-consejos-desactivados" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Los desactivaron {consejos.desactivados} {consejos.desactivados === 1 ? "vez" : "veces"}
+                    </Text>
                   </View>
                 </View>
               )}
