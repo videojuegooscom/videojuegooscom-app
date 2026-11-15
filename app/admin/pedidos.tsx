@@ -60,6 +60,9 @@
  *   la hora que guarda la base de datos (pedido_estados, la apunta un disparador al cambiar el estado; lo anterior, «sin
  *   hora») —lo mismo que ve el cliente en «Mis pedidos»— y, si va a domicilio, el campo «Nº de Correos o enlace» que le da
  *   al cliente «Seguir el envío». Recuento arriba (#pedidos-seguimiento). Sin la migración, pasos sin hora y sin el campo.
+ * - Avisos en este móvil (dueño, 2026-11-15; migración 20261115110000_avisos_movil): tarjeta arriba
+ *   (components/AvisosMovil.tsx) para activar en el móvil los avisos de cada pedido pagado o nuevo y de cada servicio
+ *   pagado (api/pago.ts los manda); al tocar un aviso se abre esta pantalla con ?buscar=VZ-… (buscador relleno).
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
@@ -79,6 +82,7 @@ import {
   type ZonaEnvio,
 } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
+import AvisosMovil from "../../components/AvisosMovil";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 type Estado = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
@@ -681,6 +685,8 @@ export default function PedidosAdmin() {
         showsVerticalScrollIndicator={false}
       >
         <View style={{ width: "100%", maxWidth: 760, gap: 14 }}>
+          {/* Avisos al móvil del dueño (2026-11-15): cada pedido pagado o nuevo le llega al móvil con su resumen. */}
+          <AvisosMovil />
           {/* Buscador arriba (como Productos y Servicios): con algo escrito busca en todos los pedidos, sin filtros. */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 12, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.bg2 }}>
             <Ionicons name="search" size={18} color={COLORS.muted} />

@@ -547,8 +547,9 @@ try {
     ["reintento sin Bizum", "if (r.http === 200 || !m.bizum || !rechazoPorBizum(r.datos)) return r;", "return r;", (m) => m.creaRechazo.codigo !== 200, "si Stripe rechaza Bizum, el pago no se abre (P12)"],
     [
       "dueño de la referencia",
-      'if (!p || !suyo) throw new Rechazo(404, "pedido no encontrado");\n  return { ok: true, referencia',
-      'if (!p) throw new Rechazo(404, "pedido no encontrado");\n  return { ok: true, referencia',
+      // (Tras la comprobación va el aviso «Pedido nuevo» al móvil del dueño, 2026-11-15: se busca por su comentario.)
+      'if (!p || !suyo) throw new Rechazo(404, "pedido no encontrado");\n  // Pedido sin pago online',
+      'if (!p) throw new Rechazo(404, "pedido no encontrado");\n  // Pedido sin pago online',
       (m) => m.refAjena.codigo === 200,
       "otra persona ve la referencia de un pedido ajeno (P13)",
     ],

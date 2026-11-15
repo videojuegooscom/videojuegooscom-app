@@ -126,6 +126,11 @@
  *    datos, uno por producto, solo lo que está a la venta, 50 como mucho, cada cliente solo los suyos (el administrador los
  *    cuenta) y solo cambia el precio avisado; la privacidad lo dice una vez; se aplican dos veces (con su «prueba de la
  *    prueba»: con las reglas de lectura abiertas, un cliente ve lo de otro).
+ *  - Avisos al móvil del dueño (20261115110000_avisos_movil.sql): dispositivos y registro con RLS; el administrador da de
+ *    alta y desactiva solo los SUYOS (no a nombre de otro ni pasándolos a otro), los lee, y nadie borra; un cliente y un
+ *    visitante no leen ni escriben nada; el registro no se escribe desde el navegador; https, claves con su tamaño, una
+ *    fila por dirección; columnas nuevas en pedidos y service_requests; se aplica dos veces (con su «prueba de la prueba»:
+ *    con una regla abierta un cliente ve los dispositivos).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -3343,6 +3348,76 @@ try {
     const espiaP = await como(cP2, "authenticated", U1, "select producto_id from public.escaparate_salida_productos");
     ok(espiaP.ok && espiaP.filas.length === 1, `(control) con una regla de lectura abierta, un cliente ve los avisos: la prueba SÍ lo detecta (${espiaP.filas?.length ?? espiaP.mensaje})`);
     await cP2.end();
+  }
+
+  // Avisos al móvil del dueño (20261115110000_avisos_movil.sql): solo el administrador lee los dispositivos y el registro,
+  // da de alta y cambia solo los SUYOS; un cliente y un visitante, nada; nadie borra; el registro no se escribe desde el
+  // navegador; columnas nuevas en pedidos y service_requests con su comprobación. Con su «prueba de la prueba».
+  {
+    const AVM = readFileSync("supabase/migrations/20261115110000_avisos_movil.sql", "utf8");
+    const ESQUEMA_AV = `
+      create table public.pedidos (id uuid primary key default gen_random_uuid(), numero int);
+      create table public.service_requests (id uuid primary key default gen_random_uuid());`;
+    const ins = (uid, ep, extra = "") => `insert into public.admin_avisos_suscripciones (endpoint, p256dh, auth, etiqueta${extra ? ", user_id" : ""}) values ('https://fcm.googleapis.com/fcm/send/${ep}', '${"B".repeat(87)}', '${"a".repeat(22)}', 'iPhone · Safari'${extra ? `, '${uid}'` : ""})`;
+    const cAv = await nuevaBase("vz_aislada_avisos_movil", ESQUEMA_AV + AVM);
+    let repetidaAv = true;
+    try {
+      await cAv.query(AVM);
+    } catch (e) {
+      repetidaAv = false;
+      console.log(String(e.message));
+    }
+    const politicasAv = (await cAv.query("select string_agg(tablename || '.' || policyname || ':' || cmd || ':' || roles::text, ',' order by tablename, policyname) as p from pg_policies where tablename in ('admin_avisos_suscripciones', 'admin_avisos_registro')")).rows[0].p;
+    const rlsAv = (await cAv.query("select bool_and(relrowsecurity) as r from pg_class where oid in ('public.admin_avisos_suscripciones'::regclass, 'public.admin_avisos_registro'::regclass)")).rows[0].r;
+    const definerAv = Number((await cAv.query("select count(*) as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef")).rows[0].n);
+    ok(
+      repetidaAv && rlsAv === true && definerAv === 1 &&
+        politicasAv ===
+          "admin_avisos_registro.admin_avisos_registro_select:SELECT:{authenticated},admin_avisos_suscripciones.admin_avisos_suscripciones_insert_propia:INSERT:{authenticated},admin_avisos_suscripciones.admin_avisos_suscripciones_select:SELECT:{authenticated},admin_avisos_suscripciones.admin_avisos_suscripciones_update_propia:UPDATE:{authenticated}",
+      `Avisos al móvil: se aplica dos veces; RLS en las dos tablas, 4 reglas solo con sesión y ninguna función con permisos especiales nueva (${politicasAv}; ${definerAv})`
+    );
+    const colsAv = (await cAv.query("select string_agg(table_name || '.' || column_name, ',' order by table_name, column_name) as c from information_schema.columns where table_schema = 'public' and table_name in ('pedidos', 'service_requests') and column_name like 'aviso_admin%'")).rows[0].c;
+    ok(colsAv === "pedidos.aviso_admin_enviado_en,pedidos.aviso_admin_tipo,service_requests.aviso_admin_sesion", `Avisos al móvil: columnas nuevas en pedidos y service_requests (${colsAv})`);
+    const tipoMalo = await cAv.query("insert into public.pedidos (numero, aviso_admin_tipo) values (1, 'otro')").then(() => "entra", (e) => e.code);
+    ok(tipoMalo === "23514", `Avisos al móvil: aviso_admin_tipo solo «nuevo» o «pagado» (${tipoMalo})`);
+
+    const adminCrea = await como(cAv, "authenticated", ADMIN, `${ins(ADMIN, "admin-1")} returning user_id, activa, fallos`, { confirmar: true });
+    ok(adminCrea.ok && adminCrea.filas?.[0]?.user_id === ADMIN && adminCrea.filas[0].activa === true && adminCrea.filas[0].fallos === 0, `Avisos al móvil: el administrador da de alta SU dispositivo (quién lo pone la base de datos) (${JSON.stringify(adminCrea.filas?.[0] ?? adminCrea.mensaje)})`);
+    const adminAjeno = await como(cAv, "authenticated", ADMIN, ins(U1, "ajeno", "user"));
+    const clienteCrea = await como(cAv, "authenticated", U1, ins(U1, "cliente-1"));
+    const anonCrea = await como(cAv, "anon", null, ins(U1, "anon-1", "user"));
+    ok(!adminAjeno.ok && !clienteCrea.ok && !anonCrea.ok, `Avisos al móvil: ni a nombre de otro, ni un cliente, ni un visitante dan de alta dispositivos (${adminAjeno.codigo}, ${clienteCrea.codigo}, ${anonCrea.codigo})`);
+    const malo = await como(cAv, "authenticated", ADMIN, "insert into public.admin_avisos_suscripciones (endpoint, p256dh, auth) values ('http://inseguro.example/x', 'x', 'y')");
+    ok(!malo.ok && malo.codigo === "23514", `Avisos al móvil: dirección https y claves con su tamaño (${malo.codigo})`);
+    const repetidoAv = await como(cAv, "authenticated", ADMIN, ins(ADMIN, "admin-1"));
+    ok(!repetidoAv.ok && repetidoAv.codigo === "23505", `Avisos al móvil: una fila por dirección (${repetidoAv.codigo})`);
+
+    const leeAdmin = await como(cAv, "authenticated", ADMIN, "select endpoint from public.admin_avisos_suscripciones");
+    const leeCliente = await como(cAv, "authenticated", U1, "select endpoint from public.admin_avisos_suscripciones");
+    const leeAnon = await como(cAv, "anon", null, "select endpoint from public.admin_avisos_suscripciones");
+    ok(leeAdmin.ok && leeAdmin.filas.length === 1 && leeCliente.ok && leeCliente.filas.length === 0 && leeAnon.ok && leeAnon.filas.length === 0, `Avisos al móvil: el administrador ve sus dispositivos; un cliente y un visitante, nada (${leeAdmin.filas?.length}, ${leeCliente.filas?.length}, ${leeAnon.filas?.length})`);
+    const clienteCambia = await como(cAv, "authenticated", U1, "update public.admin_avisos_suscripciones set endpoint = 'https://fcm.googleapis.com/fcm/send/robado'", { confirmar: true });
+    const adminDesactiva = await como(cAv, "authenticated", ADMIN, "update public.admin_avisos_suscripciones set activa = false, desactivada_en = now() returning activa", { confirmar: true });
+    const adminRegala = await como(cAv, "authenticated", ADMIN, `update public.admin_avisos_suscripciones set user_id = '${U1}'`);
+    ok(clienteCambia.ok && clienteCambia.cuantas === 0 && adminDesactiva.ok && adminDesactiva.cuantas === 1 && !adminRegala.ok, `Avisos al móvil: un cliente no cambia nada; el administrador desactiva el suyo y no puede pasarlo a otra persona (${clienteCambia.cuantas}, ${adminDesactiva.cuantas}, ${adminRegala.codigo})`);
+    const borraAdmin = await como(cAv, "authenticated", ADMIN, "delete from public.admin_avisos_suscripciones", { confirmar: true });
+    const quedan = Number((await cAv.query("select count(*) as n from public.admin_avisos_suscripciones")).rows[0].n);
+    ok(borraAdmin.ok && borraAdmin.cuantas === 0 && quedan === 1, `Avisos al móvil: nadie borra desde el navegador (se desactivan) (${borraAdmin.cuantas}, quedan ${quedan})`);
+
+    await cAv.query("insert into public.admin_avisos_registro (tipo, titulo, referencia, entregados) values ('pedido_pagado', 'Pedido pagado · 349,99 €', 'VZ-AB12-CD34', 2)");
+    const regAdmin = await como(cAv, "authenticated", ADMIN, "select titulo from public.admin_avisos_registro");
+    const regCliente = await como(cAv, "authenticated", U1, "select titulo from public.admin_avisos_registro");
+    const regEscribe = await como(cAv, "authenticated", ADMIN, "insert into public.admin_avisos_registro (tipo, titulo) values ('prueba', 'x')");
+    const regTipo = await cAv.query("insert into public.admin_avisos_registro (tipo, titulo) values ('raro', 'x')").then(() => "entra", (e) => e.code);
+    ok(regAdmin.ok && regAdmin.filas.length === 1 && regCliente.ok && regCliente.filas.length === 0 && !regEscribe.ok && regTipo === "23514", `Avisos al móvil: el registro lo lee solo el administrador, no se escribe desde el navegador y el tipo tiene su comprobación (${regAdmin.filas?.length}, ${regCliente.filas?.length}, ${regEscribe.codigo}, ${regTipo})`);
+    await cAv.end();
+
+    // PRUEBA DE LA PRUEBA: con una regla de lectura abierta, un cliente vería los dispositivos del dueño.
+    const cAv2 = await nuevaBase("vz_aislada_avisos_movil_abierta", ESQUEMA_AV + AVM + "create policy abierta_prueba on public.admin_avisos_suscripciones for select to authenticated using (auth.uid() is not null);");
+    await como(cAv2, "authenticated", ADMIN, ins(ADMIN, "admin-2"), { confirmar: true });
+    const espiaAv = await como(cAv2, "authenticated", U1, "select endpoint from public.admin_avisos_suscripciones");
+    ok(espiaAv.ok && espiaAv.filas.length === 1, `(control) con una regla de lectura abierta, un cliente ve los dispositivos: la prueba SÍ lo detecta (${espiaAv.filas?.length ?? espiaAv.mensaje})`);
+    await cAv2.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

@@ -165,6 +165,12 @@
  *    duplicarlo) con su tarjeta y preguntas sugeridas que rellenan sin enviar; sin cuenta invita y vuelve abriendo el chat;
  *    Administración → Chat (tarjeta con estado, enlaces y filtro «Con producto»), ficha del cliente y Analítica; 360/390/1280.
  *    Se lanza con SOLO = CHATP y en la pasada completa.
+ *  - AVISOM) Avisos al móvil del dueño (2026-11-15, migración 20261115110000_avisos_movil): la tarjeta «Avisos en este
+ *    móvil» arriba en Pedidos y la corta en el inicio del panel; sin claves «Avisos sin configurar»; activar (service
+ *    worker «/», PushManager simulado, suscripción con la clave pública, alta del dispositivo), prueba con la sesión,
+ *    desactivar, lista y cifras de 7 días; iPhone sin instalar y bloqueados; el service worker en una caja de arena (aviso
+ *    con título, resumen, icono y etiqueta; al tocarlo, solo la tienda); 360/390/1280. Simula /api/pago?avisos=clave,
+ *    «avisos_prueba», admin_avisos_suscripciones y admin_avisos_registro. Se lanza con SOLO = AVISOM y en la pasada completa.
  *  - FS) Ficha de servicio con el formato de la de producto (galería, visor con zoom, botones iguales, pestañas,
  *    «Volver atrás», sin bloques de más) y su uso en Administración → Analítica, en el móvil y en el ordenador.
  *
@@ -361,7 +367,7 @@
  *    (último primero, sin repetidos, como mucho 12); con 2 no sale, con 3 sí; retirado fuera (y del historial); no si son
  *    justo los de «Recién llegado»; «Quitar» y «Borrar historial» de 44 px; tocar abre la ficha; la oferta no se mueve;
  *    analítica con ids y cuántos (nada si se rechazó) y la tarjeta «Vistos recientemente (30 días)»; 360, 390 y 1280.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC|RAPI|COMPA|VISTOS]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC|RAPI|COMPA|VISTOS|CHATP|AVISOM]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -680,6 +686,50 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       const n = url.pathname.endsWith("/pedidos") ? estado.olvidados.pedidos : estado.olvidados.reparaciones;
       estado.consultasOlvidados = [...(estado.consultasOlvidados ?? []), `${url.pathname.split("/").pop()}?${decodeURIComponent(url.search.slice(1))}`];
       return json([], 200, { "content-range": `*/${n}`, "access-control-expose-headers": "*" });
+    }
+    // Avisos al móvil del dueño (sección AVISOM), como el servidor y la base de datos: la clave pública de /api/pago
+    // (?avisos=clave; sin `clave`, «sin configurar»), el aviso de prueba, los dispositivos (alta por endpoint, desactivar,
+    // lista de activos y recuentos de 7 días) y el registro de avisos. Se apunta todo lo que se manda.
+    if (estado.avisom) {
+      const av = estado.avisom;
+      if (url.pathname === "/api/pago" && metodo === "GET" && url.searchParams.get("avisos") === "clave") {
+        av.clavesPedidas = (av.clavesPedidas ?? 0) + 1;
+        return json(av.clave ? { ok: true, configurado: true, clave: av.clave } : { ok: true, configurado: false, clave: null });
+      }
+      if (url.pathname === "/api/pago" && metodo === "POST" && /"accion":"avisos_prueba"/.test(peticion.postData() ?? "")) {
+        av.pruebas = [...(av.pruebas ?? []), { cuerpo: JSON.parse(peticion.postData() ?? "{}"), auth: peticion.headers()["authorization"] ?? "" }];
+        return json({ ok: true, entregados: 1, fallidos: 0 });
+      }
+      const desde = (campo) => (url.searchParams.get(campo) ?? "").replace(/^gte\./, "");
+      if (url.pathname.endsWith("/rest/v1/admin_avisos_suscripciones")) {
+        if (av.sinTabla) return json({ code: "PGRST205", message: "Could not find the table 'public.admin_avisos_suscripciones' in the schema cache" }, 404);
+        if (metodo === "POST") {
+          const fila = [].concat(JSON.parse(peticion.postData() ?? "{}"))[0];
+          av.altas = [...(av.altas ?? []), { fila, conflicto: url.searchParams.get("on_conflict"), prefer: peticion.headers()["prefer"] ?? "" }];
+          av.suscripciones = [{ id: `s${av.altas.length}`, ultimo_envio_ok: null, ...fila }, ...av.suscripciones.filter((s) => s.endpoint !== fila.endpoint)];
+          return r.fulfill({ status: 201, headers: CORS, body: "" });
+        }
+        if (metodo === "PATCH") {
+          const ep = (url.searchParams.get("endpoint") ?? "").replace(/^eq\./, "");
+          const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+          av.cambios = [...(av.cambios ?? []), { endpoint: ep, cuerpo }];
+          av.suscripciones = av.suscripciones.map((s) => (s.endpoint === ep ? { ...s, ...cuerpo } : s));
+          return r.fulfill({ status: 204, headers: CORS, body: "" });
+        }
+        if (metodo === "HEAD") {
+          const a = desde("activada_en");
+          const d = desde("desactivada_en");
+          const n = av.suscripciones.filter((s) => (a ? s.activada_en >= a : true) && (d ? !!s.desactivada_en && s.desactivada_en >= d : true)).length;
+          return json([], 200, { "content-range": `*/${n}`, "access-control-expose-headers": "*" });
+        }
+        const activas = url.searchParams.get("activa") === "eq.true";
+        return json(av.suscripciones.filter((s) => !activas || s.activa));
+      }
+      if (url.pathname.endsWith("/rest/v1/admin_avisos_registro")) {
+        const d = desde("creado_en");
+        if (d) return json(av.registro.filter((x) => x.creado_en >= d).map(({ tipo }) => ({ tipo })));
+        return json(av.registro.filter((x) => x.tipo !== "prueba").sort((x, y) => (x.creado_en < y.creado_en ? 1 : -1)).slice(0, 1));
+      }
     }
     // Chat con el producto adjunto (sección CHATP), como la base de datos: get_or_create_product_chat devuelve la
     // conversación de (producto, persona) o crea una (nunca dos); product_chats y product_chat_messages filtrados por id,
@@ -1567,7 +1617,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (metodo === "GET" || metodo === "HEAD") {
       // Administración → Analítica mira con «*» en una fila si products ya tiene «revisado» (mejora 4): sin fila, no sale.
       if (url.pathname.endsWith("/rest/v1/products") && url.searchParams.get("select") === "*" && url.searchParams.get("limit") === "1") return json([]);
-      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|product_chats|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento|pedido_estados|avisos_precio)$/.test(url.pathname)) {
+      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|product_chats|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento|pedido_estados|avisos_precio|admin_avisos_suscripciones|admin_avisos_registro)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
       }
       return r.continue();
@@ -16847,8 +16897,304 @@ async function seccionCHATP() {
   }
 }
 
+// ===== AVISOM) Avisos al móvil del dueño (2026-11-15, migración 20261115110000_avisos_movil) ==========================
+// La tarjeta «Avisos en este móvil» arriba en Administración → Pedidos (y la corta en el inicio del panel): sin las claves
+// dice «Avisos sin configurar»; con ellas, «Activar avisos en este móvil» (44 px) registra public/sw-avisos.js con alcance
+// «/», se suscribe con la clave pública (PushManager simulado: headless no tiene servicio de avisos) y guarda el
+// dispositivo (endpoint, claves, el administrador y el nombre corto del dispositivo); «Enviar aviso de prueba» llama a
+// /api/pago con la sesión y ese dispositivo; «Desactivar en este móvil» se da de baja y lo apunta; la lista y las cifras de
+// 7 días (sin datos de nadie); iPhone sin instalar explica «Añadir a pantalla de inicio»; bloqueados, cómo quitarlo; el
+// service worker (en una caja de arena de Node) enseña el aviso con su título, resumen, icono y etiqueta y al tocarlo abre
+// esa dirección de la tienda (nunca otra web); 360/390/1280 sin desbordes, textos de 13 px o más, táctiles de 44 px y sin
+// errores de JavaScript.
+async function seccionAVISOM() {
+  const { createECDH } = await import("node:crypto");
+  const vm = await import("node:vm");
+  const e = createECDH("prime256v1");
+  e.generateKeys();
+  const CLAVE = e.getPublicKey().toString("base64url");
+  const EP = "https://fcm.googleapis.com/fcm/send/prueba-avisom-0001";
+  const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+  const hace = (h) => new Date(Date.now() - h * 3600_000).toISOString();
+  const estadoAv = (extra = {}) => ({
+    guardados: [], tarifas: [], pedidosAdmin: [],
+    avisom: {
+      clave: CLAVE,
+      suscripciones: [{ id: "otro", endpoint: "https://web.push.apple.com/QWxh-otro-dispositivo", etiqueta: "iPhone · Safari", activa: true, activada_en: hace(30), ultimo_envio_ok: hace(2), fallos: 0, desactivada_en: null }],
+      registro: [
+        { tipo: "pedido_pagado", titulo: "Pedido pagado · 349,99 €", referencia: "VZ-AB12-CD34", creado_en: hace(2) },
+        { tipo: "pedido_nuevo", titulo: "Pedido nuevo · pago en entrega", referencia: "VZ-AB21-CD34", creado_en: hace(5) },
+        { tipo: "servicio_pagado", titulo: "Servicio pagado · 45,00 €", referencia: "VZ-RP45-AB12", creado_en: hace(20) },
+        { tipo: "prueba", titulo: "Aviso de prueba · VideojuegosZaragoza", referencia: null, creado_en: hace(1) },
+        { tipo: "pedido_pagado", titulo: "Pedido pagado · 20,00 €", referencia: "VZ-VIEJ-0001", creado_en: hace(24 * 9) },
+      ],
+      ...extra,
+    },
+  });
+  // PushManager y service worker simulados en la página (headless no tiene servicio de avisos). `modo`: ok | iphone | bloqueadas.
+  const simular = (ctx, modo, suscrito = false) =>
+    ctx.addInitScript(
+      ([m, ep, ya]) => {
+        const av = (window.__avisom = { registros: [], suscribir: [], bajas: 0 });
+        if (m === "iphone") {
+          // Como Safari del iPhone en una pestaña normal: sin PushManager ni Notification.
+          try {
+            delete window.PushManager;
+            delete window.Notification;
+          } catch {
+            // no se pudo
+          }
+          return;
+        }
+        const bytesA64 = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        let actual = null;
+        const crear = () => ({
+          endpoint: ep,
+          toJSON() {
+            return { endpoint: ep, expirationTime: null, keys: { p256dh: `B${"x".repeat(86)}`, auth: "a".repeat(22) } };
+          },
+          async unsubscribe() {
+            actual = null;
+            av.bajas++;
+            return true;
+          },
+        });
+        if (ya) actual = crear();
+        const reg = {
+          scope: `${location.origin}/`,
+          pushManager: {
+            async subscribe(o) {
+              av.suscribir.push({ userVisibleOnly: o.userVisibleOnly, clave: bytesA64(o.applicationServerKey) });
+              if (m === "bloqueadas") {
+                const err = new Error("Permission denied");
+                err.name = "NotAllowedError";
+                throw err;
+              }
+              actual = crear();
+              return actual;
+            },
+            async getSubscription() {
+              return actual;
+            },
+          },
+        };
+        Object.defineProperty(navigator, "serviceWorker", {
+          configurable: true,
+          value: {
+            async register(url, o) {
+              av.registros.push({ url, scope: o?.scope ?? null });
+              return reg;
+            },
+            ready: Promise.resolve(reg),
+            async getRegistration() {
+              return ya || av.registros.length ? reg : undefined;
+            },
+            addEventListener() {},
+            removeEventListener() {},
+            controller: null,
+          },
+        });
+        window.PushManager = function PushManager() {};
+        const N = function Notification() {};
+        N.permission = m === "bloqueadas" ? "denied" : "default";
+        N.requestPermission = async () => N.permission;
+        window.Notification = N;
+      },
+      [modo, EP, suscrito]
+    );
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const caja = document.getElementById("avisos-movil");
+      if (!caja) return null;
+      const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of caja.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily)) continue;
+        if (parseFloat(cs.fontSize) < 13) pequenos.push(`${t.slice(0, 30)} ${cs.fontSize}`);
+      }
+      const chicos = [...caja.querySelectorAll('[role="button"],button')].filter(visible).map((b) => b.getBoundingClientRect()).filter((r) => r.height < 43.5 || r.width < 43.5).length;
+      const c = caja.getBoundingClientRect();
+      return { pequenos, chicos, izq: Math.round(c.left), der: Math.round(c.right), W, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) };
+    });
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/\s+/g, " ").trim()).catch(() => "");
+  const alto = (p, sel) => p.locator(sel).first().boundingBox().then((b) => (b ? Math.round(b.height) : 0)).catch(() => 0);
+
+  // AVISOM1) Sin las claves en Vercel: «Avisos sin configurar», arriba en Pedidos, sin botón de activar y sin registrar nada.
+  {
+    const estado = estadoAv({ clave: null });
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    await simular(ctx, "ok");
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#avisos-movil").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.getByText("Avisos sin configurar").first().waitFor({ timeout: 10000 }).catch(() => {});
+    const t = await texto(p, "#avisos-movil");
+    ok(/Avisos en este móvil/.test(t) && /Avisos sin configurar/.test(t) && /VAPID_PUBLIC_KEY/.test(t), `AVISOM: sin las claves dice «Avisos sin configurar» y qué falta (${t.slice(0, 160)})`);
+    const cajas = await p.evaluate(() => ["avisos-movil", "pedidos-buscar"].map((id) => document.getElementById(id)?.getBoundingClientRect().top ?? -1));
+    ok(cajas[0] >= 0 && cajas[1] > cajas[0], `AVISOM: la tarjeta va arriba en Pedidos, antes del buscador (${cajas.join(" < ")})`);
+    const reg = await p.evaluate(() => window.__avisom?.registros.length ?? -1);
+    ok((await p.locator("#avisos-activar").count()) === 0 && reg === 0 && (estado.avisom.clavesPedidas ?? 0) >= 1, `AVISOM: sin claves, ni botón de activar ni service worker (${reg} registros)`);
+    await capturar(p, "AVISOM1-sin-configurar-390");
+    ok(p.errores.length === 0, `AVISOM1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // AVISOM2) Con las claves: activar (service worker «/», suscripción con la clave, guardar), prueba, cifras y desactivar.
+  {
+    const estado = estadoAv();
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    await simular(ctx, "ok");
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#avisos-activar").waitFor({ timeout: 40000 }).catch(() => {});
+    ok(/Desactivados en este móvil/.test(await texto(p, "#avisos-estado")) && (await alto(p, "#avisos-activar")) >= 44, `AVISOM: con las claves, «Desactivados en este móvil» y «Activar avisos en este móvil» de 44 px (${await alto(p, "#avisos-activar")})`);
+    const regAntes = await p.evaluate(() => window.__avisom.registros);
+    ok(regAntes.length >= 1 && regAntes.every((x) => x.url === "/sw-avisos.js" && x.scope === "/"), `AVISOM: el service worker /sw-avisos.js se registra con alcance «/» antes del toque (${JSON.stringify(regAntes)})`);
+    const resumen = await texto(p, "#avisos-resumen");
+    ok(/Últimos 7 días: 3 avisos enviados · 1 prueba · 1 activación · 0 desactivaciones/.test(resumen) && /Último aviso: Pedido pagado · 349,99 € · VZ-AB12-CD34 · hace 2 h/.test(resumen), `AVISOM: cuántos avisos en 7 días (pruebas, activaciones y desactivaciones aparte) y el último (${resumen})`);
+    ok(/iPhone · Safari/.test(await texto(p, "#avisos-dispositivos")) && !/este móvil\)/.test(await texto(p, "#avisos-dispositivos")), "AVISOM: la lista enseña el otro dispositivo con avisos");
+    await capturar(p, "AVISOM2-antes-de-activar-390");
+    await p.locator("#avisos-activar").click();
+    await p.locator("#avisos-prueba").waitFor({ timeout: 10000 }).catch(() => {});
+    const sus = await p.evaluate(() => window.__avisom.suscribir);
+    ok(sus.length === 1 && sus[0].userVisibleOnly === true && sus[0].clave === CLAVE, `AVISOM: un toque se suscribe con la clave pública del servidor y avisos visibles (${JSON.stringify(sus)})`);
+    const alta = (estado.avisom.altas ?? [])[0];
+    const f = alta?.fila ?? {};
+    ok(
+      (estado.avisom.altas ?? []).length === 1 && alta.conflicto === "endpoint" && f.endpoint === EP && f.p256dh?.length === 87 && f.auth?.length === 22 && f.user_id === ADMIN.id && f.activa === true && /^[^·]+ · [^·]+$/.test(f.etiqueta ?? "") && (f.etiqueta ?? "").length <= 60,
+      `AVISOM: guarda el dispositivo (endpoint único, claves, el administrador y solo «Sistema · Navegador») (${JSON.stringify({ ...f, p256dh: f.p256dh?.length, auth: f.auth?.length })})`
+    );
+    ok(Object.keys(f).sort().join(",") === "activa,activada_en,auth,desactivada_en,endpoint,etiqueta,fallos,p256dh,user_id", `AVISOM: y nada más (${Object.keys(f).sort().join(",")})`);
+    const est = await texto(p, "#avisos-estado");
+    const lista = await texto(p, "#avisos-dispositivos");
+    ok(/Activos en este móvil/.test(est) && /Avisos activados en este móvil/.test(await texto(p, "#avisos-mensaje")) && /\(este móvil\)/.test(lista) && /Dispositivos con avisos \(2\)/.test(lista), `AVISOM: queda «Activos en este móvil», con el aviso y la lista (${est} | ${lista})`);
+    ok((await alto(p, "#avisos-prueba")) >= 44 && (await alto(p, "#avisos-desactivar")) >= 44 && (await p.locator("#avisos-activar").count()) === 0, "AVISOM: «Enviar aviso de prueba» y «Desactivar en este móvil» de 44 px (y ya sin «Activar»)");
+    await capturar(p, "AVISOM2-activado-390");
+    await p.locator("#avisos-prueba").click();
+    await p.getByText("Aviso de prueba enviado").first().waitFor({ timeout: 10000 }).catch(() => {});
+    const pr = (estado.avisom.pruebas ?? [])[0];
+    ok((estado.avisom.pruebas ?? []).length === 1 && pr.cuerpo.accion === "avisos_prueba" && pr.cuerpo.endpoint === EP && /^Bearer \S+/.test(pr.auth) && /Aviso de prueba enviado/.test(await texto(p, "#avisos-mensaje")), `AVISOM: «Enviar aviso de prueba» llama al servidor con la sesión y este dispositivo (${JSON.stringify(pr?.cuerpo)})`);
+    await capturar(p, "AVISOM2-prueba-enviada-390");
+    await p.locator("#avisos-desactivar").click();
+    await p.locator("#avisos-activar").waitFor({ timeout: 10000 }).catch(() => {});
+    const cambio = (estado.avisom.cambios ?? [])[0];
+    const bajas = await p.evaluate(() => window.__avisom.bajas);
+    ok(bajas === 1 && cambio?.endpoint === EP && cambio.cuerpo.activa === false && !!cambio.cuerpo.desactivada_en && Object.keys(cambio.cuerpo).length === 2, `AVISOM: «Desactivar» se da de baja en el navegador y lo apunta (activa false y la fecha) (${JSON.stringify(cambio)})`);
+    ok(/Desactivados en este móvil/.test(await texto(p, "#avisos-estado")) && /Avisos desactivados en este móvil/.test(await texto(p, "#avisos-mensaje")), "AVISOM: y vuelve a «Desactivados en este móvil» con «Activar»");
+    ok(!JSON.stringify(estado.eventosEnviados ?? []).includes(EP), "AVISOM: la dirección del dispositivo no va a la analítica");
+    ok(p.errores.length === 0, `AVISOM2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // AVISOM3) iPhone sin la tienda instalada: cómo añadirla a la pantalla de inicio y abrirla desde ahí; sin botón.
+  {
+    const estado = estadoAv();
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, { userAgent: IPHONE });
+    await simular(ctx, "iphone");
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#avisos-instalar").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = await texto(p, "#avisos-instalar");
+    ok(/añade la tienda a la pantalla de inicio/.test(await texto(p, "#avisos-estado")) && /iOS 16\.4/.test(t) && /Compartir/.test(t) && /«Añadir a pantalla de inicio»/.test(t) && /Abre la tienda desde su icono/.test(t), `AVISOM: iPhone sin instalar explica cómo añadirla y abrirla desde el icono (${t})`);
+    ok((await p.locator("#avisos-activar").count()) === 0, "AVISOM: y sin «Activar» (no funcionaría)");
+    await capturar(p, "AVISOM3-iphone-sin-instalar-390");
+    ok(p.errores.length === 0, `AVISOM3: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // AVISOM4) Avisos bloqueados en el navegador: lo dice y explica cómo permitirlos.
+  {
+    const estado = estadoAv();
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    await simular(ctx, "bloqueadas");
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#avisos-movil").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#avisos-bloqueadas").waitFor({ timeout: 10000 }).catch(() => {});
+    ok(/bloqueados/.test(await texto(p, "#avisos-estado")) && /Ajustes → Notificaciones/.test(await texto(p, "#avisos-bloqueadas")) && !(estado.avisom.altas ?? []).length, "AVISOM: con los avisos bloqueados lo dice, explica cómo permitirlos y no guarda nada");
+    ok(p.errores.length === 0, `AVISOM4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // AVISOM5) El inicio del panel: la tarjeta corta con «Activar avisos en este móvil» y «Ver en Pedidos» (44 px).
+  {
+    const estado = { ...estadoAv(), filas: [] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    await simular(ctx, "ok");
+    const p = await pagina(ctx, "/admin");
+    await p.locator("#avisos-activar").waitFor({ timeout: 40000 }).catch(() => {});
+    ok((await alto(p, "#avisos-activar")) >= 44 && (await alto(p, "#avisos-ver-pedidos")) >= 44 && (await p.locator("#avisos-resumen").count()) === 0, "AVISOM: en el inicio del panel, la tarjeta corta con «Activar» y «Ver en Pedidos» de 44 px");
+    await capturar(p, "AVISOM5-inicio-panel-390");
+    await p.locator("#avisos-ver-pedidos").click();
+    await p.waitForURL(/\/admin\/pedidos/, { timeout: 10000 }).catch(() => {});
+    ok(p.url().includes("/admin/pedidos"), `AVISOM: «Ver en Pedidos» lleva a Pedidos (${p.url().replace(BASE, "")})`);
+    ok(p.errores.length === 0, `AVISOM5: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // AVISOM6) 360, 390 y 1280 (ya activado en este dispositivo): cabe, letra ≥ 13 px, táctiles de 44 px, sin errores.
+  for (const [nombre, vista] of [
+    ["360", { viewport: { width: 360, height: 740 } }],
+    ["390", { viewport: { width: 390, height: 844 } }],
+    ["1280", { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 }],
+  ]) {
+    const estado = estadoAv();
+    estado.avisom.suscripciones.unshift({ id: "este", endpoint: EP, etiqueta: "Android · Chrome", activa: true, activada_en: hace(1), ultimo_envio_ok: hace(1), fallos: 0, desactivada_en: null });
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    await simular(ctx, "ok", true);
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#avisos-prueba").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#avisos-resumen").waitFor({ timeout: 10000 }).catch(() => {});
+    const m = await medir(p);
+    ok(!!m && m.izq >= 0 && m.der <= m.W && m.ancho <= m.W + 1, `AVISOM (${nombre}): la tarjeta cabe y la página no se ensancha (${JSON.stringify(m && { izq: m.izq, der: m.der, W: m.W, ancho: m.ancho })})`);
+    ok(!!m && !m.pequenos.length && m.chicos === 0, `AVISOM (${nombre}): textos de 13 px o más y botones de 44 px (${m?.pequenos.join(" | ") || "ninguno pequeño"}; ${m?.chicos} chicos)`);
+    ok(/Activos en este móvil/.test(await texto(p, "#avisos-estado")) && /\(este móvil\)/.test(await texto(p, "#avisos-dispositivos")), `AVISOM (${nombre}): reconoce este dispositivo ya activado`);
+    await capturar(p, `AVISOM6-pedidos-${nombre}`);
+    ok(p.errores.length === 0, `AVISOM6 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // AVISOM7) El service worker de la tienda compilada, en una caja de arena: enseña el aviso y, al tocarlo, abre la tienda.
+  {
+    const ruta = join(raiz, "sw-avisos.js");
+    ok(existsSync(ruta), "AVISOM: la tienda compilada sirve /sw-avisos.js");
+    const codigo = existsSync(ruta) ? readFileSync(ruta, "utf8") : "";
+    const oyentes = {};
+    const mostrados = [];
+    const abiertos = [];
+    const sandbox = {
+      URL,
+      Date,
+      self: {
+        location: { origin: "https://videojuegoszaragoza.com" },
+        addEventListener: (n, f) => (oyentes[n] = f),
+        skipWaiting: () => {},
+        registration: { showNotification: async (t, o) => mostrados.push({ t, o }) },
+        clients: { claim: async () => {}, matchAll: async () => [], openWindow: async (u) => abiertos.push(u) },
+      },
+    };
+    vm.runInNewContext(codigo, sandbox);
+    const esperas = [];
+    const evento = (extra) => ({ waitUntil: (pr) => esperas.push(pr), ...extra });
+    oyentes.push?.(evento({ data: { json: () => ({ title: "Pedido pagado · 349,99 €", body: "PlayStation 5 Slim (+1 más) · Ana G. · Envío a Zaragoza 50001 · VZ-AB12-CD34", url: "/admin/pedidos?buscar=VZ-AB12-CD34", tag: "pedido-1", icon: "/icono-192.png" }) } }));
+    await Promise.all(esperas);
+    const n0 = mostrados[0];
+    ok(n0?.t === "Pedido pagado · 349,99 €" && /Ana G\./.test(n0?.o?.body ?? "") && n0?.o?.icon === "/icono-192.png" && n0?.o?.tag === "pedido-1" && n0?.o?.renotify === true && n0?.o?.data?.url === "/admin/pedidos?buscar=VZ-AB12-CD34", `AVISOM: el service worker enseña el aviso con título, resumen, icono y etiqueta (${JSON.stringify(n0)})`);
+    let cerrado = 0;
+    oyentes.notificationclick?.(evento({ notification: { data: { url: "/admin/pedidos?buscar=VZ-AB12-CD34" }, close: () => cerrado++ } }));
+    oyentes.notificationclick?.(evento({ notification: { data: { url: "https://otra-web.example/robo" }, close: () => cerrado++ } }));
+    await Promise.all(esperas);
+    ok(cerrado === 2 && abiertos[0] === "https://videojuegoszaragoza.com/admin/pedidos?buscar=VZ-AB12-CD34" && abiertos[1] === "https://videojuegoszaragoza.com/admin/pedidos", `AVISOM: al tocarlo abre esa pantalla de la tienda y nunca otra web (${abiertos.join(" | ")})`);
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "AVISOM") await seccionAVISOM();
   if (SOLO === "CHATP") await seccionCHATP();
   if (SOLO === "VISTOS") await seccionVISTOS();
   if (SOLO === "COMPA") await seccionCOMPA();
@@ -17956,6 +18302,7 @@ try {
   await seccionCOMPA();
   await seccionVISTOS();
   await seccionCHATP();
+  await seccionAVISOM();
   await seccionCAMPOS16();
   }
 } catch (e) {

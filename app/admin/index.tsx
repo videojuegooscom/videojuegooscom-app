@@ -44,6 +44,9 @@
  * Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): título de cada recuadro a 15 px, número rojo
  * a 13 px (letra blanca sobre el azul de marca: se queda, son botones grandes) y «Volver a la tienda» de 44 px.
  *
+ * Avisos en este móvil (dueño, 2026-11-15): encima de la rejilla, la tarjeta corta de components/AvisosMovil.tsx (estado,
+ * «Activar avisos en este móvil» y «Ver en Pedidos», donde está la completa con la prueba, desactivar y las cifras).
+ *
  * Conectado con:
  * - app/admin/categories.tsx, app/admin/products.tsx, app/admin/services.tsx,
  *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx, app/admin/chats.tsx,
@@ -73,6 +76,7 @@ import { AdminHeader } from "../../lib/admin/products.components";
 import { leerPanelVistos, type SeccionConNovedades } from "../../lib/admin/products.utils";
 import { supabase } from "../../lib/supabase";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import AvisosMovil from "../../components/AvisosMovil";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -519,6 +523,8 @@ export default function AdminHome() {
           showsVerticalScrollIndicator={false}
         >
         <View style={{ ...columnStyle, gap: isMobile ? 16 : 20 }}>
+          {/* Avisos al móvil del dueño (2026-11-15), versión corta: el estado y «Activar avisos en este móvil». */}
+          <AvisosMovil compacta />
           <View>
             <View
               style={
