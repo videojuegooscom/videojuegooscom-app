@@ -64,6 +64,9 @@ export type ProductRow = {
   reference?: string | null;
   // Peso con embalaje, para el envío por kilos (migración 20261107120000). undefined = la columna aún no existe.
   peso_kg?: number | null;
+  // El peso lo puso Claude como estimación (datos de fábrica + embalaje del dueño; migración 20261115160000) y el dueño
+  // aún no lo ha revisado. undefined = sin la columna.
+  peso_estimado?: boolean;
   // Solo entrega en mano: no se envía (televisores sin su caja original; migración 20261107140000). undefined = sin la columna.
   solo_entrega_mano?: boolean;
   // «Revisado por nuestro equipo» y meses de garantía (1-36), que marca el dueño (migración 20261114140000). undefined =
