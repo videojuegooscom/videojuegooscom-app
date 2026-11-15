@@ -849,6 +849,8 @@ export default function AdminAnalytics() {
     zoom: number;
     cerradosDeslizando: number;
     entregas: { mismo_dia: number; peninsula: number; islas: number; sin_cp: number };
+    // Franja elegida al pagar (entrega_franja_elegida, dueño 2026-11-15): solo la franja y si es hoy o mañana.
+    franjas: { manana: number; tarde: number; hoy: number; otroDia: number };
     revisados: number | null;
     conGarantia: number | null;
   } | null>(null);
@@ -859,7 +861,7 @@ export default function AdminAnalytics() {
       const { data, error } = await supabase
         .from("analytics_events")
         .select("event_name, metadata")
-        .in("event_name", ["ficha_foto_zoom", "ficha_entrega_estimada"])
+        .in("event_name", ["ficha_foto_zoom", "ficha_entrega_estimada", "entrega_franja_elegida"])
         .gte("created_at", desde)
         .limit(5000);
       if (!vivo) return;
@@ -871,6 +873,7 @@ export default function AdminAnalytics() {
       const visor = filas.filter((f) => f.event_name === "ficha_foto_zoom");
       const entregas = filas.filter((f) => f.event_name === "ficha_entrega_estimada");
       const deTipo = (t: string) => entregas.filter((f) => f.metadata?.tipo === t).length;
+      const elegidas = filas.filter((f) => f.event_name === "entrega_franja_elegida");
       // Revisados y con garantía: primero se mira con «*» en una fila si la columna existe (sin un 400 antes de la migración).
       let revisados: number | null = null;
       let conGarantia: number | null = null;
@@ -894,6 +897,12 @@ export default function AdminAnalytics() {
         zoom: visor.filter((f) => f.metadata?.accion === "zoom").length,
         cerradosDeslizando: visor.filter((f) => f.metadata?.accion === "cerrar_deslizando").length,
         entregas: { mismo_dia: deTipo("mismo_dia"), peninsula: deTipo("peninsula"), islas: deTipo("islas"), sin_cp: deTipo("sin_cp") },
+        franjas: {
+          manana: elegidas.filter((f) => f.metadata?.franja === "manana").length,
+          tarde: elegidas.filter((f) => f.metadata?.franja === "tarde").length,
+          hoy: elegidas.filter((f) => f.metadata?.cuando === "hoy").length,
+          otroDia: elegidas.filter((f) => f.metadata?.cuando !== "hoy").length,
+        },
         revisados,
         conGarantia,
       });
@@ -2385,6 +2394,13 @@ export default function AdminAnalytics() {
                     <Text nativeID="analitica-ficha-entregas" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Entregas estimadas mostradas: mismo día {fichaConfianza.entregas.mismo_dia} · resto de España {fichaConfianza.entregas.peninsula} ·
                       islas, Ceuta y Melilla {fichaConfianza.entregas.islas} · sin código postal {fichaConfianza.entregas.sin_cp}
+                    </Text>
+                  </View>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="time-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-franjas" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Franja de entrega elegida al pagar (30 días): mañana {fichaConfianza.franjas.manana} · tarde {fichaConfianza.franjas.tarde} · para hoy{" "}
+                      {fichaConfianza.franjas.hoy} · para otro día {fichaConfianza.franjas.otroDia}
                     </Text>
                   </View>
                   {fichaConfianza.revisados !== null ? (

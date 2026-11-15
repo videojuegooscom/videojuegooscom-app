@@ -166,6 +166,7 @@ import {
   type AjustesReservaPublicos,
 } from "../../lib/reservas";
 import {
+  cargarAjustesFranjas,
   cargarTarifas,
   entregaEstimada,
   limpiarCodigoPostal,
@@ -2492,6 +2493,17 @@ function EntregaEstimadaFicha({
   onIrPerfil: () => void;
 }) {
   const azul = colorTextoAzul(14);
+  // Las franjas del dueño (dueño, 2026-11-15): «Llega hoy entre las 17:15 y las 19:00 si lo pides antes de las 16:30».
+  const [, setFranjasCargadas] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    cargarAjustesFranjas().then(() => {
+      if (vivo) setFranjasCargadas(true);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
   const enlace = (texto: string, onPress: () => void, id: string) => (
     <Pressable
       nativeID={id}

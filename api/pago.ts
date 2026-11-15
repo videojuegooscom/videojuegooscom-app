@@ -41,6 +41,10 @@
  *   «Pedido VZ-XXXX-XXXX», nunca «Pedido nº 2»). Con la misma regla de dueño que «crear» (su cuenta o la clave de la
  *   compra; si no, 404) y sin necesitar Stripe. En la página de pago de Stripe, la línea y la descripción del cobro
  *   también llevan la referencia («Pedido VZ-… · VideojuegosZaragoza»); el número interno sigue en los metadatos.
+ * - Franjas de la entrega en el mismo día (dueño, 2026-11-15; migración 20261115180000): GET ?franjas=ajustes → { ok,
+ *   ajustes } (horas, margen y fin de semana; null sin la tabla) y POST { accion: "franja", numero, clave?, franja:
+ *   "manana" | "tarde", fecha: "AAAA-MM-DD" } → { ok, guardada }: la apunta en el pedido una sola vez, con la misma regla
+ *   de dueño que «referencia». No necesitan Stripe.
  * - POST { accion: "devolver", numero } (SOLO el administrador, dueño 2026-11-06) → { ok, devuelto_eur }: devuelve en
  *   Stripe el pago entero de ese pedido (una sola vez: clave de idempotencia por pedido) y lo apunta (migración
  *   20261106100000_pagos_devolucion). No cancela el pedido: eso es otro botón de Pedidos.
@@ -1040,6 +1044,63 @@ async function referenciaPedido(supabase: SupabaseClient, req: any, b: Record<st
   return { ok: true, referencia: p.codigo_seguimiento ?? null };
 }
 
+// --- Franjas de la entrega en el mismo día (dueño, 2026-11-15; migración 20261115180000_franjas_entrega.sql) ---------
+// La tabla entrega_franjas_ajustes solo la lee el administrador; la tienda la pide aquí (son horas, nada personal). Sin la
+// tabla o sin la fila: null y la tienda usa los valores de lib/envio.ts (FRANJAS_POR_DEFECTO, los mismos).
+const COLUMNAS_FRANJAS = "manana_desde,manana_hasta,tarde_desde,tarde_hasta,margen_minutos,sabado_manana,sabado_tarde,domingo_manana,domingo_tarde";
+
+async function ajustesFranjas(supabase: SupabaseClient | null): Promise<Record<string, unknown> | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.from("entrega_franjas_ajustes").select(COLUMNAS_FRANJAS).eq("id", 1).maybeSingle<Record<string, unknown>>();
+    if (error || !data) return null;
+    const hora = (v: unknown) => String(v ?? "").slice(0, 5);
+    return { ...data, manana_desde: hora(data.manana_desde), manana_hasta: hora(data.manana_hasta), tarde_desde: hora(data.tarde_desde), tarde_hasta: hora(data.tarde_hasta) };
+  } catch {
+    return null;
+  }
+}
+
+// Hoy en Madrid como «AAAA-MM-DD» y el día de la semana de una fecha así (0 = domingo).
+function fechaMadrid(ahora: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(ahora);
+}
+
+// Apunta en el pedido la franja y el día que eligió el cliente al pagar. Solo a quien hizo el pedido (su cuenta o la clave
+// de la compra, como «referencia»), una sola vez (si ya tiene franja, no se cambia) y solo para hoy o los 7 días
+// siguientes en Madrid, en una franja que el dueño tenga activada ese día de la semana.
+async function guardarFranjaPedido(supabase: SupabaseClient, req: any, b: Record<string, unknown>) {
+  const numero = Number(b.numero);
+  if (!Number.isInteger(numero) || numero <= 0 || numero > 1e12) throw new Rechazo(400, "pedido no válido");
+  const franja = b.franja === "manana" || b.franja === "tarde" ? b.franja : null;
+  const fecha = typeof b.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha) ? b.fecha : null;
+  if (!franja || !fecha) throw new Rechazo(400, "franja no válida");
+  const hoy = fechaMadrid();
+  const dia = (f: string) => Date.UTC(+f.slice(0, 4), +f.slice(5, 7) - 1, +f.slice(8, 10)) / 86400000;
+  const dentro = dia(fecha) - dia(hoy);
+  if (!Number.isFinite(dentro) || dentro < 0 || dentro > 7) throw new Rechazo(400, "franja no válida");
+  const dow = new Date(dia(fecha) * 86400000).getUTCDay();
+  const aj = await ajustesFranjas(supabase);
+  const activa = (campo: string, defecto: boolean) => (aj && typeof aj[campo] === "boolean" ? (aj[campo] as boolean) : defecto);
+  if (dow === 0 && !activa(franja === "manana" ? "domingo_manana" : "domingo_tarde", franja === "tarde")) throw new Rechazo(400, "ese día no hay reparto en esa franja");
+  if (dow === 6 && !activa(franja === "manana" ? "sabado_manana" : "sabado_tarde", true)) throw new Rechazo(400, "ese día no hay reparto en esa franja");
+  const claveCompra = typeof b.clave === "string" && UUID_RE.test(b.clave) ? b.clave.toLowerCase() : null;
+  const uid = await usuarioDeLaPeticion(supabase, req);
+  if (!claveCompra && !uid) throw new Rechazo(404, "pedido no encontrado");
+  const { data: p, error } = await supabase
+    .from("pedidos")
+    .select("id,user_id,clave_unica,entrega_franja")
+    .eq("numero", numero)
+    .maybeSingle<{ id: string; user_id: string | null; clave_unica: string | null; entrega_franja: string | null }>();
+  if (error) throw new Rechazo(500, "no se pudo leer el pedido");
+  const suyo = !!p && ((!!claveCompra && String(p.clave_unica ?? "").toLowerCase() === claveCompra) || (!!uid && p.user_id === uid));
+  if (!p || !suyo) throw new Rechazo(404, "pedido no encontrado");
+  if (p.entrega_franja) return { ok: true, guardada: false };
+  const { error: errFranja } = await supabase.from("pedidos").update({ entrega_franja: franja, entrega_fecha: fecha }).eq("id", p.id).is("entrega_franja", null);
+  if (errFranja) throw new Rechazo(500, "no se pudo guardar la franja");
+  return { ok: true, guardada: true };
+}
+
 async function esAdministrador(supabase: SupabaseClient, uid: string | null): Promise<boolean> {
   if (!uid) return false;
   const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle<{ role: string }>();
@@ -1394,6 +1455,11 @@ export default async function handler(req: any, res: any) {
         responder(res, 200, await ajustesReservaPublicos(supabase, modo, req));
         return;
       }
+      // Franjas de la entrega en el mismo día (no necesita Stripe): las horas, el margen y el fin de semana del dueño.
+      if (parametroDeLaUrl(req, "franjas") === "ajustes") {
+        responder(res, 200, { ok: true, ajustes: await ajustesFranjas(supabase) });
+        return;
+      }
       if (!modo || !supabase) {
         responder(res, 200, { ok: true, disponible: false, modo: null });
         return;
@@ -1454,6 +1520,12 @@ export default async function handler(req: any, res: any) {
     if (b.accion === "referencia") {
       if (!(await consumirLimite(supabase, `pago:referencia:${cubo}`, LIMITE_CONFIRMAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
       responder(res, 200, await referenciaPedido(supabase, req, b));
+      return;
+    }
+    // La franja de entrega elegida al pagar (tampoco necesita Stripe).
+    if (b.accion === "franja") {
+      if (!(await consumirLimite(supabase, `pago:franja:${cubo}`, LIMITE_CONFIRMAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
+      responder(res, 200, await guardarFranjaPedido(supabase, req, b));
       return;
     }
     // Aviso de prueba al móvil del dueño (tampoco necesita Stripe).
