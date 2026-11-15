@@ -3737,6 +3737,66 @@ try {
     ok(espiaAv.ok && espiaAv.filas.length === 1, `(control) con una regla de lectura abierta, un cliente ve los dispositivos: la prueba SÍ lo detecta (${espiaAv.filas?.length ?? espiaAv.mensaje})`);
     await cAv2.end();
   }
+
+  // Un artículo único deja de venderse en cuanto se paga (20261115200000_vendido_al_pagar.sql, fallo real del 2026-11-15):
+  // columnas nuevas sin reglas ni funciones; el arreglo de hoy marca la Xbox de VZ-HDSF-5KKX SOLO si sigue a la venta y el
+  // pedido sigue pagado y sin cancelar; repetirla no cambia nada; no toca otros artículos ni borra nada.
+  {
+    const VENDP = readFileSync("supabase/migrations/20261115200000_vendido_al_pagar.sql", "utf8");
+    const XBOX = "60f1bafb-b4af-49c5-b074-984eb6677a08";
+    const OTRO = "60f1bafb-b4af-49c5-b074-000000000002";
+    const esquemaVp = (estadoPedido, pagoPedido, activa) => `
+      create table public.products (id uuid primary key, title text, status text not null default 'PUBLISHED', is_active boolean not null default true,
+        vendido_en timestamptz, updated_at timestamptz not null default now());
+      create table public.pedidos (id uuid primary key default gen_random_uuid(), numero int, codigo_seguimiento text, estado text not null default 'pendiente', pago_estado text);
+      create table public.pedido_items (id uuid primary key default gen_random_uuid(), pedido_id uuid references public.pedidos (id), product_id uuid);
+      insert into public.products (id, title, is_active) values ('${XBOX}', 'Xbox Series S + Mando Élite 2 Con estuche', ${activa}), ('${OTRO}', 'Otro artículo', true);
+      insert into public.pedidos (id, numero, codigo_seguimiento, estado, pago_estado) values
+        ('00000000-0000-4000-8000-0000000000a1', 1, 'VZ-HDSF-5KKX', '${estadoPedido}', ${pagoPedido ? `'${pagoPedido}'` : "null"}),
+        ('00000000-0000-4000-8000-0000000000a2', 2, 'VZ-H3ZR-U6KU', 'cancelado', 'pagado');
+      insert into public.pedido_items (pedido_id, product_id) values
+        ('00000000-0000-4000-8000-0000000000a1', '${XBOX}'), ('00000000-0000-4000-8000-0000000000a2', '${XBOX}'), ('00000000-0000-4000-8000-0000000000a2', '${OTRO}');`;
+    const cVp = await nuevaBase("vz_aislada_vendido_al_pagar", esquemaVp("pendiente", "pagado", true) + VENDP);
+    const xbox1 = (await cVp.query(`select is_active, status, vendido_en::text as v, vendido_pedido_id::text as p from public.products where id = '${XBOX}'`)).rows[0];
+    let repetidaVp = true;
+    try {
+      await cVp.query(VENDP);
+    } catch (e) {
+      repetidaVp = false;
+      console.log(String(e.message));
+    }
+    const xbox2 = (await cVp.query(`select vendido_en::text as v from public.products where id = '${XBOX}'`)).rows[0];
+    const otro = (await cVp.query(`select is_active, vendido_en from public.products where id = '${OTRO}'`)).rows[0];
+    ok(xbox1.is_active === false && xbox1.status === "PUBLISHED" && !!xbox1.v && xbox1.p === "00000000-0000-4000-8000-0000000000a1", `Vendido al pagar: la Xbox de VZ-HDSF-5KKX sale de la venta con su pedido, sin borrarla (${JSON.stringify(xbox1)})`);
+    ok(repetidaVp && xbox2.v === xbox1.v && otro.is_active === true && otro.vendido_en === null, `Vendido al pagar: se aplica dos veces sin cambiar la hora y no toca otros artículos (${xbox2.v === xbox1.v}, ${JSON.stringify(otro)})`);
+    const colsVp = (await cVp.query("select string_agg(table_name || '.' || column_name || ':' || data_type, ',' order by table_name, column_name) as c from information_schema.columns where table_schema = 'public' and column_name in ('vendido_pedido_id', 'doble_venta_en')")).rows[0].c;
+    const extrasVp = (await cVp.query("select (select count(*) from pg_policies where schemaname = 'public')::int as reglas, (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public')::int as funciones, (select count(*) from pg_trigger where not tgisinternal)::int as disparadores, (select count(*) from pg_indexes where indexname = 'products_vendido_pedido_idx')::int as indice")).rows[0];
+    ok(colsVp === "pedidos.doble_venta_en:timestamp with time zone,products.vendido_pedido_id:uuid", `Vendido al pagar: dos columnas nuevas (${colsVp})`);
+    await cVp.end();
+    // Las funciones que ya trae la base aislada (sin la migración), para comparar.
+    const cVpBase = await nuevaBase("vz_aislada_vendido_al_pagar_base", esquemaVp("pendiente", "pagado", true));
+    const funcionesBase = Number((await cVpBase.query("select count(*) as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'")).rows[0].n);
+    await cVpBase.end();
+    ok(extrasVp.reglas === 0 && extrasVp.funciones === funcionesBase && extrasVp.disparadores === 0 && extrasVp.indice === 1, `Vendido al pagar: sin reglas, funciones ni disparadores nuevos; con su índice (${JSON.stringify(extrasVp)}; base ${funcionesBase})`);
+    // Si el dueño ya lo cambió: pedido cancelado, sin pagar o el artículo ya oculto → no toca nada.
+    const casos = [
+      ["pedido cancelado", esquemaVp("cancelado", "pagado", true)],
+      ["pedido sin pagar", esquemaVp("pendiente", null, true)],
+      ["artículo ya oculto", esquemaVp("pendiente", "pagado", false)],
+    ];
+    for (const [i, [nombre, esquema]] of casos.entries()) {
+      const c = await nuevaBase(`vz_aislada_vendido_al_pagar_${i}`, esquema + VENDP);
+      const x = (await c.query(`select vendido_en, vendido_pedido_id from public.products where id = '${XBOX}'`)).rows[0];
+      ok(x.vendido_en === null && x.vendido_pedido_id === null, `Vendido al pagar: con el ${nombre}, el arreglo no toca la Xbox (${JSON.stringify(x)})`);
+      await c.end();
+    }
+    // PRUEBA DE LA PRUEBA: sin la condición «sigue pagado y sin cancelar», con el pedido cancelado SÍ la marcaría.
+    const rotaVp = VENDP.replace("   and pe.pago_estado = 'pagado'\n   and pe.estado <> 'cancelado'\n", "");
+    const cVp2 = await nuevaBase("vz_aislada_vendido_al_pagar_rota", esquemaVp("cancelado", "pagado", true) + rotaVp);
+    const xr = (await cVp2.query(`select vendido_en from public.products where id = '${XBOX}'`)).rows[0];
+    ok(rotaVp !== VENDP && xr.vendido_en !== null, "(control) sin la condición del pedido pagado y sin cancelar, el arreglo marcaría la Xbox: la prueba SÍ lo detecta");
+    await cVp2.end();
+  }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
 } finally {

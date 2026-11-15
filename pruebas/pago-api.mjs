@@ -32,6 +32,11 @@
  *      en borrador u oculto 409; la señal la calcula el servidor (ignora lo que mande el navegador), con copia y SHA-256 de
  *      las condiciones; otra persona no la reserva mientras se paga ni cuando está activa; el aviso de Stripe la activa una
  *      sola vez; si lo cobrado no es lo guardado, no se activa; «reserva_estado» solo el administrador y sin dinero.
+ *  V1-V8) Artículo único vendido al pagar (fallo real del 2026-11-15): el aviso de Stripe y «confirmar» marcan el
+ *      artículo vendido (is_active false, vendido_en y su pedido) UNA sola vez; un segundo cobro del mismo artículo se
+ *      apunta pero queda marcado como doble venta (el primero no); crear el pago de un artículo vendido (por la web o en la
+ *      tienda física) se rechaza con «Este artículo se acaba de vender» sin ir a Stripe y cierra el pago abierto; sin las
+ *      columnas nuevas, el artículo sale igual de la venta. Con su control (sin apartar, sin rechazar, sin marcar).
  *  CONTROL) Sin la comprobación de Klarna o de Bizum en la privacidad, sin el reintento sin Bizum, sin la de
  *      administrador, sin la de «paid», sin la de la firma, sin la del dueño del pedido (al pagar y al pedir la
  *      referencia) o con «Pedido nº» en Stripe, las pruebas lo detectan.
@@ -98,6 +103,8 @@ let stripeSinBizum;
 let sinColumnaMetodo;
 // Reservar con señal (sección R): null fuera de su batería (las tablas no existen para el resto).
 let resv = null;
+// Artículo único vendido al pagar (sección V): null fuera de su batería.
+let vend = null;
 const stripeSesiones = new Map();
 const idempotencia = new Map();
 const devoluciones = new Map();
@@ -182,14 +189,48 @@ function supabaseFalso(url, metodo, cabeceras, cuerpo) {
       return representar ? json(filas.map((f) => ({ id: f.id }))) : new Response(null, { status: 204 });
     }
   }
+  // Artículo único vendido al pagar (sección V): artículos y líneas de pedido, como PostgREST (eq / in / is.null).
+  if (vend && (ruta === "/rest/v1/products" || ruta === "/rest/v1/pedido_items")) {
+    const sel = url.searchParams.get("select") ?? "";
+    if (ruta === "/rest/v1/products" && vend.sinColumnas && /vendido_pedido_id/.test(sel)) return json({ code: "42703", message: "column products.vendido_pedido_id does not exist" }, 400);
+    const tabla = ruta === "/rest/v1/products" ? vend.articulos : vend.lineas;
+    const filas = tabla.filter((f) =>
+      [...url.searchParams].every(([k, v]) => {
+        if (["select", "order", "limit", "offset", "columns"].includes(k)) return true;
+        if (v.startsWith("eq.")) return String(f[k]) === v.slice(3);
+        if (v.startsWith("in.(")) return v.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")).includes(String(f[k]));
+        if (v === "is.null") return f[k] == null;
+        return true;
+      })
+    );
+    if (metodo === "GET") return json(filas);
+    if (metodo === "PATCH" && ruta === "/rest/v1/products") {
+      if (vend.sinColumnas && cuerpo && "vendido_pedido_id" in cuerpo) return json({ code: "PGRST204", message: "Could not find the 'vendido_pedido_id' column of 'products' in the schema cache" }, 400);
+      for (const f of filas) {
+        Object.assign(f, cuerpo);
+        vend.marcas.push({ id: f.id, cuerpo: { ...cuerpo } });
+      }
+      return /return=representation/.test(cabeceras.get("prefer") ?? "") ? json(filas.map((f) => ({ id: f.id }))) : new Response(null, { status: 204 });
+    }
+  }
   if (ruta === "/rest/v1/pedidos") {
     if (sinColumnas && /pago_/.test(url.searchParams.get("select") ?? "")) return json({ code: "42703", message: "column pedidos.pago_estado does not exist" }, 400);
+    if (vend?.sinColumnas && metodo === "PATCH" && cuerpo && "doble_venta_en" in cuerpo) return json({ code: "PGRST204", message: "Could not find the 'doble_venta_en' column of 'pedidos' in the schema cache" }, 400);
     const numero = eq(url, "numero");
-    const id = eq(url, "id");
+    const idCrudo = url.searchParams.get("id");
+    const variosIds = idCrudo?.startsWith("in.(") ? idCrudo.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")) : null;
+    const id = variosIds ? null : eq(url, "id");
     const referencia = eq(url, "pago_referencia");
     const sinDevolver = url.searchParams.get("devuelto_en") === "is.null";
+    const sinDoble = url.searchParams.get("doble_venta_en") === "is.null";
     const filas = pedidos.filter(
-      (p) => (numero === null || String(p.numero) === numero) && (id === null || p.id === id) && (referencia === null || p.pago_referencia === referencia) && (!sinDevolver || p.devuelto_en === null)
+      (p) =>
+        (numero === null || String(p.numero) === numero) &&
+        (id === null || p.id === id) &&
+        (!variosIds || variosIds.includes(p.id)) &&
+        (referencia === null || p.pago_referencia === referencia) &&
+        (!sinDevolver || p.devuelto_en === null) &&
+        (!sinDoble || p.doble_venta_en == null)
     );
     if (metodo === "GET") return objeto ? json(filas[0] ?? null) : json(filas.slice(0, Number(url.searchParams.get("limit") ?? 1000)));
     if (metodo === "PATCH") {
@@ -619,6 +660,132 @@ async function bateriaReservas(manejador) {
   return r;
 }
 
+// --- V) Un artículo único deja de venderse en cuanto se paga (fallo real del 2026-11-15; migración
+// 20261115200000_vendido_al_pagar): la Xbox de VZ-HDSF-5KKX, pagada con Klarna, siguió a la venta y se volvió a pagar.
+const XBOX = "60f1bafb-b4af-49c5-b074-984eb6677a08";
+const MANDO = "c1000000-0000-4000-8000-000000000002";
+const FUERA = "c1000000-0000-4000-8000-000000000003"; // vendido antes en la tienda física (VeoAura), sin pedido web
+const SUELTO = "c1000000-0000-4000-8000-000000000004";
+
+async function bateriaVendidos(manejador, { sinColumnas = false } = {}) {
+  const r = {};
+  reiniciar();
+  politica[0].body += " Si pagas con tarjeta, el pago lo gestiona Stripe.";
+  process.env.STRIPE_SECRET_KEY = CLAVE_REAL;
+  process.env.STRIPE_WEBHOOK_SECRET = SECRETO_AVISO;
+  const haceUnaHora = new Date(Date.now() - 3600_000).toISOString();
+  pedidos = [
+    fila(201, { total_eur: 289.9, codigo_seguimiento: "VZ-HDSF-5KKX" }), // el primero que paga la Xbox
+    fila(202, { total_eur: 289.9, codigo_seguimiento: "VZ-H3ZR-U6KU" }), // el segundo, con la página de pago ya abierta
+    fila(203, { total_eur: 289.9 }), // un tercero que llega cuando ya está vendida
+    fila(204, { total_eur: 59.9 }), // el mando, sin vender
+    fila(205, { total_eur: 120 }), // un artículo vendido antes en la tienda física
+    fila(206, { total_eur: 15 }), // un artículo suelto (para «sin las columnas»)
+  ];
+  const linea = (n, producto) => ({ id: `e0000000-0000-4000-8000-00000000${n}`, pedido_id: pedido(n).id, product_id: producto });
+  vend = {
+    sinColumnas,
+    marcas: [],
+    articulos: [
+      { id: XBOX, status: "PUBLISHED", is_active: true, vendido_en: null, ...(sinColumnas ? {} : { vendido_pedido_id: null }) },
+      { id: MANDO, status: "PUBLISHED", is_active: true, vendido_en: null, ...(sinColumnas ? {} : { vendido_pedido_id: null }) },
+      { id: FUERA, status: "PUBLISHED", is_active: false, vendido_en: haceUnaHora, ...(sinColumnas ? {} : { vendido_pedido_id: null }) },
+      { id: SUELTO, status: "PUBLISHED", is_active: true, vendido_en: null, ...(sinColumnas ? {} : { vendido_pedido_id: null }) },
+    ],
+    lineas: [linea(201, XBOX), linea(202, XBOX), linea(203, XBOX), linea(204, MANDO), linea(205, FUERA), linea(206, SUELTO)],
+  };
+  const xbox = () => ({ ...vend.articulos[0] });
+  const avisar = (id, evt) => {
+    const cuerpo = JSON.stringify({ id: evt, type: "checkout.session.completed", livemode: true, data: { object: { id, object: "checkout.session" } } });
+    return pedir(manejador, "POST", { crudo: cuerpo, cabeceras: { "stripe-signature": firmar(cuerpo) } });
+  };
+  // V1: los dos clientes abren el pago de la Xbox a la vez (los dos pedidos se hicieron antes de que nadie pagara).
+  r.abre201 = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 201 } });
+  r.abre202 = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 202 } });
+  r.xboxAntes = xbox();
+  // V2: el primero paga (Klarna) y llega el aviso de Stripe: la Xbox deja de estar a la venta, con su pedido.
+  const s201 = pedido(201).pago_sesion;
+  pagarEnStripe(s201, "pi_3Klarna201");
+  stripeSesiones.get(s201).metodoReal = "klarna";
+  r.aviso201 = await avisar(s201, "evt_v1");
+  r.fila201 = { ...pedido(201) };
+  r.xboxPagada = xbox();
+  r.marcasTrasPago = vend.marcas.filter((m) => m.id === XBOX).length;
+  // V3: repetir el aviso y confirmar desde el navegador no la marca otra vez.
+  r.aviso201b = await avisar(s201, "evt_v1");
+  r.confirma201 = await pedir(manejador, "POST", { cuerpo: { accion: "confirmar", sesion: s201 } });
+  r.marcasTrasRepetir = vend.marcas.filter((m) => m.id === XBOX).length;
+  r.xboxTrasRepetir = xbox();
+  r.doble201 = pedido(201).doble_venta_en ?? null;
+  // V4: el segundo termina en Stripe la página que tenía abierta: se apunta su pago, pero queda marcado como doble venta y
+  // la Xbox sigue vendida al primero.
+  const s202 = pedido(202).pago_sesion;
+  pagarEnStripe(s202, "pi_3Segundo202");
+  r.confirma202 = await pedir(manejador, "POST", { cuerpo: { accion: "confirmar", sesion: s202 } });
+  r.fila202 = { ...pedido(202) };
+  r.xboxTrasDoble = xbox();
+  r.marcasTrasDoble = vend.marcas.filter((m) => m.id === XBOX).length;
+  // Repetir el aviso del segundo no cambia la marca ni marca al primero.
+  const dobleEn = pedido(202).doble_venta_en;
+  r.aviso202 = await avisar(s202, "evt_v2");
+  r.dobleIgual = pedido(202).doble_venta_en === dobleEn;
+  r.confirma201tras = await pedir(manejador, "POST", { cuerpo: { accion: "confirmar", sesion: s201 } });
+  r.doble201tras = pedido(201).doble_venta_en ?? null;
+  // V5: un tercero que llega ya vendida no puede pagar (sin ir a Stripe).
+  const sesionesAntes = registro.crearSesion.length;
+  r.crea203 = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 203 } });
+  r.crea205 = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 205 } });
+  r.sesionesTrasVendido = registro.crearSesion.length - sesionesAntes;
+  r.fila203 = { ...pedido(203) };
+  // V6: un artículo sin vender se paga como siempre.
+  r.crea204 = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 204 } });
+  // V7: con la página de pago abierta, otro lo paga: al volver a «crear», se rechaza y se cierra su pago abierto.
+  const s204 = pedido(204).pago_sesion;
+  pedidos.push(fila(207, { total_eur: 59.9 }));
+  vend.lineas.push(linea(207, MANDO));
+  await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 207 } });
+  const s207 = pedido(207).pago_sesion;
+  pagarEnStripe(s207, "pi_3Otro207");
+  r.aviso207 = await avisar(s207, "evt_v3");
+  r.crea204otra = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 204 } });
+  r.expirada204 = registro.expiradas.includes(s204);
+  r.mando = { ...vend.articulos[1] };
+  r.id207 = pedido(207).id;
+  // V8: sin las columnas nuevas (migración sin aplicar) el pago se apunta igual y el artículo sale de la venta.
+  r.crea206 = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 206 } });
+  const s206 = pedido(206).pago_sesion;
+  if (s206) pagarEnStripe(s206, "pi_3Suelto206");
+  r.confirma206 = s206 ? await pedir(manejador, "POST", { cuerpo: { accion: "confirmar", sesion: s206 } }) : null;
+  r.fila206 = { ...pedido(206) };
+  r.suelto = { ...vend.articulos[3] };
+  r.nadaBorrado = vend.articulos.length === 4 && vend.lineas.length === 7;
+  vend = null;
+  return r;
+}
+
+function comprobarVendidos(r, sinColumnas) {
+  const t = sinColumnas ? "V (sin las columnas nuevas)" : "V";
+  if (sinColumnas) {
+    ok(r.confirma206?.cuerpo?.pagado === true && r.fila206.pago_estado === "pagado" && r.suelto.is_active === false && !!r.suelto.vendido_en && !("vendido_pedido_id" in r.suelto), `${t}: el pago se apunta y el artículo sale de la venta con is_active y vendido_en (${JSON.stringify(r.suelto)})`);
+    ok(r.xboxPagada.is_active === false && !!r.xboxPagada.vendido_en && r.crea203.codigo === 409, `${t}: la Xbox pagada sale de la venta y un tercero no puede pagarla (${r.crea203.codigo})`);
+    ok(r.confirma202.cuerpo?.pagado === true && r.fila202.pago_estado === "pagado", `${t}: el segundo cobro se apunta igual (sin la columna, la doble venta solo se avisa en la consola)`);
+    return;
+  }
+  ok(r.abre201.codigo === 200 && r.abre202.codigo === 200 && r.xboxAntes.is_active === true, `${t}1: antes de pagar, los dos pueden abrir el pago (${r.abre201.codigo}, ${r.abre202.codigo})`);
+  ok(r.aviso201.codigo === 200 && r.fila201.pago_estado === "pagado" && r.fila201.pago_metodo === "klarna", `${t}2: el aviso de Stripe apunta el pago con Klarna (${r.fila201.pago_estado} ${r.fila201.pago_metodo})`);
+  ok(r.xboxPagada.is_active === false && !!r.xboxPagada.vendido_en && r.xboxPagada.vendido_pedido_id === r.fila201.id && r.xboxPagada.status === "PUBLISHED", `${t}2: en cuanto se paga, la Xbox deja de estar a la venta (is_active false, vendido_en y su pedido; sin borrar nada) (${JSON.stringify(r.xboxPagada)})`);
+  ok(r.marcasTrasPago === 1, `${t}2: se marca UNA vez (${r.marcasTrasPago})`);
+  ok(r.aviso201b.codigo === 200 && r.confirma201.cuerpo?.pagado === true && r.marcasTrasRepetir === 1 && r.xboxTrasRepetir.vendido_en === r.xboxPagada.vendido_en && r.doble201 === null, `${t}3: repetir el aviso y «confirmar» no la marcan otra vez ni cambian la hora (${r.marcasTrasRepetir})`);
+  ok(r.confirma202.cuerpo?.pagado === true && r.fila202.pago_estado === "pagado" && !!r.fila202.doble_venta_en, `${t}4: el segundo cobro de la misma Xbox se apunta y el pedido queda marcado como doble venta (${r.fila202.doble_venta_en})`);
+  ok(r.xboxTrasDoble.vendido_pedido_id === r.fila201.id && r.marcasTrasDoble === 1, `${t}4: la Xbox sigue vendida al primero (${r.xboxTrasDoble.vendido_pedido_id === r.fila201.id})`);
+  ok(r.aviso202.codigo === 200 && r.dobleIgual && r.doble201tras === null, `${t}4: repetir el aviso no cambia la marca y el primer pedido NO queda como doble venta`);
+  ok(r.crea203.codigo === 409 && r.crea203.cuerpo?.error === "Este artículo se acaba de vender" && r.fila203.pago_sesion === null, `${t}5: crear el pago de un artículo vendido se rechaza con «Este artículo se acaba de vender» (${r.crea203.codigo} ${r.crea203.cuerpo?.error})`);
+  ok(r.crea205.codigo === 409 && r.sesionesTrasVendido === 0, `${t}5: también si se vendió fuera de la web (tienda física), y sin abrir Stripe (${r.crea205.codigo}, sesiones ${r.sesionesTrasVendido})`);
+  ok(r.crea204.codigo === 200 && /^https:\/\/checkout\.stripe\.com\//.test(r.crea204.cuerpo?.url ?? ""), `${t}6: un artículo sin vender se paga como siempre (${r.crea204.codigo})`);
+  ok(r.aviso207.codigo === 200 && r.mando.vendido_pedido_id === r.id207 && r.crea204otra.codigo === 409 && r.expirada204, `${t}7: si otro lo paga mientras tiene la página abierta, al volver se rechaza y su pago abierto se cierra (${r.crea204otra.codigo}, cerrada ${r.expirada204})`);
+  ok(r.nadaBorrado, `${t}: no se borra ningún artículo ni ninguna línea`);
+}
+
 // Un GET con la ruta completa (los parámetros van en req.url, como en Vercel).
 async function pedirUrl(manejador, url, token) {
   const req = { method: "GET", url, headers: { host: "videojuegoszaragoza.com", "x-vercel-forwarded-for": "203.0.113.7", ...(token ? { authorization: `Bearer ${token}` } : {}) } };
@@ -679,6 +846,8 @@ function comprobarReservas(r) {
 try {
   const manejador = (await import("../api/pago.ts")).default;
   comprobarReservas(await bateriaReservas(manejador));
+  comprobarVendidos(await bateriaVendidos(manejador), false);
+  comprobarVendidos(await bateriaVendidos(manejador, { sinColumnas: true }), true);
   const r = await bateria(manejador);
 
   ok(r.sinClave.codigo === 200 && r.sinClave.cuerpo?.disponible === false, "P1: sin clave de Stripe no hay pago con tarjeta");
@@ -816,6 +985,20 @@ try {
     const archivo = join(carpeta, "api", `pago-control-r${i}.ts`);
     writeFileSync(archivo, roto);
     const m = await bateriaReservas((await import(pathToFileURL(archivo).href)).default);
+    ok(detecta(m), `(control) sin la comprobación «${nombre}», ${texto}: la prueba SÍ lo detecta`);
+  }
+  // CONTROL del artículo único vendido al pagar (sección V).
+  const mutacionesV = [
+    ["apartar al pagar", "  await apartarArticulos(supabase, p.id);\n  // A la vez", "  // A la vez", (m) => m.xboxPagada.is_active === true, "la Xbox pagada sigue a la venta (V2)"],
+    ["no dejar pagar lo vendido", "if (await articuloYaVendido(supabase, p.id)) {", "if (false) {", (m) => m.crea203.codigo === 200, "se abre el pago de un artículo ya vendido (V5)"],
+    ["marcar la doble venta", "if (anterior || vendidoAntes) resultado.doble = true;", "", (m) => !m.fila202.doble_venta_en, "el segundo cobro no queda marcado como doble venta (V4)"],
+  ];
+  for (const [i, [nombre, buscar, poner, detecta, texto]] of mutacionesV.entries()) {
+    const roto = fuente.replace(buscar, poner);
+    ok(roto !== fuente, `(control) se ha podido quitar la comprobación «${nombre}» en la copia de prueba`);
+    const archivo = join(carpeta, "api", `pago-control-v${i}.ts`);
+    writeFileSync(archivo, roto);
+    const m = await bateriaVendidos((await import(pathToFileURL(archivo).href)).default);
     ok(detecta(m), `(control) sin la comprobación «${nombre}», ${texto}: la prueba SÍ lo detecta`);
   }
 } catch (e) {

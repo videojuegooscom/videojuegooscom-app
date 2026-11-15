@@ -76,6 +76,9 @@ export type ProductRow = {
   // Aviso a VeoAura de un producto creado a mano («producto_tienda», 2026-11-13; migración 20261113130000):
   // "pendiente" = aún sin respuesta de VeoAura, "enviado" = en VeoAura (ya devolvió su id). undefined = sin aviso.
   veoaura?: "pendiente" | "enviado";
+  // Vendido (artículo único): cuándo y, si se vendió por la web, la referencia del pedido pagado (VZ-…; migración
+  // 20261115200000_vendido_al_pagar). undefined = no está vendido.
+  vendido?: { en: string; referencia: string | null };
   media: ProductMediaRow[];
 };
 

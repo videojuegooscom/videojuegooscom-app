@@ -183,6 +183,10 @@
  *    y no con un mando; sin cifras; abre Vender en modo cambio con «para comprar: …»; la solicitud se guarda marcada;
  *    Cotizaciones la marca y la filtra; Analítica cuenta mostrado/tocado/enviados; 360/390/1280; campos de 16 px.
  *    Se lanza con SOLO = CAMBC y en la pasada completa.
+ *  - VENDP) Un artículo único deja de venderse en cuanto se paga (fallo real del 2026-11-15): «Este artículo se acaba de
+ *    vender» al guardar el pedido o al ir a pagar (sin Stripe, cesta intacta, medido sin datos personales); Pedidos con la
+ *    doble venta avisada y filtrada y «Volver a poner a la venta» (44 px) solo donde toca; Productos «Vendido (pedido
+ *    VZ-…)»; Analítica. 360/390/1280. Se lanza con SOLO = VENDP y en la pasada completa.
  *  - RESEN) Reservar con señal (mejora 14): apagada, ni la ficha ni Mis seguimientos enseñan nada; Administración no deja
  *    activar sin reglas ni sin «Revisado por mi gestor» (borrador marcado, escala 1-70 %); activa, la ficha calcula el % y
  *    los € según los días, la casilla es obligatoria y «Pagar señal» solo manda artículo y días; sin cuenta invita; «Mis
@@ -383,7 +387,7 @@
  *    (último primero, sin repetidos, como mucho 12); con 2 no sale, con 3 sí; retirado fuera (y del historial); no si son
  *    justo los de «Recién llegado»; «Quitar» y «Borrar historial» de 44 px; tocar abre la ficha; la oferta no se mueve;
  *    analítica con ids y cuántos (nada si se rechazó) y la tarjeta «Vistos recientemente (30 días)»; 360, 390 y 1280.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC|RAPI|COMPA|VISTOS|CHATP|AVISOM|FRANJ]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL|SES|SES2|CR|FBU|FCONF|SEGP|PAREC|RAPI|COMPA|VISTOS|CHATP|AVISOM|FRANJ|VENDP]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -968,6 +972,32 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         return r.fulfill({ status: 204, headers: CORS, body: "" });
       }
       return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(estado.franjasTabla) : json([estado.franjasTabla]);
+    }
+    // Artículo único vendido al pagar (sección VENDP): la base de datos que ya no deja guardar el pedido, el servidor que
+    // no deja pagar lo vendido, el estado de venta de los artículos (con lo que se manda reponer) y las referencias.
+    if (estado.vendp) {
+      const v = estado.vendp;
+      const sel = url.searchParams.get("select") ?? "";
+      if (url.pathname.endsWith("/rpc/crear_pedido_idempotente") && v.rpcVendido) {
+        v.rpcRechazos = (v.rpcRechazos ?? 0) + 1;
+        return json({ code: "P0001", message: "productos no disponibles", details: null, hint: null }, 400);
+      }
+      if (url.pathname === "/api/pago" && metodo === "POST" && v.pagoVendido && JSON.parse(peticion.postData() ?? "{}").accion === "crear") {
+        v.pagoRechazos = (v.pagoRechazos ?? 0) + 1;
+        return json({ ok: false, error: "Este artículo se acaba de vender" }, 409);
+      }
+      if (v.articulos && url.pathname.endsWith("/rest/v1/products") && metodo === "GET" && /vendido_en/.test(sel) && /is_active/.test(sel)) {
+        const ids = (url.searchParams.get("id") ?? "").replace(/^in\.\(|\)$/g, "").split(",").map((x) => x.replace(/^"|"$/g, ""));
+        return json(v.articulos.filter((a) => ids.includes(a.id)));
+      }
+      if (v.articulos && url.pathname.endsWith("/rest/v1/products") && metodo === "PATCH") {
+        const ids = (url.searchParams.get("id") ?? "").replace(/^in\.\(|\)$/g, "").replace(/^eq\./, "").split(",").map((x) => x.replace(/^"|"$/g, ""));
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        v.repuestos = [...(v.repuestos ?? []), { ids, cuerpo }];
+        v.articulos = v.articulos.map((a) => (ids.includes(a.id) ? { ...a, ...cuerpo } : a));
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+      if (v.referencias && url.pathname.endsWith("/rest/v1/pedidos") && metodo === "GET" && sel === "id,codigo_seguimiento") return json(v.referencias);
     }
     if (url.pathname === "/api/pago" && estado.pago) {
       const auth = peticion.headers()["authorization"] ?? "";
@@ -18980,8 +19010,229 @@ async function seccionFRANJ() {
   });
 }
 
+// ===== VENDP) Un artículo único deja de venderse en cuanto se paga (fallo real del 2026-11-15; migración
+// 20261115200000_vendido_al_pagar.sql): en la tienda, si otro cliente lo acaba de pagar, ni se guarda el pedido ni se abre
+// Stripe y se dice «Este artículo se acaba de vender» (sin cobrar nada, cesta intacta) y se mide sin datos personales;
+// Administración → Pedidos: «Artículo ya vendido: devuelve el pago», el filtro «Doble venta (n)», «Volver a poner a la
+// venta» (44 px, segundo toque) solo en el cancelado que vendió el artículo, y al cancelar uno pagado lo dice;
+// Productos: «Vendido (pedido VZ-…)»; Analítica: la línea de artículos únicos. 360/390/1280, sin errores de JavaScript.
+async function seccionVENDP() {
+  const XBOX = "60f1bafb-b4af-49c5-b074-984eb6677a08";
+  const MANDO = "60f1bafb-b4af-49c5-b074-0000000000b2";
+  const SUELTO = "60f1bafb-b4af-49c5-b074-0000000000b3";
+  const AVISO = "Este artículo se acaba de vender. No te hemos cobrado nada: escríbenos por el chat y te ayudamos a encontrar otro.";
+  const CESTA = [{ id: XBOX, title: "Xbox Series S + Mando Élite 2 Con estuche", subtitle: "Consolas", priceEUR: 289.9, qty: 1, imageUrl: null }];
+  const conCesta = (ctx) =>
+    ctx.addInitScript((articulos) => {
+      try {
+        if (!sessionStorage.getItem("vz-prueba-cesta")) {
+          sessionStorage.setItem("vz-prueba-cesta", "1");
+          localStorage.setItem("videojuegoos_cart_v1", JSON.stringify(articulos.map((a) => ({ ...a, reservedUntil: Date.now() + 14 * 60000 }))));
+        }
+      } catch {
+        // sin almacenamiento
+      }
+    }, CESTA);
+  const perfilDe = (u) => [{ user_id: u.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", foto_url: null }];
+  // El texto visible, sin los iconos (Ionicons usa caracteres de uso privado de Unicode).
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const alto = (p, sel) => p.locator(sel).first().evaluate((e) => Math.round(e.getBoundingClientRect().height)).catch(() => 0);
+  const sinDesborde = (p) => p.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= window.innerWidth + 1);
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `VENDP: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+  const rellenar = async (p) => {
+    await p.getByPlaceholder("600 000 000").fill("600111222");
+    await p.getByPlaceholder("Calle, número, piso...").fill("Calle Mayor 5, 3º B");
+    await p.getByPlaceholder("Zaragoza").fill("Zaragoza");
+    await p.getByPlaceholder("50001").fill("28001");
+    await p.waitForTimeout(300);
+  };
+  const abajo = (p) =>
+    p.evaluate(() => {
+      const s = document.getElementById("pago-desplazamiento");
+      if (s) s.scrollTop = s.scrollHeight;
+    });
+
+  // VENDP1) La base de datos ya no deja guardar el pedido (el artículo se vendió): aviso claro, sin ir a Stripe, la cesta
+  // sigue igual y se mide «pago_articulo_vendido» (momento «pedido») sin datos personales. 360, 390 y 1280.
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`VENDP1 ${nombre}`, async () => {
+      const estado = { filas: perfilDe(CLIENTE), guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real" }, vendp: { rpcVendido: true } };
+      const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+      await conCesta(ctx);
+      const p = await pagina(ctx, "/checkout");
+      await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      await rellenar(p);
+      await abajo(p);
+      await p.locator("#pago-tarjeta").click();
+      await p.locator("#pago-error").waitFor({ timeout: 10000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      ok((await texto(p, "#pago-error")) === AVISO, `VENDP1 (${nombre}): «Este artículo se acaba de vender», sin cobrar nada (${await texto(p, "#pago-error")})`);
+      ok((estado.vendp.rpcRechazos ?? 0) >= 1 && !(estado.pago.peticiones ?? []).some((x) => x.cuerpo.accion === "crear") && !(estado.stripeAbierto ?? []).length, `VENDP1 (${nombre}): no se pide el pago ni se abre Stripe`);
+      const cesta = await p.evaluate(() => JSON.parse(localStorage.getItem("videojuegoos_cart_v1") ?? "[]").length);
+      ok(cesta === 1 && (await p.locator("#pago-confirmacion-titulo").count()) === 0, `VENDP1 (${nombre}): la cesta sigue igual y no sale la confirmación (${cesta})`);
+      const ev = evento(estado, "pago_articulo_vendido");
+      ok(ev.length === 1 && JSON.stringify(ev[0].metadata) === JSON.stringify({ momento: "pedido", items: 1 }) && !/600111222|Calle Mayor|28001/.test(JSON.stringify(ev)), `VENDP1 (${nombre}): se mide «pago_articulo_vendido» sin datos personales (${JSON.stringify(ev[0]?.metadata ?? null)})`);
+      ok((await sinDesborde(p)) && p.errores.length === 0, `VENDP1 (${nombre}): sin desbordes ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await capturar(p, `VENDP1-pago-vendido-${nombre}`);
+      await ctx.close();
+    });
+  }
+
+  // VENDP2) El pedido se guarda pero, al ir a pagar, el servidor dice que otro acaba de pagarlo (409): aviso claro y sin
+  // ir a Stripe; se mide con el momento «pago».
+  await bloque("VENDP2 al ir a pagar", async () => {
+    const estado = { filas: perfilDe(CLIENTE), guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real" }, vendp: { pagoVendido: true } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    await rellenar(p);
+    await abajo(p);
+    await p.locator("#pago-tarjeta").click();
+    await p.locator("#pago-aviso").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    ok((await texto(p, "#pago-aviso")) === AVISO, `VENDP2: al ir a pagar, «Este artículo se acaba de vender» (${await texto(p, "#pago-aviso")})`);
+    ok((estado.vendp.pagoRechazos ?? 0) === 1 && !(estado.stripeAbierto ?? []).length && !/checkout\.stripe\.com/.test(p.url()), "VENDP2: no se abre Stripe");
+    const ev = evento(estado, "pago_articulo_vendido");
+    ok(ev.length === 1 && JSON.stringify(ev[0].metadata) === JSON.stringify({ momento: "pago" }), `VENDP2: se mide con el momento «pago» (${JSON.stringify(ev.map((e) => e.metadata))})`);
+    await capturar(p, "VENDP2-pago-vendido-390");
+    ok(p.errores.length === 0, `VENDP2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // VENDP3) Administración → Pedidos (360, 390 y 1280): la doble venta avisada y filtrada; «Volver a poner a la venta» solo
+  // en el cancelado que vendió el artículo (no en el de la doble venta, cuya Xbox es del primero).
+  const ID = (n) => `0d000000-0000-4000-8000-000000000${n}`;
+  const ped = (n, ref, item, extra) => ({
+    id: ID(n), numero: n, created_at: "2026-11-15T08:45:00Z", estado: "pendiente", entrega: "recogida", nombre: `Cliente ${n}`, email: `c${n}@example.com`,
+    telefono: "600111222", direccion: null, codigo_postal: null, ciudad: null, notas: null, total_eur: 289.9, productos_eur: 289.9, envio_eur: 0, zona_envio: "mano",
+    envio_manual: false, user_id: null, codigo_seguimiento: ref, id_veoaura: null, vinculado_en: null, nota_admin: null, pago_estado: "pagado", pago_modo: "real",
+    pago_referencia: `pi_3Prueba${n}`, pagado_eur: 289.9, pagado_en: "2026-11-15T08:45:00Z", pago_metodo: "klarna", devuelto_eur: null, devuelto_en: null, doble_venta_en: null,
+    pedido_items: [{ id: `0f000000-0000-4000-8000-000000000${n}`, product_id: item, titulo: "Xbox Series S + Mando Élite 2 Con estuche", precio_eur: 289.9 }],
+    ...extra,
+  });
+  const pedidosAdmin = () => [
+    ped(201, "VZ-HDSF-5KKX", XBOX, {}),
+    ped(202, "VZ-H3ZR-U6KU", XBOX, { estado: "cancelado", pagado_en: "2026-11-15T17:35:00Z", doble_venta_en: "2026-11-15T17:35:01Z", devuelto_eur: 289.9, devuelto_en: "2026-11-15T18:00:00Z" }),
+    ped(203, "VZ-MAND-0203", MANDO, { estado: "cancelado", pago_metodo: "card" }),
+    ped(204, "VZ-SUEL-0204", SUELTO, { pago_metodo: "card" }),
+  ];
+  const articulos = () => [
+    { id: XBOX, is_active: false, vendido_en: "2026-11-15T08:45:01Z", vendido_pedido_id: ID(201) },
+    { id: MANDO, is_active: false, vendido_en: "2026-11-15T08:45:01Z", vendido_pedido_id: ID(203) },
+    { id: SUELTO, is_active: false, vendido_en: "2026-11-15T08:45:01Z", vendido_pedido_id: ID(204) },
+  ];
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`VENDP3 ${nombre}`, async () => {
+      const estado = { guardados: [], aceptaAnalitica: true, tarifas: [], pedidosAdmin: pedidosAdmin(), vendp: { articulos: articulos() } };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, "/admin/pedidos?buscar=");
+      await p.locator("#pedido-titulo-201").waitFor({ timeout: 30000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      // «En curso» incluye el cancelado pagado sin devolver (203); el 202 ya está devuelto: se mira en «Todos».
+      await p.getByText(/^Todos$/).first().click();
+      await p.waitForTimeout(400);
+      ok((await texto(p, "#pedido-doble-venta-202")) === "Artículo ya vendido: devuelve el pago (ya devuelto)" && (await p.locator("#pedido-doble-venta-201").count()) === 0, `VENDP3 (${nombre}): la doble venta se avisa solo en el segundo pedido (${await texto(p, "#pedido-doble-venta-202")})`);
+      const chip = p.getByText(/^Doble venta \(\d+\)$/);
+      ok((await chip.innerText().catch(() => "")) === "Doble venta (1)", `VENDP3 (${nombre}): filtro «Doble venta (1)» (${await chip.innerText().catch(() => "no está")})`);
+      ok((await p.locator("#pedido-reponer-203").count()) === 1 && (await p.locator("#pedido-reponer-202").count()) === 0 && (await p.locator("#pedido-reponer-201").count()) === 0, `VENDP3 (${nombre}): «Volver a poner a la venta» solo en el cancelado que vendió el artículo`);
+      ok((await alto(p, "#pedido-reponer-203")) >= 44, `VENDP3 (${nombre}): «Volver a poner a la venta» mide 44 px (${await alto(p, "#pedido-reponer-203")})`);
+      await p.locator("#pedido-doble-venta-202").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `VENDP3-pedidos-doble-venta-${nombre}`);
+      ok((await sinDesborde(p)) && p.errores.length === 0, `VENDP3 (${nombre}): sin desbordes ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      if (nombre === "390") {
+        await chip.click();
+        await p.waitForTimeout(400);
+        const visibles = await p.evaluate(() => [...document.querySelectorAll('[id^="pedido-titulo-"]')].map((e) => e.id));
+        ok(JSON.stringify(visibles) === JSON.stringify(["pedido-titulo-202"]), `VENDP3: el filtro deja solo la doble venta (${visibles.join(", ")})`);
+        await p.getByText(/^Todos$/).first().click();
+        await p.waitForTimeout(300);
+        // Reponer: primer toque pide confirmar, el segundo lo hace (y solo ese artículo, sin borrar nada).
+        await p.locator("#pedido-reponer-203").click();
+        await p.waitForTimeout(200);
+        ok((await texto(p, "#pedido-reponer-203")) === "Toca otra vez para ponerlo a la venta" && !(estado.vendp.repuestos ?? []).length, `VENDP3: el primer toque pide confirmar (${await texto(p, "#pedido-reponer-203")})`);
+        await p.locator("#pedido-reponer-203").click();
+        await p.waitForTimeout(600);
+        const rep = estado.vendp.repuestos ?? [];
+        ok(rep.length === 1 && JSON.stringify(rep[0].ids) === JSON.stringify([MANDO]) && JSON.stringify(rep[0].cuerpo) === JSON.stringify({ is_active: true, vendido_en: null, vendido_pedido_id: null }), `VENDP3: vuelve a la venta solo ese artículo (${JSON.stringify(rep)})`);
+        ok(/Artículo otra vez a la venta/.test(await texto(p, "#pedido-accion-mensaje-203")) && (await p.locator("#pedido-reponer-203").count()) === 0, `VENDP3: lo confirma y el botón desaparece (${await texto(p, "#pedido-accion-mensaje-203")})`);
+        // Cancelar un pedido pagado: sus artículos NO vuelven solos a la venta; lo dice y ofrece el botón.
+        await p.locator("#pedido-cancelar-204").click();
+        await p.waitForTimeout(200);
+        await p.locator("#pedido-cancelar-204").click();
+        await p.waitForTimeout(800);
+        const msg = await texto(p, "#pedido-accion-mensaje-204");
+        ok(/Sus artículos siguen fuera de la venta/.test(msg) && (await p.locator("#pedido-reponer-204").count()) === 1 && !(estado.vendp.repuestos ?? []).some((x) => x.ids.includes(SUELTO)), `VENDP3: al cancelar uno pagado, el artículo no vuelve solo a la venta y se ofrece el botón (${msg})`);
+        await capturar(p, "VENDP3-pedidos-cancelado-reponer-390");
+      }
+      await ctx.close();
+    });
+  }
+
+  // VENDP4) Administración → Productos (390 y 1280): «Vendido (pedido VZ-HDSF-5KKX)» en el vendido; nada en el otro.
+  const fila = (id, title, extra = {}) => ({
+    id, title, description: "Revisado.", price_eur: 289.9, status: "PUBLISHED", is_active: true, category_id: null, images: [], condition: "USED",
+    reference: null, is_featured_home: false, created_at: "2026-10-30T10:00:00Z", updated_at: "2026-10-30T10:00:00Z", vendido_en: null, vendido_pedido_id: null, ...extra,
+  });
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    await bloque(`VENDP4 ${nombre}`, async () => {
+      const estado = {
+        guardados: [], filas: [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }], categorias: [],
+        productosAdmin: [fila(XBOX, "Xbox Series S + Mando Élite 2 Con estuche", { is_active: false, vendido_en: "2026-11-15T08:45:01Z", vendido_pedido_id: ID(201) }), fila(MANDO, "Mando DualSense")],
+        vendp: { referencias: [{ id: ID(201), codigo_seguimiento: "VZ-HDSF-5KKX" }] },
+      };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, "/admin/products");
+      await p.locator(`#producto-vendido-${XBOX}`).waitFor({ timeout: 30000 }).catch(() => {});
+      await p.waitForTimeout(400);
+      ok((await texto(p, `#producto-vendido-${XBOX}`)) === "Vendido (pedido VZ-HDSF-5KKX)" && (await p.locator(`#producto-vendido-${MANDO}`).count()) === 0, `VENDP4 (${nombre}): Productos dice «Vendido (pedido VZ-HDSF-5KKX)» solo en el vendido (${await texto(p, `#producto-vendido-${XBOX}`)})`);
+      await capturar(p, `VENDP4-productos-vendido-${nombre}`);
+      ok((await sinDesborde(p)) && p.errores.length === 0, `VENDP4 (${nombre}): sin desbordes ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
+  // VENDP5) Analítica: los intentos de pagar algo ya vendido (30 días) y, con la migración, los recuentos de dobles ventas y
+  // vendidos al pagar (sin la migración, ni se piden).
+  for (const conMigracion of [true, false]) {
+    await bloque(`VENDP5 Analítica ${conMigracion ? "con" : "sin"} la migración`, async () => {
+      const ev = (event_name, metadata) => ({ event_name, label: event_name, path: "/checkout", created_at: new Date().toISOString(), session_id: "s", metadata });
+      const estado = {
+        guardados: [], embudo: [{ step_label: "Inicio", sessions: 3 }],
+        eventos: [ev("pago_articulo_vendido", { momento: "pedido", items: 1 }), ev("pago_articulo_vendido", { momento: "pedido", items: 2 }), ev("pago_articulo_vendido", { momento: "pago" })],
+        confianza: { muestra: [conMigracion ? { id: XBOX, vendido_en: null, vendido_pedido_id: null } : { id: XBOX, vendido_en: null }], revisados: 0, conGarantia: 0 },
+      };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado);
+      const p = await pagina(ctx, "/admin/analytics");
+      await p.locator("#analitica-vendido-al-pagar").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(500);
+      const t = await texto(p, "#analitica-vendido-al-pagar");
+      ok(/al hacer el pedido 2 · al ir a pagar 1/.test(t), `VENDP5: Analítica cuenta los «se acaba de vender» (${t})`);
+      ok(conMigracion ? /dobles ventas \d+ · vendidos al pagar por la web \d+$/.test(t) : !/dobles ventas/.test(t) && !(estado.consultasConfianza ?? []).some((c) => /vendido_pedido_id/.test(c)), `VENDP5: ${conMigracion ? "con la migración, también las dobles ventas y los vendidos al pagar" : "sin la migración, ni los pide"} (${t})`);
+      ok(p.errores.length === 0, `VENDP5: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "VENDP") await seccionVENDP();
   if (SOLO === "FRANJ") await seccionFRANJ();
   if (SOLO === "RESEN") await seccionRESEN();
   if (SOLO === "AVISOM") await seccionAVISOM();
@@ -20102,6 +20353,7 @@ try {
   await seccionRESEN();
   await seccionCAMPOS16();
   await seccionFRANJ();
+  await seccionVENDP();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

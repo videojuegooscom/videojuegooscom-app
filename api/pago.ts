@@ -35,7 +35,10 @@
  *   klarna, bizum } (klarna / bizum: si la página de pago también ofrece Klarna / Bizum).
  * - POST { accion: "crear", numero, clave? } → { ok, url } (la página de Stripe) o { ok, pagado: true } si ya está
  *   pagado. El pedido tiene que ser de quien llama: de su cuenta (sesión) o con la clave de la compra, que solo tiene el
- *   navegador que lo hizo (pedidos.clave_unica). Si no, 404 (no se dice si existe).
+ *   navegador que lo hizo (pedidos.clave_unica). Si no, 404 (no se dice si existe). Si un artículo del pedido ya está
+ *   vendido o en otro pedido pagado (cada artículo es UNA unidad), 409 «Este artículo se acaba de vender» sin abrir Stripe
+ *   (y se cierra el pago abierto que hubiera). Al apuntar el pago, sus artículos dejan de estar a la venta (apartarArticulos;
+ *   dueño 2026-11-15, migración 20261115200000_vendido_al_pagar) y una doble venta queda marcada en pedidos.doble_venta_en.
  * - POST { accion: "confirmar", sesion: "cs_…" } → { ok, pagado, numero, referencia }.
  * - POST { accion: "referencia", numero, clave? } → { ok, referencia } (dueño, 2026-11-11: el cliente ve su pedido como
  *   «Pedido VZ-XXXX-XXXX», nunca «Pedido nº 2»). Con la misma regla de dueño que «crear» (su cuenta o la clave de la
@@ -131,6 +134,8 @@ const MINIMO_CENTIMOS = 50;
 const MAXIMO_CENTIMOS = 2_000_000;
 // «Entregado» ya cuenta como pagado (dueño, 2026-11-03) y un pedido cancelado no se cobra.
 const ESTADOS_PAGABLES = ["pendiente", "confirmado", "preparado", "enviado"];
+// Lo que ve el cliente si intenta pagar un artículo único que otro acaba de pagar (app/checkout.tsx lo reconoce).
+const ARTICULO_VENDIDO = "Este artículo se acaba de vender";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SESION_RE = /^cs_(test|live)_[A-Za-z0-9]{8,240}$/;
 const COLUMNAS_PEDIDO = "id,numero,codigo_seguimiento,estado,total_eur,user_id,clave_unica,pago_estado,pago_sesion";
@@ -442,9 +447,113 @@ function faltaColumnaMetodo(error: { code?: string; message?: string } | null): 
   return !!error && (error.code === "42703" || error.code === "PGRST204") && /pago_metodo/.test(String(error.message ?? ""));
 }
 
+// --- Artículos únicos: en cuanto se pagan, dejan de estar a la venta (dueño, 2026-11-15; migración
+// 20261115200000_vendido_al_pagar). Cada artículo de la tienda es UNA unidad: al apuntar el pago (webhook, «confirmar» o
+// «crear» con la sesión ya cobrada) sus artículos quedan vendidos (is_active = false, vendido_en, vendido_pedido_id), como
+// el evento «vendido» de VeoAura, sin borrar nada y UNA sola vez (solo si vendido_en sigue vacío). Si el artículo ya
+// estaba vendido antes de este pago (a otro pedido pagado y sin cancelar, o vendido fuera), el pedido queda marcado
+// (pedidos.doble_venta_en) y Pedidos y el aviso al móvil dicen «Artículo ya vendido: devuelve el pago». Sin las columnas
+// nuevas (migración sin aplicar) se marca igual con is_active y vendido_en, y la doble venta solo se avisa en la consola.
+// Al cancelar, los artículos NO vuelven solos a la venta: lo decide el dueño en Pedidos («Volver a poner a la venta»).
+type ArticuloVenta = { id: string; vendido_en: string | null; vendido_pedido_id?: string | null };
+type PagadoConArticulo = { id: string; pagado_en: string | null };
+
+const faltaColumnaVendido = (error: { code?: string; message?: string } | null, columna: string) =>
+  !!error && (error.code === "42703" || error.code === "PGRST204") && String(error.message ?? "").includes(columna);
+const instante = (iso: string | null | undefined) => {
+  const t = Date.parse(String(iso ?? ""));
+  return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+};
+
+async function articulosDelPedido(supabase: SupabaseClient, pedidoId: string): Promise<string[]> {
+  const { data, error } = await supabase.from("pedido_items").select("product_id").eq("pedido_id", pedidoId);
+  if (error || !Array.isArray(data)) return [];
+  return [...new Set((data as { product_id: string | null }[]).map((f) => f.product_id).filter((id): id is string => typeof id === "string" && UUID_RE.test(id)))];
+}
+
+async function leerArticulos(supabase: SupabaseClient, ids: string[]): Promise<ArticuloVenta[]> {
+  let r: { data: unknown; error: { code?: string; message?: string } | null } = await supabase.from("products").select("id,vendido_en,vendido_pedido_id").in("id", ids);
+  if (faltaColumnaVendido(r.error, "vendido_pedido_id")) r = await supabase.from("products").select("id,vendido_en").in("id", ids);
+  return !r.error && Array.isArray(r.data) ? (r.data as ArticuloVenta[]) : [];
+}
+
+// Por artículo, los OTROS pedidos pagados y sin cancelar que lo llevan (el más antiguo primero).
+async function otrosPedidosPagados(supabase: SupabaseClient, pedidoId: string, ids: string[]): Promise<Map<string, PagadoConArticulo[]>> {
+  const mapa = new Map<string, PagadoConArticulo[]>();
+  if (!ids.length) return mapa;
+  const { data: items } = await supabase.from("pedido_items").select("pedido_id,product_id").in("product_id", ids);
+  const filas = Array.isArray(items) ? (items as { pedido_id: string; product_id: string }[]) : [];
+  const otros = [...new Set(filas.map((f) => f.pedido_id).filter((id) => typeof id === "string" && id !== pedidoId))];
+  if (!otros.length) return mapa;
+  const { data: peds } = await supabase.from("pedidos").select("id,pago_estado,estado,pagado_en").in("id", otros);
+  const pagados = new Map(
+    (Array.isArray(peds) ? (peds as { id: string; pago_estado: string | null; estado: string; pagado_en: string | null }[]) : [])
+      .filter((x) => x.pago_estado === "pagado" && x.estado !== "cancelado")
+      .map((x) => [x.id, { id: x.id, pagado_en: x.pagado_en }])
+  );
+  for (const f of filas) {
+    const otro = pagados.get(f.pedido_id);
+    if (!otro) continue;
+    const lista = mapa.get(f.product_id) ?? [];
+    if (!lista.some((x) => x.id === otro.id)) lista.push(otro);
+    mapa.set(f.product_id, lista.sort((a, b) => instante(a.pagado_en) - instante(b.pagado_en)));
+  }
+  return mapa;
+}
+
+// ¿Algún artículo de este pedido (sin pagar aún) ya está vendido o en otro pedido pagado? Entonces no se deja pagar.
+async function articuloYaVendido(supabase: SupabaseClient, pedidoId: string): Promise<boolean> {
+  const ids = await articulosDelPedido(supabase, pedidoId);
+  if (!ids.length) return false;
+  if ((await leerArticulos(supabase, ids)).some((a) => !!a.vendido_en && a.vendido_pedido_id !== pedidoId)) return true;
+  return (await otrosPedidosPagados(supabase, pedidoId, ids)).size > 0;
+}
+
+// Con el pago apuntado: los artículos del pedido dejan de estar a la venta (una vez) y, si alguno ya estaba vendido antes
+// de este pago, el pedido queda marcado como doble venta. Idempotente (se puede repetir con cada confirmación) y nunca
+// lanza: el cobro ya está apuntado.
+async function apartarArticulos(supabase: SupabaseClient, pedidoId: string): Promise<{ vendidos: number; doble: boolean }> {
+  const resultado = { vendidos: 0, doble: false };
+  try {
+    const ids = await articulosDelPedido(supabase, pedidoId);
+    if (!ids.length) return resultado;
+    const { data: mio } = await supabase.from("pedidos").select("id,numero,pagado_en").eq("id", pedidoId).maybeSingle<{ id: string; numero: number; pagado_en: string | null }>();
+    const miPago = instante(mio?.pagado_en);
+    const articulos = await leerArticulos(supabase, ids);
+    const otros = await otrosPedidosPagados(supabase, pedidoId, ids);
+    const ahora = new Date().toISOString();
+    for (const id of ids) {
+      const a = articulos.find((x) => x.id === id);
+      if (!a || (a.vendido_pedido_id && a.vendido_pedido_id === pedidoId)) continue;
+      // Pagado antes por otro pedido (sin cancelar) o vendido antes de este pago (VeoAura, a mano u otro pedido).
+      const anterior = (otros.get(id) ?? []).find((o) => instante(o.pagado_en) < miPago || (instante(o.pagado_en) === miPago && o.id < pedidoId));
+      const vendidoAntes = !!a.vendido_en && instante(a.vendido_en) < miPago;
+      if (anterior || vendidoAntes) resultado.doble = true;
+      if (a.vendido_en) continue;
+      const dueno = anterior?.id ?? pedidoId;
+      const marcar = (d: Record<string, unknown>) => supabase.from("products").update(d).eq("id", id).is("vendido_en", null).select("id");
+      const datos = { is_active: false, vendido_en: ahora, updated_at: ahora };
+      let r = await marcar({ ...datos, vendido_pedido_id: dueno });
+      if (faltaColumnaVendido(r.error, "vendido_pedido_id")) r = await marcar(datos);
+      if (r.error) console.error("pago: no se pudo marcar como vendido un artículo del pedido", mio?.numero ?? "", r.error.code ?? "");
+      else if (Array.isArray(r.data) && r.data.length > 0) resultado.vendidos++;
+    }
+    if (resultado.doble) {
+      console.error(`pago: el pedido ${mio?.numero ?? ""} lleva un artículo que ya estaba vendido: devuelve el pago`);
+      const { error } = await supabase.from("pedidos").update({ doble_venta_en: ahora }).eq("id", pedidoId).is("doble_venta_en", null);
+      if (error && !faltaColumnaVendido(error, "doble_venta_en")) console.error("pago: no se pudo marcar la doble venta del pedido", mio?.numero ?? "", error.code ?? "");
+    }
+  } catch (e) {
+    console.error("pago: no se pudieron apartar los artículos del pedido", e instanceof Error ? e.message : "");
+  }
+  return resultado;
+}
+
 async function marcarPagado(supabase: SupabaseClient, p: Pick<FilaPedido, "id" | "numero" | "pago_estado" | "pago_sesion">, s: SesionStripe, modo: Modo) {
   if (p.pago_estado === "pagado") {
     if (p.pago_sesion !== s.id) console.error(`pago: el pedido ${p.numero} ya estaba pagado y llega otro cobro (${s.id}): devuélvelo desde Stripe`);
+    // Ya apuntado: se repasa que sus artículos estén apartados (si la primera vez falló; si no, no cambia nada).
+    else await apartarArticulos(supabase, p.id);
     return;
   }
   const referencia = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id ?? null;
@@ -470,6 +579,8 @@ async function marcarPagado(supabase: SupabaseClient, p: Pick<FilaPedido, "id" |
     console.error("pago: no se pudo apuntar el pago del pedido", p.numero, error.code ?? "");
     throw new Rechazo(500, "no se pudo apuntar el pago");
   }
+  // En cuanto está pagado, sus artículos dejan de estar a la venta (antes del aviso, que dice si ya estaban vendidos).
+  await apartarArticulos(supabase, p.id);
   // A la vez: el puente de VeoAura (3 s como mucho) y el aviso al móvil del dueño (4 s como mucho, una vez por pedido).
   await Promise.all([despertarVeoaura(), avisarConTope(() => avisarPedido(supabase, p.id, "pagado"))]);
 }
@@ -675,7 +786,8 @@ async function avisarPedido(supabase: SupabaseClient, pedidoId: string, tipo: "p
   const lugar = p.entrega === "recogida" ? "Recogida en mano" : `Envío a ${[corta(p.ciudad, 30), corta(p.codigo_postal, 10)].filter(Boolean).join(" ")}`.trim();
   const titulo =
     tipo === "pagado"
-      ? `Pedido pagado · ${eurosAviso(Number(p.pagado_eur ?? p.total_eur))}`
+      ? // Doble venta (el artículo ya estaba vendido): el aviso lo dice lo primero.
+        `${p.doble_venta_en ? "Artículo ya vendido: devuelve el pago" : "Pedido pagado"} · ${eurosAviso(Number(p.pagado_eur ?? p.total_eur))}`
       : p.pago_estado
         ? "Pedido nuevo · pago online sin terminar"
         : "Pedido nuevo · pago en entrega";
@@ -763,16 +875,20 @@ async function crearPago(supabase: SupabaseClient, clave: string, modo: Modo, re
   }
 
   // ¿Ya hay un pago abierto de este pedido? Con el mismo importe se reutiliza; si el importe cambió, se cierra.
-  if (p.pago_sesion) {
-    const previa = await sesionDeStripe(clave, p.pago_sesion);
-    if (previa && previa.metadata?.pedido_id === p.id) {
-      if (previa.status === "complete" && previa.payment_status === "paid") {
-        await marcarPagado(supabase, p, previa, modo);
-        return { ok: true, pagado: true, numero, referencia };
-      }
-      if (previa.status === "open" && previa.amount_total === centimos && previa.url) return { ok: true, url: previa.url };
-      if (previa.status === "open") await llamarStripe(clave, "POST", `/checkout/sessions/${encodeURIComponent(previa.id)}/expire`);
-    }
+  const previa = p.pago_sesion ? await sesionDeStripe(clave, p.pago_sesion) : null;
+  const suya = !!previa && previa.metadata?.pedido_id === p.id;
+  if (previa && suya && previa.status === "complete" && previa.payment_status === "paid") {
+    await marcarPagado(supabase, p, previa, modo);
+    return { ok: true, pagado: true, numero, referencia };
+  }
+  // Artículo único ya vendido (o en otro pedido pagado): no se deja pagar y se cierra el pago abierto que hubiera.
+  if (await articuloYaVendido(supabase, p.id)) {
+    if (previa && suya && previa.status === "open") await llamarStripe(clave, "POST", `/checkout/sessions/${encodeURIComponent(previa.id)}/expire`);
+    throw new Rechazo(409, ARTICULO_VENDIDO);
+  }
+  if (previa && suya) {
+    if (previa.status === "open" && previa.amount_total === centimos && previa.url) return { ok: true, url: previa.url };
+    if (previa.status === "open") await llamarStripe(clave, "POST", `/checkout/sessions/${encodeURIComponent(previa.id)}/expire`);
   }
 
   // Misma petición en el mismo minuto (dos toques a la vez) = la misma sesión: la clave de idempotencia y los datos no

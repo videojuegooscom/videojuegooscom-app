@@ -329,8 +329,13 @@ async function irAlPagoConTarjeta(
       headers: await cabecerasConSesion(),
       body: JSON.stringify({ accion: "crear", numero, clave }),
     });
-    const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; pagado?: boolean } | null;
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; pagado?: boolean; error?: string } | null;
     if (r.ok && d?.pagado) return "pagado";
+    // Artículo único que otro cliente acaba de pagar (api/pago.ts no abre Stripe): no se cobra nada.
+    if (r.status === 409 && /acaba de vender/.test(String(d?.error ?? ""))) {
+      trackEvent("pago_articulo_vendido", "Pago: artículo ya vendido", { path: "/checkout", metadata: { momento: "pago" } });
+      return { aviso: AVISO_VENDIDO };
+    }
     if (r.ok && typeof d?.url === "string" && /^https:\/\/checkout\.stripe\.com\//.test(d.url)) {
       try {
         await AsyncStorage.setItem(PAGO_PENDIENTE_KEY, JSON.stringify({ numero, clave, creado: Date.now() }));
@@ -415,6 +420,8 @@ function textoDelPedido(referencia: string | null, pago: EstadoPago): string {
 
 // Aviso de «no se ha podido abrir la página de pago» (en la pantalla «No se ha podido abrir el pago» ya lo dice el título).
 const AVISO_SIN_ABRIR = "No hemos podido abrir la página de pago. Vuelve a intentarlo en un momento.";
+// Cada artículo es una unidad (dueño, 2026-11-15): si otro cliente lo acaba de pagar, se dice así y no se cobra nada.
+const AVISO_VENDIDO = "Este artículo se acaba de vender. No te hemos cobrado nada: escríbenos por el chat y te ayudamos a encontrar otro.";
 
 // Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(n: number) {
@@ -1030,6 +1037,8 @@ export default function CheckoutScreen() {
       let repetido = false;
       // La clave de esta compra: con ella (o con la cuenta) el servidor sabe que el pedido es de quien lo paga.
       let claveCompra: string | null = null;
+      // Artículo único que otro acaba de pagar: la base de datos no deja guardar el pedido («productos no disponibles»).
+      let vendidoYa = false;
       try {
         const datos = {
           nombre: safeStr(fullName),
@@ -1049,6 +1058,8 @@ export default function CheckoutScreen() {
           const res = r.data as { numero?: number | string; repetido?: boolean };
           numero = Number(res.numero) || null;
           repetido = !!res.repetido;
+        } else if (r.error && /productos no disponibles/.test(String(r.error.message ?? ""))) {
+          vendidoYa = true;
         } else if (r.error && funcionNoDisponible(r.error)) {
           // Respaldo mientras la migración no esté aplicada (o tras una vuelta atrás): la función
           // antigua. Con la migración aplicada ya es idempotente por «misma compra»; sin ella, no.
@@ -1062,6 +1073,12 @@ export default function CheckoutScreen() {
         }
       } catch {
         // sin número: «No hemos podido guardar tu pedido» (la clave queda guardada para el reintento)
+      }
+      // Cada artículo es una unidad: si otro cliente acaba de pagarlo, se dice claro y no se cobra nada.
+      if (vendidoYa) {
+        setErr(AVISO_VENDIDO);
+        trackEvent("pago_articulo_vendido", "Pago: artículo ya vendido", { path: "/checkout", metadata: { momento: "pedido", items: items.length } });
+        return;
       }
       // «Guardar en mi perfil»: con el pedido ya registrado, el teléfono escrito aquí pasa a su perfil (si no tenía uno; si
       // falla, el pedido ya está hecho y no pasa nada).

@@ -60,6 +60,10 @@
  *   la hora que guarda la base de datos (pedido_estados, la apunta un disparador al cambiar el estado; lo anterior, «sin
  *   hora») —lo mismo que ve el cliente en «Mis pedidos»— y, si va a domicilio, el campo «Nº de Correos o enlace» que le da
  *   al cliente «Seguir el envío». Recuento arriba (#pedidos-seguimiento). Sin la migración, pasos sin hora y sin el campo.
+ * - Artículos únicos (dueño, 2026-11-15; migración 20261115200000_vendido_al_pagar): al pagar, api/pago.ts saca sus
+ *   artículos de la venta. Un pedido cobrado con un artículo que ya estaba vendido dice «Artículo ya vendido: devuelve el
+ *   pago» (#pedido-doble-venta-N) y sale en el filtro «Doble venta (n)». Cancelado, sus artículos NO vuelven solos a la
+ *   venta: «Volver a poner a la venta» (44 px, segundo toque para confirmar). Analítica cuenta las dobles ventas.
  * - Avisos en este móvil (dueño, 2026-11-15; migración 20261115110000_avisos_movil): tarjeta arriba
  *   (components/AvisosMovil.tsx) para activar en el móvil los avisos de cada pedido pagado o nuevo y de cada servicio
  *   pagado (api/pago.ts los manda); al tocar un aviso se abre esta pantalla con ?buscar=VZ-… (buscador relleno).
@@ -148,7 +152,13 @@ type Pedido = {
   origen?: "web" | "tienda_fisica" | null;
   veoaura_venta_id?: string | null;
   venta_forma_pago?: string | null;
+  // Doble venta (migración 20261115200000_vendido_al_pagar): se cobró con un artículo que ya estaba vendido.
+  doble_venta_en?: string | null;
 };
+
+// Estado de venta de cada artículo de los pedidos (products): cada artículo es UNA unidad. vendido_pedido_id solo existe
+// con la migración 20261115200000 (sin ella, no viene).
+type ArticuloEstado = { id: string; is_active: boolean | null; vendido_en: string | null; vendido_pedido_id?: string | null };
 
 // Cómo se pagó una venta en mano (lo dice VeoAura).
 const FORMA_PAGO_TIENDA: Record<string, string> = { efectivo: "en efectivo", tarjeta: "con tarjeta", bizum: "con Bizum", transferencia: "por transferencia", otro: "" };
@@ -258,7 +268,11 @@ export default function PedidosAdmin() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [filtro, setFiltro] = useState<Estado | "activos" | "todos" | "sin_vincular" | "veoaura" | "pagados_tarjeta" | "pago_sin_terminar" | "en_tienda" | "reparto_hoy">("activos");
+  const [filtro, setFiltro] = useState<Estado | "activos" | "todos" | "sin_vincular" | "veoaura" | "pagados_tarjeta" | "pago_sin_terminar" | "en_tienda" | "reparto_hoy" | "doble_venta">("activos");
+  // false = aún no existe doble_venta_en (migración 20261115200000 sin aplicar): ni aviso ni filtro.
+  const [dobleOk, setDobleOk] = useState(false);
+  // Artículos de los pedidos cargados (para «Volver a poner a la venta» tras cancelar uno pagado).
+  const [articulos, setArticulos] = useState<Record<string, ArticuloEstado>>({});
   // false = la franja de entrega aún no existe (migración 20261115180000 sin aplicar): ni filtro ni franja.
   const [franjaOk, setFranjaOk] = useState(false);
   // false = aún no hay ventas en mano (migración 20261111170000 sin aplicar): ni filtro ni recuento.
@@ -318,6 +332,9 @@ export default function PedidosAdmin() {
     const VENTA = ",origen,veoaura_venta_id,venta_forma_pago";
     // Franja de entrega elegida al pagar (migración 20261115180000).
     const FRANJA = ",entrega_franja,entrega_fecha";
+    // Doble venta de un artículo único (migración 20261115200000).
+    const DOBLE = ",doble_venta_en";
+    let conDoble = true;
     let conFranja = true;
     let conVenta = true;
     let conMetodo = true;
@@ -326,11 +343,12 @@ export default function PedidosAdmin() {
     let conEnvio = true;
     let conNumeros = true;
     const columnas = () =>
-      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}${conFranja ? FRANJA : ""}`;
+      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}${conFranja ? FRANJA : ""}${conDoble ? DOBLE : ""}`;
     let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(columnas());
-    for (let vuelta = 0; vuelta < 7 && res.error; vuelta++) {
+    for (let vuelta = 0; vuelta < 8 && res.error; vuelta++) {
       const msg = String(res.error.message ?? "");
-      if (conFranja && /entrega_franja|entrega_fecha/.test(msg)) conFranja = false;
+      if (conDoble && /doble_venta_en/.test(msg)) conDoble = false;
+      else if (conFranja && /entrega_franja|entrega_fecha/.test(msg)) conFranja = false;
       else if (conVenta && /origen|veoaura_venta_id|venta_forma_pago/.test(msg)) conVenta = false;
       else if (conMetodo && /pago_metodo/.test(msg)) conMetodo = false;
       else if (conDevolucion && /devuelto_eur|devuelto_en/.test(msg)) conDevolucion = false;
@@ -347,6 +365,7 @@ export default function PedidosAdmin() {
     setNumerosOk(!res.error && conNumeros);
     setVentasOk(!res.error && conVenta);
     setFranjaOk(!res.error && conFranja);
+    setDobleOk(!res.error && conDoble);
     if (conFranja) cargarAjustesFranjas();
     const { data, error } = res;
     if (error) {
@@ -360,6 +379,13 @@ export default function PedidosAdmin() {
     } else {
       const lista = (data ?? []) as unknown as Pedido[];
       setPedidos(lista);
+      // Estado de venta de sus artículos (consulta aparte; sin vendido_pedido_id, sin él; si falla, sin botón).
+      const idsArticulos = [...new Set(lista.flatMap((p) => (p.pedido_items ?? []).map((it) => it.product_id)).filter((x): x is string => !!x))];
+      if (idsArticulos.length) {
+        let art: { data: unknown; error: { message?: string } | null } = await supabase.from("products").select("id,is_active,vendido_en,vendido_pedido_id").in("id", idsArticulos);
+        if (art.error && /vendido_pedido_id/.test(String(art.error.message ?? ""))) art = await supabase.from("products").select("id,is_active,vendido_en").in("id", idsArticulos);
+        setArticulos(art.error || !Array.isArray(art.data) ? {} : Object.fromEntries((art.data as ArticuloEstado[]).map((a) => [a.id, a])));
+      } else setArticulos({});
       // Pasos con su hora y número de envío (consulta aparte; sin la migración, sin horas y sin fallar).
       cargarSeguimientoPedidos(lista.filter((p) => !enTienda(p)).map((p) => p.id)).then((seg) => {
         setHistorial(seg.historial);
@@ -449,6 +475,8 @@ export default function PedidosAdmin() {
     if (filtro === "en_tienda") return pedidos.filter(enTienda);
     // Reparto de hoy: los de hoy (fecha de Madrid) sin cancelar ni entregar, primero la mañana y luego la tarde.
     if (filtro === "reparto_hoy") return repartoDeHoy;
+    // Doble venta: cobrados con un artículo que ya estaba vendido (hay que devolver el pago).
+    if (filtro === "doble_venta") return pedidos.filter((p) => !!p.doble_venta_en);
     return pedidos.filter((p) => p.estado === filtro);
   }, [pedidos, filtro, repartoDeHoy]);
 
@@ -638,11 +666,56 @@ export default function PedidosAdmin() {
     }
     setConfirmando(null);
     await cambiarEstado(p, "cancelado");
+    const quedanVendidos = articulosParaReponer({ ...p, estado: "cancelado" }).length > 0;
     setAccionMsg({
       id: p.id,
       tipo: "ok",
-      texto: p.pago_estado === "pagado" && !p.devuelto_en ? "Pedido cancelado. Está pagado online: devuelve el pago con el botón de abajo." : "Pedido cancelado.",
+      texto: `${p.pago_estado === "pagado" && !p.devuelto_en ? "Pedido cancelado. Está pagado online: devuelve el pago con el botón de abajo." : "Pedido cancelado."}${
+        quedanVendidos ? " Sus artículos siguen fuera de la venta: si quieres venderlos otra vez, toca «Volver a poner a la venta»." : ""
+      }`,
     });
+  }
+
+  // Cancelado un pedido pagado, sus artículos NO vuelven solos a la venta (dueño, 2026-11-15): los vendidos POR ESTE
+  // pedido (vendido_pedido_id; sin la migración, cualquier artículo suyo vendido y oculto) se ofrecen para reponerlos.
+  function articulosParaReponer(p: Pedido): string[] {
+    if (p.estado !== "cancelado") return [];
+    return [
+      ...new Set(
+        (p.pedido_items ?? [])
+          .map((it) => (it.product_id ? articulos[it.product_id] : undefined))
+          .filter((a): a is ArticuloEstado => !!a && !!a.vendido_en && !a.is_active && ("vendido_pedido_id" in a ? a.vendido_pedido_id === p.id : true))
+          .map((a) => a.id)
+      ),
+    ];
+  }
+
+  async function reponerALaVenta(p: Pedido) {
+    const ids = articulosParaReponer(p);
+    if (!ids.length) return;
+    if (confirmando !== `reponer:${p.id}`) {
+      setConfirmando(`reponer:${p.id}`);
+      setAccionMsg(null);
+      return;
+    }
+    setConfirmando(null);
+    setGuardando(p.id);
+    const conPedido = ids.some((id) => "vendido_pedido_id" in (articulos[id] ?? {}));
+    const { error } = await supabase
+      .from("products")
+      .update({ is_active: true, vendido_en: null, ...(conPedido ? { vendido_pedido_id: null } : {}) })
+      .in("id", ids);
+    if (error) {
+      setAccionMsg({ id: p.id, tipo: "error", texto: "No se pudo volver a poner a la venta. Vuelve a intentarlo." });
+    } else {
+      setArticulos((prev) => {
+        const copia = { ...prev };
+        for (const id of ids) copia[id] = { ...copia[id], is_active: true, vendido_en: null, ...(conPedido ? { vendido_pedido_id: null } : {}) };
+        return copia;
+      });
+      setAccionMsg({ id: p.id, tipo: "ok", texto: ids.length === 1 ? "Artículo otra vez a la venta en la tienda." : `${ids.length} artículos otra vez a la venta en la tienda.` });
+    }
+    setGuardando(null);
   }
 
   const nombreZona = (z: string | null | undefined) => (z ? zonas?.find((x) => x.zona === z)?.nombre.split(" (")[0] ?? z : null);
@@ -674,6 +747,7 @@ export default function PedidosAdmin() {
       : []),
     ...(ventasOk ? [{ value: "en_tienda" as const, label: `En tienda (${resumenTienda.total})` }] : []),
     ...(franjaOk ? [{ value: "reparto_hoy" as const, label: `Reparto de hoy (${repartoDeHoy.length})` }] : []),
+    ...(dobleOk ? [{ value: "doble_venta" as const, label: `Doble venta (${pedidos.filter((p) => !!p.doble_venta_en).length})` }] : []),
   ];
 
   return (
@@ -895,6 +969,15 @@ export default function PedidosAdmin() {
                 <Text nativeID={`pedido-titulo-${p.numero}`} selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
                   {p.codigo_seguimiento ? `Pedido ${p.codigo_seguimiento}` : `Pedido nº ${p.numero}`} · {fmtEUR(p.total_eur)}
                 </Text>
+                {/* Doble venta: se cobró un artículo único que ya estaba vendido (lo marca api/pago.ts al apuntar el pago). */}
+                {dobleOk && p.doble_venta_en ? (
+                  <View nativeID={`pedido-doble-venta-${p.numero}`} accessibilityRole="alert" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: "#FFE4E6" }}>
+                    <Ionicons name="alert-circle" size={18} color={COLORS.danger} />
+                    <Text style={{ color: COLORS.danger, fontWeight: "900", textAlign: "center", flexShrink: 1 }}>
+                      Artículo ya vendido: devuelve el pago{p.devuelto_en ? " (ya devuelto)" : ""}
+                    </Text>
+                  </View>
+                ) : null}
                 <Text style={{ color: COLORS.muted, textAlign: "center" }}>
                   {fmtFecha(p.created_at)} · {enTienda(p) ? "Compra en tienda" : p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
                 </Text>
@@ -1117,6 +1200,21 @@ export default function PedidosAdmin() {
                       </Pressable>
                     ) : null}
                   </View>
+                ) : null}
+                {/* Cancelado: sus artículos siguen fuera de la venta hasta que el dueño decida reponerlos (segundo toque). */}
+                {articulosParaReponer(p).length > 0 ? (
+                  <Pressable
+                    nativeID={`pedido-reponer-${p.numero}`}
+                    disabled={guardando === p.id}
+                    onPress={() => reponerALaVenta(p)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || guardando === p.id ? 0.6 : 1 })}
+                  >
+                    <Ionicons name="storefront-outline" size={18} color={COLORS.accent} />
+                    <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>
+                      {confirmando === `reponer:${p.id}` ? "Toca otra vez para ponerlo a la venta" : "Volver a poner a la venta"}
+                    </Text>
+                  </Pressable>
                 ) : null}
                 {accionMsg?.id === p.id ? (
                   <Text nativeID={`pedido-accion-mensaje-${p.numero}`} style={{ color: accionMsg.tipo === "ok" ? "#15803D" : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
