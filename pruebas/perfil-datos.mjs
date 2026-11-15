@@ -18346,7 +18346,14 @@ async function seccionRESEN() {
     ok(/^Desactivadas/.test(await texto(p, "#reservas-estado")), `RESEN2 (${nombre}): empieza DESACTIVADA (${await texto(p, "#reservas-estado")})`);
     const condiciones = await p.locator("#reservas-condiciones").inputValue().catch(() => "");
     ok(condiciones.startsWith("BORRADOR · Pendiente de revisión del gestor") && (await p.locator("#reservas-borrador").count()) === 1, `RESEN2 (${nombre}): el texto viene precargado con un BORRADOR marcado «Pendiente de revisión del gestor»`);
-    ok(!/\d+ ?%|\d+ ?días|€/.test(condiciones), `RESEN2 (${nombre}): el borrador no inventa cifras (porcentajes, días ni importes)`);
+    // Las cifras van como marcas ({porcentaje} %, {senal_eur} €…) y el único plazo escrito es el legal de 14 días naturales.
+    const sinMarcas = condiciones.replace(/\{[a-z_]+\} ?(€|%)?/g, "").replace(/14 días naturales/g, "");
+    ok(!/\d+ ?%|\d+ ?días|€/.test(sinMarcas), `RESEN2 (${nombre}): el borrador no inventa cifras (porcentajes, días ni importes)`);
+    ok(["{porcentaje}", "{dias}", "{fecha_vencimiento}", "{senal_eur}", "{precio_eur}"].every((m) => condiciones.includes(m)) && /VARIANTE A · Arras penitenciales/.test(condiciones) && /VARIANTE B · Arras confirmatorias/.test(condiciones) && /\[A DECIDIR POR EL DUEÑO/.test(condiciones) && /PUNTO A REVISAR POR EL GESTOR/.test(condiciones) && /comprobar en el BOE/.test(condiciones), `RESEN2 (${nombre}): el borrador trae las marcas, las dos variantes, los huecos del dueño y el punto del gestor`);
+    ok((await p.locator("#reservas-ley-texto").count()) === 0 && (await alto(p, "#reservas-ley-abrir")) >= 44, `RESEN2 (${nombre}): «Qué dice la ley» empieza plegado y mide 44 px`);
+    await p.locator("#reservas-ley-abrir").click();
+    const ley = await texto(p, "#reservas-ley-texto");
+    ok(/450 €/.test(ley) && /90 €/.test(ley) && /180 €/.test(ley) && /1454/.test(ley) && (await p.locator("#reservas-ley-cc").count()) === 1 && (await p.locator("#reservas-ley-lgdcu").count()) === 1 && (await alto(p, "#reservas-ley-cc")) >= 44, `RESEN2 (${nombre}): «Qué dice la ley» explica el ejemplo de la PS5 y enlaza al BOE (${ley.slice(0, 120)})`);
     ok((await p.locator("[id^=reservas-tramo-dias-]").count()) === 0 && (await p.locator("#reservas-dias-max").inputValue()) === "", `RESEN2 (${nombre}): la escala y los días máximos empiezan vacíos`);
     const faltan = await texto(p, "#reservas-faltan");
     ok(/la escala/.test(faltan) && /días máximos/.test(faltan) && /tipo de arras/.test(faltan) && /Revisado por mi gestor/.test(faltan), `RESEN2 (${nombre}): dice qué falta para activarla (${faltan.slice(0, 160)})`);

@@ -183,18 +183,39 @@ export const EXPLICACION_ARRAS: Record<TipoArras, { titulo: string; texto: strin
   },
 };
 
-// Borrador genérico y prudente (sin cifras: el porcentaje, los días y qué pasa al vencer salen de las reglas del dueño).
+// Borrador de condiciones (2026-11-15) para que lo revise el gestor del dueño: dos variantes del tipo de arras, huecos
+// [A DECIDIR POR EL DUEÑO] y la base legal de cada apartado («comprobar en el BOE»: citada de memoria, sin consultar).
+// Sin cifras del negocio: las marcas {porcentaje}, {dias}, {fecha_vencimiento}, {senal_eur} y {precio_eur} son huecos
+// (hoy NO se sustituyen solas; la hoja de reserva ya enseña esas cifras al cliente antes de pagar).
 export const BORRADOR_CONDICIONES_RESERVA = `${MARCA_BORRADOR_RESERVA}
 
 Condiciones de la reserva con señal
 
-1. Qué es. Al pagar la señal, la tienda aparta el artículo para ti durante los días que elijas y no lo vende a otra persona mientras dure la reserva.
-2. Importe. La señal es el porcentaje del precio que corresponde a los días elegidos según la escala de la tienda. Se te enseña antes de pagar y se paga en la página segura de Stripe.
-3. Tipo de arras. La señal se entrega en concepto de arras del tipo indicado en la reserva, con los efectos que les da el Código Civil.
-4. Resto del precio. Lo que falta se paga al completar la compra, de la forma que acuerdes con la tienda, antes de que venza la reserva.
-5. Al vencer. Si la compra no se completa antes del vencimiento, se aplica lo indicado en «Qué pasa al vencer» de la reserva.
-6. Cancelación por la tienda. Si la tienda no puede entregar el artículo reservado, te devuelve la señal según el tipo de arras.
-7. Datos. Guardamos la reserva (artículo, importe, plazo y estas condiciones) unida a tu cuenta para gestionarla.
+NOTA PARA EL GESTOR (borrar antes de activar): el apartado 4 tiene dos variantes (A, arras penitenciales; B, arras confirmatorias); hay que dejar solo la que elija el dueño. Hay que rellenar o quitar cada [A DECIDIR POR EL DUEÑO]. Las marcas entre llaves ({porcentaje}, {dias}, {fecha_vencimiento}, {senal_eur}, {precio_eur}) hoy no se sustituyen solas: decidir si se cambian por «los de tu reserva» o se pide a la tienda que las rellene. Las citas legales son de memoria. PUNTO A REVISAR: el apartado 8 (desistimiento de 14 días naturales).
+
+1. Quién vende. [A DECIDIR POR EL DUEÑO: nombre o razón social, NIF, dirección a efectos de notificaciones y correo de contacto.] (LGDCU, art. 97: información previa en contratos a distancia; comprobar en el BOE)
+
+2. Qué es la reserva. Al pagar la señal, la tienda aparta para ti el artículo indicado en tu reserva durante {dias} días, hasta el {fecha_vencimiento}, y no lo vende a otra persona mientras dure la reserva. (Código Civil, art. 1454, y LGDCU, art. 97; comprobar en el BOE)
+
+3. Precio y señal. Precio total del artículo: {precio_eur} €, impuestos incluidos. Gastos de envío o de entrega: [A DECIDIR POR EL DUEÑO: si los hay, cuánto y cuándo se pagan]. La señal es el {porcentaje} % del precio: {senal_eur} €. Se te enseña antes de pagar y se paga con tarjeta en la página segura de Stripe. (LGDCU, art. 97: precio total, gastos de envío y forma de pago; comprobar en el BOE)
+
+4. Tipo de arras (dejar SOLO una variante).
+
+VARIANTE A · Arras penitenciales. La señal se entrega como arras penitenciales del artículo 1454 del Código Civil: cada parte puede echarse atrás. Si tú decides no comprar, pierdes la señal ({senal_eur} €). Si es la tienda la que se echa atrás o no te entrega el artículo, te devuelve el doble de la señal. (Código Civil, art. 1454; reciprocidad: LGDCU, art. 87.2; comprobar en el BOE)
+
+VARIANTE B · Arras confirmatorias. La señal ({senal_eur} €) es parte del precio y prueba de la compra: se descuenta del precio total y no sirve para echarse atrás perdiéndola. Si una de las partes no cumple, la otra puede exigir que se cumpla la compra o resolverla con indemnización de daños y perjuicios. Si es la tienda la que no te entrega el artículo, te devuelve toda la señal más los daños y perjuicios que procedan. [A DECIDIR POR EL DUEÑO: si el cliente no completa la compra, qué hace la tienda: exigir el pago, resolver y devolver la señal, o resolver y reclamar daños; revisarlo con el gestor.] (Código Civil, art. 1124; reciprocidad: LGDCU, art. 87.2; comprobar en el BOE)
+
+5. Resto del precio. Lo que falta ({precio_eur} € menos {senal_eur} €) se paga [A DECIDIR POR EL DUEÑO: cómo (tarjeta en la tienda online, Bizum, al recoger…) y cuándo (antes del {fecha_vencimiento}, antes del envío o en la entrega)]. Plazo de entrega una vez pagado todo: [A DECIDIR POR EL DUEÑO]. (LGDCU, art. 97: forma de pago y plazo de entrega; comprobar en el BOE)
+
+6. Al vencer. Si el {fecha_vencimiento} la compra no se ha completado: [A DECIDIR POR EL DUEÑO: qué pasa (la reserva se cancela y el artículo vuelve a la venta; si la señal se pierde o se devuelve según el tipo de arras; si se puede alargar la reserva)]. Lo mismo se enseña en «Qué pasa al vencer» antes de pagar. (Código Civil, arts. 1454 y 1124; comprobar en el BOE)
+
+7. Devolución de dinero. Cuando proceda devolverte la señal (o el doble, con arras penitenciales), se devuelve por el mismo medio de pago en un plazo de [A DECIDIR POR EL DUEÑO: plazo; revisarlo con el gestor], sin gastos para ti. (LGDCU, arts. 87.2 y 107; comprobar en el BOE)
+
+8. Derecho de desistimiento. Como es una compra a distancia, tienes 14 días naturales desde que recibes el artículo para desistir sin dar explicaciones y sin penalización; la tienda te devuelve todo lo pagado, señal incluida, en 14 días naturales como máximo, salvo las excepciones de la ley. [PUNTO A REVISAR POR EL GESTOR: cómo encaja la pérdida de la señal (arras penitenciales, o la indemnización con confirmatorias) con este desistimiento legal, que no admite penalización; desde cuándo cuenta si el cliente se echa atrás antes de recibir el artículo; y si aplica alguna excepción del art. 103.] (LGDCU, arts. 102 a 108; comprobar en el BOE)
+
+9. Tus derechos. Nada de estas condiciones limita los derechos que te da la ley como consumidor; una cláusula abusiva se tendría por no puesta. (LGDCU, arts. 82 a 91; comprobar en el BOE)
+
+10. Datos. Guardamos la reserva (artículo, importe, plazo y estas condiciones) unida a tu cuenta para gestionarla.
 
 Este texto es un borrador: no se enseña a ningún cliente mientras las reservas estén desactivadas.`;
 
