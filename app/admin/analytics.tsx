@@ -101,6 +101,10 @@
  *   chat_producto_enviado (primera o no) y chat_producto_invitacion (sin cuenta) de app/producto/[id].tsx y
  *   components/ProductChatThread.tsx; conversaciones abiertas, preguntas sugeridas más usadas y los 5 productos por los que
  *   más se pregunta. Solo ids de producto, nunca el texto de los mensajes.
+ * - «Valoraciones (30 días)» (#analitica-valoraciones, mejora 11 «Valoración tras la entrega» del 2026-11-15): de
+ *   pedido_valoraciones (migración 20261115100000; sin ella, un aviso) media, número, reparto por nota, filtro por nota y la
+ *   lista con las bajas (1-2) arriba y «Ver pedido» (Pedidos con ?buscar=VZ-…); eventos valoracion_pedida (origen blue o
+ *   mis_pedidos), valoracion_abierta y valoracion_baja_chat (valoracion_enviada lleva la nota), sin datos personales.
  * - «Velocidad de la tienda (30 días)» (#analitica-velocidad, mejora 7 «Carga más rápida» del 2026-11-14): evento
  *   rendimiento_carga (lib/analytics.ts → medirCargaPantalla, una vez por visita: ms hasta la primera pantalla útil de
  *   Inicio, Catálogo o la ficha, ancho por tramos y tipo de conexión; sin datos de nadie). Mediana y percentil 75 por
@@ -1139,6 +1143,67 @@ export default function AdminAnalytics() {
         invitaciones: filas.filter((f) => f.event_name === "chat_producto_invitacion").length,
         sugerencias: [...usos.entries()].sort((a, b) => b[1] - a[1]).map(([texto, n]) => ({ texto, n })),
         top: ids.map((id) => ({ id, titulo: titulos.get(id) ?? "Producto retirado", n: veces.get(id) ?? 0 })),
+      });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Valoraciones de pedidos (mejora 11, 2026-11-15): las de 30 días (pedido_valoraciones, el administrador las lee todas;
+  // sin la migración 20261115100000, null y no sale) con la referencia de su pedido para el enlace, y los eventos
+  // valoracion_pedida (origen), valoracion_abierta, valoracion_enviada y valoracion_baja_chat. Sin nombres de nadie.
+  const [valoraciones, setValoraciones] = useState<{
+    filas: { pedidoId: string; ref: string; nota: number; comentario: string | null; creado_en: string }[];
+    pedidas: { blue: number; mis_pedidos: number };
+    abiertas: number;
+    chats: number;
+  } | null>(null);
+  const [filtroNota, setFiltroNota] = useState<number | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const NOMBRES = ["valoracion_pedida", "valoracion_abierta", "valoracion_baja_chat"];
+      const [vals, ev] = await Promise.all([
+        supabase
+          .from("pedido_valoraciones")
+          .select("pedido_id,nota,comentario,creado_en,pedidos(numero,codigo_seguimiento)")
+          .gte("creado_en", desde)
+          .order("creado_en", { ascending: false })
+          .limit(1000),
+        supabase.from("analytics_events").select("event_name, metadata").in("event_name", NOMBRES).gte("created_at", desde).limit(5000),
+      ]);
+      if (!vivo) return;
+      if (vals.error) {
+        setValoraciones(null);
+        return;
+      }
+      const eventos = (ev.error ? [] : ev.data ?? []) as { event_name: string; metadata: Record<string, unknown> | null }[];
+      const pedida = eventos.filter((f) => f.event_name === "valoracion_pedida");
+      setValoraciones({
+        filas: ((vals.data ?? []) as unknown as {
+          pedido_id: string;
+          nota: number;
+          comentario: string | null;
+          creado_en: string;
+          pedidos: { numero: number | null; codigo_seguimiento: string | null } | { numero: number | null; codigo_seguimiento: string | null }[] | null;
+        }[]).map((v) => {
+          const p = Array.isArray(v.pedidos) ? v.pedidos[0] : v.pedidos;
+          return {
+            pedidoId: v.pedido_id,
+            ref: p?.codigo_seguimiento || (p?.numero != null ? String(p.numero) : ""),
+            nota: Number(v.nota),
+            comentario: v.comentario,
+            creado_en: v.creado_en,
+          };
+        }),
+        pedidas: {
+          blue: pedida.filter((f) => f.metadata?.origen === "blue").length,
+          mis_pedidos: pedida.filter((f) => f.metadata?.origen === "mis_pedidos").length,
+        },
+        abiertas: eventos.filter((f) => f.event_name === "valoracion_abierta").length,
+        chats: eventos.filter((f) => f.event_name === "valoracion_baja_chat").length,
       });
     })();
     return () => {
@@ -2480,6 +2545,82 @@ export default function AdminAnalytics() {
                         </View>
                       ))
                     )}
+                  </View>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Valoraciones (30 días)"
+              subtitle="Valoración tras la entrega: a los 3 días de entregar un pedido, Blue y Mis pedidos piden una nota de 1 a 5 (con comentario opcional; no se publica en la tienda). Media, número y reparto por nota; las bajas (1-2) arriba con su pedido. Debajo, cuántas veces se pidió (Blue o Mis pedidos), se abrió y, tras una nota baja, se abrió el chat. Los eventos, solo de visitantes que aceptaron la analítica."
+            >
+              {!valoraciones ? (
+                <Text nativeID="analitica-valoraciones" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                  Las valoraciones de pedidos aún no están activadas (falta aplicar su migración).
+                </Text>
+              ) : (
+                <View nativeID="analitica-valoraciones" style={{ gap: 10 }}>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="star-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-valoraciones-resumen" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      {valoraciones.filas.length
+                        ? `Media ${(valoraciones.filas.reduce((s, v) => s + v.nota, 0) / valoraciones.filas.length).toFixed(1).replace(".", ",")} de 5 · ${valoraciones.filas.length} ${valoraciones.filas.length === 1 ? "valoración" : "valoraciones"}`
+                        : "Aún no hay valoraciones"}{" "}
+                      · pedidas por Blue {valoraciones.pedidas.blue} · en Mis pedidos {valoraciones.pedidas.mis_pedidos} · abiertas {valoraciones.abiertas} · nota baja con chat{" "}
+                      {valoraciones.chats}
+                    </Text>
+                  </View>
+                  <View nativeID="analitica-valoraciones-reparto" style={{ gap: 4 }}>
+                    {[5, 4, 3, 2, 1].map((n) => {
+                      const cuantas = valoraciones.filas.filter((v) => v.nota === n).length;
+                      const total = valoraciones.filas.length || 1;
+                      return (
+                        <View key={n} nativeID={`analitica-valoraciones-nota-${n}`} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <Text style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "800", width: 26 }}>{n} ★</Text>
+                          <View style={{ flex: 1, height: 8, borderRadius: 4, backgroundColor: "#EEF3F8", overflow: "hidden" }}>
+                            <View style={{ width: `${Math.round((cuantas / total) * 100)}%`, height: 8, backgroundColor: n <= 2 ? COLORS.danger : COLORS.accent }} />
+                          </View>
+                          <Text style={{ color: COLORES_TEXTO.azulTexto, fontSize: TAMANOS.minimo, fontWeight: "900", minWidth: 24, textAlign: "right" }}>{cuantas}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                    <ChipButton label="Todas" active={filtroNota === null} onPress={() => setFiltroNota(null)} />
+                    {[5, 4, 3, 2, 1].map((n) => (
+                      <ChipButton key={n} label={`${n} ★`} active={filtroNota === n} onPress={() => setFiltroNota(n)} />
+                    ))}
+                  </View>
+                  <View nativeID="analitica-valoraciones-lista" style={{ gap: 6 }}>
+                    {(() => {
+                      // Las bajas (1-2) primero; dentro, las más recientes.
+                      const lista = valoraciones.filas
+                        .filter((v) => filtroNota === null || v.nota === filtroNota)
+                        .sort((a, b) => Number(b.nota <= 2) - Number(a.nota <= 2) || b.creado_en.localeCompare(a.creado_en))
+                        .slice(0, 20);
+                      if (!lista.length) return <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Ninguna con ese filtro.</Text>;
+                      return lista.map((v) => (
+                        <Pressable
+                          key={v.pedidoId}
+                          nativeID={`analitica-valoracion-${v.ref || v.pedidoId}`}
+                          onPress={() => router.push(`/admin/pedidos${v.ref ? `?buscar=${encodeURIComponent(v.ref)}` : ""}` as never)}
+                          accessibilityRole="link"
+                          accessibilityLabel={`Ver el pedido ${v.ref}: ${v.nota} de 5`}
+                          style={({ pressed }) => ({ minHeight: TACTIL.minimo, justifyContent: "center", gap: 2, opacity: pressed ? 0.75 : 1 })}
+                        >
+                          <Text style={{ color: v.nota <= 2 ? COLORS.danger : COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "800" }}>
+                            {"★".repeat(v.nota)}
+                            {"☆".repeat(5 - v.nota)} · Pedido {v.ref || "sin referencia"} ·{" "}
+                            <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "900" }}>Ver pedido</Text>
+                          </Text>
+                          {v.comentario ? (
+                            <Text numberOfLines={2} style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                              «{v.comentario}»
+                            </Text>
+                          ) : null}
+                        </Pressable>
+                      ));
+                    })()}
                   </View>
                 </View>
               )}
