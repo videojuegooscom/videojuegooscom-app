@@ -22,6 +22,8 @@
  *       de hace 5 h o de otra persona, nada.
  *  AV9) Servicio pagado (webhook de una reparación): «Servicio pagado · 45,00 €» con el servicio, «Luis M.» y su código,
  *       una vez.
+ *  AV11) Doble venta (2026-11-15): un artículo único que ya pagó otro pedido, cobrado otra vez: el pedido queda marcado y
+ *      el aviso dice «Artículo ya vendido: devuelve el pago · 59,90 €»; el artículo sigue vendido al primero.
  *  AV10) «avisos_prueba»: un cliente 403; el administrador, solo a SU dispositivo activo (200); otro dispositivo 404; una
  *       dirección que no es de un servicio de avisos 400.
  *  CONTROL) Sin el reclamo de «una sola vez» o con el nombre completo, la prueba lo detecta.
@@ -109,7 +111,15 @@ function reiniciar() {
       pedido(21, { entrega: "recogida", direccion: null, codigo_postal: null, ciudad: null, total_eur: 129.9, items: [{ titulo: "Nintendo Switch OLED" }] }),
       pedido(22, { created_at: new Date(Date.now() - 5 * 3600_000).toISOString() }),
       pedido(23, { user_id: CLIENTE, clave_unica: null }),
+      // AV11: el mismo mando (artículo único) que el pedido 13, cobrado después: doble venta.
+      pedido(17, { pago_estado: "iniciado", pago_modo: "prueba", pago_sesion: "cs_test_pedido17aaaaaaaa", total_eur: 59.9, items: [{ titulo: "Mando" }] }),
     ],
+    // Artículo único vendido al pagar (2026-11-15): el mando de los pedidos 13 y 17.
+    lineas: [
+      { id: "l13", pedido_id: ID_P(13), product_id: "c1000000-0000-4000-8000-000000000013" },
+      { id: "l17", pedido_id: ID_P(17), product_id: "c1000000-0000-4000-8000-000000000013" },
+    ],
+    articulos: [{ id: "c1000000-0000-4000-8000-000000000013", is_active: true, vendido_en: null, vendido_pedido_id: null }],
     solicitudes: [
       {
         id: ID_S, customer_user_id: CLIENTE, codigo_seguimiento: "VZ-RP45-AB12", service_title: "Mantenimiento PlayStation 5", entrega_modo: "correos",
@@ -133,6 +143,7 @@ function reiniciar() {
       sesion("cs_test_pedido14aaaaaaaa", 2000, { pedido_id: ID_P(14) }, ID_P(14)),
       sesion("cs_test_pedido15aaaaaaaa", 3000, { pedido_id: ID_P(15) }, ID_P(15)),
       sesion("cs_test_pedido16aaaaaaaa", 4000, { pedido_id: ID_P(16) }, ID_P(16)),
+      sesion("cs_test_pedido17aaaaaaaa", 5990, { pedido_id: ID_P(17) }, ID_P(17)),
       sesion("cs_test_servicio45aaaaaa", 4500, { solicitud_id: ID_S, concepto: "reparacion" }, ID_S),
     ].map((s) => [s.id, s])
   );
@@ -153,6 +164,7 @@ function cumple(fila, col, expr) {
   if (op === "is") return v === "null" ? x === null || x === undefined : String(x) === v;
   if (op === "gte") return x !== null && x !== undefined && (typeof x === "number" ? x >= Number(v) : String(x) >= v);
   if (op === "lt") return x !== null && x !== undefined && Number(x) < Number(v);
+  if (op === "in") return v.replace(/^\(|\)$/g, "").split(",").map((s) => s.replace(/^"|"$/g, "")).includes(String(x));
   throw new Error(`filtro no simulado: ${col}=${expr}`);
 }
 function filtrar(filas, url) {
@@ -195,7 +207,7 @@ async function supabaseFalso(url, metodo, cabeceras, cuerpo) {
     const r = roles[(url.searchParams.get("id") ?? "").replace(/^eq\./, "")];
     return objeto ? json(r ? { role: r } : null) : json(r ? [{ role: r }] : []);
   }
-  const tablas = { pedidos: db.pedidos, service_requests: db.solicitudes, admin_avisos_suscripciones: db.suscripciones };
+  const tablas = { pedidos: db.pedidos, service_requests: db.solicitudes, admin_avisos_suscripciones: db.suscripciones, pedido_items: db.lineas, products: db.articulos };
   const tabla = ruta.replace("/rest/v1/", "");
   if (tabla === "admin_avisos_registro" && metodo === "POST") {
     db.registro.push(...[].concat(cuerpo));
@@ -408,6 +420,13 @@ async function bateria(manejador) {
   r.pruebaInactivo = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "avisos_prueba", endpoint: EP_C } });
   r.pruebaRara = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "avisos_prueba", endpoint: "https://evil.example.com/push" } });
   r.registroFinal = db.registro.map((x) => ({ ...x }));
+
+  // AV11: doble venta (2026-11-15): el mando ya lo pagó el pedido 13; el 17 lo paga después.
+  const antes17 = push.length;
+  r.webhook17 = await pedir(manejador, "POST", aviso("cs_test_pedido17aaaaaaaa", "evt_17"));
+  r.push17 = push.slice(antes17);
+  r.fila17 = { ...db.pedidos.find((p) => p.numero === 17) };
+  r.mando17 = { ...db.articulos[0] };
   return r;
 }
 
@@ -496,6 +515,20 @@ try {
   ok(r.pruebaAdmin.codigo === 200 && r.pruebaAdmin.cuerpo?.entregados === 1 && r.pushP.length === 1 && r.pushP[0] === EP_A, `AV10: el administrador, solo a ese dispositivo suyo (${JSON.stringify(r.pruebaAdmin.cuerpo)}; ${r.pushP.length})`);
   ok(r.pruebaInactivo.codigo === 404 && r.pruebaRara.codigo === 400, `AV10: un dispositivo desactivado 404 y una dirección rara 400 (${r.pruebaInactivo.codigo}, ${r.pruebaRara.codigo})`);
   ok(r.registroFinal.some((x) => x.tipo === "prueba") && r.registroFinal.some((x) => x.tipo === "pedido_nuevo") && r.registroFinal.some((x) => x.tipo === "servicio_pagado"), "AV10: la prueba, el pedido nuevo y el servicio quedan en el registro");
+
+  // AV11: doble venta de un artículo único.
+  const tituloAviso = (lista) => {
+    try {
+      const p = lista.find((x) => x.endpoint === EP_A);
+      return p ? descifrar(p.cuerpo, MOVIL_A).json.title : "";
+    } catch {
+      return "";
+    }
+  };
+  ok(r.webhook17.codigo === 200 && r.fila17.pago_estado === "pagado" && !!r.fila17.doble_venta_en, `AV11: el segundo cobro del mismo mando se apunta y queda marcado como doble venta (${r.fila17.pago_estado} ${r.fila17.doble_venta_en})`);
+  ok(tituloAviso(r.push17) === "Artículo ya vendido: devuelve el pago · 59,90 €", `AV11: el aviso al móvil lo dice lo primero (${tituloAviso(r.push17)})`);
+  ok(r.mando17.is_active === false && r.mando17.vendido_pedido_id === ID_P(13), `AV11: el mando sigue vendido al primer pedido (${r.mando17.vendido_pedido_id})`);
+  ok(tituloAviso(r.push12) === "Pedido pagado · 349,99 €", "AV11: un pedido sin doble venta sigue diciendo «Pedido pagado»");
 
   // CONTROL: cada defensa quitada en una copia de la función; la batería tiene que notarlo.
   const fuente = readFileSync("api/pago.ts", "utf8");

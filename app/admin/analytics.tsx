@@ -851,6 +851,10 @@ export default function AdminAnalytics() {
     entregas: { mismo_dia: number; peninsula: number; islas: number; sin_cp: number };
     // Franja elegida al pagar (entrega_franja_elegida, dueño 2026-11-15): solo la franja y si es hoy o mañana.
     franjas: { manana: number; tarde: number; hoy: number; otroDia: number };
+    // Artículos únicos (dueño, 2026-11-15): intentos de comprar algo que otro acababa de pagar (al guardar el pedido o al
+    // ir a pagar; pago_articulo_vendido), dobles ventas de 30 días y artículos vendidos al pagar por la web (null sin la
+    // migración 20261115200000).
+    unicos: { vendidoAlPedir: number; vendidoAlPagar: number; dobles: number | null; vendidosWeb: number | null };
     revisados: number | null;
     conGarantia: number | null;
   } | null>(null);
@@ -861,7 +865,7 @@ export default function AdminAnalytics() {
       const { data, error } = await supabase
         .from("analytics_events")
         .select("event_name, metadata")
-        .in("event_name", ["ficha_foto_zoom", "ficha_entrega_estimada", "entrega_franja_elegida"])
+        .in("event_name", ["ficha_foto_zoom", "ficha_entrega_estimada", "entrega_franja_elegida", "pago_articulo_vendido"])
         .gte("created_at", desde)
         .limit(5000);
       if (!vivo) return;
@@ -877,6 +881,8 @@ export default function AdminAnalytics() {
       // Revisados y con garantía: primero se mira con «*» en una fila si la columna existe (sin un 400 antes de la migración).
       let revisados: number | null = null;
       let conGarantia: number | null = null;
+      let dobles: number | null = null;
+      let vendidosWeb: number | null = null;
       try {
         const muestra = await supabase.from("products").select("*").limit(1);
         const fila = !muestra.error && Array.isArray(muestra.data) ? (muestra.data[0] as Record<string, unknown> | undefined) : undefined;
@@ -887,6 +893,16 @@ export default function AdminAnalytics() {
           ]);
           revisados = r.error ? null : r.count ?? 0;
           conGarantia = g.error ? null : g.count ?? 0;
+        }
+        // Artículos únicos: dobles ventas de 30 días (pedidos.doble_venta_en) y artículos vendidos al pagar por la web
+        // (products.vendido_pedido_id). Solo recuentos y solo con la migración 20261115200000 (se mira en la misma fila).
+        if (fila && "vendido_pedido_id" in fila) {
+          const [d, v] = await Promise.all([
+            supabase.from("pedidos").select("id", { count: "exact", head: true }).gte("doble_venta_en", desde),
+            supabase.from("products").select("id", { count: "exact", head: true }).not("vendido_pedido_id", "is", null),
+          ]);
+          dobles = d.error ? null : d.count ?? 0;
+          vendidosWeb = v.error ? null : v.count ?? 0;
         }
       } catch {
         // sin recuentos
@@ -902,6 +918,12 @@ export default function AdminAnalytics() {
           tarde: elegidas.filter((f) => f.metadata?.franja === "tarde").length,
           hoy: elegidas.filter((f) => f.metadata?.cuando === "hoy").length,
           otroDia: elegidas.filter((f) => f.metadata?.cuando !== "hoy").length,
+        },
+        unicos: {
+          vendidoAlPedir: filas.filter((f) => f.event_name === "pago_articulo_vendido" && f.metadata?.momento === "pedido").length,
+          vendidoAlPagar: filas.filter((f) => f.event_name === "pago_articulo_vendido" && f.metadata?.momento === "pago").length,
+          dobles,
+          vendidosWeb,
         },
         revisados,
         conGarantia,
@@ -2401,6 +2423,15 @@ export default function AdminAnalytics() {
                     <Text nativeID="analitica-franjas" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Franja de entrega elegida al pagar (30 días): mañana {fichaConfianza.franjas.manana} · tarde {fichaConfianza.franjas.tarde} · para hoy{" "}
                       {fichaConfianza.franjas.hoy} · para otro día {fichaConfianza.franjas.otroDia}
+                    </Text>
+                  </View>
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="pricetag-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-vendido-al-pagar" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Artículos únicos (30 días): «se acaba de vender» al hacer el pedido {fichaConfianza.unicos.vendidoAlPedir} · al ir a pagar{" "}
+                      {fichaConfianza.unicos.vendidoAlPagar}
+                      {fichaConfianza.unicos.dobles !== null ? ` · dobles ventas ${fichaConfianza.unicos.dobles}` : ""}
+                      {fichaConfianza.unicos.vendidosWeb !== null ? ` · vendidos al pagar por la web ${fichaConfianza.unicos.vendidosWeb}` : ""}
                     </Text>
                   </View>
                   {fichaConfianza.revisados !== null ? (

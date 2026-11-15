@@ -542,6 +542,13 @@ const ProductListItem = React.memo(function ProductListItem({
             </Text>
           </View>
 
+          {/* Vendido (artículo único): ya no sale en la tienda ni se puede comprar; si fue por la web, con su pedido. */}
+          {p.vendido ? (
+            <Text nativeID={`producto-vendido-${p.id}`} style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, lineHeight: 16 }}>
+              {p.vendido.referencia ? `Vendido (pedido ${p.vendido.referencia})` : "Vendido"}
+            </Text>
+          ) : null}
+
           {/* Producto creado a mano: aviso a VeoAura para que lo dé de alta en su Stock (api/escaparate-retorno.ts). */}
           {p.veoaura ? (
             <Text
@@ -958,8 +965,27 @@ export default function AdminProducts() {
         }
       }
 
+      // Vendidos (artículos únicos): cuándo y a qué pedido pagado (vendido_pedido_id, migración 20261115200000; sin ella,
+      // solo «Vendido»). Consulta aparte y solo si las columnas existen (se mira en la fila de muestra).
+      const vendidos = new Map<string, { en: string; referencia: string | null }>();
+      if (filaMuestra && "vendido_en" in filaMuestra) {
+        const conPedido = "vendido_pedido_id" in filaMuestra;
+        const venRes = await supabase.from("products").select(conPedido ? "id,vendido_en,vendido_pedido_id" : "id,vendido_en").not("vendido_en", "is", null);
+        if (!venRes.error && Array.isArray(venRes.data)) {
+          const filas = (venRes.data as unknown as { id: string; vendido_en: string | null; vendido_pedido_id?: string | null }[]).filter((r) => !!r.vendido_en);
+          const idsPedidos = [...new Set(filas.map((r) => r.vendido_pedido_id).filter((x): x is string => !!x))];
+          const refs = new Map<string, string>();
+          if (idsPedidos.length) {
+            const pedRes = await supabase.from("pedidos").select("id,codigo_seguimiento").in("id", idsPedidos);
+            if (!pedRes.error && Array.isArray(pedRes.data)) for (const x of pedRes.data as { id: string; codigo_seguimiento: string | null }[]) if (x.codigo_seguimiento) refs.set(x.id, x.codigo_seguimiento);
+          }
+          for (const r of filas) if (r.vendido_en) vendidos.set(String(r.id), { en: String(r.vendido_en), referencia: r.vendido_pedido_id ? refs.get(r.vendido_pedido_id) ?? null : null });
+        }
+      }
+
       const merged = productsData.map((item) => ({
         ...item,
+        ...(vendidos.has(item.id) ? { vendido: vendidos.get(item.id) } : {}),
         ...(avisosVeoaura.has(item.id) ? { veoaura: avisosVeoaura.get(item.id) } : {}),
         ...(conPeso ? { peso_kg: pesos.get(item.id) ?? null } : {}),
         ...(conEstimado ? { peso_estimado: estimados.has(item.id) } : {}),
