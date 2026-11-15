@@ -171,6 +171,10 @@
  *    desactivar, lista y cifras de 7 días; iPhone sin instalar y bloqueados; el service worker en una caja de arena (aviso
  *    con título, resumen, icono y etiqueta; al tocarlo, solo la tienda); 360/390/1280. Simula /api/pago?avisos=clave,
  *    «avisos_prueba», admin_avisos_suscripciones y admin_avisos_registro. Se lanza con SOLO = AVISOM y en la pasada completa.
+ *  - VALOR) Valoración tras la entrega (mejora 11): no se pide antes de 3 días del paso «entregado» ni sin él; Blue la pide
+ *    una vez; «Valorar compra» (44 px) en Mis pedidos; una por pedido; 1-2 abre el chat con «Sobre mi pedido VZ-…: » sin
+ *    enviar; 4-5 agradece; Administración (Pedidos, ficha del cliente y Analítica); sin la migración no rompe; 360/390/1280.
+ *    Se lanza con SOLO = VALOR y en la pasada completa.
  *  - FS) Ficha de servicio con el formato de la de producto (galería, visor con zoom, botones iguales, pestañas,
  *    «Volver atrás», sin bloques de más) y su uso en Administración → Analítica, en el móvil y en el ordenador.
  *
@@ -13540,14 +13544,25 @@ async function seccionSES2() {
     });
     await p.waitForTimeout(1500);
     ok(sinLeer - antes === 0, `SES2: 5 TOKEN_REFRESHED → Blue relee el chat ${sinLeer - antes} veces (0)`);
-    const antesEntrar = sinLeer;
+    // Un SIGNED_IN repetido de la misma cuenta no repite el arranque (mejora 7, carga rápida); tras salir y volver a
+    // entrar, sí relee.
+    const antesRepetido = sinLeer;
     await p.evaluate(async () => {
       const c = globalThis.__videojuegoos_supabase__;
       const { data } = await c.auth.getSession();
       await c.auth._notifyAllSubscribers("SIGNED_IN", data.session, false);
     });
     await p.waitForTimeout(1500);
-    ok(sinLeer - antesEntrar >= 1, `SES2: y con SIGNED_IN sí relee (${sinLeer - antesEntrar})`);
+    ok(sinLeer - antesRepetido === 0, `SES2: un SIGNED_IN repetido de la misma cuenta no relee (${sinLeer - antesRepetido})`);
+    const antesEntrar = sinLeer;
+    await p.evaluate(async () => {
+      const c = globalThis.__videojuegoos_supabase__;
+      const { data } = await c.auth.getSession();
+      await c.auth._notifyAllSubscribers("SIGNED_OUT", null, false);
+      await c.auth._notifyAllSubscribers("SIGNED_IN", data.session, false);
+    });
+    await p.waitForTimeout(1500);
+    ok(sinLeer - antesEntrar >= 1, `SES2: y al salir y volver a entrar sí relee (${sinLeer - antesEntrar})`);
     ok(p.errores.length === 0, `SES2-d: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
@@ -16573,6 +16588,402 @@ async function seccionVISTOS() {
   }
 }
 
+// ===== VALOR) Valoración tras la entrega (mejora 11, 2026-11-15; migración 20261115100000_pedido_valoraciones.sql) =====
+// A los 3 días o más del paso «entregado» (pedido_estados; sin esa fila no se pide) un pedido sin valorar ofrece «Valorar
+// compra» (44 px) en Mis pedidos y Blue lo pide UNA vez («¿Qué tal tu pedido VZ-…? Valóralo en 10 segundos»); 5 estrellas
+// de 44 px, comentario de 16 px y «Enviar»; una por pedido; nota 1-2: mensaje empático y el chat de la tienda con «Sobre mi
+// pedido VZ-…: » escrito SIN enviar; 4-5: gracias. Administración → Pedidos, ficha del cliente y Analítica («Valoraciones
+// (30 días)»). Sin la migración no se rompe nada. 360/390/1280 sin desbordes ni errores. Todo simulado. ================
+async function seccionVALOR() {
+  const PROD = "00000000-0000-4000-8000-0000000007a1";
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const perfil = { user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", telefono: null, codigo_postal: "50001", localidad: "Zaragoza", direccion: "Calle Mayor 5", piso: null, direcciones: [] };
+  const perfilAdmin = { user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" };
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/[-]/g, "").replace(/\s+/g, " ").trim()).catch(() => "");
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const caja = (p, sel) => p.evaluate((s) => {
+    const e = document.querySelector(s);
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return { h: Math.round(r.height), w: Math.round(r.width), l: Math.round(r.left), r: Math.round(r.right) };
+  }, sel);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !(await cond()); i++) await p.waitForTimeout(250);
+  };
+  const DIA = 86400000;
+  const hace = (dias) => new Date(Date.now() - dias * DIA).toISOString();
+  const PID = (n) => `a0000000-0000-4000-8000-0000000007${String(n).padStart(2, "0")}`;
+  const REF = (n) => `VZ-VA01-000${n}`;
+  // texto() quita los guiones con los iconos: la referencia tal y como la devuelve.
+  const REFT = (n) => REF(n).replace(/-/g, "");
+  const pedido = (n, estado, extra = {}) => ({
+    id: PID(n), numero: 200 + n, codigo_seguimiento: REF(n), estado, entrega: "envio", created_at: hace(20 - n), total_eur: 120, user_id: CLIENTE.id, nombre: "Ana", email: CLIENTE.email,
+    telefono: "600111222", direccion: "Calle Mayor 5", codigo_postal: "50001", ciudad: "Zaragoza", notas: null, pago_estado: null, pago_modo: null, pagado_eur: null, pagado_en: null,
+    devuelto_en: null, envio_seguimiento: null, updated_at: hace(1), ...extra,
+  });
+  // 1: entregado hace 5 días (toca); 2: hace 1 día (aún no); 3: entregado sin hora guardada (no se pide); 4: enviado;
+  // 5: entregado hace 10 días y valorado con 4; 6: entregado hace 8 días y valorado con 1 (baja).
+  const PEDIDOS = () => [pedido(1, "entregado"), pedido(2, "entregado"), pedido(3, "entregado"), pedido(4, "enviado"), pedido(5, "entregado"), pedido(6, "entregado")];
+  const ESTADOS = () => [
+    { pedido_id: PID(1), estado: "enviado", creado_en: hace(7) },
+    { pedido_id: PID(1), estado: "entregado", creado_en: hace(5) },
+    { pedido_id: PID(2), estado: "entregado", creado_en: hace(1) },
+    { pedido_id: PID(4), estado: "enviado", creado_en: hace(2) },
+    { pedido_id: PID(5), estado: "entregado", creado_en: hace(10) },
+    { pedido_id: PID(6), estado: "entregado", creado_en: hace(8) },
+  ];
+  const VALORACIONES = () => [
+    { id: "v5", pedido_id: PID(5), user_id: CLIENTE.id, nota: 4, comentario: null, creado_en: hace(9) },
+    { id: "v6", pedido_id: PID(6), user_id: CLIENTE.id, nota: 1, comentario: "Llegó con la caja rota", creado_en: hace(7) },
+  ];
+  const ITEMS = [1, 2, 3, 4, 5, 6].map((n) => ({ pedido_id: PID(n), titulo: n === 1 ? "Mando DualSense blanco" : `Artículo ${n}`, product_id: n === 1 ? PROD : null, id: `vi${n}`, precio_eur: 120 }));
+  const PRODUCTO = {
+    id: PROD, title: "Mando DualSense blanco", description: "Revisado por la tienda.", price_eur: 54.9, status: "PUBLISHED", is_active: true, category_id: null, images: [], updated_at: "2026-11-14T10:00:00Z",
+    created_at: "2026-11-14T10:00:00Z", condition: "GOOD", like_count: 0, reference: null, caracteristicas: null, mantenimiento: null, category: null, solo_entrega_mano: false,
+  };
+  // Base de datos ficticia (por encima de la de contexto()). `sin`: la migración de valoraciones aún no está aplicada.
+  const rutas = async (ctx, s, usuario, rol) => {
+    s.pedidos ??= PEDIDOS();
+    s.estados ??= ESTADOS();
+    s.vals ??= VALORACIONES();
+    s.creadas = [];
+    s.peticiones = [];
+    await ctx.route("**/*", async (r) => {
+      const q = r.request();
+      const url = new URL(q.url());
+      const metodo = q.method();
+      const json = (cuerpo, status = 200) => r.fulfill({ status, contentType: "application/json", headers: CORS, body: JSON.stringify(cuerpo) });
+      const falta = (t) => json({ code: "PGRST205", message: `Could not find the table 'public.${t}' in the schema cache` }, 404);
+      const filtro = (campo) => url.searchParams.get(campo) ?? "";
+      const lista = (campo) => (filtro(campo).startsWith("in.(") ? filtro(campo).slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")) : null);
+      const objeto = /vnd\.pgrst\.object/.test(q.headers()["accept"] ?? "");
+      if (metodo === "OPTIONS") return r.fallback();
+      const tabla = url.pathname.startsWith("/rest/v1/") ? url.pathname.slice(9) : null;
+      if (!tabla) return r.fallback();
+      s.peticiones.push(`${metodo} ${tabla}?${decodeURIComponent(url.search.slice(1))}`);
+      const mios = () => new Set(s.pedidos.filter((p) => rol === "admin" || p.user_id === usuario.id).map((p) => p.id));
+      if (tabla === "pedido_valoraciones") {
+        if (s.sin) return falta("pedido_valoraciones");
+        if (metodo === "POST") {
+          const cuerpo = [].concat(JSON.parse(q.postData() ?? "{}"))[0];
+          s.creadas.push(cuerpo);
+          // Como el disparador y la regla: solo pedidos suyos y entregados; uno por pedido (único).
+          const p = s.pedidos.find((x) => x.id === cuerpo.pedido_id);
+          if (!p || p.user_id !== usuario.id || p.estado !== "entregado") return json({ code: "P0001", message: "Solo puedes valorar tus pedidos entregados." }, 400);
+          if (s.vals.some((v) => v.pedido_id === cuerpo.pedido_id)) return json({ code: "23505", message: "duplicate key value violates unique constraint" }, 409);
+          const fila = { id: `v${s.vals.length + 10}`, pedido_id: cuerpo.pedido_id, user_id: usuario.id, nota: cuerpo.nota, comentario: cuerpo.comentario ?? null, creado_en: new Date().toISOString() };
+          s.vals.push(fila);
+          return objeto ? json(fila, 201) : json([fila], 201);
+        }
+        const ids = lista("pedido_id");
+        const select = filtro("select");
+        let filas = s.vals.filter((v) => (rol === "admin" || v.user_id === usuario.id) && (!ids || ids.includes(v.pedido_id)));
+        if (/pedidos\(/.test(select)) filas = filas.map((v) => {
+          const p = s.pedidos.find((x) => x.id === v.pedido_id);
+          return { ...v, pedidos: p ? { numero: p.numero, codigo_seguimiento: p.codigo_seguimiento } : null };
+        });
+        return json(filas);
+      }
+      if (tabla === "pedido_estados") {
+        const ids = lista("pedido_id");
+        const m = mios();
+        return json(s.estados.filter((e) => m.has(e.pedido_id) && (!ids || ids.includes(e.pedido_id))).sort((a, b) => (a.creado_en < b.creado_en ? -1 : 1)));
+      }
+      if (tabla === "pedidos") {
+        if (metodo === "HEAD") return r.fulfill({ status: 200, headers: { ...CORS, "content-range": "*/0", "access-control-expose-headers": "*" }, body: "" });
+        if (metodo !== "GET") return r.fulfill({ status: 204, headers: CORS, body: "" });
+        if (filtro("user_id") === "is.null") return json([]);
+        const select = filtro("select");
+        const uid = filtro("user_id").replace(/^eq\./, "");
+        const ids = lista("id");
+        let filas = s.pedidos.filter((p) => (rol === "admin" || p.user_id === usuario.id) && (!uid || p.user_id === uid) && (!ids || ids.includes(p.id)));
+        if (/pedido_items/.test(select)) filas = filas.map((p) => ({ ...p, pedido_items: ITEMS.filter((i) => i.pedido_id === p.id) }));
+        return json(filas);
+      }
+      if (tabla === "pedido_items") {
+        const ids = lista("pedido_id");
+        return json(ITEMS.filter((i) => !ids || ids.includes(i.pedido_id)));
+      }
+      if (tabla === "products" && metodo === "GET") {
+        const ids = lista("id");
+        const uno = filtro("id").startsWith("eq.") ? filtro("id").slice(3) : null;
+        const filas = [PRODUCTO].filter((p) => (!ids || ids.includes(p.id)) && (!uno || p.id === uno));
+        return objeto ? json(filas[0] ?? null) : json(filas);
+      }
+      if (["product_media", "product_likes", "product_reviews", "flash_news", "noticias_gaming", "service_requests", "pedido_facturas", "avisos_precio"].includes(tabla) && metodo === "GET") {
+        return tabla === "pedido_facturas" ? falta("pedido_facturas") : json([]);
+      }
+      return r.fallback();
+    });
+  };
+  // Los avisos de estado de estos pedidos ya se vieron (si no, Blue diría antes «Tu pedido … está entregado»).
+  const CLAVE_VISTOS = `videojuegoszaragoza:seguimientos_vistos:${CLIENTE.id}`;
+  const sembrarVistos = (ctx) =>
+    ctx.addInitScript(([clave, vistos]) => {
+      try {
+        if (!localStorage.getItem(clave)) localStorage.setItem(clave, JSON.stringify({ p: vistos, r: {} }));
+      } catch {
+        // sin almacenamiento
+      }
+    }, [CLAVE_VISTOS, Object.fromEntries(PEDIDOS().map((p) => [p.id, p.estado]))]);
+  const cliente = async (s, vista = {}, extra = {}) => {
+    const estado = { filas: [perfil], guardados: [], aceptaAnalitica: true, chatp: { chats: [], mensajes: [], ventas: [] }, ...extra };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await rutas(ctx, s, CLIENTE, "user");
+    await sembrarVistos(ctx);
+    return { ctx, estado };
+  };
+  const abrirPedidos = async (ctx) => {
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.locator("#mis-pedidos-titulo-201").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    return p;
+  };
+  const abrirValorar = async (p) => {
+    await p.locator("#valorar-compra-201").scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator("#valorar-compra-201").click();
+    await p.locator("#valorar-pedido-ventana").waitFor({ timeout: 8000 }).catch(() => {});
+    await p.waitForTimeout(300);
+  };
+  const esperarMensaje = (p, re, ms) =>
+    p.waitForFunction((fuente) => new RegExp(fuente).test(document.getElementById("blue-mensaje")?.textContent ?? ""), re.source, { timeout: ms }).then(() => true, () => false);
+
+  // VALOR1) Mis pedidos (390): «Valorar compra» SOLO en el entregado hace 3 días o más y sin valorar; el valorado, sus
+  // estrellas; 5 estrellas de 44 px y comentario de 16 px; «Enviar» guarda solo pedido, nota y comentario; 4-5 agradece;
+  // después ya no se ofrece (una por pedido). Analítica sin texto ni datos.
+  {
+    const s = {};
+    const { ctx, estado } = await cliente(s);
+    const p = await abrirPedidos(ctx);
+    const cuantos = async (n) => p.locator(`#valorar-compra-${200 + n}`).count();
+    ok((await cuantos(1)) === 1, "VALOR: «Valorar compra» en el pedido entregado hace 5 días");
+    ok((await cuantos(2)) === 0, "VALOR: NO se pide antes de 3 días tras «entregado» (entregado hace 1 día)");
+    ok((await cuantos(3)) === 0, "VALOR: NO se pide sin la hora del paso «entregado» (sin fila en pedido_estados)");
+    ok((await cuantos(4)) === 0, "VALOR: NO se pide en un pedido sin entregar (enviado)");
+    ok((await cuantos(5)) === 0 && (await texto(p, "#valoracion-pedido-205")) === "Tu valoración: ★★★★☆", `VALOR: el valorado enseña «Tu valoración: ★★★★☆» (${await texto(p, "#valoracion-pedido-205")})`);
+    const b = await caja(p, "#valorar-compra-201");
+    ok(!!b && b.h >= 44, `VALOR: «Valorar compra» mide 44 px o más (${JSON.stringify(b)})`);
+    await esperar(p, async () => evento(estado, "valoracion_pedida").length > 0);
+    const pedida = evento(estado, "valoracion_pedida");
+    ok(pedida.length === 1 && JSON.stringify(pedida[0].metadata) === JSON.stringify({ origen: "mis_pedidos" }), `VALOR: se mide valoracion_pedida (origen mis_pedidos) una vez (${JSON.stringify(pedida.map((e) => e.metadata))})`);
+    await p.locator("#valorar-compra-201").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "VALOR1-mis-pedidos-390");
+    await abrirValorar(p);
+    ok((await texto(p, "#valorar-pedido-referencia")) === REFT(1), `VALOR: la ventana nombra el pedido por su referencia (${await texto(p, "#valorar-pedido-referencia")})`);
+    const estrellas = await Promise.all([1, 2, 3, 4, 5].map((n) => caja(p, `#valorar-estrella-${n}`)));
+    ok(estrellas.every((e) => e && e.h >= 44 && e.w >= 44), `VALOR: 5 estrellas de 44 px (${JSON.stringify(estrellas.map((e) => e && `${e.w}x${e.h}`))})`);
+    const etiquetas = await p.evaluate(() => [1, 2, 3, 4, 5].map((n) => document.getElementById(`valorar-estrella-${n}`)?.getAttribute("aria-label") ?? ""));
+    ok(etiquetas.every((t, i) => t.startsWith(`${i + 1} estrella`)), `VALOR: cada estrella se anuncia con su nota (${etiquetas.join(" | ")})`);
+    const letra = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById("valorar-pedido-comentario")).fontSize));
+    ok(letra >= 16, `VALOR: el comentario es de 16 px o más (${letra})`);
+    ok((await p.locator("#valorar-pedido-enviar").getAttribute("aria-disabled").catch(() => null)) === "true", "VALOR: sin estrellas, «Enviar» está apagado");
+    await esperar(p, async () => evento(estado, "valoracion_abierta").length > 0);
+    ok(evento(estado, "valoracion_abierta").length === 1, "VALOR: se mide valoracion_abierta");
+    await capturar(p, "VALOR1-ventana-390");
+    await p.locator("#valorar-estrella-5").click();
+    await p.locator("#valorar-pedido-comentario").fill("Todo perfecto, muy bien embalado");
+    await p.locator("#valorar-pedido-enviar").click();
+    await p.locator("#valorar-pedido-gracias").waitFor({ timeout: 8000 }).catch(() => {});
+    ok(s.creadas.length === 1 && Object.keys(s.creadas[0]).sort().join(",") === "comentario,nota,pedido_id" && s.creadas[0].nota === 5 && s.creadas[0].pedido_id === PID(1), `VALOR: «Enviar» guarda solo pedido, nota y comentario (quién lo pone la base de datos) (${JSON.stringify(s.creadas)})`);
+    ok(/Gracias por tu valoración/.test(await texto(p, "#valorar-pedido-gracias")) && (await p.locator("#valorar-pedido-chat").count()) === 0, "VALOR: con 4-5, un agradecimiento discreto (sin chat)");
+    await capturar(p, "VALOR1-gracias-390");
+    await esperar(p, async () => evento(estado, "valoracion_enviada").length > 0);
+    const env = evento(estado, "valoracion_enviada");
+    ok(env.length === 1 && env[0].metadata?.nota === 5 && !/perfecto|VZ-|a0000000|cliente@|Ana/.test(JSON.stringify(env)), `VALOR: se mide valoracion_enviada con la nota, sin texto ni datos (${JSON.stringify(env.map((e) => e.metadata))})`);
+    await p.locator("#valorar-pedido-cerrar-gracias").click();
+    await p.waitForTimeout(400);
+    ok((await cuantos(1)) === 0 && (await texto(p, "#valoracion-pedido-201")) === "Tu valoración: ★★★★★", `VALOR: tras valorar, ya no se ofrece y sale su nota (${await texto(p, "#valoracion-pedido-201")})`);
+    await p.reload({ waitUntil: "load" });
+    await p.locator("#mis-pedidos-titulo-201").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok((await cuantos(1)) === 0 && /★★★★★/.test(await texto(p, "#valoracion-pedido-201")), "VALOR: una por pedido: al volver, sigue valorado y sin botón");
+    ok(p.errores.length === 0, `VALOR1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VALOR2) Nota 1-2: mensaje empático y «Hablar con el equipo» abre el chat de la tienda (del primer artículo) con «Sobre
+  // mi pedido VZ-…: » escrito y SIN enviar; se mide valoracion_baja_chat con la nota.
+  {
+    const s = {};
+    const { ctx, estado } = await cliente(s);
+    const p = await abrirPedidos(ctx);
+    await abrirValorar(p);
+    await p.locator("#valorar-estrella-2").click();
+    await p.locator("#valorar-pedido-enviar").click();
+    await p.locator("#valorar-pedido-baja").waitFor({ timeout: 8000 }).catch(() => {});
+    const baja = await texto(p, "#valorar-pedido-baja");
+    ok(/Sentimos que no haya ido bien/.test(baja) && baja.includes(REFT(1)) && /Hablar con el equipo/.test(baja), `VALOR: con 1-2, mensaje empático con el pedido y «Hablar con el equipo» (${baja})`);
+    ok(s.creadas.length === 1 && s.creadas[0].nota === 2 && s.creadas[0].comentario === null, `VALOR: guarda la nota 2 sin comentario (${JSON.stringify(s.creadas)})`);
+    const bc = await caja(p, "#valorar-pedido-chat");
+    ok(!!bc && bc.h >= 44, `VALOR: «Hablar con el equipo» mide 44 px o más (${JSON.stringify(bc)})`);
+    await capturar(p, "VALOR2-baja-390");
+    await p.locator("#valorar-pedido-chat").click();
+    await p.waitForURL(/\/chat\//, { timeout: 20000 }).catch(() => {});
+    await p.locator("#chat-campo").waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const valor = await p.locator("#chat-campo").inputValue().catch(() => "");
+    ok(p.url().includes("/chat/") && (estado.chatp.rpc ?? [])[0] === PROD, `VALOR: abre el chat de la tienda del primer artículo del pedido (${p.url().replace(BASE, "")}; ${JSON.stringify(estado.chatp.rpc ?? [])})`);
+    ok(valor === `Sobre mi pedido ${REF(1)}: ` && !(estado.chatp.enviados ?? []).length, `VALOR: con «Sobre mi pedido ${REF(1)}: » escrito y sin enviar (${JSON.stringify(valor)}; ${(estado.chatp.enviados ?? []).length} enviados)`);
+    await capturar(p, "VALOR2-chat-390");
+    await esperar(p, async () => evento(estado, "valoracion_baja_chat").length > 0);
+    const bch = evento(estado, "valoracion_baja_chat");
+    ok(bch.length === 1 && JSON.stringify(bch[0].metadata) === JSON.stringify({ nota: 2 }), `VALOR: se mide valoracion_baja_chat solo con la nota (${JSON.stringify(bch.map((e) => e.metadata))})`);
+    ok(p.errores.length === 0, `VALOR2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VALOR3) Blue la pide UNA vez (solo el pedido que toca): «¿Qué tal tu pedido VZ-VA01-0001? Valóralo en 10 segundos»;
+  // queda dicho al enseñarse y, al volver, no lo repite; tocarlo lleva a Mis pedidos. Se mide (origen blue).
+  {
+    const s = {};
+    const { ctx, estado } = await cliente(s);
+    const p = await pagina(ctx, "/");
+    const dicho = await esperarMensaje(p, /¿Qué tal tu pedido VZ-VA01-0001\? Valóralo en 10 segundos/, 50000);
+    ok(dicho, "VALOR: Blue dice «¿Qué tal tu pedido VZ-VA01-0001? Valóralo en 10 segundos»");
+    if (dicho) await capturar(p, "VALOR3-blue-390");
+    await esperar(p, async () => evento(estado, "valoracion_pedida").length > 0);
+    const m = evento(estado, "valoracion_pedida");
+    ok(m.length === 1 && JSON.stringify(m[0].metadata) === JSON.stringify({ origen: "blue" }), `VALOR: se mide valoracion_pedida (origen blue) (${JSON.stringify(m.map((e) => e.metadata))})`);
+    const guardado = await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:blue_avisos_dichos") ?? "");
+    ok(guardado.includes(`vp:${PID(1)}`) && !guardado.includes(`vp:${PID(2)}`) && !guardado.includes(`vp:${PID(3)}`), "VALOR: queda dicho en el dispositivo (y solo el pedido que tocaba)");
+    if (dicho) {
+      await p.locator("#blue-mensaje").click();
+      await p.waitForURL(/\/perfil\?tab=seguimientos/, { timeout: 15000 }).then(
+        () => ok(true, "VALOR: tocar el mensaje de Blue lleva a Mis pedidos"),
+        () => ok(false, `VALOR: tocar el mensaje debía llevar a Mis pedidos (${p.url()})`)
+      );
+    }
+    await p.goto(`${BASE}/`, { waitUntil: "load" });
+    const repetido = await esperarMensaje(p, /Valóralo en 10 segundos/, 35000);
+    ok(!repetido, "VALOR: al volver a abrir la tienda, Blue NO lo repite (una vez por pedido)");
+    ok(p.errores.length === 0, `VALOR3: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VALOR4) Sin la migración: Mis pedidos sale entero, sin botón ni valoraciones; Blue no la pide; sin errores.
+  {
+    const s = { sin: true };
+    const { ctx } = await cliente(s);
+    const p = await abrirPedidos(ctx);
+    ok((await p.locator("#mis-pedidos-titulo-201").count()) === 1 && (await p.locator('[id^="valorar-compra-"]').count()) === 0 && (await p.locator('[id^="valoracion-pedido-"]').count()) === 0, "VALOR: sin la migración, Mis pedidos sale entero y sin valoraciones");
+    ok(p.errores.length === 0, `VALOR4: sin la migración, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    const h = await pagina(ctx, "/");
+    const dicho = await esperarMensaje(h, /Valóralo en 10 segundos/, 25000);
+    ok(!dicho && h.errores.length === 0, `VALOR: sin la migración Blue no la pide y no hay errores (${h.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VALOR5) 360, 390 y 1280: Mis pedidos y la ventana caben a lo ancho; capturas.
+  for (const { nombre, vista } of VISTAS) {
+    const s = {};
+    const { ctx } = await cliente(s, vista);
+    const p = await abrirPedidos(ctx);
+    let d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `VALOR (${nombre}): Mis pedidos no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#valorar-compra-201").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `VALOR5-mis-pedidos-${nombre}`);
+    await abrirValorar(p);
+    await p.locator("#valorar-estrella-4").click();
+    const v = await caja(p, "#valorar-pedido-ventana");
+    d = await sinDesborde(p);
+    ok(!!v && v.l >= 0 && v.r <= d.v + 1 && d.a <= d.v + 1, `VALOR (${nombre}): la ventana cabe (${JSON.stringify(v)} · ${d.a}/${d.v})`);
+    const letra = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById("valorar-pedido-comentario")).fontSize));
+    ok(letra >= 16, `VALOR (${nombre}): el comentario a 16 px o más (${letra})`);
+    await capturar(p, `VALOR5-ventana-${nombre}`);
+    ok(p.errores.length === 0, `VALOR5 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VALOR6) Administración → Pedidos (390 y 1280): cada entregado con su valoración (la baja en rojo, con el comentario) o
+  // «Sin valorar» con cuándo se le pide; recuento y media arriba.
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const s = {};
+    const estado = { filas: [perfilAdmin], guardados: [], categorias: [] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    await rutas(ctx, s, ADMIN, "admin");
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#pedido-titulo-201").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.getByText("Todos", { exact: true }).first().click().catch(() => {});
+    await p.locator("#pedido-valoracion-205").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok(/★★★★☆ 4\/5/.test(await texto(p, "#pedido-valoracion-205")), `VALOR (${nombre}): Pedidos enseña la valoración (${await texto(p, "#pedido-valoracion-205")})`);
+    const v6 = await texto(p, "#pedido-valoracion-206");
+    ok(/★☆☆☆☆ 1\/5 · baja/.test(v6) && /Llegó con la caja rota/.test(v6), `VALOR (${nombre}): la baja, marcada y con su comentario (${v6})`);
+    ok((await texto(p, "#pedido-valoracion-201")) === "Sin valorar · ya se le pide", `VALOR (${nombre}): sin valorar y ya pedida (${await texto(p, "#pedido-valoracion-201")})`);
+    ok(/^Sin valorar · se le pedirá el /.test(await texto(p, "#pedido-valoracion-202")), `VALOR (${nombre}): entregado hace 1 día: cuándo se le pedirá (${await texto(p, "#pedido-valoracion-202")})`);
+    ok(/sin hora de entrega: no se le pide/.test(await texto(p, "#pedido-valoracion-203")) && (await p.locator("#pedido-valoracion-204").count()) === 0, `VALOR (${nombre}): sin hora de entrega no se pide y el enviado no lleva valoración`);
+    ok(/Valoraciones: 2 · media 2,5 de 5 · bajas \(1-?2\): 1/.test(await texto(p, "#pedidos-valoraciones")), `VALOR (${nombre}): recuento arriba (${await texto(p, "#pedidos-valoraciones")})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `VALOR (${nombre}): Pedidos no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#pedido-valoracion-206").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `VALOR6-admin-pedidos-${nombre}`);
+    ok(p.errores.length === 0, `VALOR6 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VALOR7) La ficha del cliente (390): bajo cada pedido entregado, su valoración o «Sin valorar».
+  {
+    const s = {};
+    const estado = { filas: [perfilAdmin, perfil], guardados: [], categorias: [] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    await rutas(ctx, s, ADMIN, "admin");
+    const p = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}&tab=pedidos`);
+    await p.locator("#ficha-valoracion-205").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok(/★★★★☆ 4\/5/.test(await texto(p, "#ficha-valoracion-205")) && /1\/5 · baja/.test(await texto(p, "#ficha-valoracion-206")) && /Llegó con la caja rota/.test(await texto(p, "#ficha-valoracion-206")), `VALOR: la ficha del cliente enseña sus valoraciones (${await texto(p, "#ficha-valoracion-205")} | ${await texto(p, "#ficha-valoracion-206")})`);
+    ok((await texto(p, "#ficha-valoracion-201")) === "Sin valorar · ya se le pide" && (await p.locator("#ficha-valoracion-204").count()) === 0, `VALOR: y los entregados sin valorar (${await texto(p, "#ficha-valoracion-201")})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `VALOR: la ficha del cliente no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#ficha-valoracion-206").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "VALOR7-ficha-cliente-390");
+    ok(p.errores.length === 0, `VALOR7: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VALOR8) Analítica (390 y 1280): «Valoraciones (30 días)» con media, número, reparto, filtro por nota y las bajas arriba
+  // con «Ver pedido»; los eventos por origen. Sin nombres de nadie.
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const s = {};
+    const ev = (n, k, metadata = {}) => Array.from({ length: k }, () => ({ event_name: n, metadata, created_at: hace(2), session_id: "x", step_label: n }));
+    const estado = {
+      filas: [perfilAdmin], guardados: [], embudo: [],
+      eventos: [...ev("valoracion_pedida", 3, { origen: "blue" }), ...ev("valoracion_pedida", 2, { origen: "mis_pedidos" }), ...ev("valoracion_abierta", 4), ...ev("valoracion_baja_chat", 1, { nota: 1 })],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    await rutas(ctx, s, ADMIN, "admin");
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-valoraciones-resumen").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const res = await texto(p, "#analitica-valoraciones-resumen");
+    ok(/Media 2,5 de 5 · 2 valoraciones · pedidas por Blue 3 · en Mis pedidos 2 · abiertas 4 · nota baja con chat 1/.test(res), `VALOR (${nombre}): Analítica, media, número y uso (${res})`);
+    const rep = await Promise.all([5, 4, 3, 2, 1].map((n) => texto(p, `#analitica-valoraciones-nota-${n}`)));
+    ok(rep.join("|") === "5 ★ 0|4 ★ 1|3 ★ 0|2 ★ 0|1 ★ 1", `VALOR (${nombre}): reparto por nota (${rep.join("|")})`);
+    const lista = await texto(p, "#analitica-valoraciones-lista");
+    ok(lista.indexOf(REFT(6)) >= 0 && lista.indexOf(REFT(6)) < lista.indexOf(REFT(5)) && /Llegó con la caja rota/.test(lista) && !/cliente@|Ana/.test(lista), `VALOR (${nombre}): las bajas arriba, con su pedido (${lista})`);
+    await p.locator("#analitica-valoraciones").getByText("4 ★", { exact: true }).last().click();
+    await p.waitForTimeout(300);
+    const filtrada = await texto(p, "#analitica-valoraciones-lista");
+    ok(filtrada.includes(REFT(5)) && !filtrada.includes(REFT(6)), `VALOR (${nombre}): el filtro por nota deja solo esa nota (${filtrada})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `VALOR (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#analitica-valoraciones").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `VALOR8-analitica-${nombre}`);
+    await p.locator("#analitica-valoraciones").getByText("Todas", { exact: true }).first().click().catch(() => {});
+    await p.waitForTimeout(300);
+    await p.locator(`#analitica-valoracion-${REF(6)}`).click();
+    await p.waitForURL(/\/admin\/pedidos\?buscar=/, { timeout: 15000 }).catch(() => {});
+    ok(new URL(p.url()).searchParams.get("buscar") === REF(6), `VALOR (${nombre}): «Ver pedido» abre Pedidos con ese pedido (${p.url().replace(BASE, "")})`);
+    ok(p.errores.length === 0, `VALOR8 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 // ===== CHATP) Chat con el producto adjunto (mejora 10, 2026-11-15) ===================================================
 // «Preguntar por este artículo» en la ficha abre el chat de la tienda de ese producto (el que ya hay o uno nuevo, nunca dos)
 // con la tarjeta del producto arriba (foto, título, precio y «Ver el artículo») y primeras preguntas que rellenan el campo
@@ -17196,6 +17607,7 @@ const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "AVISOM") await seccionAVISOM();
   if (SOLO === "CHATP") await seccionCHATP();
+  if (SOLO === "VALOR") await seccionVALOR();
   if (SOLO === "VISTOS") await seccionVISTOS();
   if (SOLO === "COMPA") await seccionCOMPA();
   if (SOLO === "RAPI") await seccionRAPI();
@@ -18303,6 +18715,7 @@ try {
   await seccionVISTOS();
   await seccionCHATP();
   await seccionAVISOM();
+  await seccionVALOR();
   await seccionCAMPOS16();
   }
 } catch (e) {

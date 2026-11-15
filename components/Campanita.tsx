@@ -121,6 +121,10 @@
  *   · Estado de pedidos (mejora 5): el mensaje de Blue dice «Tu pedido VZ-… está enviado · Ver seguimiento» UNA vez por
  *     cambio, también entre visitas (DICHOS_KEY). Se miden pedido_aviso_estado_mostrado / _tocado y aviso_precio_mostrado /
  *     _tocado (solo el estado o el producto, sin datos personales) en Administración → Analítica.
+ *   · Valoración tras la entrega (mejora 11, 2026-11-15): a los 3 días o más del paso «entregado» (pedido_estados) de un
+ *     pedido sin valorar (pedido_valoraciones), Blue dice UNA vez «¿Qué tal tu pedido VZ-…? Valóralo en 10 segundos»
+ *     (lleva a Mis pedidos; queda dicho al enseñarse, DICHOS_KEY) y se mide valoracion_pedida (origen blue). Se mira en el
+ *     mismo repaso de los seguimientos (sin sondeo nuevo) y solo si hay pedidos entregados aún sin resolver.
  *   · Solo el admin: ventas de artículos de VeoAura que aún no se han podido confirmar a
  *     VeoAura (tabla escaparate_salida) → panel Escaparate.
  *   · Solo el admin: pedidos y reparaciones en curso sin ningún cambio desde hace 48 h (updated_at de pedidos y
@@ -182,9 +186,9 @@ import { asegurarCssSiriTexto, escribirEnBuscadorDemo, registrarAvisoLlegada, Te
 import { alRecargar } from "./TirarParaActualizar";
 import { useMiPerfilAbierto, usePerfilObligatorioVisible } from "./PerfilPublico";
 import { suscribirVisorFotos, visorFotosAbierto } from "./ImageLightbox";
-import { MejorasModal } from "./ReviewModal";
+import { MejorasModal, VALORACION_ESPERA_MS, cargarValoracionesPedidos, entregadoEnDe, tocaValorarPedido } from "./ReviewModal";
 import { CAMPO, COLORES_TEXTO, TAMANOS } from "../constants/theme";
-import { cargarAjustesReparacionEnvio } from "../lib/envio";
+import { cargarAjustesReparacionEnvio, cargarHistorialPedidos } from "../lib/envio";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -417,6 +421,11 @@ export async function marcarSeguimientosVistos(
 // El aviso de un cambio de estado de un pedido y el de una bajada de precio seguida salen UNA vez por cambio, también
 // entre visitas: se guarda en el móvil la clave de cada uno cuando se enseña (como mucho las 200 últimas).
 const DICHOS_KEY = "videojuegoszaragoza:blue_avisos_dichos";
+// Pedidos entregados cuya valoración ya está resuelta en esta visita (valorados o ya pedidos por Blue): no se vuelven a
+// consultar en cada repaso de los seguimientos.
+const valorarResueltos = new Set<string>();
+// Y los entregados hace menos de 3 días: desde cuándo se pueden pedir (hasta entonces, ni se consultan).
+const valorarDesde = new Map<string, number>();
 let dichosGuardados: Set<string> | null = null;
 async function cargarDichos(): Promise<Set<string>> {
   if (dichosGuardados) return dichosGuardados;
@@ -864,6 +873,8 @@ export default function Campanita() {
   const [reloj, setReloj] = useState(() => Date.now());
   // Novedades de tus pedidos y reparaciones (etapa que ha cambiado desde la última vez que los viste en Seguimientos).
   const [segAvisos, setSegAvisos] = useState<SegAviso[]>([]);
+  // Valoración tras la entrega (mejora 11): pedidos entregados hace 3 días o más y sin valorar (Blue lo dice una vez).
+  const [valorarPend, setValorarPend] = useState<{ id: string; referencia: string | null }[]>([]);
   const segActualRef = useRef<{ uid: string; pedidos: PedidoSegDato[]; reparaciones: ReparacionSegDato[] } | null>(null);
   const [salidaPendiente, setSalidaPendiente] = useState(0);
   // Solo el admin: pedidos y reparaciones en curso que llevan 48 h o más sin ningún cambio (para que no se olviden).
@@ -1498,6 +1509,39 @@ export default function Campanita() {
             ),
       };
       await recalcularSeguimientos();
+      // Valoración tras la entrega: solo los entregados que Blue aún no ha pedido en este dispositivo (sin consultas si no
+      // hay ninguno). Sin la hora del paso «entregado» (pedido_estados) no se pide; sin la migración, nada.
+      const ahora = Date.now();
+      const entregados = (segActualRef.current?.pedidos ?? []).filter(
+        (p) => p.estado === "entregado" && !valorarResueltos.has(p.id) && (valorarDesde.get(p.id) ?? 0) <= ahora
+      );
+      if (!entregados.length) {
+        setValorarPend((v) => (v.length ? [] : v));
+        return;
+      }
+      const dichos = await cargarDichos();
+      const porPedir = entregados.filter((p) => !dichos.has(`vp:${p.id}`));
+      for (const p of entregados) if (dichos.has(`vp:${p.id}`)) valorarResueltos.add(p.id);
+      if (!porPedir.length) {
+        setValorarPend((v) => (v.length ? [] : v));
+        return;
+      }
+      const ids = porPedir.map((p) => p.id);
+      const [hist, vals] = await Promise.all([cargarHistorialPedidos(ids), cargarValoracionesPedidos(ids)]);
+      if (!hist || !vals) {
+        setValorarPend((v) => (v.length ? [] : v));
+        return;
+      }
+      for (const id of Object.keys(vals)) valorarResueltos.add(id);
+      // Entregados hace menos de 3 días: no se vuelven a consultar hasta que toque.
+      for (const p of porPedir) {
+        const t = Date.parse(entregadoEnDe(hist[p.id]) ?? "");
+        if (Number.isFinite(t) && t + VALORACION_ESPERA_MS > ahora) valorarDesde.set(p.id, t + VALORACION_ESPERA_MS);
+      }
+      const lista = porPedir
+        .filter((p) => tocaValorarPedido("entregado", entregadoEnDe(hist[p.id]), !!vals[p.id]))
+        .map((p) => ({ id: p.id, referencia: p.referencia ?? null }));
+      setValorarPend((v) => (v.length === lista.length && v.every((x, i) => x.id === lista[i].id) ? v : lista));
     } catch {
       // sin conexión: se deja como estaba
     }
@@ -1895,6 +1939,29 @@ export default function Campanita() {
     };
   }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, bajadas, decir]);
 
+  // Valoración tras la entrega (mejora 11): «¿Qué tal tu pedido VZ-…? Valóralo en 10 segundos», UNA vez por pedido (queda
+  // dicho al enseñarse). No en Perfil (allí está el botón), ni en el pago ni en Blue IA.
+  useEffect(() => {
+    if (!enPantalla || enAdmin || guiaAbierta || panelOpen || bocadillo) return;
+    if (pathname.startsWith("/perfil") || pathname.startsWith("/checkout") || pathname.startsWith("/blue-ia")) return;
+    const candidatos = valorarPend.filter((x) => !yaDicho.has(`vp:${x.id}`));
+    if (!candidatos.length) return;
+    let vivo = true;
+    (async () => {
+      if ((await getAnalyticsConsent()) === null || !vivo) return;
+      const dichos = await cargarDichos();
+      if (!vivo) return;
+      const v = candidatos.find((x) => !dichos.has(`vp:${x.id}`));
+      if (!v) return;
+      yaDicho.add(`vp:${v.id}`);
+      const ref = v.referencia ? ` ${v.referencia}` : "";
+      decir({ id: `vp:${v.id}`, texto: `¿Qué tal tu pedido${ref}? Valóralo en 10 segundos`, accion: "ruta", ruta: "/perfil?tab=seguimientos" });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, valorarPend, decir]);
+
   // Cuando un aviso de pedido o de precio se ve de verdad: queda dicho en el dispositivo (no se repite), la bajada se apunta
   // en la cuenta y se mide (sin datos personales: el estado del pedido o el producto).
   useEffect(() => {
@@ -1906,6 +1973,10 @@ export default function Campanita() {
       void trackEvent("pedido_aviso_estado_mostrado", "Blue: aviso de estado del pedido mostrado", { metadata: { estado } });
     } else if (id.startsWith("s:r:")) {
       void apuntarDicho(id);
+    } else if (id.startsWith("vp:")) {
+      void apuntarDicho(id);
+      valorarResueltos.add(id.slice(3));
+      void trackEvent("valoracion_pedida", "Valoración del pedido: pedida", { metadata: { origen: "blue" } });
     } else if (id.startsWith("ap:")) {
       const [, productId, precio] = id.split(":");
       void apuntarDicho(id);

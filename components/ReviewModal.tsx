@@ -50,8 +50,19 @@
  * propia: «mejora_abierta» y «mejora_enviada», con el sitio. Administración → Usuarios («Ideas de mejora») y la ficha
  * del cliente las enseñan.
  *
+ * VALORACIÓN TRAS LA ENTREGA (ValorarPedidoModal, dueño 2026-11-15, mejora 11): a los 3 días (o más) del paso «entregado»
+ * de un pedido (pedido_estados; sin esa fila no se pide) el cliente puede valorarlo UNA vez: 5 estrellas de 44 px, un
+ * comentario opcional (16 px, hasta 1000) y «Enviar». Se guarda en pedido_valoraciones (migración
+ * 20261115100000_pedido_valoraciones.sql: la base de datos solo acepta pedidos suyos y entregados, y una por pedido). NO
+ * se publica en la tienda: la ven el cliente y Administración. Nota 1-2: mensaje empático y «Hablar con el equipo»
+ * abre el chat de la tienda (del primer artículo del pedido, o el general) con «Sobre mi pedido VZ-…: » escrito SIN
+ * enviar. Nota 4-5 (y 3): agradecimiento discreto. Se mide valoracion_abierta, valoracion_enviada (nota) y
+ * valoracion_baja_chat (sin texto ni datos personales); valoracion_pedida la miden Blue y Mis pedidos.
+ *
  * Conectado con:
- * - lib/supabase.ts → sesión actual + INSERT en "store_reviews" y en "mejoras_tienda".
+ * - lib/supabase.ts → sesión actual + INSERT en "store_reviews", "mejoras_tienda" y "pedido_valoraciones".
+ * - app/(tabs)/perfil.tsx (Mis pedidos), components/Campanita.tsx (Blue), app/admin/pedidos.tsx,
+ *   app/admin/cliente/[userId].tsx y app/admin/analytics.tsx → valoraciones de los pedidos.
  * - components/Resenas.tsx → abre este modal y recibe la reseña publicada.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -71,6 +82,9 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
+import type { CambioEstadoPedido } from "../lib/envio";
+import { abrirChatEquipo } from "./ProductChatThread";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../constants/theme";
 
 const COLORS = {
   bg2: "#F4F9FD",
@@ -1008,6 +1022,341 @@ export function MejorasModal({ visible, onClose, origen }: { visible: boolean; o
               )}
             </View>
           </Animated.View>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// «Valoración tras la entrega» de un pedido (ver la cabecera del archivo).
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Días que pasan desde el paso «entregado» hasta que se pide la valoración. */
+export const VALORACION_ESPERA_MS = 3 * 24 * 60 * 60 * 1000;
+export const VALORACION_COMENTARIO_MAX = 1000;
+export type ValoracionPedido = { pedido_id: string; nota: number; comentario: string | null; creado_en: string };
+
+export function faltaTablaValoraciones(e: { code?: string; message?: string } | null | undefined): boolean {
+  return !!e && (e.code === "PGRST205" || e.code === "42P01" || /pedido_valoraciones/.test(String(e.message ?? "")));
+}
+
+// Sin la migración la tabla no existe: se pregunta una vez por carga de la tienda y se recuerda (sin repetir el 404).
+let sinValoraciones = false;
+
+/** Valoraciones de estos pedidos (las suyas para el cliente; todas para el administrador). null = aún sin la migración. */
+export async function cargarValoracionesPedidos(ids: string[]): Promise<Record<string, ValoracionPedido> | null> {
+  if (sinValoraciones) return null;
+  const lista = [...new Set(ids.filter(Boolean))].slice(0, 200);
+  if (!lista.length) return {};
+  try {
+    const { data, error } = await supabase.from("pedido_valoraciones").select("pedido_id,nota,comentario,creado_en").in("pedido_id", lista);
+    if (error) {
+      if (faltaTablaValoraciones(error)) sinValoraciones = true;
+      return null;
+    }
+    return Object.fromEntries(((data ?? []) as ValoracionPedido[]).map((v) => [v.pedido_id, v]));
+  } catch {
+    return null;
+  }
+}
+
+/** Hora del ÚLTIMO paso «entregado» del pedido (pedido_estados) o null si no hay fila (entonces no se pide). */
+export function entregadoEnDe(cambios: CambioEstadoPedido[] | null | undefined): string | null {
+  let fecha: string | null = null;
+  for (const c of cambios ?? []) if (c.estado === "entregado") fecha = c.creado_en;
+  return fecha;
+}
+
+/** ¿Toca pedir la valoración? Entregado, con su hora de entrega, hace 3 días o más y sin valorar. */
+export function tocaValorarPedido(estado: string | null | undefined, entregadoEn: string | null, valorado: boolean, ahora = Date.now()): boolean {
+  if (estado !== "entregado" || !entregadoEn || valorado) return false;
+  const t = Date.parse(entregadoEn);
+  return Number.isFinite(t) && ahora - t >= VALORACION_ESPERA_MS;
+}
+
+/** «★★★★☆» para una nota de 1 a 5. */
+export function estrellasDeNota(nota: number): string {
+  const n = Math.max(0, Math.min(5, Math.round(nota)));
+  return `${"★".repeat(n)}${"☆".repeat(5 - n)}`;
+}
+
+const TEXTO_NOTA = ["", "Muy mal", "Mal", "Regular", "Bien", "Muy bien"];
+
+/**
+ * Administración (Pedidos y ficha del cliente): la valoración de un pedido entregado. Valorado: estrellas, nota y el
+ * comentario (en rojo si es 1-2). Sin valorar: desde cuándo se le pide (o que no se pide sin la hora de entrega).
+ */
+export function ValoracionPedidoAdmin({
+  nativeID,
+  valoracion,
+  entregadoEn,
+}: {
+  nativeID: string;
+  valoracion: ValoracionPedido | null | undefined;
+  entregadoEn: string | null;
+}) {
+  if (valoracion) {
+    const baja = valoracion.nota <= 2;
+    return (
+      <View nativeID={nativeID} style={{ alignItems: "center", gap: 2, maxWidth: 460, alignSelf: "center" }}>
+        <Text style={{ color: baja ? COLORS.danger : COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+          Valoración: <Text style={{ color: "#B7791F", letterSpacing: 1 }}>{estrellasDeNota(valoracion.nota)}</Text> {valoracion.nota}/5
+          {baja ? " · baja" : ""}
+        </Text>
+        {valoracion.comentario ? (
+          <Text selectable style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+            «{valoracion.comentario}»
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+  const t = entregadoEn ? Date.parse(entregadoEn) : NaN;
+  const texto = !Number.isFinite(t)
+    ? "Sin valorar · sin hora de entrega: no se le pide"
+    : Date.now() - t >= VALORACION_ESPERA_MS
+    ? "Sin valorar · ya se le pide"
+    : `Sin valorar · se le pedirá el ${new Date(t + VALORACION_ESPERA_MS).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`;
+  return (
+    <Text nativeID={nativeID} style={{ color: COLORES_TEXTO.secundario, fontWeight: "700", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+      {texto}
+    </Text>
+  );
+}
+
+type FaseValorar = "form" | "baja" | "gracias";
+
+export function ValorarPedidoModal({
+  visible,
+  pedido,
+  onClose,
+  onValorado,
+}: {
+  visible: boolean;
+  /** referencia: VZ-XXXX-XXXX (nunca el número interno); productId: el primer artículo (chat con su tarjeta). */
+  pedido: { id: string; referencia: string | null; productId?: string | null } | null;
+  onClose: () => void;
+  onValorado: (v: ValoracionPedido) => void;
+}) {
+  const [fase, setFase] = useState<FaseValorar>("form");
+  const [nota, setNota] = useState(0);
+  const [comentario, setComentario] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [abriendoChat, setAbriendoChat] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pedidoId = pedido?.id ?? null;
+
+  useEffect(() => {
+    if (!visible || !pedidoId) return;
+    setFase("form");
+    setNota(0);
+    setComentario("");
+    setError(null);
+    void trackEvent("valoracion_abierta", "Valoración del pedido: abierta");
+  }, [visible, pedidoId]);
+
+  const ref = pedido?.referencia ? ` ${pedido.referencia}` : "";
+
+  async function enviar() {
+    if (!pedido || enviando || nota < 1) return;
+    setEnviando(true);
+    setError(null);
+    const texto = comentario.trim();
+    const { data, error: e } = await supabase
+      .from("pedido_valoraciones")
+      .insert({ pedido_id: pedido.id, nota, comentario: texto || null })
+      .select("pedido_id,nota,comentario,creado_en")
+      .single();
+    setEnviando(false);
+    if (e) {
+      if (e.code === "23505") setError("Ya has valorado este pedido. ¡Gracias!");
+      else if (faltaTablaValoraciones(e)) setError("Muy pronto podrás valorar tus pedidos desde aquí.");
+      else if (e.code === "P0001") setError(String(e.message ?? "No se puede valorar este pedido."));
+      else setError("No se ha podido enviar. Inténtalo de nuevo en unos segundos.");
+      return;
+    }
+    void trackEvent("valoracion_enviada", "Valoración del pedido: enviada", { metadata: { nota, con_comentario: !!texto } });
+    onValorado((data ?? { pedido_id: pedido.id, nota, comentario: texto || null, creado_en: new Date().toISOString() }) as ValoracionPedido);
+    setFase(nota <= 2 ? "baja" : "gracias");
+  }
+
+  async function hablarConEquipo() {
+    if (!pedido || abriendoChat) return;
+    setAbriendoChat(true);
+    try {
+      const borrador = `Sobre mi pedido${ref}: `;
+      let r: "ok" | "login";
+      try {
+        r = await abrirChatEquipo({ productId: pedido.productId ?? null, borrador });
+      } catch {
+        // El artículo ya no está a la venta (o su chat no se puede abrir): el chat general de la tienda.
+        r = await abrirChatEquipo({ borrador });
+      }
+      onClose();
+      if (r === "ok") void trackEvent("valoracion_baja_chat", "Valoración baja: chat abierto", { metadata: { nota } });
+      else router.push("/perfil?acceso=entrar" as Href);
+    } catch {
+      setError("No se ha podido abrir el chat. Inténtalo de nuevo en unos segundos.");
+    } finally {
+      setAbriendoChat(false);
+    }
+  }
+
+  const botonAzul = (deshabilitado: boolean) => ({ pressed }: { pressed: boolean }) => ({
+    minHeight: TACTIL.minimo + 4,
+    borderRadius: 999,
+    paddingHorizontal: 22,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    backgroundColor: COLORS.accent,
+    opacity: deshabilitado ? 0.55 : pressed ? 0.9 : 1,
+  });
+
+  return (
+    <Modal visible={visible && !!pedido} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.60)", padding: 16, justifyContent: "center" }}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }} keyboardShouldPersistTaps="handled">
+          <View nativeID="valorar-pedido-ventana" style={{ width: "100%", maxWidth: 440, alignSelf: "center" }}>
+            <View style={{ borderRadius: 24, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.bg2, padding: 20, gap: 14, ...softShadow() }}>
+              <Pressable
+                nativeID="valorar-pedido-cerrar"
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar"
+                style={({ pressed }) => ({
+                  position: "absolute",
+                  top: 8,
+                  right: 8,
+                  zIndex: 2,
+                  width: TACTIL.minimo,
+                  height: TACTIL.minimo,
+                  borderRadius: 22,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: pressed ? 0.75 : 1,
+                })}
+              >
+                <Ionicons name="close" size={22} color={COLORS.text} />
+              </Pressable>
+
+              {fase === "form" ? (
+                <View style={{ gap: 14 }}>
+                  <View style={{ alignItems: "center", paddingHorizontal: 40, gap: 4, paddingTop: 4 }}>
+                    <Text style={{ color: COLORS.text, fontSize: TAMANOS.titulo3, fontWeight: "900", textAlign: "center" }}>¿Qué tal tu pedido?</Text>
+                    {pedido?.referencia ? (
+                      <Text nativeID="valorar-pedido-referencia" style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, fontWeight: "800", textAlign: "center" }}>
+                        {pedido.referencia}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View nativeID="valorar-pedido-estrellas" accessibilityRole="radiogroup" accessibilityLabel="Tu nota del pedido" style={{ flexDirection: "row", justifyContent: "center", gap: 4 }}>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Pressable
+                        key={n}
+                        nativeID={`valorar-estrella-${n}`}
+                        onPress={() => setNota(n)}
+                        accessibilityRole="radio"
+                        accessibilityLabel={`${n} ${n === 1 ? "estrella" : "estrellas"}: ${TEXTO_NOTA[n]}`}
+                        accessibilityState={{ checked: nota === n }}
+                        style={({ pressed }) => ({
+                          width: TACTIL.minimo,
+                          height: TACTIL.minimo,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderRadius: 22,
+                          opacity: pressed ? 0.8 : 1,
+                          transform: [{ scale: pressed ? 0.92 : 1 }],
+                        })}
+                      >
+                        <Ionicons name={n <= nota ? "star" : "star-outline"} size={34} color={n <= nota ? COLORS.gold : "rgba(11,33,56,0.35)"} />
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text nativeID="valorar-pedido-nota" style={{ color: COLORES_TEXTO.secundario, textAlign: "center", fontSize: TAMANOS.minimo, minHeight: 18 }}>
+                    {nota ? `${TEXTO_NOTA[nota]} · ${nota} de 5` : "Toca una estrella"}
+                  </Text>
+                  <View style={{ gap: 6 }}>
+                    <TextInput
+                      nativeID="valorar-pedido-comentario"
+                      value={comentario}
+                      onChangeText={(t) => setComentario(t.slice(0, VALORACION_COMENTARIO_MAX))}
+                      placeholder="¿Algo que contarnos? (opcional)"
+                      placeholderTextColor="rgba(11,33,56,0.45)"
+                      accessibilityLabel="Comentario sobre tu pedido (opcional)"
+                      multiline
+                      numberOfLines={3}
+                      style={{
+                        minHeight: 88,
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
+                        borderRadius: 14,
+                        padding: 12,
+                        color: COLORS.text,
+                        backgroundColor: COLORS.cardSoft,
+                        fontSize: CAMPO.letra,
+                        textAlignVertical: "top",
+                      }}
+                    />
+                    <Text style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, textAlign: "right" }}>
+                      Solo lo lee la tienda · {VALORACION_COMENTARIO_MAX - comentario.length} caracteres
+                    </Text>
+                  </View>
+                  {error ? (
+                    <Text nativeID="valorar-pedido-error" style={{ color: COLORS.danger, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+                      {error}
+                    </Text>
+                  ) : null}
+                  <Pressable
+                    nativeID="valorar-pedido-enviar"
+                    onPress={enviar}
+                    disabled={enviando || nota < 1}
+                    accessibilityRole="button"
+                    accessibilityLabel="Enviar valoración"
+                    style={botonAzul(enviando || nota < 1)}
+                  >
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{enviando ? "Enviando…" : "Enviar"}</Text>
+                  </Pressable>
+                </View>
+              ) : fase === "baja" ? (
+                <View nativeID="valorar-pedido-baja" style={{ alignItems: "center", gap: 12, paddingTop: 4 }}>
+                  <Ionicons name="heart-outline" size={36} color={COLORS.accent} />
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.destacado, textAlign: "center", paddingHorizontal: 30 }}>
+                    Sentimos que no haya ido bien
+                  </Text>
+                  {pedido?.referencia ? (
+                    <Text style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, fontWeight: "800", textAlign: "center" }}>{pedido.referencia}</Text>
+                  ) : null}
+                  <Text style={{ color: COLORES_TEXTO.secundario, textAlign: "center", lineHeight: 21, fontSize: TAMANOS.cuerpo }}>
+                    Cuéntanos qué ha pasado y lo revisamos contigo para arreglarlo.
+                  </Text>
+                  {error ? <Text style={{ color: COLORS.danger, fontSize: TAMANOS.minimo, textAlign: "center" }}>{error}</Text> : null}
+                  <Pressable
+                    nativeID="valorar-pedido-chat"
+                    onPress={hablarConEquipo}
+                    disabled={abriendoChat}
+                    accessibilityRole="button"
+                    accessibilityLabel="Hablar con el equipo"
+                    style={botonAzul(abriendoChat)}
+                  >
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{abriendoChat ? "Abriendo…" : "Hablar con el equipo"}</Text>
+                  </Pressable>
+                  <Pressable onPress={onClose} accessibilityRole="button" style={{ minHeight: TACTIL.minimo, justifyContent: "center", paddingHorizontal: 12 }}>
+                    <Text style={{ color: colorTextoAzul(TAMANOS.cuerpo), fontWeight: "800", fontSize: TAMANOS.cuerpo }}>Ahora no</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View nativeID="valorar-pedido-gracias" style={{ alignItems: "center", gap: 10, paddingTop: 4 }}>
+                  <Ionicons name="checkmark-circle" size={40} color={COLORS.success} />
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.destacado, textAlign: "center" }}>¡Gracias por tu valoración!</Text>
+                  <Text style={{ color: COLORES_TEXTO.secundario, textAlign: "center", lineHeight: 20, fontSize: TAMANOS.cuerpo }}>Nos ayuda a seguir mejorando.</Text>
+                  <Pressable nativeID="valorar-pedido-cerrar-gracias" onPress={onClose} accessibilityRole="button" style={botonAzul(false)}>
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Cerrar</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          </View>
         </ScrollView>
       </View>
     </Modal>

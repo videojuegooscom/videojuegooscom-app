@@ -63,6 +63,9 @@
  * - Avisos en este móvil (dueño, 2026-11-15; migración 20261115110000_avisos_movil): tarjeta arriba
  *   (components/AvisosMovil.tsx) para activar en el móvil los avisos de cada pedido pagado o nuevo y de cada servicio
  *   pagado (api/pago.ts los manda); al tocar un aviso se abre esta pantalla con ?buscar=VZ-… (buscador relleno).
+ * - Valoración tras la entrega (mejora 11, 2026-11-15; migración 20261115100000): en cada pedido entregado, la nota del
+ *   cliente con sus estrellas y su comentario (las bajas, 1-2, en rojo) o «Sin valorar» con cuándo se le pide (3 días
+ *   tras «entregado»); recuento y media arriba (#pedidos-valoraciones). Sin la migración, nada.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
@@ -83,6 +86,7 @@ import {
 } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
 import AvisosMovil from "../../components/AvisosMovil";
+import { ValoracionPedidoAdmin, cargarValoracionesPedidos, entregadoEnDe, type ValoracionPedido } from "../../components/ReviewModal";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 type Estado = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
@@ -271,6 +275,8 @@ export default function PedidosAdmin() {
   // Seguimiento paso a paso (mejora 5, migración 20261114160000): hora de cada cambio de estado y número de envío. null =
   // la migración aún no está aplicada: pasos sin hora y sin el campo del número.
   const [historial, setHistorial] = useState<HistorialPedidos | null>(null);
+  // Valoración de cada pedido entregado (pedido_valoraciones; null sin la migración).
+  const [valoraciones, setValoraciones] = useState<Record<string, ValoracionPedido> | null>(null);
   const [numerosEnvio, setNumerosEnvio] = useState<Record<string, string>>({});
   const [numeroEscrito, setNumeroEscrito] = useState<Record<string, string>>({});
   const [numeroMsg, setNumeroMsg] = useState<{ id: string; tipo: "ok" | "error"; texto: string } | null>(null);
@@ -341,6 +347,10 @@ export default function PedidosAdmin() {
         setHistorial(seg.historial);
         setNumerosEnvio(seg.numeros);
       });
+      // Valoración tras la entrega (mejora 11; consulta aparte de los entregados; sin la migración, null y no sale nada).
+      const entregados = lista.filter((p) => p.estado === "entregado").map((p) => p.id);
+      if (entregados.length) cargarValoracionesPedidos(entregados).then(setValoraciones);
+      else setValoraciones({});
       // Facturas de VeoAura de estos pedidos (consulta aparte; sin la tabla, no se enseñan y no falla nada).
       if (lista.length) {
         const fac = await supabase
@@ -749,6 +759,13 @@ export default function PedidosAdmin() {
               envío: {pedidos.filter((p) => !!numerosEnvio[p.id]).length}
             </Text>
           ) : null}
+          {valoraciones && Object.keys(valoraciones).length > 0 && !loading ? (
+            <Text nativeID="pedidos-valoraciones" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+              Valoraciones: {Object.keys(valoraciones).length} · media{" "}
+              {(Object.values(valoraciones).reduce((s, v) => s + v.nota, 0) / Object.keys(valoraciones).length).toFixed(1).replace(".", ",")} de 5 · bajas
+              (1-2): {Object.values(valoraciones).filter((v) => v.nota <= 2).length}
+            </Text>
+          ) : null}
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
             {chips.map((c) => {
@@ -1078,6 +1095,10 @@ export default function PedidosAdmin() {
                       </Text>
                     ))}
                 </View>
+                {/* Valoración tras la entrega (mejora 11): la nota y el comentario del cliente, o cuándo se le pide. */}
+                {valoraciones && p.estado === "entregado" ? (
+                  <ValoracionPedidoAdmin nativeID={`pedido-valoracion-${p.numero}`} valoracion={valoraciones[p.id]} entregadoEn={entregadoEnDe(historial?.[p.id])} />
+                ) : null}
                 {/* Número de envío (solo con la migración y si va a domicilio): el cliente ve «Seguir el envío». */}
                 {historial && p.entrega === "envio" ? (
                   <View nativeID={`pedido-numero-envio-${p.numero}`} style={{ alignItems: "center", gap: 6 }}>
