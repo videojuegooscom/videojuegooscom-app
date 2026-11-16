@@ -13,21 +13,28 @@
  *   (?open=<slug>), así que conviene no cambiarlo una vez enlazado desde
  *   ahí ("Guías de compra" usa "elegir-consola-segunda-mano", "Consejos y
  *   mantenimiento" usa "mantenimiento-consola").
- * - El interruptor "Publicado" alterna entre status "PUBLISHED" y "DRAFT"
+ * - «Publicar» / «Pasar a borrador» alterna entre status "PUBLISHED" y "DRAFT"
  *   con un cambio optimista en la lista (se revierte si Supabase falla),
  *   igual que toggleActive() en app/admin/categories.tsx.
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, todo lo que se toca de
  *   44 px (también «volver») y los campos de 16 px y 48 de alto.
+ * - Rediseño PANRED4 (tanda 4, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Inventario y
+ *   Cotizaciones): cifras que filtran (Total, Publicados, Borradores), buscador de 16 px (título, slug o resumen),
+ *   pastillas de 44 px con su recuento, filas compactas (título, etiqueta de color del estado, resumen, slug, orden y
+ *   cuándo se actualizó) con el lápiz y la papelera a mano y, al tocar una, el detalle por bloques (Artículo,
+ *   Publicación y Contenido) con «Publicar» o «Pasar a borrador» abajo. «Nuevo artículo» es el «+» flotante.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
  * - app/blog/index.tsx → pantalla pública que lee estas mismas filas
  *   (status="PUBLISHED") para pintar el listado del Blog.
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
- *   "Blog") y a la que se vuelve con smartBackAdminHome().
+ *   "Blog") y a la que se vuelve con la flecha de la cabecera.
  * - app/admin/_layout.tsx → registra esta ruta ("blog") dentro del Stack
  *   protegido de administración.
+ * - components/admin/PanelUI.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (NO7, TM5 y
+ *   PANRED4).
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -43,15 +50,39 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { IconButton, PieVentana } from "../../lib/admin/products.components";
-import CargaMarca from "../../components/marca/CargaMarca";
+import {
+  AdminHeader,
+  AdminLoading,
+  AdminNotice,
+  BotonFlotante,
+  EmptyState,
+  IconButton,
+  PieVentana,
+} from "../../lib/admin/products.components";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
-
-type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+import {
+  AccionTexto,
+  Bloque,
+  BotonesFila,
+  Buscador,
+  Chip,
+  Cifra,
+  Dato,
+  Detalle,
+  DetalleFila,
+  Etiqueta,
+  EtiquetaColor,
+  FilaCifras,
+  FilaLista,
+  FilaPastillas,
+  ListaVacia,
+  Miniatura,
+  RecuentoLista,
+  fechaPanel,
+  useDesplegables,
+} from "../../components/admin/PanelUI";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -96,6 +127,13 @@ type BlogRow = {
   updated_at: string;
 };
 
+type FiltroBlog = BlogStatus | "todos";
+const PASTILLAS: [FiltroBlog, string][] = [
+  ["todos", "Todos"],
+  ["PUBLISHED", "Publicados"],
+  ["DRAFT", "Borradores"],
+];
+
 function softShadow() {
   return Platform.select<any>({
     ios: {
@@ -128,53 +166,10 @@ function toIntSafe(v: string, fallback = 0) {
   return Math.trunc(n);
 }
 
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
-
-function StatCard({
-  label,
-  value,
-  icon,
-  isMobile,
-}: {
-  label: string;
-  value: string;
-  icon?: IoniconName;
-  isMobile?: boolean;
-}) {
-  // Tres por fila también en el móvil (antes, una debajo de otra ocupaban media pantalla).
-  return (
-    <View
-      style={{
-        flex: 1,
-        minWidth: 0,
-        borderRadius: 16,
-        backgroundColor: COLORS.cardSoft,
-        paddingVertical: isMobile ? 10 : 14,
-        paddingHorizontal: isMobile ? 8 : 14,
-        alignItems: "center",
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text numberOfLines={1} style={{ color: COLORS.muted2, fontWeight: "700", fontSize: TAMANOS.minimo }}>
-          {label}
-        </Text>
-      </View>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6, textAlign: "center" }}>
-        {value}
-      </Text>
-    </View>
-  );
+// Cuántas palabras tiene el contenido (para el detalle).
+function palabras(texto: string) {
+  const t = String(texto ?? "").trim();
+  return t ? t.split(/\s+/).length : 0;
 }
 
 function ChipButton({
@@ -225,8 +220,9 @@ export default function AdminBlog() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const pagePadding = isMobile ? 12 : 16;
+  const sectionGap = isMobile ? 18 : 22;
   const insets = useSafeAreaInsets();
+  const desplegables = useDesplegables();
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -238,6 +234,7 @@ export default function AdminBlog() {
   }, [items]);
 
   const [search, setSearch] = useState("");
+  const [filtro, setFiltro] = useState<FiltroBlog>("todos");
 
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -256,21 +253,20 @@ export default function AdminBlog() {
 
   const modalTitle = useMemo(() => (isEdit ? "Editar artículo" : "Nuevo artículo"), [isEdit]);
 
-  const stats = useMemo(() => {
-    const total = items.length;
-    const publishedCount = items.filter((x) => x.status === "PUBLISHED").length;
-    return { total, published: publishedCount, drafts: total - publishedCount };
-  }, [items]);
+  const cuenta = (f: FiltroBlog) => (f === "todos" ? items.length : items.filter((x) => x.status === f).length);
 
+  const q = search.trim().toLowerCase();
   const filteredItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(
-      (a) =>
+    return items.filter((a) => {
+      if (filtro !== "todos" && a.status !== filtro) return false;
+      if (!q) return true;
+      return (
         String(a.title ?? "").toLowerCase().includes(q) ||
-        String(a.slug ?? "").toLowerCase().includes(q)
-    );
-  }, [items, search]);
+        String(a.slug ?? "").toLowerCase().includes(q) ||
+        String(a.excerpt ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [items, q, filtro]);
 
   async function load() {
     setLoading(true);
@@ -427,226 +423,169 @@ export default function AdminBlog() {
     }
   }
 
+  const hayFiltro = filtro !== "todos" || !!q;
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Cabecera fija y compacta (volver al panel + título centrado). El resumen, los
-          contadores, el buscador y el botón van dentro del scroll: fijos arriba se comían
-          media pantalla del móvil y la lista apenas tenía sitio para desplazarse. */}
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border,
-          paddingHorizontal: pagePadding,
-          paddingTop: (isMobile ? 10 : 12) + insets.top,
-          paddingBottom: isMobile ? 10 : 12,
-        }}
-      >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
-          <Pressable
-            onPress={smartBackAdminHome}
-            accessibilityRole="button"
-            accessibilityLabel="Volver al panel"
-            hitSlop={8}
-            style={({ pressed }) => ({
-              position: "absolute",
-              // Por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
-              zIndex: 1,
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: TACTIL.minimo,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-          </Pressable>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: isMobile ? 19 : 22,
-              fontWeight: "900",
-              textAlign: "center",
-              paddingHorizontal: 44,
-            }}
-          >
-            Blog
-          </Text>
-        </View>
-      </View>
+      {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. Lo demás va en un solo
+          scroll. */}
+      <AdminHeader title="Blog" isMobile={isMobile} />
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <CargaMarca texto="Cargando artículos…" />
-        </View>
+        <AdminLoading texto="Cargando artículos…" />
       ) : (
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={CIERRE_TECLADO}
-          >
-          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
-            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-              Crea, edita y publica los artículos que se muestran en el Blog de la app.
-            </Text>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            padding: 16,
+            // Sitio para el «+» flotante (58 px) debajo de la última fila.
+            paddingBottom: 48 + 74 + insets.bottom,
+            alignItems: "center",
+          }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={CIERRE_TECLADO}
+        >
+          <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
+            {/* 1) Cifras que filtran la lista (otro toque en la misma, todos). */}
+            <FilaCifras nativeID="blog-cifras">
+              {(
+                [
+                  ["todos", "Total", "newspaper-outline"],
+                  ["PUBLISHED", "Publicados", "checkmark-circle-outline"],
+                  ["DRAFT", "Borradores", "create-outline"],
+                ] as const
+              ).map(([f, etiqueta, icono]) => (
+                <Cifra
+                  key={f}
+                  nativeID={`blog-cifra-${f}`}
+                  valor={String(cuenta(f))}
+                  etiqueta={etiqueta}
+                  icono={icono}
+                  ancho={isMobile ? "30%" : 0}
+                  activa={filtro === f && f !== "todos"}
+                  onPress={() => setFiltro((x) => (x === f ? "todos" : f))}
+                />
+              ))}
+            </FilaCifras>
 
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <StatCard label="Total" value={String(stats.total)} icon="newspaper-outline" isMobile={isMobile} />
-              <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} />
-              <StatCard label="Borradores" value={String(stats.drafts)} icon="create-outline" isMobile={isMobile} />
+            {/* 2) Buscador y pastillas con su recuento. */}
+            <View style={{ gap: 12 }}>
+              <Buscador
+                nativeID="blog-buscar"
+                valor={search}
+                onCambiar={setSearch}
+                placeholder="Buscar por título, slug o resumen"
+                etiqueta="Buscar artículos del blog por título, slug o resumen"
+              />
+              <FilaPastillas isMobile={isMobile} nativeID="blog-filtros">
+                {PASTILLAS.map(([f, t]) => (
+                  <Chip key={f} nativeID={`blog-filtro-${f}`} label={`${t} (${cuenta(f)})`} activo={filtro === f} onPress={() => setFiltro(f)} />
+                ))}
+              </FilaPastillas>
             </View>
 
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Buscar por título o slug"
-              placeholderTextColor="rgba(11,33,56,0.40)"
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                borderRadius: 14,
-                paddingHorizontal: 12,
-                paddingVertical: 12,
-                color: COLORS.text,
-                backgroundColor: "#F8FBFE",
-                // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
-                // se queda ampliada y "descuadrada".
-                fontSize: CAMPO.letra,
-                minHeight: CAMPO.alto,
-              }}
-            />
+            {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
 
-            <Pressable
-              onPress={openCreate}
-              accessibilityRole="button"
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.9 : 1,
-                borderRadius: 999,
-                minHeight: CAMPO.alto,
-                justifyContent: "center",
-                paddingHorizontal: 20,
-                alignItems: "center",
-                backgroundColor: COLORS.accentDark,
-                width: "100%",
-                maxWidth: 420,
-                alignSelf: "center",
-              })}
-            >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15, textAlign: "center" }}>
-                + Nuevo artículo
-              </Text>
-            </Pressable>
-
-            {!!screenErr && (
-              <View
-                style={{
-                  borderRadius: 14,
-                  backgroundColor: COLORS.dangerBg,
-                  padding: 10,
-                }}
-              >
-                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
-                  {screenErr}
-                </Text>
-              </View>
-            )}
-
-            {filteredItems.length === 0 ? (
-              <View style={{ alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 12 }}>
-                <Ionicons name="newspaper-outline" size={24} color={COLORS.muted2} />
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                  No hay artículos para este filtro.
-                </Text>
-              </View>
-            ) : (
-              filteredItems.map((row) => (
-                <View
-                  key={row.id}
-                  style={{
-                    borderRadius: 20,
-                    backgroundColor: COLORS.card,
-                    padding: isMobile ? 12 : 14,
-                    gap: 12,
-                  }}
-                >
-                  <View style={{ gap: 4 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 16 : 17 }}>
-                      {row.title}
-                    </Text>
-                    {!!row.excerpt && (
-                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
-                        {row.excerpt}
-                      </Text>
-                    )}
-                  </View>
-
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                    <View
-                      style={{
-                        paddingVertical: 6,
-                        paddingHorizontal: 10,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                        backgroundColor: "#F6FAFD",
-                      }}
-                    >
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                        slug: {row.slug}
-                      </Text>
-                    </View>
-
-                    <View
-                      style={{
-                        paddingVertical: 6,
-                        paddingHorizontal: 10,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: row.status === "PUBLISHED" ? COLORS.successBorder : COLORS.warningBorder,
-                        backgroundColor: row.status === "PUBLISHED" ? COLORS.successBg : COLORS.warningBg,
-                      }}
-                    >
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                        {row.status === "PUBLISHED" ? "Publicado" : "Borrador"}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View
-                    style={{
-                      flexDirection: isMobile ? "column" : "row",
-                      justifyContent: "space-between",
-                      alignItems: isMobile ? "stretch" : "center",
-                      gap: 12,
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-                      {/* Acciones con iconos (su nombre, para el lector de pantalla y al pasar el ratón). */}
-                      <IconButton icon="create-outline" label={`Editar ${row.title}`} variant="primary" onPress={() => openEdit(row)} />
-                      <IconButton icon="trash-outline" label={`Borrar ${row.title}`} variant="danger" onPress={() => askRemove(row)} />
-                    </View>
-
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
-                        {row.status === "PUBLISHED" ? "Publicado" : "Borrador"}
-                      </Text>
-                      <Switch value={row.status === "PUBLISHED"} onValueChange={() => togglePublished(row)} />
-                    </View>
-                  </View>
+            {/* 3) Cuántos salen, «Abrir todos» y las filas compactas. */}
+            <View style={{ gap: 4 }}>
+              <RecuentoLista
+                nativeID="blog-recuento"
+                texto={q ? `${filteredItems.length} ${filteredItems.length === 1 ? "artículo encontrado" : "artículos encontrados"}` : `${filteredItems.length} de ${items.length} artículos`}
+                abiertas={desplegables.todasAbiertas(filteredItems.map((r) => r.id))}
+                onAlternar={filteredItems.length ? () => desplegables.abrirOCerrarTodas(filteredItems.map((r) => r.id)) : undefined}
+                idBoton="blog-abrir-todos"
+              />
+              {filteredItems.length === 0 ? (
+                items.length && hayFiltro ? (
+                  <ListaVacia nativeID="blog-vacio" icono="newspaper-outline" titulo="No hay artículos para este filtro." texto="Prueba a borrar el buscador o a elegir «Todos»." />
+                ) : (
+                  <EmptyState icon="newspaper-outline" title="Todavía no hay artículos." text="Crea el primero con el «+»: si lo publicas, aparecerá en el Blog de la tienda." />
+                )
+              ) : (
+                <View nativeID="blog-lista">
+                  {filteredItems.map((row, n) => {
+                    const abierta = desplegables.estaAbierta(row.id);
+                    const publicado = row.status === "PUBLISHED";
+                    return (
+                      <FilaLista
+                        key={row.id}
+                        nativeID={`blog-${row.id}`}
+                        idFila={`blog-fila-${row.id}`}
+                        primera={n === 0}
+                        abierta={abierta}
+                        onPress={() => desplegables.alternar(row.id)}
+                        etiquetaAccesible={`${row.title}, ${publicado ? "publicado" : "borrador"}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+                        miniatura={isMobile ? undefined : <Miniatura icono="newspaper-outline" ancho={48} alto={48} />}
+                        titulo={row.title}
+                        etiqueta={<EtiquetaColor nativeID={`blog-estado-${row.id}`} texto={publicado ? "Publicado" : "Borrador"} tono={publicado ? "verde" : "amarillo"} />}
+                        subtitulo={row.excerpt?.trim() ? row.excerpt : "Sin resumen"}
+                        idSubtitulo={`blog-resumen-${row.id}`}
+                        // En el móvil, el resumen en una línea (entero en el detalle).
+                        lineasSubtitulo={isMobile ? 1 : 2}
+                        etiquetas={
+                          <>
+                            <Etiqueta nativeID={`blog-slug-${row.id}`} icon="link-outline" color={COLORES_TEXTO.azulTexto} texto={`slug: ${row.slug}`} />
+                            <Etiqueta icon="time-outline" color={COLORS.muted} texto={`Actualizado: ${fechaPanel(row.updated_at)}`} />
+                          </>
+                        }
+                        derecha={
+                          <BotonesFila>
+                            <IconButton icon="create-outline" label={`Editar ${row.title}`} variant="primary" onPress={() => openEdit(row)} />
+                            <IconButton icon="trash-outline" label={`Borrar ${row.title}`} variant="danger" onPress={() => askRemove(row)} />
+                          </BotonesFila>
+                        }
+                      >
+                        <DetalleFila
+                          nativeID={`blog-detalle-${row.id}`}
+                          idAcciones={`blog-acciones-${row.id}`}
+                          acciones={
+                            <>
+                              <AccionTexto
+                                nativeID={`blog-publicar-${row.id}`}
+                                icono={publicado ? "eye-off-outline" : "checkmark-circle-outline"}
+                                texto={publicado ? "Pasar a borrador" : "Publicar en el Blog"}
+                                onPress={() => togglePublished(row)}
+                              />
+                              <AccionTexto nativeID={`blog-editar-${row.id}`} icono="create-outline" texto="Editar el artículo" onPress={() => openEdit(row)} />
+                            </>
+                          }
+                        >
+                          <Bloque icono="newspaper-outline" titulo="Artículo" ancho={isMobile ? "100%" : "45%"}>
+                            <Dato etiqueta="Título">{row.title}</Dato>
+                            <Dato etiqueta="Slug">{row.slug}</Dato>
+                            <Dato etiqueta="Enlace">{`/blog?open=${row.slug}`}</Dato>
+                            <Dato etiqueta="Resumen">{row.excerpt?.trim() ? row.excerpt : "Sin resumen"}</Dato>
+                          </Bloque>
+                          <Bloque icono="pulse-outline" titulo="Publicación" ancho={isMobile ? "100%" : "45%"}>
+                            <View style={{ flexDirection: "row" }}>
+                              <EtiquetaColor texto={publicado ? "Publicado" : "Borrador"} tono={publicado ? "verde" : "amarillo"} />
+                            </View>
+                            <Detalle>{publicado ? "Se muestra en el listado público del Blog." : "Solo se ve aquí, en Administración."}</Detalle>
+                            <Dato etiqueta="Orden">{String(row.sort_order ?? 0)}</Dato>
+                            <Dato etiqueta="Creado">{fechaPanel(row.created_at, true)}</Dato>
+                            <Dato etiqueta="Actualizado">{fechaPanel(row.updated_at, true)}</Dato>
+                          </Bloque>
+                          <Bloque nativeID={`blog-contenido-${row.id}`} icono="document-text-outline" titulo={`Contenido (${palabras(row.body)} palabras)`} ancho="100%">
+                            <Text numberOfLines={6} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                              {row.body?.trim() ? row.body : "Sin contenido"}
+                            </Text>
+                          </Bloque>
+                        </DetalleFila>
+                      </FilaLista>
+                    );
+                  })}
                 </View>
-              ))
-            )}
+              )}
+            </View>
           </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
+        </ScrollView>
       )}
+
+      {/* «Nuevo artículo»: el «+» flotante abajo a la derecha (al alcance del pulgar). */}
+      {!loading ? <BotonFlotante nativeID="blog-nuevo" label="Nuevo artículo" onPress={openCreate} /> : null}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         {/* El formulario (con el texto largo del artículo) se desplaza dentro del modal y,

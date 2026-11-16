@@ -13,27 +13,32 @@
  *   id, message, color_hex, display_seconds, sort_order, is_active,
  *   created_at, updated_at). RLS: lectura pública de las activas, escritura
  *   solo admin (is_admin()) — igual que "categories" y "products".
- * - MAX_ITEMS (5) limita cuántas noticias puede haber en total: el botón
- *   "+ Nueva noticia" se desactiva al llegar al límite, con un aviso.
+ * - MAX_ITEMS (5) limita cuántas noticias puede haber en total: al llegar al
+ *   límite, el «+» desaparece y un aviso explica que hay que borrar una.
  * - El modal de creación/edición deja elegir el color con una paleta de
  *   colores rápidos (chips) o escribiendo un código hexadecimal a mano, y
  *   muestra una vista previa sencilla del aviso en forma de bocadillo.
  * - toggleActive() aplica un cambio optimista en la lista y lo revierte si
  *   Supabase devuelve error, igual que en app/admin/categories.tsx.
- * - Sigue el tema claro global y las mismas convenciones visuales que el
- *   resto del panel de administración (COLORS, ChipButton, StatCard...).
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, todo lo que se toca de
  *   44 px (también «volver» y los colores) y los campos de 16 px y 48 de alto.
+ * - Rediseño PANRED4 (tanda 4, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Inventario y
+ *   Cotizaciones): cifras que filtran (Noticias «N / 5», Activas, Ocultas y Huecos libres), buscador de 16 px por el
+ *   texto, pastillas de 44 px con su recuento, filas compactas (el aviso con su color, etiqueta Activa u Oculta,
+ *   segundos en pantalla y orden) con el lápiz y la papelera a mano y, al tocar una, el detalle por bloques (Aviso, con
+ *   su vista previa en Blue IA, y Ajustes) con «Activar» u «Ocultar» abajo. «Nueva noticia» es el «+» flotante.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
  * - Asistente flotante de Blue IA → lee estas mismas noticias
  *   (is_active=true) para mostrarlas como avisos y usarlas al responder.
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
- *   "Noticias Flash") y a la que se vuelve con smartBackAdminHome().
+ *   "Noticias Flash") y a la que se vuelve con la flecha de la cabecera.
  * - app/admin/_layout.tsx → registra esta ruta ("flash-news") dentro del
  *   Stack protegido de administración.
+ * - components/admin/PanelUI.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (TM5 y
+ *   PANRED4).
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -49,15 +54,40 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { IconButton, PieVentana } from "../../lib/admin/products.components";
-import CargaMarca from "../../components/marca/CargaMarca";
+import {
+  AdminHeader,
+  AdminIntro,
+  AdminLoading,
+  AdminNotice,
+  BotonFlotante,
+  EmptyState,
+  IconButton,
+  PieVentana,
+} from "../../lib/admin/products.components";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
-
-type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+import {
+  AccionTexto,
+  Bloque,
+  BotonesFila,
+  Buscador,
+  Chip,
+  Cifra,
+  Dato,
+  Detalle,
+  DetalleFila,
+  EtiquetaColor,
+  FilaCifras,
+  FilaLista,
+  FilaPastillas,
+  ListaVacia,
+  Miniatura,
+  RecuentoLista,
+  fechaPanel,
+  useDesplegables,
+} from "../../components/admin/PanelUI";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -114,6 +144,13 @@ type FlashNewsRow = {
   updated_at: string;
 };
 
+type FiltroNoticias = "todas" | "activas" | "ocultas";
+const PASTILLAS: [FiltroNoticias, string][] = [
+  ["todas", "Todas"],
+  ["activas", "Activas"],
+  ["ocultas", "Ocultas"],
+];
+
 function softShadow() {
   return Platform.select<any>({
     ios: {
@@ -156,50 +193,35 @@ function toIntSafe(v: string, fallback = 0) {
   return Math.trunc(n);
 }
 
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
+// El nombre del color si es uno de la paleta; si no, su código.
+function nombreColor(hex: string) {
+  const p = COLOR_PRESETS.find((c) => c.hex.toLowerCase() === String(hex ?? "").toLowerCase());
+  return p ? `${p.label} (${p.hex})` : String(hex ?? "-");
 }
 
-function StatCard({
-  label,
-  value,
-  icon,
-  isMobile,
-}: {
-  label: string;
-  value: string;
-  icon?: IoniconName;
-  isMobile?: boolean;
-}) {
-  // Tres por fila también en el móvil (antes, una debajo de otra ocupaban media pantalla).
+// La vista previa del aviso como bocadillo de Blue IA (en el formulario y en el detalle de la fila).
+function BocadilloBlue({ texto, color }: { texto: string; color: string }) {
+  const c = isValidHex(color) ? color : DEFAULT_COLOR;
   return (
     <View
       style={{
-        flex: 1,
-        minWidth: 0,
-        borderRadius: 16,
-        backgroundColor: COLORS.cardSoft,
-        paddingVertical: isMobile ? 10 : 14,
-        paddingHorizontal: isMobile ? 8 : 14,
+        alignSelf: "flex-start",
+        maxWidth: 360,
+        borderRadius: 18,
+        borderBottomLeftRadius: 6,
+        borderWidth: 1,
+        borderColor: hexToRgba(c, 0.45),
+        backgroundColor: "#FFFFFF",
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        flexDirection: "row",
         alignItems: "center",
+        gap: 8,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text numberOfLines={1} style={{ color: COLORS.muted2, fontWeight: "700", fontSize: TAMANOS.minimo }}>
-          {label}
-        </Text>
-      </View>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6, textAlign: "center" }}>
-        {value}
+      <Ionicons name="flash-outline" size={15} color={c} />
+      <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13, flexShrink: 1 }} numberOfLines={3}>
+        {texto}
       </Text>
     </View>
   );
@@ -253,8 +275,9 @@ export default function AdminFlashNews() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const pagePadding = isMobile ? 12 : 16;
+  const sectionGap = isMobile ? 18 : 22;
   const insets = useSafeAreaInsets();
+  const desplegables = useDesplegables();
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -264,6 +287,9 @@ export default function AdminFlashNews() {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  const [search, setSearch] = useState("");
+  const [filtro, setFiltro] = useState<FiltroNoticias>("todas");
 
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -282,11 +308,17 @@ export default function AdminFlashNews() {
   const modalTitle = useMemo(() => (isEdit ? "Editar noticia" : "Nueva noticia"), [isEdit]);
   const atLimit = items.length >= MAX_ITEMS && !isEdit;
 
-  const stats = useMemo(() => {
-    const total = items.length;
-    const active = items.filter((x) => !!x.is_active).length;
-    return { total, active, hidden: total - active };
-  }, [items]);
+  const cuenta = (f: FiltroNoticias) => (f === "todas" ? items.length : items.filter((x) => (f === "activas" ? !!x.is_active : !x.is_active)).length);
+
+  const q = search.trim().toLowerCase();
+  const filteredItems = useMemo(() => {
+    return items.filter((x) => {
+      if (filtro === "activas" && !x.is_active) return false;
+      if (filtro === "ocultas" && x.is_active) return false;
+      if (!q) return true;
+      return String(x.message ?? "").toLowerCase().includes(q);
+    });
+  }, [items, q, filtro]);
 
   async function load() {
     setLoading(true);
@@ -448,236 +480,182 @@ export default function AdminFlashNews() {
     }
   }
 
-  const previewBorder = hexToRgba(colorHex, 0.45);
+  const hayFiltro = filtro !== "todas" || !!q;
+  const lleno = items.length >= MAX_ITEMS;
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Cabecera fija y compacta (volver al panel + título centrado). El resumen, los
-          contadores y el botón van dentro del scroll: fijos arriba se comían media pantalla
-          del móvil y la lista apenas tenía sitio para desplazarse. */}
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border,
-          paddingHorizontal: pagePadding,
-          paddingTop: (isMobile ? 10 : 12) + insets.top,
-          paddingBottom: isMobile ? 10 : 12,
-        }}
-      >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
-          <Pressable
-            onPress={smartBackAdminHome}
-            accessibilityRole="button"
-            accessibilityLabel="Volver al panel"
-            hitSlop={8}
-            style={({ pressed }) => ({
-              position: "absolute",
-              // Por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
-              zIndex: 1,
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: TACTIL.minimo,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-          </Pressable>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: isMobile ? 19 : 22,
-              fontWeight: "900",
-              textAlign: "center",
-              paddingHorizontal: 44,
-            }}
-          >
-            Noticias Flash · Blue IA
-          </Text>
-        </View>
-      </View>
+      {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. Lo demás va en un solo
+          scroll. */}
+      <AdminHeader title="Noticias Flash · Blue IA" isMobile={isMobile} />
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <CargaMarca texto="Cargando noticias…" />
-        </View>
+        <AdminLoading texto="Cargando noticias…" />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+          contentContainerStyle={{
+            padding: 16,
+            // Sitio para el «+» flotante (58 px) debajo de la última fila.
+            paddingBottom: 48 + 74 + insets.bottom,
+            alignItems: "center",
+          }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={CIERRE_TECLADO}
         >
-          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
-            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-              Hasta {MAX_ITEMS} avisos para Blue IA: el asistente flotante los muestra a los
-              clientes y los tiene en cuenta al responder.
-            </Text>
+          <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
+            <AdminIntro text={`Hasta ${MAX_ITEMS} avisos para Blue IA: el asistente flotante los muestra a los clientes y los tiene en cuenta al responder.`} />
 
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <StatCard label="Total" value={`${stats.total} / ${MAX_ITEMS}`} icon="flash-outline" isMobile={isMobile} />
-              <StatCard label="Activas" value={String(stats.active)} icon="checkmark-circle-outline" isMobile={isMobile} />
-              <StatCard label="Ocultas" value={String(stats.hidden)} icon="eye-off-outline" isMobile={isMobile} />
+            {/* 1) Cifras que filtran la lista (otro toque en la misma, todas). «Huecos libres» solo informa. */}
+            <FilaCifras nativeID="noticias-cifras">
+              <Cifra
+                nativeID="noticias-cifra-todas"
+                valor={`${items.length} / ${MAX_ITEMS}`}
+                etiqueta="Noticias"
+                icono="flash-outline"
+                ancho={isMobile ? "45%" : 0}
+                onPress={() => setFiltro("todas")}
+              />
+              <Cifra
+                nativeID="noticias-cifra-activas"
+                valor={String(cuenta("activas"))}
+                etiqueta="Activas"
+                icono="checkmark-circle-outline"
+                ancho={isMobile ? "45%" : 0}
+                activa={filtro === "activas"}
+                onPress={() => setFiltro((x) => (x === "activas" ? "todas" : "activas"))}
+              />
+              <Cifra
+                nativeID="noticias-cifra-ocultas"
+                valor={String(cuenta("ocultas"))}
+                etiqueta="Ocultas"
+                icono="eye-off-outline"
+                ancho={isMobile ? "45%" : 0}
+                activa={filtro === "ocultas"}
+                onPress={() => setFiltro((x) => (x === "ocultas" ? "todas" : "ocultas"))}
+              />
+              <Cifra
+                nativeID="noticias-cifra-libres"
+                valor={String(Math.max(0, MAX_ITEMS - items.length))}
+                etiqueta="Huecos libres"
+                icono="add-circle-outline"
+                ancho={isMobile ? "45%" : 0}
+                alerta={lleno}
+              />
+            </FilaCifras>
+
+            {/* 2) Buscador y pastillas con su recuento. */}
+            <View style={{ gap: 12 }}>
+              <Buscador nativeID="noticias-buscar" valor={search} onCambiar={setSearch} placeholder="Buscar en el texto del aviso" etiqueta="Buscar noticias por su texto" />
+              <FilaPastillas isMobile={isMobile} nativeID="noticias-filtros">
+                {PASTILLAS.map(([f, t]) => (
+                  <Chip key={f} nativeID={`noticias-filtro-${f}`} label={`${t} (${cuenta(f)})`} activo={filtro === f} onPress={() => setFiltro(f)} />
+                ))}
+              </FilaPastillas>
             </View>
 
-            <Pressable
-              onPress={openCreate}
-              disabled={atLimit}
-              accessibilityRole="button"
-              style={({ pressed }) => ({
-                opacity: atLimit ? 0.5 : pressed ? 0.9 : 1,
-                borderRadius: 999,
-                minHeight: CAMPO.alto,
-                justifyContent: "center",
-                paddingHorizontal: 20,
-                alignItems: "center",
-                backgroundColor: COLORS.accentDark,
-                width: "100%",
-                maxWidth: 420,
-                alignSelf: "center",
-              })}
-            >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15, textAlign: "center" }}>
-                {atLimit ? `Límite de ${MAX_ITEMS} noticias alcanzado` : "+ Nueva noticia"}
-              </Text>
-            </Pressable>
+            {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
+            {lleno ? <AdminNotice tone="warning" text={`Ya hay ${MAX_ITEMS} noticias, el máximo. Borra una para poder crear otra.`} /> : null}
 
-            {!!screenErr && (
-              <View
-                style={{
-                  borderRadius: 14,
-                  backgroundColor: COLORS.dangerBg,
-                  padding: 10,
-                }}
-              >
-                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
-                  {screenErr}
-                </Text>
-              </View>
-            )}
-
-            {items.length === 0 ? (
-              <View style={{ alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 12 }}>
-                <Ionicons name="flash-outline" size={24} color={COLORS.muted2} />
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                  Todavía no hay noticias.
-                </Text>
-                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-                  Crea la primera para que Blue IA la muestre como aviso y la use al responder.
-                </Text>
-              </View>
-            ) : (
-              items.map((row) => {
-                const rowColor = isValidHex(row.color_hex) ? row.color_hex : DEFAULT_COLOR;
-                const rowBg = hexToRgba(rowColor, 0.14);
-
-                return (
-                  <View
-                    key={row.id}
-                    style={{
-                      borderRadius: 20,
-                      backgroundColor: COLORS.card,
-                      padding: isMobile ? 12 : 14,
-                      gap: 12,
-                    }}
-                  >
-                    <View
-                      style={{
-                        borderRadius: 14,
-                        backgroundColor: rowBg,
-                        paddingVertical: 10,
-                        paddingHorizontal: 12,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <Ionicons name="flash-outline" size={15} color={rowColor} />
-                      <Text
-                        style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, flex: 1 }}
-                        numberOfLines={2}
+            {/* 3) Cuántas salen, «Abrir todas» y las filas compactas. */}
+            <View style={{ gap: 4 }}>
+              <RecuentoLista
+                nativeID="noticias-recuento"
+                texto={q ? `${filteredItems.length} ${filteredItems.length === 1 ? "noticia encontrada" : "noticias encontradas"}` : `${filteredItems.length} de ${items.length} noticias`}
+                abiertas={desplegables.todasAbiertas(filteredItems.map((r) => r.id))}
+                onAlternar={filteredItems.length ? () => desplegables.abrirOCerrarTodas(filteredItems.map((r) => r.id)) : undefined}
+                idBoton="noticias-abrir-todas"
+                femenino
+              />
+              {filteredItems.length === 0 ? (
+                items.length && hayFiltro ? (
+                  <ListaVacia nativeID="noticias-vacio" icono="flash-outline" titulo="No hay noticias para este filtro." texto="Prueba a borrar el buscador o a elegir «Todas»." />
+                ) : (
+                  <EmptyState icon="flash-outline" title="Todavía no hay noticias." text="Crea la primera con el «+» para que Blue IA la muestre como aviso y la use al responder." />
+                )
+              ) : (
+                <View nativeID="noticias-lista">
+                  {filteredItems.map((row, n) => {
+                    const abierta = desplegables.estaAbierta(row.id);
+                    const rowColor = isValidHex(row.color_hex) ? row.color_hex : DEFAULT_COLOR;
+                    return (
+                      <FilaLista
+                        key={row.id}
+                        nativeID={`noticia-${row.id}`}
+                        idFila={`noticia-fila-${row.id}`}
+                        primera={n === 0}
+                        abierta={abierta}
+                        onPress={() => desplegables.alternar(row.id)}
+                        etiquetaAccesible={`${row.message}, ${row.is_active ? "activa" : "oculta"}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+                        miniatura={
+                          <Miniatura icono="flash-outline" ancho={44} alto={44}>
+                            <View style={{ width: "100%", height: "100%", alignItems: "center", justifyContent: "center", backgroundColor: hexToRgba(rowColor, 0.14) }}>
+                              <Ionicons name="flash" size={20} color={rowColor} />
+                            </View>
+                          </Miniatura>
+                        }
+                        titulo={row.message}
+                        colorTitulo={row.is_active ? undefined : COLORS.muted}
+                        etiqueta={<EtiquetaColor nativeID={`noticia-estado-${row.id}`} texto={row.is_active ? "Activa" : "Oculta"} tono={row.is_active ? "verde" : "gris"} />}
+                        subtitulo={`${row.display_seconds} s en pantalla · Orden ${row.sort_order}`}
+                        idSubtitulo={`noticia-datos-${row.id}`}
+                        derecha={
+                          <BotonesFila>
+                            <IconButton icon="create-outline" label="Editar la noticia" variant="primary" onPress={() => openEdit(row)} />
+                            <IconButton icon="trash-outline" label="Borrar la noticia" variant="danger" onPress={() => askRemove(row)} />
+                          </BotonesFila>
+                        }
                       >
-                        {row.message}
-                      </Text>
-                    </View>
-
-                    <View
-                      style={{
-                        flexDirection: isMobile ? "column" : "row",
-                        justifyContent: "space-between",
-                        alignItems: isMobile ? "stretch" : "center",
-                        gap: 12,
-                      }}
-                    >
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                        <View
-                          style={{
-                            paddingVertical: 6,
-                            paddingHorizontal: 10,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: COLORS.border,
-                            backgroundColor: "#F6FAFD",
-                          }}
+                        <DetalleFila
+                          nativeID={`noticia-detalle-${row.id}`}
+                          idAcciones={`noticia-acciones-${row.id}`}
+                          acciones={
+                            <>
+                              <AccionTexto
+                                nativeID={`noticia-activar-${row.id}`}
+                                icono={row.is_active ? "eye-off-outline" : "eye-outline"}
+                                texto={row.is_active ? "Ocultar en Blue IA" : "Activar en Blue IA"}
+                                onPress={() => toggleActive(row)}
+                              />
+                              <AccionTexto nativeID={`noticia-editar-${row.id}`} icono="create-outline" texto="Editar la noticia" onPress={() => openEdit(row)} />
+                            </>
+                          }
                         >
-                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                            {row.display_seconds}s en pantalla
-                          </Text>
-                        </View>
-
-                        <View
-                          style={{
-                            paddingVertical: 6,
-                            paddingHorizontal: 10,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: COLORS.border,
-                            backgroundColor: "#F6FAFD",
-                          }}
-                        >
-                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                            Orden: {row.sort_order}
-                          </Text>
-                        </View>
-
-                        <View
-                          style={{
-                            paddingVertical: 6,
-                            paddingHorizontal: 10,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: row.is_active ? COLORS.successBorder : COLORS.warningBorder,
-                            backgroundColor: row.is_active ? COLORS.successBg : COLORS.warningBg,
-                          }}
-                        >
-                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                            {row.is_active ? "Activa" : "Oculta"}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                        <Switch value={row.is_active} onValueChange={() => toggleActive(row)} />
-                      </View>
-                    </View>
-
-                    <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-                      {/* Acciones con iconos (su nombre, para el lector de pantalla y al pasar el ratón). */}
-                      <IconButton icon="create-outline" label="Editar la noticia" variant="primary" onPress={() => openEdit(row)} />
-                      <IconButton icon="trash-outline" label="Borrar la noticia" variant="danger" onPress={() => askRemove(row)} />
-                    </View>
-                  </View>
-                );
-              })
-            )}
+                          <Bloque icono="chatbubble-ellipses-outline" titulo="Aviso" ancho={isMobile ? "100%" : "55%"}>
+                            <Dato etiqueta="Texto">{row.message}</Dato>
+                            <Detalle>{`${String(row.message ?? "").length} de 140 caracteres · Vista previa en Blue IA:`}</Detalle>
+                            <BocadilloBlue texto={row.message} color={rowColor} />
+                          </Bloque>
+                          <Bloque icono="options-outline" titulo="Ajustes" ancho={isMobile ? "100%" : "35%"}>
+                            <View style={{ flexDirection: "row" }}>
+                              <EtiquetaColor texto={row.is_active ? "Activa" : "Oculta"} tono={row.is_active ? "verde" : "gris"} />
+                            </View>
+                            <Detalle>{row.is_active ? "Blue IA la muestra y la usa al responder." : "Blue IA no la muestra ni la usa."}</Detalle>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: rowColor, borderWidth: 1, borderColor: "rgba(11,33,56,0.18)" }} />
+                              <Dato etiqueta="Color">{nombreColor(rowColor)}</Dato>
+                            </View>
+                            <Dato etiqueta="En pantalla">{`${row.display_seconds} segundos`}</Dato>
+                            <Dato etiqueta="Orden">{String(row.sort_order ?? 0)}</Dato>
+                            <Dato etiqueta="Creada">{fechaPanel(row.created_at, true)}</Dato>
+                            <Dato etiqueta="Actualizada">{fechaPanel(row.updated_at, true)}</Dato>
+                          </Bloque>
+                        </DetalleFila>
+                      </FilaLista>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
           </View>
         </ScrollView>
       )}
+
+      {/* «Nueva noticia»: el «+» flotante abajo a la derecha (al alcance del pulgar); con el máximo, no sale. */}
+      {!loading && !atLimit ? <BotonFlotante nativeID="noticias-nueva" label="Nueva noticia" onPress={openCreate} /> : null}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         {/* El formulario se desplaza dentro del modal (en el móvil no cabe entero) y, en
@@ -863,29 +841,8 @@ export default function AdminFlashNews() {
                 <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                   Vista previa en Blue IA
                 </Text>
-                <View
-                  style={{
-                    maxWidth: 360,
-                    borderRadius: 18,
-                    borderBottomLeftRadius: 6,
-                    borderWidth: 1,
-                    borderColor: previewBorder,
-                    backgroundColor: "#FFFFFF",
-                    paddingVertical: 10,
-                    paddingHorizontal: 14,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <Ionicons
-                    name="flash-outline"
-                    size={15}
-                    color={isValidHex(colorHex) ? colorHex : DEFAULT_COLOR}
-                  />
-                  <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13, flexShrink: 1 }} numberOfLines={3}>
-                    {message.trim() || "Vista previa del aviso…"}
-                  </Text>
+                <View style={{ alignItems: "center" }}>
+                  <BocadilloBlue texto={message.trim() || "Vista previa del aviso…"} color={colorHex} />
                 </View>
               </View>
 

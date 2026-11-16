@@ -12,7 +12,8 @@
  * Conectado con: app/admin/categories.tsx, app/admin/services.tsx y app/admin/envios.tsx (rediseño del 2026-11-16,
  * prueba PANRED1 de pruebas/perfil-datos.mjs) y app/admin/products.tsx, app/admin/reservas.tsx y app/admin/escaparate.tsx
  * (tanda 2, prueba PANRED2; de ella son EtiquetaFila y Miniatura) y app/admin/chats.tsx, app/admin/cotizaciones.tsx y
- * app/admin/inventario.tsx (tanda 3, prueba PANRED3; de ella son FilaCifras, FilaLista y DetalleFila). app/admin/pedidos.tsx
+ * app/admin/inventario.tsx (tanda 3, prueba PANRED3; de ella son FilaCifras, FilaLista y DetalleFila) y app/admin/blog.tsx,
+ * app/admin/flash-news.tsx y app/admin/policies.tsx (tanda 4, prueba PANRED4; de ella son BotonesFila y fechaPanel). app/admin/pedidos.tsx
  * tiene sus propias copias de las mismas piezas (mismo aspecto).
  */
 import React from "react";
@@ -542,6 +543,30 @@ export function DetalleFila({
       ) : null}
     </View>
   );
+}
+
+// Los botones de icono junto a una fila (editar y borrar), a 8 px entre sí (tanda 4, PANRED4: Blog, Noticias Flash y
+// Políticas).
+export function BotonesFila({ nativeID, children }: { nativeID?: string; children: React.ReactNode }) {
+  return (
+    <View nativeID={nativeID} style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion }}>
+      {children}
+    </View>
+  );
+}
+
+// Una fecha del panel en la hora de Madrid: en la fila, solo el día (y el año si no es el actual); con `conHora`, el día,
+// el año y la hora (para el detalle). Sin fecha válida, «-» (tanda 4, PANRED4).
+export function fechaPanel(iso: string | null | undefined, conHora = false) {
+  if (!iso) return "-";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "-";
+  const d = new Date(t);
+  if (conHora) {
+    return d.toLocaleString("es-ES", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
+  }
+  const otroAno = d.getFullYear() !== new Date().getFullYear();
+  return d.toLocaleDateString("es-ES", { day: "numeric", month: "short", ...(otroAno ? { year: "numeric" } : {}), timeZone: "Europe/Madrid" });
 }
 
 // Abiertas una a una o todas a la vez («Abrir todas»): con todas abiertas, las que se pliegan a mano se apuntan aparte.

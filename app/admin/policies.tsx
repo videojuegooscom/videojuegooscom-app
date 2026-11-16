@@ -23,15 +23,22 @@
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, todo lo que se toca de
  *   44 px (también «volver») y los campos de 16 px y 48 de alto.
+ * - Rediseño PANRED4 (tanda 4, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Inventario y
+ *   Cotizaciones): cifras que filtran (Total, Publicadas, Ocultas y «En el pie» con las 4 del pie de página), buscador
+ *   de 16 px (título, slug o introducción), pastillas de 44 px con su recuento, filas compactas (título, etiqueta de
+ *   color, introducción, dirección, secciones y si está en el pie) con el lápiz y la papelera a mano y, al tocar una, el
+ *   detalle por bloques (Página y Secciones) con «Publicar» u «Ocultar» abajo. «Nueva política» es el «+» flotante.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
  * - app/politicas/[slug].tsx → pantalla pública que lee estas mismas filas
  *   (is_active=true) para pintar cada política.
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
- *   "Políticas") y a la que se vuelve con smartBackAdminHome().
+ *   "Políticas") y a la que se vuelve con la flecha de la cabecera.
  * - app/admin/_layout.tsx → registra esta ruta ("policies") dentro del
  *   Stack protegido de administración.
+ * - components/admin/PanelUI.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (NO7, TM5 y
+ *   PANRED4).
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -47,15 +54,40 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { IconButton, PieVentana } from "../../lib/admin/products.components";
-import CargaMarca from "../../components/marca/CargaMarca";
+import {
+  AdminHeader,
+  AdminIntro,
+  AdminLoading,
+  AdminNotice,
+  BotonFlotante,
+  EmptyState,
+  IconButton,
+  PieVentana,
+} from "../../lib/admin/products.components";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
-
-type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+import {
+  AccionTexto,
+  Bloque,
+  BotonesFila,
+  Buscador,
+  Chip,
+  Cifra,
+  Dato,
+  Detalle,
+  DetalleFila,
+  Etiqueta,
+  EtiquetaColor,
+  FilaCifras,
+  FilaLista,
+  FilaPastillas,
+  ListaVacia,
+  Miniatura,
+  RecuentoLista,
+  fechaPanel,
+  useDesplegables,
+} from "../../components/admin/PanelUI";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -86,6 +118,9 @@ const COLORS = {
 // propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.
 const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
+// Los 4 slugs a los que enlaza el pie de página de Inicio.
+const SLUGS_PIE = ["envios", "devoluciones", "privacidad", "terminos"];
+
 type PolicySection = { heading: string; body: string };
 
 type PolicyRow = {
@@ -99,6 +134,14 @@ type PolicyRow = {
   created_at: string;
   updated_at: string;
 };
+
+type FiltroPoliticas = "todas" | "publicadas" | "ocultas" | "pie";
+const PASTILLAS: [FiltroPoliticas, string][] = [
+  ["todas", "Todas"],
+  ["publicadas", "Publicadas"],
+  ["ocultas", "Ocultas"],
+  ["pie", "En el pie de página"],
+];
 
 function softShadow() {
   return Platform.select<any>({
@@ -145,54 +188,8 @@ function normalizeSections(value: unknown): PolicySection[] {
     .filter((s): s is PolicySection => s !== null);
 }
 
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
-
-function StatCard({
-  label,
-  value,
-  icon,
-  isMobile,
-}: {
-  label: string;
-  value: string;
-  icon?: IoniconName;
-  isMobile?: boolean;
-}) {
-  // Tres por fila también en el móvil (antes, una debajo de otra ocupaban media pantalla).
-  return (
-    <View
-      style={{
-        flex: 1,
-        minWidth: 0,
-        borderRadius: 16,
-        backgroundColor: COLORS.cardSoft,
-        paddingVertical: isMobile ? 10 : 14,
-        paddingHorizontal: isMobile ? 8 : 14,
-        alignItems: "center",
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text numberOfLines={1} style={{ color: COLORS.muted2, fontWeight: "700", fontSize: TAMANOS.minimo }}>
-          {label}
-        </Text>
-      </View>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6, textAlign: "center" }}>
-        {value}
-      </Text>
-    </View>
-  );
-}
+const enPie = (slug: string) => SLUGS_PIE.includes(String(slug ?? ""));
+const textoSecciones = (n: number) => `${n} ${n === 1 ? "sección" : "secciones"}`;
 
 function ChipButton({
   label,
@@ -242,8 +239,9 @@ export default function AdminPolicies() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const pagePadding = isMobile ? 12 : 16;
+  const sectionGap = isMobile ? 18 : 22;
   const insets = useSafeAreaInsets();
+  const desplegables = useDesplegables();
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -253,6 +251,9 @@ export default function AdminPolicies() {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  const [search, setSearch] = useState("");
+  const [filtro, setFiltro] = useState<FiltroPoliticas>("todas");
 
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -271,11 +272,24 @@ export default function AdminPolicies() {
 
   const modalTitle = useMemo(() => (isEdit ? "Editar política" : "Nueva política"), [isEdit]);
 
-  const stats = useMemo(() => {
-    const total = items.length;
-    const active = items.filter((x) => !!x.is_active).length;
-    return { total, active, hidden: total - active };
-  }, [items]);
+  const pasa = (x: PolicyRow, f: FiltroPoliticas) =>
+    f === "todas" ? true : f === "publicadas" ? !!x.is_active : f === "ocultas" ? !x.is_active : enPie(x.slug);
+  const cuenta = (f: FiltroPoliticas) => items.filter((x) => pasa(x, f)).length;
+  // Cuántos de los 4 enlaces del pie tienen su página publicada.
+  const piePublicadas = useMemo(() => SLUGS_PIE.filter((s) => items.some((x) => x.slug === s && x.is_active)).length, [items]);
+
+  const q = search.trim().toLowerCase();
+  const filteredItems = useMemo(() => {
+    return items.filter((x) => {
+      if (!pasa(x, filtro)) return false;
+      if (!q) return true;
+      return (
+        String(x.title ?? "").toLowerCase().includes(q) ||
+        String(x.slug ?? "").toLowerCase().includes(q) ||
+        String(x.intro ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [items, q, filtro]);
 
   async function load() {
     setLoading(true);
@@ -447,212 +461,181 @@ export default function AdminPolicies() {
     }
   }
 
+  const hayFiltro = filtro !== "todas" || !!q;
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Cabecera fija y compacta (volver al panel + título centrado). El resumen, los
-          contadores y el botón van dentro del scroll: fijos arriba se comían media pantalla
-          del móvil y la lista apenas tenía sitio para desplazarse. */}
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border,
-          paddingHorizontal: pagePadding,
-          paddingTop: (isMobile ? 10 : 12) + insets.top,
-          paddingBottom: isMobile ? 10 : 12,
-        }}
-      >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
-          <Pressable
-            onPress={smartBackAdminHome}
-            accessibilityRole="button"
-            accessibilityLabel="Volver al panel"
-            hitSlop={8}
-            style={({ pressed }) => ({
-              position: "absolute",
-              // Por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
-              zIndex: 1,
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: TACTIL.minimo,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-          </Pressable>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: isMobile ? 19 : 22,
-              fontWeight: "900",
-              textAlign: "center",
-              paddingHorizontal: 44,
-            }}
-          >
-            Políticas
-          </Text>
-        </View>
-      </View>
+      {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. Lo demás va en un solo
+          scroll. */}
+      <AdminHeader title="Políticas" isMobile={isMobile} />
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <CargaMarca texto="Cargando políticas…" />
-        </View>
+        <AdminLoading texto="Cargando políticas…" />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+          contentContainerStyle={{
+            padding: 16,
+            // Sitio para el «+» flotante (58 px) debajo de la última fila.
+            paddingBottom: 48 + 74 + insets.bottom,
+            alignItems: "center",
+          }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={CIERRE_TECLADO}
         >
-          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
-            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-              Envíos, devoluciones, privacidad y términos — el pie de página enlaza a los slugs
-              «envios», «devoluciones», «privacidad» y «terminos».
-            </Text>
+          <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
+            <AdminIntro text="Envíos, devoluciones, privacidad y términos: el pie de página enlaza a los slugs «envios», «devoluciones», «privacidad» y «terminos»." />
 
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <StatCard label="Total" value={String(stats.total)} icon="document-text-outline" isMobile={isMobile} />
-              <StatCard label="Publicadas" value={String(stats.active)} icon="checkmark-circle-outline" isMobile={isMobile} />
-              <StatCard label="Ocultas" value={String(stats.hidden)} icon="eye-off-outline" isMobile={isMobile} />
+            {/* 1) Cifras que filtran la lista (otro toque en la misma, todas). */}
+            <FilaCifras nativeID="politicas-cifras">
+              {(
+                [
+                  ["todas", String(cuenta("todas")), "Total", "document-text-outline"],
+                  ["publicadas", String(cuenta("publicadas")), "Publicadas", "checkmark-circle-outline"],
+                  ["ocultas", String(cuenta("ocultas")), "Ocultas", "eye-off-outline"],
+                  ["pie", `${piePublicadas} / ${SLUGS_PIE.length}`, "En el pie", "link-outline"],
+                ] as const
+              ).map(([f, valor, etiqueta, icono]) => (
+                <Cifra
+                  key={f}
+                  nativeID={`politicas-cifra-${f}`}
+                  valor={valor}
+                  etiqueta={etiqueta}
+                  icono={icono}
+                  ancho={isMobile ? "45%" : 0}
+                  activa={filtro === f && f !== "todas"}
+                  alerta={f === "pie" && piePublicadas < SLUGS_PIE.length && filtro !== "pie"}
+                  onPress={() => setFiltro((x) => (x === f ? "todas" : f))}
+                />
+              ))}
+            </FilaCifras>
+
+            {/* 2) Buscador y pastillas con su recuento. */}
+            <View style={{ gap: 12 }}>
+              <Buscador
+                nativeID="politicas-buscar"
+                valor={search}
+                onCambiar={setSearch}
+                placeholder="Buscar por título, slug o introducción"
+                etiqueta="Buscar políticas por título, slug o introducción"
+              />
+              <FilaPastillas isMobile={isMobile} nativeID="politicas-filtros">
+                {PASTILLAS.map(([f, t]) => (
+                  <Chip key={f} nativeID={`politicas-filtro-${f}`} label={`${t} (${cuenta(f)})`} activo={filtro === f} onPress={() => setFiltro(f)} />
+                ))}
+              </FilaPastillas>
             </View>
 
-            <Pressable
-              onPress={openCreate}
-              accessibilityRole="button"
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.9 : 1,
-                borderRadius: 999,
-                minHeight: CAMPO.alto,
-                justifyContent: "center",
-                paddingHorizontal: 20,
-                alignItems: "center",
-                backgroundColor: COLORS.accentDark,
-                width: "100%",
-                maxWidth: 420,
-                alignSelf: "center",
-              })}
-            >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15, textAlign: "center" }}>
-                + Nueva política
-              </Text>
-            </Pressable>
+            {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
 
-            {!!screenErr && (
-              <View
-                style={{
-                  borderRadius: 14,
-                  backgroundColor: COLORS.dangerBg,
-                  padding: 10,
-                }}
-              >
-                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
-                  {screenErr}
-                </Text>
-              </View>
-            )}
-
-            {items.length === 0 ? (
-              <View style={{ alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 12 }}>
-                <Ionicons name="document-text-outline" size={24} color={COLORS.muted2} />
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                  Todavía no hay políticas.
-                </Text>
-              </View>
-            ) : (
-              items.map((row) => (
-                <View
-                  key={row.id}
-                  style={{
-                    borderRadius: 20,
-                    backgroundColor: COLORS.card,
-                    padding: isMobile ? 12 : 14,
-                    gap: 12,
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 16 : 17 }}>
-                    {row.title}
-                  </Text>
-
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                    <View
-                      style={{
-                        paddingVertical: 6,
-                        paddingHorizontal: 10,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                        backgroundColor: "#F6FAFD",
-                      }}
-                    >
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                        /politicas/{row.slug}
-                      </Text>
-                    </View>
-
-                    <View
-                      style={{
-                        paddingVertical: 6,
-                        paddingHorizontal: 10,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                        backgroundColor: "#F6FAFD",
-                      }}
-                    >
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                        {row.sections.length} sección{row.sections.length === 1 ? "" : "es"}
-                      </Text>
-                    </View>
-
-                    <View
-                      style={{
-                        paddingVertical: 6,
-                        paddingHorizontal: 10,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: row.is_active ? COLORS.successBorder : COLORS.warningBorder,
-                        backgroundColor: row.is_active ? COLORS.successBg : COLORS.warningBg,
-                      }}
-                    >
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                        {row.is_active ? "Publicada" : "Oculta"}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View
-                    style={{
-                      flexDirection: isMobile ? "column" : "row",
-                      justifyContent: "space-between",
-                      alignItems: isMobile ? "stretch" : "center",
-                      gap: 12,
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-                      {/* Acciones con iconos (su nombre, para el lector de pantalla y al pasar el ratón). */}
-                      <IconButton icon="create-outline" label={`Editar ${row.title}`} variant="primary" onPress={() => openEdit(row)} />
-                      <IconButton icon="trash-outline" label={`Borrar ${row.title}`} variant="danger" onPress={() => askRemove(row)} />
-                    </View>
-
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
-                        {row.is_active ? "Publicada" : "Oculta"}
-                      </Text>
-                      <Switch value={row.is_active} onValueChange={() => toggleActive(row)} />
-                    </View>
-                  </View>
+            {/* 3) Cuántas salen, «Abrir todas» y las filas compactas. */}
+            <View style={{ gap: 4 }}>
+              <RecuentoLista
+                nativeID="politicas-recuento"
+                texto={q ? `${filteredItems.length} ${filteredItems.length === 1 ? "política encontrada" : "políticas encontradas"}` : `${filteredItems.length} de ${items.length} políticas`}
+                abiertas={desplegables.todasAbiertas(filteredItems.map((r) => r.id))}
+                onAlternar={filteredItems.length ? () => desplegables.abrirOCerrarTodas(filteredItems.map((r) => r.id)) : undefined}
+                idBoton="politicas-abrir-todas"
+                femenino
+              />
+              {filteredItems.length === 0 ? (
+                items.length && hayFiltro ? (
+                  <ListaVacia nativeID="politicas-vacio" icono="document-text-outline" titulo="No hay políticas para este filtro." texto="Prueba a borrar el buscador o a elegir «Todas»." />
+                ) : (
+                  <EmptyState icon="document-text-outline" title="Todavía no hay políticas." text="Crea la primera con el «+»: si la publicas, se verá en /politicas/ y su slug." />
+                )
+              ) : (
+                <View nativeID="politicas-lista">
+                  {filteredItems.map((row, n) => {
+                    const abierta = desplegables.estaAbierta(row.id);
+                    const pie = enPie(row.slug);
+                    return (
+                      <FilaLista
+                        key={row.id}
+                        nativeID={`politica-${row.id}`}
+                        idFila={`politica-fila-${row.id}`}
+                        primera={n === 0}
+                        abierta={abierta}
+                        onPress={() => desplegables.alternar(row.id)}
+                        etiquetaAccesible={`${row.title}, ${row.is_active ? "publicada" : "oculta"}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+                        miniatura={isMobile ? undefined : <Miniatura icono="document-text-outline" ancho={48} alto={48} />}
+                        titulo={row.title}
+                        colorTitulo={row.is_active ? undefined : COLORS.muted}
+                        etiqueta={<EtiquetaColor nativeID={`politica-estado-${row.id}`} texto={row.is_active ? "Publicada" : "Oculta"} tono={row.is_active ? "verde" : "gris"} />}
+                        subtitulo={row.intro?.trim() ? row.intro : "Sin introducción"}
+                        idSubtitulo={`politica-intro-${row.id}`}
+                        // En el móvil, la introducción en una línea (entera en el detalle).
+                        lineasSubtitulo={isMobile ? 1 : 2}
+                        etiquetas={
+                          <>
+                            <Etiqueta nativeID={`politica-url-${row.id}`} icon="link-outline" color={COLORES_TEXTO.azulTexto} texto={`/politicas/${row.slug}`} />
+                            <Etiqueta nativeID={`politica-secciones-${row.id}`} icon="list-outline" color={COLORS.muted} texto={textoSecciones(row.sections.length)} />
+                            {pie ? <Etiqueta nativeID={`politica-pie-${row.id}`} icon="albums-outline" color={COLORS.success} texto="En el pie de página" /> : null}
+                          </>
+                        }
+                        derecha={
+                          <BotonesFila>
+                            <IconButton icon="create-outline" label={`Editar ${row.title}`} variant="primary" onPress={() => openEdit(row)} />
+                            <IconButton icon="trash-outline" label={`Borrar ${row.title}`} variant="danger" onPress={() => askRemove(row)} />
+                          </BotonesFila>
+                        }
+                      >
+                        <DetalleFila
+                          nativeID={`politica-detalle-${row.id}`}
+                          idAcciones={`politica-acciones-${row.id}`}
+                          acciones={
+                            <>
+                              <AccionTexto
+                                nativeID={`politica-publicar-${row.id}`}
+                                icono={row.is_active ? "eye-off-outline" : "checkmark-circle-outline"}
+                                texto={row.is_active ? "Ocultar en la tienda" : "Publicar en la tienda"}
+                                onPress={() => toggleActive(row)}
+                              />
+                              <AccionTexto nativeID={`politica-editar-${row.id}`} icono="create-outline" texto="Editar la política" onPress={() => openEdit(row)} />
+                            </>
+                          }
+                        >
+                          <Bloque icono="document-text-outline" titulo="Página" ancho={isMobile ? "100%" : "40%"}>
+                            <Dato etiqueta="Título">{row.title}</Dato>
+                            <Dato etiqueta="Dirección">{`/politicas/${row.slug}`}</Dato>
+                            <Detalle color={pie ? COLORS.success : undefined}>{pie ? "Enlazada desde el pie de página de Inicio." : "Sin enlace en el pie de página."}</Detalle>
+                            <View style={{ flexDirection: "row" }}>
+                              <EtiquetaColor texto={row.is_active ? "Publicada" : "Oculta"} tono={row.is_active ? "verde" : "gris"} />
+                            </View>
+                            <Dato etiqueta="Introducción">{row.intro?.trim() ? row.intro : "Sin introducción"}</Dato>
+                            <Dato etiqueta="Orden">{String(row.sort_order ?? 0)}</Dato>
+                            <Dato etiqueta="Actualizada">{fechaPanel(row.updated_at, true)}</Dato>
+                          </Bloque>
+                          <Bloque nativeID={`politica-bloque-secciones-${row.id}`} icono="list-outline" titulo={`Secciones (${row.sections.length})`} ancho={isMobile ? "100%" : "50%"}>
+                            {row.sections.length ? (
+                              row.sections.map((s, i) => (
+                                <View key={i} style={{ gap: 2 }}>
+                                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, lineHeight: 19 }}>{`${i + 1}. ${s.heading || "Sin encabezado"}`}</Text>
+                                  <Text numberOfLines={2} style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                                    {s.body || "Sin texto"}
+                                  </Text>
+                                </View>
+                              ))
+                            ) : (
+                              <Detalle>Sin secciones: la página muestra solo su introducción.</Detalle>
+                            )}
+                          </Bloque>
+                        </DetalleFila>
+                      </FilaLista>
+                    );
+                  })}
                 </View>
-              ))
-            )}
+              )}
+            </View>
           </View>
         </ScrollView>
       )}
+
+      {/* «Nueva política»: el «+» flotante abajo a la derecha (al alcance del pulgar). */}
+      {!loading ? <BotonFlotante nativeID="politicas-nueva" label="Nueva política" onPress={openCreate} /> : null}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         {/* El formulario (con todas sus secciones) se desplaza dentro del modal y, en
