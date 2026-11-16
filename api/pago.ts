@@ -505,7 +505,14 @@ async function otrosPedidosPagados(supabase: SupabaseClient, pedidoId: string, i
 async function articuloYaVendido(supabase: SupabaseClient, pedidoId: string): Promise<boolean> {
   const ids = await articulosDelPedido(supabase, pedidoId);
   if (!ids.length) return false;
-  if ((await leerArticulos(supabase, ids)).some((a) => !!a.vendido_en && a.vendido_pedido_id !== pedidoId)) return true;
+  // Lo vendido sin pedido DESPUÉS de hacer este pedido (el «vendido» que devuelve VeoAura al recibir el aviso del pedido) es
+  // esta misma venta: no impide pagarla (fallo real del 2026-11-16, pedido 8).
+  const { data: mio } = await supabase.from("pedidos").select("created_at").eq("id", pedidoId).maybeSingle<{ created_at: string | null }>();
+  const miPedido = instante(mio?.created_at);
+  const vendido = (await leerArticulos(supabase, ids)).some(
+    (a) => !!a.vendido_en && a.vendido_pedido_id !== pedidoId && (!!a.vendido_pedido_id || instante(a.vendido_en) < miPedido)
+  );
+  if (vendido) return true;
   return (await otrosPedidosPagados(supabase, pedidoId, ids)).size > 0;
 }
 
@@ -517,8 +524,16 @@ async function apartarArticulos(supabase: SupabaseClient, pedidoId: string): Pro
   try {
     const ids = await articulosDelPedido(supabase, pedidoId);
     if (!ids.length) return resultado;
-    const { data: mio } = await supabase.from("pedidos").select("id,numero,pagado_en").eq("id", pedidoId).maybeSingle<{ id: string; numero: number; pagado_en: string | null }>();
+    const { data: mio } = await supabase
+      .from("pedidos")
+      .select("id,numero,pagado_en,created_at")
+      .eq("id", pedidoId)
+      .maybeSingle<{ id: string; numero: number; pagado_en: string | null; created_at: string | null }>();
     const miPago = instante(mio?.pagado_en);
+    // Fallo real (2026-11-16, pedido 8, PS5 Pro): al hacer el pedido, VeoAura recibe el aviso, lo marca vendido en su Stock
+    // y devuelve «vendido»: el artículo queda vendido (sin pedido) ANTES de que llegue el cobro. Eso es esta misma venta, no
+    // una doble venta: solo cuenta lo vendido antes de que existiera este pedido.
+    const miPedido = mio?.created_at ? instante(mio.created_at) : miPago;
     const articulos = await leerArticulos(supabase, ids);
     const otros = await otrosPedidosPagados(supabase, pedidoId, ids);
     const ahora = new Date().toISOString();
@@ -527,9 +542,16 @@ async function apartarArticulos(supabase: SupabaseClient, pedidoId: string): Pro
       if (!a || (a.vendido_pedido_id && a.vendido_pedido_id === pedidoId)) continue;
       // Pagado antes por otro pedido (sin cancelar) o vendido antes de este pago (VeoAura, a mano u otro pedido).
       const anterior = (otros.get(id) ?? []).find((o) => instante(o.pagado_en) < miPago || (instante(o.pagado_en) === miPago && o.id < pedidoId));
-      const vendidoAntes = !!a.vendido_en && instante(a.vendido_en) < miPago;
+      const vendidoAntes = !!a.vendido_en && !a.vendido_pedido_id && instante(a.vendido_en) < miPedido;
       if (anterior || vendidoAntes) resultado.doble = true;
-      if (a.vendido_en) continue;
+      if (a.vendido_en) {
+        // Vendido después de hacer este pedido y sin pedido apuntado (el «vendido» de VeoAura): es esta venta.
+        if (!anterior && !vendidoAntes && !a.vendido_pedido_id) {
+          const { error } = await supabase.from("products").update({ vendido_pedido_id: pedidoId }).eq("id", id).is("vendido_pedido_id", null);
+          if (error && !faltaColumnaVendido(error, "vendido_pedido_id")) console.error("pago: no se pudo apuntar el pedido del artículo", mio?.numero ?? "", error.code ?? "");
+        }
+        continue;
+      }
       const dueno = anterior?.id ?? pedidoId;
       const marcar = (d: Record<string, unknown>) => supabase.from("products").update(d).eq("id", id).is("vendido_en", null).select("id");
       const datos = { is_active: false, vendido_en: ahora, updated_at: ahora };
