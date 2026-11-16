@@ -21000,7 +21000,7 @@ async function seccionPANRED3() {
       const bb = await caja(p, "#cotizaciones-buscar-caja");
       ok(!!bb && bb.h >= 44 && (await letra(p, "#cotizaciones-buscar")) >= 16, `PANRED3 (${nombre}): Cotizaciones, el buscador de 16 px`);
       const pas = await pastillas(p, "#cotizaciones-filtros");
-      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Nuevas (1) · Revisadas (0) · Contactadas (1) · Descartadas (1) · Cambio desde la cesta (1)" && pas.every((x) => x.h >= 44), `PANRED3 (${nombre}): Cotizaciones, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Nuevas (1) · Revisadas (0) · Contactadas (1) · Descartadas (1) · Cambio desde la cesta (1) · Faltan fotos o vídeo (3)" && pas.every((x) => x.h >= 44), `PANRED3 (${nombre}): Cotizaciones, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
       const f1 = await texto(p, `#cotizacion-${S(1)}`);
       const alto = (await caja(p, `#cotizacion-fila-${S(1)}`))?.h ?? 0;
       ok(/PS4 Pro 1 TB Nueva/.test(f1) && /Ana García · Zaragoza · 120,00 ?€/.test(f1) && /1 adjunto/.test(f1) && alto >= 44 && alto <= 170, `PANRED3 (${nombre}): Cotizaciones, la fila compacta con artículo, estado, cliente, ciudad, precio y adjuntos (${f1} · ${alto} px)`);
