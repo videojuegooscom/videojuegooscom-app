@@ -1,8 +1,9 @@
 // components/SellRequestMedia.tsx
 /**
  * Qué hace: todo lo relacionado con las fotos y el vídeo que un cliente
- * adjunta al formulario "Vender ahora" (hasta 10 imágenes + 1 vídeo de
- * hasta 20 segundos), en un único archivo: tipos, límites, conversión HEIC
+ * adjunta al formulario "Vender ahora" (OBLIGATORIOS desde el 2026-11-16: de
+ * 7 a 10 fotos y 1 vídeo de 20 a 30 segundos y hasta 60 MB; un vídeo cuya
+ * duración no se puede medir se rechaza con un aviso), en un único archivo: tipos, límites, conversión HEIC
  * (fotos de iPhone), subida a Supabase Storage, descarga individual para el
  * admin, y el propio selector visual (SellMediaPicker) que se inserta en el
  * formulario.
@@ -21,7 +22,8 @@
  * - uploadSellRequestMedia() se llama DESPUÉS de insertar la fila en
  *   "sell_requests" (necesita su id ya generado para poder enlazar los
  *   archivos). Si falla la subida, la solicitud ya guardada no se pierde:
- *   VenderAhoraModal.tsx captura ese error aparte.
+ *   devuelve los archivos que faltan y VenderAhoraModal.tsx lo dice claro y
+ *   deja «Reintentar la subida» solo con esos.
  * - Reutiliza el mismo criterio que app/admin/products/products.utils.ts
  *   (conversión HEIC→JPEG con heic2any, medir duración de vídeo con un
  *   <video> oculto) pero de forma independiente: este módulo lo usa el
@@ -51,8 +53,28 @@ import { supabase } from "../lib/supabase";
 
 export const SELL_MEDIA_BUCKET = "sell-request-media";
 
+// Fotos y vídeo OBLIGATORIOS (dueño, 2026-11-16): de 7 a 10 fotos y un vídeo de 20 a 30 segundos.
+export const MIN_SELL_IMAGES = 7;
 export const MAX_SELL_IMAGES = 10;
-export const MAX_SELL_VIDEO_SECONDS = 20;
+export const MIN_SELL_VIDEO_SECONDS = 20;
+export const MAX_SELL_VIDEO_SECONDS = 30;
+// Margen al medir la duración (los móviles graban 19,8 s o 30,3 s al pulsar a mano).
+const MARGEN_DURACION_S = 0.5;
+// Si el navegador no llega a leer la duración en este tiempo, se da por no medible.
+const ESPERA_DURACION_MS = 10000;
+export const AVISO_DURACION_VIDEO = `El vídeo debe durar entre ${MIN_SELL_VIDEO_SECONDS} y ${MAX_SELL_VIDEO_SECONDS} segundos.`;
+export const AVISO_VIDEO_SIN_DURACION =
+  "No hemos podido comprobar cuánto dura este vídeo. Prueba con otro archivo (MP4 o MOV) de 20 a 30 segundos, por ejemplo grabado con la cámara del móvil.";
+
+/** ¿El vídeo elegido es válido para enviar? (duración medida y dentro de 20-30 s). */
+export function videoEsValido(video: LocalSellMedia | null): boolean {
+  const d = video?.durationSeconds;
+  return typeof d === "number" && Number.isFinite(d) && duracionEnRango(d);
+}
+
+function duracionEnRango(segundos: number): boolean {
+  return segundos >= MIN_SELL_VIDEO_SECONDS - MARGEN_DURACION_S && segundos <= MAX_SELL_VIDEO_SECONDS + MARGEN_DURACION_S;
+}
 export const MAX_SELL_IMAGE_SIZE_MB = 12;
 export const MAX_SELL_VIDEO_SIZE_MB = 60;
 
@@ -188,17 +210,25 @@ function getVideoDurationSeconds(file: File): Promise<number> {
     const url = URL.createObjectURL(file);
     const video = document.createElement("video");
     video.preload = "metadata";
+    let hecho = false;
+    // Algunos navegadores nunca avisan con ciertos archivos: pasado el tiempo, se da por no medible.
+    const espera = setTimeout(() => terminar(null), ESPERA_DURACION_MS);
 
-    video.onloadedmetadata = () => {
-      const seconds = Number(video.duration || 0);
+    function terminar(segundos: number | null) {
+      if (hecho) return;
+      hecho = true;
+      clearTimeout(espera);
       URL.revokeObjectURL(url);
-      resolve(seconds);
-    };
+      // Sin duración real (0, NaN o Infinity, como pasa con algunos WebM): no se puede medir.
+      if (segundos === null || !Number.isFinite(segundos) || segundos <= 0) {
+        reject(new Error("No se pudo medir la duración del vídeo."));
+      } else {
+        resolve(segundos);
+      }
+    }
 
-    video.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("No se pudo analizar el vídeo seleccionado."));
-    };
+    video.onloadedmetadata = () => terminar(Number(video.duration));
+    video.onerror = () => terminar(null);
 
     video.src = url;
   });
@@ -271,15 +301,16 @@ async function buildLocalVideo(file: File): Promise<LocalSellMedia> {
     throw new Error(`El vídeo debe pesar menos de ${MAX_SELL_VIDEO_SIZE_MB}MB.`);
   }
 
-  let durationSeconds: number | null = null;
+  // El vídeo es obligatorio y debe durar de 20 a 30 s: si no se puede medir, se rechaza con un aviso amable.
+  let durationSeconds: number;
   try {
     durationSeconds = await getVideoDurationSeconds(file);
   } catch {
-    durationSeconds = null;
+    throw new Error(AVISO_VIDEO_SIN_DURACION);
   }
 
-  if (durationSeconds !== null && durationSeconds > MAX_SELL_VIDEO_SECONDS + 0.5) {
-    throw new Error(`El vídeo no puede superar ${MAX_SELL_VIDEO_SECONDS} segundos.`);
+  if (!duracionEnRango(durationSeconds)) {
+    throw new Error(`${AVISO_DURACION_VIDEO} El que has elegido dura ${Math.round(durationSeconds)} s.`);
   }
 
   return {
@@ -312,21 +343,29 @@ function buildSellMediaPath(sellRequestId: string, item: LocalSellMedia, index: 
  * sola llamada — con 10 fotos + 1 vídeo esto pasa de ~22 idas y vueltas a la
  * red a 1 (el tiempo total lo marca el archivo más lento, no la suma de
  * todos). Si algún archivo falla, los que sí subieron se guardan igualmente
- * (no es todo o nada) y se lanza un error al final solo para avisar de
- * cuántos fallaron — VenderAhoraModal.tsx ya captura ese error sin bloquear
- * el envío de la solicitud, que se guarda aparte.
+ * (no es todo o nada) y se DEVUELVEN los que faltan (con su orden de
+ * siempre), para que VenderAhoraModal.tsx lo diga claro y ofrezca
+ * «Reintentar la subida» solo con esos. Si falla el guardado de las filas,
+ * cuentan como fallidos todos los de esa tanda (se vuelven a subir enteros).
+ * Nunca lanza: la solicitud ya está guardada aparte.
  */
+export type SellMediaPendiente = { item: LocalSellMedia; orden: number };
+
+/** Las fotos y el vídeo, en el orden en que se guardan (sort_order): primero las fotos y al final el vídeo. */
+export function listaParaSubir(images: LocalSellMedia[], video: LocalSellMedia | null): SellMediaPendiente[] {
+  const items = video ? [...images, video] : images;
+  return items.map((item, orden) => ({ item, orden }));
+}
+
 export async function uploadSellRequestMedia(
   sellRequestId: string,
-  images: LocalSellMedia[],
-  video: LocalSellMedia | null
-) {
-  const items = video ? [...images, video] : images;
-  if (items.length === 0) return;
+  pendientes: SellMediaPendiente[]
+): Promise<SellMediaPendiente[]> {
+  if (pendientes.length === 0) return [];
 
   const results = await Promise.allSettled(
-    items.map(async (item, i) => {
-      const path = buildSellMediaPath(sellRequestId, item, i);
+    pendientes.map(async ({ item, orden }) => {
+      const path = buildSellMediaPath(sellRequestId, item, orden);
       const uploadRes = await supabase.storage.from(SELL_MEDIA_BUCKET).upload(path, item.file, {
         contentType: item.mimeType,
         upsert: false,
@@ -341,22 +380,28 @@ export async function uploadSellRequestMedia(
         mime_type: item.mimeType,
         size_bytes: item.size,
         duration_seconds: item.durationSeconds,
-        sort_order: i,
+        sort_order: orden,
       };
     })
   );
 
   const rows = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+  const fallidos = pendientes.filter((_, i) => results[i].status !== "fulfilled");
 
   if (rows.length > 0) {
-    const insertRes = await supabase.from("sell_request_media").insert(rows);
-    if (insertRes.error) throw insertRes.error;
+    try {
+      const insertRes = await supabase.from("sell_request_media").insert(rows);
+      if (insertRes.error) throw insertRes.error;
+    } catch (e) {
+      console.error("Error guardando las fotos/vídeo de la solicitud:", e);
+      return pendientes;
+    }
   }
 
-  const failedCount = results.length - rows.length;
-  if (failedCount > 0) {
-    throw new Error(`${failedCount} de ${items.length} archivo(s) no se pudieron subir.`);
+  if (fallidos.length > 0) {
+    console.error(`${fallidos.length} de ${pendientes.length} archivo(s) no se pudieron subir.`);
   }
+  return fallidos;
 }
 
 /**
@@ -496,20 +541,27 @@ function revokePreview(item: LocalSellMedia) {
   }
 }
 
+// solo="fotos" o solo="video": pinta solo esa parte (el formulario las pone en dos apartados, cada uno con su título);
+// sin «solo», las dos juntas como antes.
 export function SellMediaPicker({
   images,
   video,
   onImagesChange,
   onVideoChange,
   disabled,
+  solo,
 }: {
   images: LocalSellMedia[];
   video: LocalSellMedia | null;
   onImagesChange: (next: LocalSellMedia[]) => void;
   onVideoChange: (next: LocalSellMedia | null) => void;
   disabled?: boolean;
+  solo?: "fotos" | "video";
 }) {
   const [error, setError] = useState<string | null>(null);
+  const verFotos = solo !== "video";
+  const verVideo = solo !== "fotos";
+  const faltanFotos = Math.max(0, MIN_SELL_IMAGES - images.length);
 
   async function handleAddImages() {
     setError(null);
@@ -567,9 +619,9 @@ export function SellMediaPicker({
 
   return (
     <View style={{ gap: 10 }}>
-      {(images.length > 0 || video) && (
+      {((verFotos && images.length > 0) || (verVideo && video)) && (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
-          {images.map((img) => (
+          {verFotos && images.map((img) => (
             <ThumbChip
               key={img.id}
               item={img}
@@ -580,7 +632,7 @@ export function SellMediaPicker({
               }}
             />
           ))}
-          {video && (
+          {verVideo && video && (
             <ThumbChip
               item={video}
               disabled={disabled}
@@ -594,7 +646,9 @@ export function SellMediaPicker({
       )}
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
+        {verFotos && (
         <Pressable
+          nativeID="vender-fotos-boton"
           onPress={handleAddImages}
           disabled={disabled || images.length >= MAX_SELL_IMAGES}
           style={({ pressed }) => ({
@@ -616,8 +670,11 @@ export function SellMediaPicker({
             Añadir fotos ({images.length}/{MAX_SELL_IMAGES})
           </Text>
         </Pressable>
+        )}
 
+        {verVideo && (
         <Pressable
+          nativeID="vender-video-boton"
           onPress={handleAddVideo}
           disabled={disabled || !!video}
           style={({ pressed }) => ({
@@ -636,13 +693,34 @@ export function SellMediaPicker({
         >
           <Ionicons name="videocam-outline" size={16} color={COLORS.text} />
           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
-            {video ? "Vídeo añadido" : `Añadir vídeo (máx. ${MAX_SELL_VIDEO_SECONDS}s)`}
+            {video
+              ? `Vídeo añadido${video.durationSeconds ? ` (${Math.round(video.durationSeconds)} s)` : ""}`
+              : `Añadir vídeo (${MIN_SELL_VIDEO_SECONDS}-${MAX_SELL_VIDEO_SECONDS} s)`}
           </Text>
         </Pressable>
+        )}
       </View>
 
+      {/* Qué falta, en gris (no es un error): cuántas fotos quedan o que el vídeo es obligatorio. */}
+      {verFotos && faltanFotos > 0 && !error ? (
+        <Text nativeID="vender-fotos-faltan" style={{ color: COLORS.muted, textAlign: "center", fontWeight: "700", fontSize: TAMANOS.minimo }}>
+          {images.length === 0
+            ? `Añade al menos ${MIN_SELL_IMAGES} fotos: por delante, por detrás, los lados, los puertos y los accesorios.`
+            : `Te ${faltanFotos === 1 ? "falta 1 foto" : `faltan ${faltanFotos} fotos`} para llegar al mínimo de ${MIN_SELL_IMAGES}.`}
+        </Text>
+      ) : null}
+      {verVideo && !video && !error ? (
+        <Text nativeID="vender-video-falta" style={{ color: COLORS.muted, textAlign: "center", fontWeight: "700", fontSize: TAMANOS.minimo }}>
+          Graba el artículo encendido y funcionando, de {MIN_SELL_VIDEO_SECONDS} a {MAX_SELL_VIDEO_SECONDS} segundos (hasta {MAX_SELL_VIDEO_SIZE_MB} MB).
+        </Text>
+      ) : null}
+
       {!!error && (
-        <Text style={{ color: COLORS.danger, textAlign: "center", fontWeight: "800", fontSize: TAMANOS.minimo }}>
+        <Text
+          nativeID={verVideo && !verFotos ? "vender-video-aviso" : "vender-fotos-aviso"}
+          accessibilityLiveRegion="polite"
+          style={{ color: COLORS.danger, textAlign: "center", fontWeight: "800", fontSize: TAMANOS.minimo }}
+        >
           {error}
         </Text>
       )}
