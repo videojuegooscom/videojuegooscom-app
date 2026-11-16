@@ -195,16 +195,19 @@
  *    doble venta avisada y filtrada y «Volver a poner a la venta» (44 px) solo donde toca; Productos «Vendido (pedido
  *    VZ-…)»; Analítica. 360/390/1280. Se lanza con SOLO = VENDP y en la pasada completa.
  *  - CANCAV) Motivo de la cancelación y «Avisarme cuando haya otro» (dueño, 2026-11-16; migración 20261116100000): en
- *    Pedidos se elige el motivo en pastillas (por defecto «El artículo ya no se encuentra disponible», «Otro motivo» con
- *    texto de 16 px) y se guarda; el detalle enseña el motivo, el aviso del cliente con su canal («Correo pendiente de
+ *    Pedidos se elige el motivo en pastillas (OBLIGATORIO: ninguno marcado y, sin él o con «Otro motivo» sin texto, el
+ *    botón de confirmar apagado; «Otro motivo» con texto de 16 px y la ayuda «Lo verá el cliente…») y se guarda; en un
+ *    cancelado sin motivo, la etiqueta «Sin motivo», la pastilla «Cancelados sin motivo (N)» que lo filtra y «Añadir
+ *    motivo» / «Cambiar motivo», que guardan SOLO cancelacion_motivo; el detalle enseña el motivo, el aviso del cliente con su canal («Correo pendiente de
  *    activar en la tienda») y el recuento; en Mis pedidos, la tarjeta del cancelado con su motivo y su reembolso, el
  *    interruptor (44 px, role switch) y el canal (En la app · Por correo · Las dos; radios de 44 px y 16 px) que se guardan
  *    y se apagan; otro motivo no lo ofrece; Blue avisa de otro parecido (y no de otro modelo); Analítica sin datos
  *    personales; sin la migración se cancela como antes. 360/390/1280. Se lanza con SOLO = CANCAV y en la pasada completa.
  *  - CANDIS) Diseño del pedido cancelado en Mis pedidos (dueño, 2026-11-16: «estilo Amazon», adaptado a móvil y
  *    ordenador): un solo título «Cancelado el …» (sin la pastilla repetida) y en gris «Pedido VZ-… · Realizado el … ·
- *    total» SIN tachar; dos pasos discretos (puntos de 8 px, línea de 1 px, textos de 13); «Motivo» solo si lo hay;
- *    «Reembolso» emitido (tarjeta, Klarna) o en curso, o «Pago · No se te ha cobrado nada»; «Volver a comprar» (solo si
+ *    total» SIN tachar; dos pasos discretos (puntos de 8 px, línea de 1 px, textos de 13); «Motivo de la cancelación»
+ *    solo si lo hay, en su versión para el cliente («A petición tuya»…); «Reembolso» emitido (tarjeta, Klarna) o
+ *    en curso, o «Pago · No se ha realizado ningún cargo»; el enlace del número de seguimiento al final (no arriba); «Volver a comprar» (solo si
  *    sigue a la venta) y «Ver artículos parecidos» con su analítica (solo ids; nada si se rechaza); ayuda; Analítica
  *    «Pedidos cancelados: recuperación»; 360/390 con los botones a lo ancho, 1280 con la tarjeta de 800 px o más, la franja
  *    gris y las acciones en una columna a la derecha; sin desbordes, sin textos cortados, letra de 13 px o más, con control.
@@ -2102,16 +2105,21 @@ async function seccionP() {
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, "/perfil?tab=seguimientos");
     await p.getByText("Reparaciones y Mantenimientos").first().waitFor({ timeout: 30000 }).catch(() => {});
-    // Móvil (dueño, 2026-11-10): UN solo «¿Te hemos dado un número de seguimiento?», arriba y plegado; se abre al tocarlo.
+    // UN solo «¿Tienes un número de seguimiento…? Añádelo aquí», plegado y AL FINAL, debajo de «Reparaciones y
+    // Mantenimientos» (dueño, 2026-11-16: arriba estorbaba); se abre al tocarlo.
     const campos = p.getByLabel("Número de seguimiento", { exact: true });
     const abrir = p.locator("#seguimiento-anadir-abrir");
     const plegado = { abrir: await abrir.count(), campos: await campos.count(), alto: Math.round((await abrir.boundingBox().catch(() => null))?.height ?? 0) };
-    const arriba = await p.evaluate(() => {
-      const a = document.querySelector("#seguimiento-anadir-abrir")?.getBoundingClientRect().top ?? 9999;
-      const t = [...document.querySelectorAll("div")].find((d) => /^Mis pedidos/.test(d.innerText.trim()) && !d.querySelector("div"))?.getBoundingClientRect().top ?? 0;
-      return a < t;
+    const abajo = await p.evaluate(() => {
+      const a = document.querySelector("#seguimiento-anadir-abrir")?.getBoundingClientRect().top ?? -1;
+      const t = [...document.querySelectorAll("div")].find((d) => /^Reparaciones y Mantenimientos/.test(d.innerText.trim()) && !d.querySelector("div"))?.getBoundingClientRect().top ?? 9999;
+      return a > t;
     });
-    ok(plegado.abrir === 1 && plegado.campos === 0 && plegado.alto >= 44 && arriba, `P: un solo «¿Te hemos dado un número de seguimiento?», plegado, arriba de «Mis pedidos» y de 44 px (${JSON.stringify(plegado)}, arriba: ${arriba})`);
+    const textoAbrir = (await abrir.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+    ok(
+      plegado.abrir === 1 && plegado.campos === 0 && plegado.alto >= 44 && abajo && textoAbrir === "¿Tienes un número de seguimiento de un pedido o una reparación? Añádelo aquí",
+      `P: un solo «¿Tienes un número de seguimiento…? Añádelo aquí», plegado, al final (debajo de las reparaciones) y de 44 px (${JSON.stringify(plegado)}, abajo: ${abajo}, «${textoAbrir}»)`
+    );
     await abrir.click();
     await campos.first().waitFor({ timeout: 5000 }).catch(() => {});
     ok((await campos.count()) === 1, `P: al tocarlo sale el campo (${await campos.count()})`);
@@ -2328,7 +2336,7 @@ async function seccionR() {
     await caso("deslizar a la derecha sobre la tarjeta de una reparación", "cuenta", async () => dedo(await sobre(p.getByText("Reparación de mando PS5").first(), 90), 200, -4));
     await caso("deslizar a la izquierda sobre «Cerrar sesión» (sin cerrar la sesión)", "seguimientos", async () => dedo(await sobre(salir, 300), -200, 2));
     ok(estado.salio !== true, "R: deslizar sobre «Cerrar sesión» no la cierra");
-    await caso("deslizar a la derecha sobre «¿Te hemos dado un número de seguimiento?»", "cuenta", async () => dedo(await sobre(p.locator("#seguimiento-anadir-abrir"), 90), 200, 0));
+    await caso("deslizar a la derecha sobre «¿Tienes un número de seguimiento…? Añádelo aquí»", "cuenta", async () => dedo(await sobre(p.locator("#seguimiento-anadir-abrir"), 90), 200, 0));
     // Abierto: el dedo empieza encima de los campos (al volver a «Mi cuenta», el perfil completo sale plegado otra vez).
     await abrirPerfil(p);
     await caso("deslizar a la izquierda sobre el campo del nombre", "seguimientos", async () => dedo(await sobre(p.locator('#perfil-datos [aria-label="Nombre"]').first(), 300), -200, 3));
@@ -9234,11 +9242,21 @@ async function seccionPT() {
     // Cancelar: igual, con su segundo toque.
     await p.locator("#pedido-cancelar-302").click();
     await p.waitForTimeout(300);
-    ok(/^Toca otra vez para cancelar el pedido$/.test(await texto(p, "#pedido-cancelar-302")) && !(estado.cambiosEnvio ?? []).length, "PT: cancelar también pide un segundo toque");
+    // Con el motivo de la cancelación (CANCAV, 2026-11-16) es obligatorio elegirlo antes del segundo toque.
+    const conMotivos = (await p.locator("#pedido-cancelar-motivos-302").count()) === 1;
+    ok(
+      (conMotivos ? /^Elige el motivo para cancelar$/ : /^Toca otra vez para cancelar el pedido$/).test(await texto(p, "#pedido-cancelar-302")) && !(estado.cambiosEnvio ?? []).length,
+      `PT: cancelar también pide un segundo toque (${await texto(p, "#pedido-cancelar-302")})`
+    );
+    if (conMotivos) {
+      await p.locator("#pedido-motivo-302-0").click();
+      await p.waitForTimeout(200);
+      ok(/^Toca otra vez para cancelar el pedido$/.test(await texto(p, "#pedido-cancelar-302")), `PT: con el motivo elegido, «Toca otra vez para cancelar el pedido» (${await texto(p, "#pedido-cancelar-302")})`);
+    }
     await p.locator("#pedido-cancelar-302").click();
     for (let i = 0; i < 20 && !(estado.cambiosEnvio ?? []).length; i++) await p.waitForTimeout(200);
     await p.waitForTimeout(400);
-    // Desde la cancelación con motivo (CANCAV, 2026-11-16) va también el motivo elegido (por defecto, el del artículo).
+    // Desde la cancelación con motivo (CANCAV, 2026-11-16) va también el motivo elegido.
     const cuerpoCancelar = estado.cambiosEnvio?.[0]?.cuerpo ?? {};
     ok(cuerpoCancelar.estado === "cancelado" && Object.keys(cuerpoCancelar).every((k) => ["estado", "cancelacion_motivo"].includes(k)), `PT: y lo cancela (${JSON.stringify(cuerpoCancelar)})`);
     await capturar(p, "PT7-devolver-cancelar");
@@ -9859,8 +9877,8 @@ async function seccionFA() {
     const p = await pagina(ctx, "/perfil?tab=seguimientos");
     await p.locator("#seguimiento-factura-51").waitFor({ timeout: 40000 }).catch(() => {});
     await p.locator("#seguimiento-factura-51").click().catch(() => {});
-    await p.getByText("La factura está llegando, prueba en unos minutos.").waitFor({ timeout: 8000 }).catch(() => {});
-    ok((await p.getByText("La factura está llegando, prueba en unos minutos.").count()) === 1 && !(estado.pdfsBajados ?? []).length, "FA: con el PDF aún en camino avisa «La factura está llegando, prueba en unos minutos.» y no descarga nada");
+    await p.getByText("La factura se está generando. Inténtalo de nuevo en unos minutos.").waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.getByText("La factura se está generando. Inténtalo de nuevo en unos minutos.").count()) === 1 && !(estado.pdfsBajados ?? []).length, "FA: con el PDF aún en camino avisa «La factura se está generando. Inténtalo de nuevo en unos minutos.» y no descarga nada");
     ok(p.errores.length === 0, `FA: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
@@ -9954,14 +9972,14 @@ async function seccionFA() {
     const p = await pagina(ctx, "/admin/analytics");
     await p.locator("#analitica-facturas").waitFor({ timeout: 40000 }).catch(() => {});
     ok(/Facturas descargadas desde «Mis pedidos»: 3 sesiones/.test(await texto(p, "#analitica-facturas")), `FA: Analítica cuenta las facturas descargadas (${await texto(p, "#analitica-facturas")})`);
-    ok(/lo abren 5 → lo añaden 2/.test(await texto(p, "#analitica-facturas")), `FA: y cuántos abren «¿Te hemos dado un número de seguimiento?» y cuántos lo añaden (${await texto(p, "#analitica-facturas")})`);
+    ok(/lo abren 5 → lo añaden 2/.test(await texto(p, "#analitica-facturas")), `FA: y cuántos abren «Añadir un número de seguimiento» y cuántos lo añaden (${await texto(p, "#analitica-facturas")})`);
     await p.locator("#analitica-facturas").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, "FA5-analitica-facturas");
     await ctx.close();
   }
 
   // FA6) Dueño, 2026-11-10: filtros con iconos («Todos», «En curso», «Cancelados», «Facturas»), miniatura del artículo y
-  // del servicio, y «¿Te hemos dado un número de seguimiento?» se abre y se vuelve a cerrar.
+  // del servicio, y «¿Tienes un número de seguimiento…? Añádelo aquí» se abre y se vuelve a cerrar.
   {
     const PROD = "fa000000-0000-4000-8000-0000000000a1";
     const SERV = "fa000000-0000-4000-8000-0000000000b1";
@@ -10087,14 +10105,14 @@ async function seccionFA() {
       `FA: las etiquetas de la barra de reparaciones no se parten, no se juntan ni se salen (390: ${JSON.stringify(b390)}; 360: ${JSON.stringify(b360 && { partidas: b360.partidas, montadas: b360.montadas, fuera: b360.fuera })})`
     );
     await capturar(p, "FA6-miniaturas");
-    // «¿Te hemos dado un número de seguimiento?»: se abre y se vuelve a cerrar.
+    // «¿Tienes un número de seguimiento…? Añádelo aquí» (al final): se abre y se vuelve a cerrar.
     await p.locator("#seguimiento-anadir-abrir").click();
     await p.getByLabel("Número de seguimiento", { exact: true }).waitFor({ timeout: 5000 }).catch(() => {});
     const abierto = await p.getByLabel("Número de seguimiento", { exact: true }).count();
     await p.locator("#seguimiento-anadir-cerrar").click();
     await p.waitForTimeout(300);
     const cerrado = { campo: await p.getByLabel("Número de seguimiento", { exact: true }).count(), enlace: await p.locator("#seguimiento-anadir-abrir").count() };
-    ok(abierto === 1 && cerrado.campo === 0 && cerrado.enlace === 1, `FA: «¿Te hemos dado un número de seguimiento?» se abre y se vuelve a cerrar (${abierto} → ${JSON.stringify(cerrado)})`);
+    ok(abierto === 1 && cerrado.campo === 0 && cerrado.enlace === 1, `FA: «¿Tienes un número de seguimiento…? Añádelo aquí» se abre y se vuelve a cerrar (${abierto} → ${JSON.stringify(cerrado)})`);
     const ancho = await p.evaluate(() => ({ a: document.documentElement.scrollWidth, v: window.innerWidth }));
     ok(ancho.a <= ancho.v, `FA: nada se sale por los lados (${ancho.a}/${ancho.v})`);
     ok(p.errores.length === 0, `FA: filtros y miniaturas sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
@@ -19858,6 +19876,8 @@ async function seccionCANCAV() {
     pedido(303, "enviado"),
     pedido(304, "pendiente"),
     pedido(305, "pendiente"),
+    // Cancelado antes de que existiera el motivo (sin cancelacion_motivo): «Sin motivo» y «Añadir motivo».
+    pedido(306, "cancelado", { cancelado_en: "2026-11-14T10:00:00Z" }),
   ];
   const ITEMS = [
     { id: "ci1", pedido_id: ID(301), product_id: XBOX, titulo: "Xbox Series S 512GB Blanca", precio_eur: 289.9 },
@@ -19865,6 +19885,7 @@ async function seccionCANCAV() {
     { id: "ci3", pedido_id: ID(303), product_id: null, titulo: "Nintendo Switch OLED", precio_eur: 249 },
     { id: "ci4", pedido_id: ID(304), product_id: null, titulo: "PlayStation 5 Slim", precio_eur: 399 },
     { id: "ci5", pedido_id: ID(305), product_id: null, titulo: "Mando Xbox", precio_eur: 39 },
+    { id: "ci6", pedido_id: ID(306), product_id: null, titulo: "Auriculares Pulse 3D", precio_eur: 69 },
   ];
   const producto = (id, title, novedad_en) => ({ id, title, price_eur: 279, status: "PUBLISHED", is_active: true, novedad_en });
   // `sin`: la migración aún no está aplicada (sin columnas de cancelación ni tabla avisos_reposicion).
@@ -20008,20 +20029,35 @@ async function seccionCANCAV() {
     ok((await texto(p, "#pedido-cancelacion-motivo-302")) === "Motivo: Lo has pedido tú" && (await p.locator("#pedido-aviso-repo-302").count()) === 0, "CANCAV1: otro motivo, sin aviso de reposición");
     const rec = await texto(p, "#pedidos-avisos-reposicion");
     ok(/^Avisos de reposición: 2 activos · por app 1 · por correo 0 · ambas 1 · avisados 1/.test(rec), `CANCAV1: recuento de avisos de reposición (${rec})`);
-    // Cancelar el 304: el primer toque enseña los motivos (el primero marcado) y no cancela.
+    // Cancelar el 304: el primer toque enseña los motivos (ninguno marcado: es obligatorio elegirlo) y no cancela.
     await p.locator("#pedido-cancelar-304").click();
     await p.waitForTimeout(300);
     ok((await p.locator("#pedido-cancelar-motivos-304").count()) === 1 && !s.cambios.length, "CANCAV1: el primer toque de «Cancelar pedido» enseña los motivos sin cancelar");
-    ok((await marcado(p, "#pedido-motivo-304-0")) === "true" && (await marcado(p, "#pedido-motivo-304-1")) === "false", "CANCAV1: por defecto, «El artículo ya no se encuentra disponible»");
+    const marcados = await Promise.all([0, 1, 2, 3].map((i) => marcado(p, `#pedido-motivo-304-${i}`)));
+    ok(marcados.every((m) => m === "false"), `CANCAV1: ningún motivo viene marcado (${marcados.join(", ")})`);
+    // Sin motivo, el botón de confirmar no se puede pulsar y lo explica.
+    const apagadoSin = await p.locator("#pedido-cancelar-304").getAttribute("aria-disabled").catch(() => null);
+    ok(apagadoSin === "true" && (await texto(p, "#pedido-cancelar-304")) === "Elige el motivo para cancelar" && /^Elige un motivo para poder cancelar\.$/.test(await texto(p, "#pedido-cancelar-ayuda-304")), `CANCAV1: sin motivo, «Elige el motivo para cancelar» apagado (${apagadoSin} · ${await texto(p, "#pedido-cancelar-304")} · ${await texto(p, "#pedido-cancelar-ayuda-304")})`);
+    await p.locator("#pedido-cancelar-304").click({ force: true, timeout: 2000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok(!s.cambios.length && (await p.locator("#pedido-cancelar-motivos-304").count()) === 1, `CANCAV1: tocarlo sin motivo no cancela (${JSON.stringify(s.cambios)})`);
     const altos = await Promise.all([0, 1, 2, 3].map((i) => alto(p, `#pedido-motivo-304-${i}`)));
     ok(altos.every((a) => a >= 44), `CANCAV1: las pastillas de motivo miden 44 px o más (${altos.join(", ")})`);
     const letraMotivos = await p.evaluate(() => Math.min(...[...document.querySelectorAll("#pedido-cancelar-motivos-304 *")].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())).map((e) => parseFloat(getComputedStyle(e).fontSize))));
     ok(letraMotivos >= 13, `CANCAV1: la letra de los motivos no baja de 13 px (${letraMotivos})`);
-    // «Otro motivo» enseña su campo de 16 px; volver al primero y confirmar.
+    // «Otro motivo» enseña su campo de 16 px y la ayuda «Lo verá el cliente…»; sin texto sigue sin poder confirmarse.
     await p.locator("#pedido-motivo-304-3").click();
     await p.waitForTimeout(200);
     ok((await p.locator("#pedido-motivo-otro-304").count()) === 1 && (await letra(p, "#pedido-motivo-otro-304")) >= 16 && (await alto(p, "#pedido-motivo-otro-304")) >= 44, `CANCAV1: «Otro motivo» enseña su campo de 16 px y 44 de alto (${await letra(p, "#pedido-motivo-otro-304")})`);
+    ok((await texto(p, "#pedido-motivo-otro-304-ayuda")) === "Lo verá el cliente: escríbelo de forma clara y profesional.", `CANCAV1: bajo el campo, la ayuda para escribirlo (${await texto(p, "#pedido-motivo-otro-304-ayuda")})`);
+    ok((await p.locator("#pedido-cancelar-304").getAttribute("aria-disabled").catch(() => null)) === "true" && /^Escribe el motivo para poder cancelar\.$/.test(await texto(p, "#pedido-cancelar-ayuda-304")), "CANCAV1: «Otro motivo» sin texto tampoco deja cancelar");
+    await p.locator("#pedido-motivo-otro-304").fill("x");
+    await p.waitForTimeout(200);
+    ok((await p.locator("#pedido-cancelar-304").getAttribute("aria-disabled").catch(() => null)) === "true", "CANCAV1: con una sola letra tampoco (la base de datos pide 2)");
     await p.locator("#pedido-motivo-304-0").click();
+    await p.waitForTimeout(200);
+    ok((await p.locator("#pedido-cancelar-304").getAttribute("aria-disabled").catch(() => null)) !== "true" && (await texto(p, "#pedido-cancelar-304")) === "Toca otra vez para cancelar el pedido", `CANCAV1: con el motivo elegido, ya se puede confirmar (${await texto(p, "#pedido-cancelar-304")})`);
+    ok((await texto(p, "#pedido-motivo-304-cliente")) === "El cliente leerá: «El artículo ya no está disponible»", `CANCAV1: enseña cómo lo leerá el cliente (${await texto(p, "#pedido-motivo-304-cliente")})`);
     await p.waitForTimeout(200);
     await p.locator("#pedido-cancelar-motivos-304").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, "CANCAV1-pedidos-motivos-390");
@@ -20045,6 +20081,57 @@ async function seccionCANCAV() {
     await ctx.close();
   });
 
+  // CANCAV1b) Un pedido YA cancelado sin motivo (306, de antes del motivo): etiqueta «Sin motivo» en la lista, pastilla
+  // «Cancelados sin motivo (N)» que lo filtra, y «Añadir motivo» guarda SOLO cancelacion_motivo (ni estado, ni pago, ni
+  // cancelado_en); «Cambiar motivo» en uno que ya lo tiene, con «Otro motivo» y su ayuda.
+  await bloque("CANCAV1b Añadir motivo", async () => {
+    const s = {};
+    const { ctx } = await admin(s);
+    const p = await abrirPedidosAdmin(ctx);
+    ok((await texto(p, "#pedido-sin-motivo-306")) === "Sin motivo" && (await p.locator("#pedido-sin-motivo-301").count()) === 0 && (await p.locator("#pedido-sin-motivo-304").count()) === 0, `CANCAV1b: la etiqueta «Sin motivo» solo en el cancelado sin motivo (${await texto(p, "#pedido-sin-motivo-306")})`);
+    ok((await texto(p, "#pedidos-filtro-cancelados_sin_motivo")) === "Cancelados sin motivo (1)", `CANCAV1b: la pastilla «Cancelados sin motivo (1)» (${await texto(p, "#pedidos-filtro-cancelados_sin_motivo")})`);
+    ok((await texto(p, "#pedido-cancelacion-motivo-306")) === "Sin motivo: el cliente no ve por qué se canceló." && (await texto(p, "#pedido-motivo-editar-306")) === "Añadir motivo" && (await texto(p, "#pedido-motivo-editar-301")) === "Cambiar motivo", "CANCAV1b: el detalle lo dice y ofrece «Añadir motivo» (y «Cambiar motivo» en los que lo tienen)");
+    ok((await alto(p, "#pedido-motivo-editar-306")) >= 44, `CANCAV1b: «Añadir motivo» mide 44 px o más (${await alto(p, "#pedido-motivo-editar-306")})`);
+    // La pastilla filtra: solo el 306.
+    await p.locator("#pedidos-filtro-cancelados_sin_motivo").click();
+    await p.waitForTimeout(400);
+    const filas = await p.evaluate(() => [...document.querySelectorAll('[id^="pedido-fila-"]')].map((e) => e.id.replace("pedido-fila-", "")));
+    ok(JSON.stringify(filas) === JSON.stringify(["306"]), `CANCAV1b: «Cancelados sin motivo» deja solo el 306 (${filas.join(", ")})`);
+    await desplegarPedidos(p);
+    await p.waitForTimeout(300);
+    await p.locator("#pedido-motivo-editar-306").click();
+    await p.waitForTimeout(300);
+    const marcadosEd = await Promise.all([0, 1, 2, 3].map((i) => marcado(p, `#pedido-editar-motivo-306-${i}`)));
+    ok((await p.locator("#pedido-editar-motivos-306").count()) === 1 && marcadosEd.every((m) => m === "false") && (await p.locator("#pedido-motivo-guardar-306").getAttribute("aria-disabled").catch(() => null)) === "true", `CANCAV1b: el editor sale sin motivo marcado y «Guardar motivo» apagado (${marcadosEd.join(", ")})`);
+    await p.locator("#pedido-editar-motivo-306-2").click();
+    await p.waitForTimeout(200);
+    await p.locator("#pedido-editar-motivos-306").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "CANCAV1b-anadir-motivo-390");
+    await p.locator("#pedido-motivo-guardar-306").click();
+    for (let i = 0; i < 20 && !s.cambios.length; i++) await p.waitForTimeout(250);
+    await p.waitForTimeout(300);
+    ok(JSON.stringify(s.cambios[0]) === JSON.stringify({ id: ID(306), cuerpo: { cancelacion_motivo: "Lo has pedido tú" } }), `CANCAV1b: guarda SOLO cancelacion_motivo de ese pedido (${JSON.stringify(s.cambios[0] ?? null)})`);
+    const fila306 = s.pedidos.find((x) => x.id === ID(306));
+    ok(fila306.estado === "cancelado" && fila306.cancelado_en === "2026-11-14T10:00:00Z" && fila306.pago_estado === null, `CANCAV1b: no cambia el estado, ni el pago, ni la hora de la cancelación (${JSON.stringify({ e: fila306.estado, c: fila306.cancelado_en })})`);
+    ok((await texto(p, "#pedido-cancelacion-motivo-306")) === "Motivo: Lo has pedido tú" && (await p.locator("#pedido-sin-motivo-306").count()) === 0 && /^Motivo guardado: el cliente ya lo ve en Mis pedidos\.$/.test(await texto(p, "#pedido-motivo-mensaje-306")), `CANCAV1b: el detalle enseña el motivo, sin la etiqueta, y lo confirma (${await texto(p, "#pedido-motivo-mensaje-306")})`);
+    ok((await texto(p, "#pedidos-filtro-cancelados_sin_motivo")) === "Cancelados sin motivo (0)", `CANCAV1b: la pastilla baja a 0 (${await texto(p, "#pedidos-filtro-cancelados_sin_motivo")})`);
+    // «Cambiar motivo» del 302 con «Otro motivo» (con su texto actual si no es de los fijos; aquí, el fijo marcado).
+    await p.locator("#pedidos-filtro-todos").click();
+    await desplegarPedidos(p);
+    await p.waitForTimeout(300);
+    await p.locator("#pedido-motivo-editar-302").click();
+    await p.waitForTimeout(200);
+    ok((await marcado(p, "#pedido-editar-motivo-302-2")) === "true" && (await p.locator("#pedido-motivo-guardar-302").getAttribute("aria-disabled").catch(() => null)) === "true", "CANCAV1b: «Cambiar motivo» marca el actual y no deja guardar el mismo");
+    await p.locator("#pedido-editar-motivo-302-3").click();
+    await p.locator("#pedido-editar-motivo-otro-302").fill("  El pedido supera  el stock disponible ");
+    ok((await texto(p, "#pedido-editar-motivo-otro-302-ayuda")) === "Lo verá el cliente: escríbelo de forma clara y profesional.", "CANCAV1b: con «Otro motivo», la ayuda bajo el campo");
+    await p.locator("#pedido-motivo-guardar-302").click();
+    for (let i = 0; i < 20 && s.cambios.length < 2; i++) await p.waitForTimeout(250);
+    ok(JSON.stringify(s.cambios[1]) === JSON.stringify({ id: ID(302), cuerpo: { cancelacion_motivo: "El pedido supera el stock disponible" } }), `CANCAV1b: «Cambiar motivo» guarda el texto limpio y nada más (${JSON.stringify(s.cambios[1] ?? null)})`);
+    ok((await sinDesborde(p)) && p.errores.length === 0, `CANCAV1b: sin desbordes ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
   // CANCAV2) Mis pedidos (390): la tarjeta del cancelado (motivo y devolución), el interruptor y el canal se guardan, se
   // cambian y se apagan; otro motivo no ofrece el aviso; el enviado no tiene tarjeta; se mide sin datos personales.
   await bloque("CANCAV2 Mis pedidos", async () => {
@@ -20053,14 +20140,17 @@ async function seccionCANCAV() {
     const p = await abrirMisPedidos(ctx);
     // Tarjeta del cancelado (diseño CANDIS, 2026-11-16): «Motivo» y «Reembolso» en su bloque.
     const t = await texto(p, "#cancelacion-motivo-301");
-    ok(t === "Motivo El artículo ya no se encuentra disponible", `CANCAV2: el motivo en su bloque (${t})`);
-    ok(/^Reembolso 289,90\s?€ devueltos el/.test(await texto(p, "#cancelacion-devolucion-301")), `CANCAV2: «Reembolso · 289,90 € devueltos el…» (${await texto(p, "#cancelacion-devolucion-301")})`);
+    // El motivo tal como lo lee el cliente (lo guardado no cambia).
+    ok(t === "Motivo de la cancelación El artículo ya no está disponible", `CANCAV2: el motivo en su bloque, en su versión para el cliente (${t})`);
+    ok(/^Reembolso Hemos reembolsado 289,90\s?€ a tu tarjeta el/.test(await texto(p, "#cancelacion-devolucion-301")), `CANCAV2: «Reembolso · Hemos reembolsado 289,90 € a tu tarjeta el…» (${await texto(p, "#cancelacion-devolucion-301")})`);
+    // Cancelado sin motivo guardado: no se inventa ninguno.
+    ok((await p.locator("#cancelacion-pedido-306").count()) === 1 && (await p.locator("#cancelacion-motivo-306").count()) === 0, "CANCAV2: el cancelado sin motivo sale sin bloque de motivo");
     ok((await p.locator("#cancelacion-aviso-301").count()) === 1 && (await marcado(p, "#cancelacion-aviso-301")) === "false", "CANCAV2: el interruptor sale apagado");
     const rol = await p.locator("#cancelacion-aviso-301").getAttribute("role").catch(() => null);
     ok(rol === "switch" && (await alto(p, "#cancelacion-aviso-301")) >= 44, `CANCAV2: el interruptor es accesible (role ${rol}) y mide 44 px o más (${await alto(p, "#cancelacion-aviso-301")})`);
     ok(/Avisarme cuando haya otro/.test(await texto(p, "#cancelacion-aviso-301")) && /Xbox Series S/.test(await texto(p, "#cancelacion-aviso-301")), `CANCAV2: «Avisarme cuando haya otro» con el modelo (${await texto(p, "#cancelacion-aviso-301")})`);
     ok((await p.locator("#cancelacion-canal-301").count()) === 0, "CANCAV2: apagado, sin el selector de canal");
-    ok((await texto(p, "#cancelacion-motivo-302")) === "Motivo Lo has pedido tú" && (await p.locator("#cancelacion-aviso-302").count()) === 0, "CANCAV2: con otro motivo, sin «Avisarme cuando haya otro»");
+    ok((await texto(p, "#cancelacion-motivo-302")) === "Motivo de la cancelación A petición tuya" && (await p.locator("#cancelacion-aviso-302").count()) === 0, `CANCAV2: con otro motivo («A petición tuya»), sin «Avisarme cuando haya otro» (${await texto(p, "#cancelacion-motivo-302")})`);
     ok((await p.locator("#cancelacion-pedido-303").count()) === 0, "CANCAV2: un pedido en curso no tiene tarjeta de cancelación");
     // Encender: se guarda con el modelo y «En la app».
     await p.locator("#cancelacion-aviso-301").click();
@@ -20068,7 +20158,7 @@ async function seccionCANCAV() {
     await p.waitForTimeout(400);
     ok(JSON.stringify(s.avisosCreados[0]) === JSON.stringify({ pedido_id: ID(301), product_id: XBOX, texto: "Xbox Series S", canal: "app" }), `CANCAV2: encenderlo guarda el pedido, el artículo, el modelo y el canal (${JSON.stringify(s.avisosCreados)})`);
     ok((await marcado(p, "#cancelacion-aviso-301")) === "true" && (await p.locator("#cancelacion-canal-301").count()) === 1, "CANCAV2: queda encendido y sale «¿Cómo quieres que te avisemos?»");
-    ok(/te avisaremos en la app cuando tengamos otro «Xbox Series S»/.test(await texto(p, "#cancelacion-mensaje-301")), `CANCAV2: lo confirma (${await texto(p, "#cancelacion-mensaje-301")})`);
+    ok(/^Aviso activado: te avisaremos en la app cuando tengamos otro «Xbox Series S»\.$/.test(await texto(p, "#cancelacion-mensaje-301")), `CANCAV2: lo confirma (${await texto(p, "#cancelacion-mensaje-301")})`);
     const canales = ["app", "correo", "ambas"];
     const datos = await Promise.all(canales.map(async (c) => ({ c, alto: await alto(p, `#cancelacion-canal-301-${c}`), rol: await p.locator(`#cancelacion-canal-301-${c}`).getAttribute("role").catch(() => null), txt: await texto(p, `#cancelacion-canal-301-${c}`) })));
     ok(datos.every((d) => d.alto >= 44 && d.rol === "radio"), `CANCAV2: las tres opciones son botones de opción de 44 px (${JSON.stringify(datos)})`);
@@ -20131,6 +20221,15 @@ async function seccionCANCAV() {
       await capturar(q, `CANCAV3-pedidos-motivos-${nombre}`);
       await q.locator("#pedido-bloque-cancelacion-301").scrollIntoViewIfNeeded().catch(() => {});
       await capturar(q, `CANCAV3-pedidos-cancelacion-${nombre}`);
+      // El cancelado sin motivo con «Añadir motivo» abierto y «Otro motivo» con su ayuda.
+      await q.locator("#pedido-motivo-editar-306").click().catch(() => {});
+      await q.locator("#pedido-editar-motivo-306-3").click().catch(() => {});
+      await q.waitForTimeout(300);
+      ok((await sinDesborde(q)) && (await dentro(q, "#pedido-editar-motivos-306")) && (await dentro(q, "#pedido-editar-motivo-otro-306-ayuda")), `CANCAV3 (${nombre}): «Añadir motivo» abierto cabe sin ensancharse`);
+      await q.locator("#pedido-bloque-cancelacion-306").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(q, `CANCAV3-pedidos-anadir-motivo-${nombre}`);
+      await q.locator("#pedido-fila-306").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(q, `CANCAV3-pedidos-sin-motivo-fila-${nombre}`);
       ok(q.errores.length === 0, `CANCAV3 (${nombre}): Pedidos sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
       await a.ctx.close();
     });
@@ -20412,9 +20511,10 @@ async function seccionCANDIS() {
     const tachado = await p.evaluate(() => [document.getElementById("cancelado-total-401"), ...document.querySelectorAll("#cancelado-total-401 *")].some((e) => e && /line-through/.test(getComputedStyle(e).textDecorationLine)));
     ok(/^55,00\s?€$/.test(await texto(p, "#cancelado-total-401")) && !tachado, `CANDIS1: el total sin tachar (${await texto(p, "#cancelado-total-401")} · tachado ${tachado})`);
     ok((await texto(p, "#cancelado-articulo-401")) === "Xbox Series S 512GB Blanca" && (await cuantos(p, "#seguimiento-mini-401")) === 1, "CANDIS1: el artículo con su foto");
-    ok((await texto(p, "#cancelacion-motivo-401")) === `Motivo ${MOTIVO}`, `CANDIS1: el bloque «Motivo» (${await texto(p, "#cancelacion-motivo-401")})`);
+    // El motivo, en su versión para el cliente (lo guardado sigue siendo «El artículo ya no se encuentra disponible»).
+    ok((await texto(p, "#cancelacion-motivo-401")) === "Motivo de la cancelación El artículo ya no está disponible", `CANDIS1: el bloque «Motivo de la cancelación» con el texto para el cliente (${await texto(p, "#cancelacion-motivo-401")})`);
     ok(
-      new RegExp(`^Reembolso 55,00\\s?€ devueltos el ${larga(T.devuelto)} a tu tarjeta Puede tardar de 5 a 10 días hábiles en verse en tu cuenta\\.$`).test(await texto(p, "#cancelacion-devolucion-401")),
+      new RegExp(`^Reembolso Hemos reembolsado 55,00\\s?€ a tu tarjeta el ${larga(T.devuelto)} El importe puede tardar entre 5 y 10 días hábiles en aparecer en tu cuenta\\.$`).test(await texto(p, "#cancelacion-devolucion-401")),
       `CANDIS1: el reembolso con tarjeta emitido (${await texto(p, "#cancelacion-devolucion-401")})`
     );
     ok(
@@ -20440,18 +20540,30 @@ async function seccionCANDIS() {
     ok((await cuantos(p, "#cancelacion-aviso-401")) === 1, "CANDIS1: el interruptor «Avisarme cuando haya otro» sigue en la tarjeta");
     ok(/^¿Necesitas ayuda\? Escríbenos por el chat$/.test(await texto(p, "#cancelado-ayuda-401")) && (await alto(p, "#cancelado-ayuda-401")) >= 44, `CANDIS1: la ayuda al pie, de 44 px (${await texto(p, "#cancelado-ayuda-401")} · ${await alto(p, "#cancelado-ayuda-401")})`);
     // Caso 2: pagado sin reembolso aún; sigue a la venta.
-    ok((await texto(p, "#cancelacion-motivo-402")) === "Motivo Lo has pedido tú", `CANDIS1: el motivo del 402 (${await texto(p, "#cancelacion-motivo-402")})`);
-    ok(/^Reembolso En curso: te devolveremos 55,00\s?€ por el mismo medio de pago$/.test(await texto(p, "#cancelacion-devolucion-402")), `CANDIS1: reembolso en curso (${await texto(p, "#cancelacion-devolucion-402")})`);
+    ok((await texto(p, "#cancelacion-motivo-402")) === "Motivo de la cancelación A petición tuya", `CANDIS1: «Lo has pedido tú» lo lee el cliente como «A petición tuya» (sin repetir «Cancelado» del título) (${await texto(p, "#cancelacion-motivo-402")})`);
+    ok(/^Reembolso Estamos tramitando la devolución de 55,00\s?€ por el mismo medio de pago$/.test(await texto(p, "#cancelacion-devolucion-402")), `CANDIS1: reembolso en curso (${await texto(p, "#cancelacion-devolucion-402")})`);
     ok((await cuantos(p, "#cancelado-recomprar-402")) === 1 && (await texto(p, "#cancelado-recomprar-402")) === "Volver a comprar", "CANDIS1: el mando sigue a la venta: «Volver a comprar»");
     ok((await cuantos(p, "#cancelacion-aviso-402")) === 0, "CANDIS1: con otro motivo, sin «Avisarme cuando haya otro»");
     // Caso 3: antiguo, sin pagar y sin motivo.
     ok((await texto(p, "#cancelado-fecha-403")) === "Pedido cancelado", `CANDIS1: sin hora de cancelación, «Pedido cancelado» (${await texto(p, "#cancelado-fecha-403")})`);
     ok((await cuantos(p, "#cancelacion-motivo-403")) === 0 && !/Motivo/.test(await texto(p, "#cancelacion-pedido-403")), "CANDIS1: sin motivo guardado, sin bloque «Motivo» (nada de texto genérico)");
-    ok((await texto(p, "#cancelacion-devolucion-403")) === "Pago No se te ha cobrado nada", `CANDIS1: sin cobro, «Pago · No se te ha cobrado nada» (${await texto(p, "#cancelacion-devolucion-403")})`);
+    ok((await texto(p, "#cancelacion-devolucion-403")) === "Pago No se ha realizado ningún cargo", `CANDIS1: sin cobro, «Pago · No se ha realizado ningún cargo» (${await texto(p, "#cancelacion-devolucion-403")})`);
     ok((await texto(p, "#paso-403-cancelado")) === "Cancelado" && (await cuantos(p, "#paso-403-cancelado-fecha")) === 0, "CANDIS1: sin hora conocida, el paso sin fecha (nunca inventada)");
     ok((await cuantos(p, "#cancelado-recomprar-403")) === 0 && (await cuantos(p, "#cancelado-parecidos-403")) === 1, "CANDIS1: sin artículo de la tienda, sin «Volver a comprar»");
     // Klarna.
-    ok(/a tu cuenta de Klarna Klarna actualizará tus plazos\.$/.test(await texto(p, "#cancelacion-devolucion-405")), `CANDIS1: con Klarna, «Klarna actualizará tus plazos» (${await texto(p, "#cancelacion-devolucion-405")})`);
+    ok(new RegExp(`a tu cuenta de Klarna el ${larga(T.devuelto)} Klarna actualizará tus plazos de pago\\.$`).test(await texto(p, "#cancelacion-devolucion-405")), `CANDIS1: con Klarna, «Klarna actualizará tus plazos de pago» (${await texto(p, "#cancelacion-devolucion-405")})`);
+    // Textos de gran tienda: nada de los coloquiales de antes.
+    const todoCancelados = await texto(p, "#cancelacion-pedido-401") + " " + (await texto(p, "#cancelacion-pedido-402")) + " " + (await texto(p, "#cancelacion-pedido-403"));
+    ok(!/cobrado nada|devueltos el|En curso:|Lo has pedido tú|se encuentra disponible|en verse/.test(todoCancelados), `CANDIS1: sin los textos de antes (${todoCancelados.slice(0, 120)}…)`);
+    // El enlace del número de seguimiento: al final de la pestaña (debajo de las reparaciones), no arriba.
+    const enlace = await p.evaluate(() => {
+      const a = document.getElementById("seguimiento-anadir-abrir")?.getBoundingClientRect();
+      const ultimo = [...document.querySelectorAll('[id^="cancelacion-pedido-"], [id^="seguimiento-pedido-"]')].map((e) => e.getBoundingClientRect().bottom);
+      const rep = [...document.querySelectorAll("div")].find((d) => /^Reparaciones y Mantenimientos/.test(d.innerText.trim()) && !d.querySelector("div"))?.getBoundingClientRect().top ?? 9999;
+      return { hay: !!a, alto: Math.round(a?.height ?? 0), debajo: !!a && a.top > Math.max(...ultimo) && a.top > rep, texto: (document.getElementById("seguimiento-anadir-abrir")?.innerText ?? "").replace(/\s+/g, " ").trim() };
+    });
+    ok(enlace.hay && enlace.debajo && enlace.alto >= 44 && enlace.texto === "¿Tienes un número de seguimiento de un pedido o una reparación? Añádelo aquí", `CANDIS1: «¿Tienes un número de seguimiento…? Añádelo aquí» al final, de 44 px (${JSON.stringify(enlace)})`);
+    ok(!/Te hemos dado/.test(await p.evaluate(() => document.body.innerText)), "CANDIS1: ya no sale «¿Te hemos dado un número de seguimiento?»");
     // El pedido en curso sigue igual, sin tarjeta.
     ok((await cuantos(p, "#cancelacion-pedido-404")) === 0 && (await cuantos(p, "#pasos-pedido-404")) === 1, "CANDIS1: el pedido en curso, sin tarjeta de cancelado");
     const altos = await Promise.all(["#cancelado-parecidos-401", "#cancelado-parecidos-402", "#cancelado-recomprar-402", "#cancelado-ayuda-402"].map((x) => alto(p, x)));
@@ -20565,6 +20677,14 @@ async function seccionCANDIS() {
       await capturar(p, `CANDIS3-cancelado-${nombre}`);
       await p.locator("#cancelacion-pedido-402").scrollIntoViewIfNeeded().catch(() => {});
       await capturar(p, `CANDIS3-cancelado-recomprar-${nombre}`);
+      // El final de la pestaña: la línea discreta del número de seguimiento, dentro de la pantalla y de 44 px.
+      const enl = await p.evaluate(() => {
+        const a = document.getElementById("seguimiento-anadir-abrir")?.getBoundingClientRect();
+        return a ? { alto: Math.round(a.height), dentro: a.left >= 0 && a.right <= window.innerWidth + 1, letra: Math.min(...[...document.querySelectorAll("#seguimiento-anadir-abrir *")].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())).map((e) => parseFloat(getComputedStyle(e).fontSize))) } : null;
+      });
+      ok(!!enl && enl.alto >= 44 && enl.dentro && enl.letra >= 13, `CANDIS3 (${nombre}): el enlace del número de seguimiento al final, de 44 px y sin salirse (${JSON.stringify(enl)})`);
+      await p.locator("#seguimiento-anadir-abrir").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `CANDIS3-final-seguimiento-${nombre}`);
       // Control: algo puesto a propósito que debe fallar, falla.
       // (una letra de 10 px y un bloque de 2000 px dentro de una tarjeta, y otro en la página para ensancharla)
       await p.evaluate(() => {
@@ -20599,7 +20719,7 @@ async function seccionCANDIS() {
     await p.locator("#cancelacion-pedido-403").waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(600);
     ok((await cuantos(p, '[id^="cancelacion-pedido-"]')) === 4 && (await cuantos(p, '[id^="cancelacion-motivo-"]')) === 0, `CANDIS4: las tarjetas salen sin el bloque «Motivo» (no hay motivo que enseñar)`);
-    ok(/^Reembolso En curso/.test(await texto(p, "#cancelacion-devolucion-401")), `CANDIS4: sin la hora de la devolución, «en curso» (${await texto(p, "#cancelacion-devolucion-401")})`);
+    ok(/^Reembolso Estamos tramitando la devolución/.test(await texto(p, "#cancelacion-devolucion-401")), `CANDIS4: sin la hora de la devolución, «Estamos tramitando la devolución» (${await texto(p, "#cancelacion-devolucion-401")})`);
     ok(p.errores.length === 0, `CANDIS4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   });
@@ -22690,7 +22810,8 @@ async function seccionPEDRED() {
 
       // PEDRED3) Pastillas con su recuento.
       const pastillas = await p.evaluate(() => [...document.querySelectorAll('#pedidos-filtros [role="button"]')].map((e) => e.innerText.replace(/[-]/g, "").replace(/\s+/g, " ").trim()));
-      const esperado = ["Todos (8)", "Por pagar (2)", "Pagados (5)", "Por preparar (2)", "Reparto de hoy (1)", "Enviados (1)", "Cancelados (1)", "Doble venta (1)", "Más filtros"];
+      // «Cancelados sin motivo (1)»: el cancelado de estos datos no tiene motivo guardado (dueño, 2026-11-16).
+      const esperado = ["Todos (8)", "Por pagar (2)", "Pagados (5)", "Por preparar (2)", "Reparto de hoy (1)", "Enviados (1)", "Cancelados (1)", "Cancelados sin motivo (1)", "Doble venta (1)", "Más filtros"];
       ok(JSON.stringify(pastillas) === JSON.stringify(esperado), `PEDRED (${nombre}): pastillas con su recuento (${pastillas.join(" · ")})`);
       const altos = await p.evaluate(() => [...document.querySelectorAll('#pedidos-filtros [role="button"]')].map((e) => Math.round(e.getBoundingClientRect().height)));
       ok(altos.every((h) => h >= 44), `PEDRED (${nombre}): las pastillas miden 44 px (${altos.join(", ")})`);
@@ -23087,7 +23208,7 @@ try {
     await p.getByText("Reparaciones y Mantenimientos").waitFor({ timeout: 8000 }).catch(() => {});
     ok(await enSeguimientos(), "C: deslizar el dedo hacia la izquierda abre «Mis seguimientos»");
     ok(
-      (await p.getByText("No tienes ninguna Reparación o Mantenimiento en curso. Solicita un servicio con tu sesión iniciada y verás aquí el estado actual.").count()) === 1,
+      (await p.getByText("No tienes ninguna reparación ni mantenimiento en curso. Solicita un servicio con tu sesión iniciada y podrás seguir aquí su estado.").count()) === 1,
       "C: con el título «Reparaciones y Mantenimientos» y su texto nuevo"
     );
     await capturar(p, "C2-mis-seguimientos-deslizando");

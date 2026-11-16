@@ -273,10 +273,24 @@ export function precioReferenciaAviso(a: Pick<AvisoPrecio, "precio_inicial" | "p
 // la app cuando entra otro parecido. El correo aún no se manda (la tienda no tiene envío de correos propio): mientras
 // tanto Blue también avisa en la app a quien eligió «Por correo», y Administración lo dice.
 
-/** Motivos de cancelación que elige el administrador (app/admin/pedidos.tsx). El primero, por defecto, ofrece el aviso. */
+/** Motivos de cancelación que elige el administrador (app/admin/pedidos.tsx; obligatorio al cancelar desde 2026-11-16).
+ * El primero ofrece el aviso. Se guardan TAL CUAL (el disparador de avisos_reposicion compara el primero). */
 export const MOTIVO_NO_DISPONIBLE = "El artículo ya no se encuentra disponible";
 export const MOTIVOS_CANCELACION = [MOTIVO_NO_DISPONIBLE, "No hemos podido confirmar el pago", "Lo has pedido tú"] as const;
 export const MOTIVO_MAX = 200;
+
+// Cómo lee el cliente cada motivo en Mis pedidos (dueño, 2026-11-16: «que suene profesional, como una gran tienda»), sin
+// cambiar lo guardado. «Otro motivo» (lo escribe el administrador) sale tal cual.
+const MOTIVO_CLIENTE: Record<string, string> = {
+  [MOTIVO_NO_DISPONIBLE]: "El artículo ya no está disponible",
+  "No hemos podido confirmar el pago": "No hemos podido confirmar el pago",
+  "Lo has pedido tú": "A petición tuya",
+};
+export function motivoParaCliente(motivo: string | null | undefined): string | null {
+  const m = (motivo ?? "").trim();
+  if (!m) return null;
+  return MOTIVO_CLIENTE[m] ?? m;
+}
 
 export type CanalReposicion = "app" | "correo" | "ambas";
 export const CANALES_REPOSICION: { valor: CanalReposicion; texto: string; icono: "phone-portrait-outline" | "mail-outline" | "layers-outline" }[] = [
