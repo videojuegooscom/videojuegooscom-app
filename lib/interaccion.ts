@@ -17,6 +17,8 @@
  *
  * - «Avísame si baja de precio» (2026-11-14): misAvisosPrecio, fijarAvisoPrecio y marcarBajadaAvisada sobre la tabla
  *   avisos_precio (con la sesión del cliente; solo con cuenta).
+ * - «Avisarme cuando haya otro» (2026-11-16): motivos de cancelación, misAvisosReposicion, fijarAvisoReposicion y
+ *   marcarReposicionAvisada sobre la tabla avisos_reposicion (pedido cancelado porque el artículo ya no está disponible).
  *
  * Conectado con: app/producto/[id].tsx (visitas, «me gusta» y aviso de precio), app/servicio/[id].tsx (visitas y «me
  * gusta»), app/(tabs)/perfil.tsx (pestaña «Me gusta» y sus avisos de precio), components/Campanita.tsx (Blue avisa de las
@@ -262,4 +264,124 @@ export async function marcarBajadaAvisada(productId: string, precio: number): Pr
 /** El precio a partir del cual hay bajada: el más bajo entre el de activarlo y el último avisado. */
 export function precioReferenciaAviso(a: Pick<AvisoPrecio, "precio_inicial" | "precio_avisado">): number {
   return a.precio_avisado !== null && a.precio_avisado > 0 ? Math.min(a.precio_inicial, a.precio_avisado) : a.precio_inicial;
+}
+
+// --- «Avisarme cuando haya otro» (dueño, 2026-11-16; migración 20261116100000_cancelacion_motivo_aviso.sql) ----------
+// Un pedido cancelado porque «El artículo ya no se encuentra disponible» ofrece en Mis pedidos (app/(tabs)/perfil.tsx) un
+// interruptor y el canal (en la app, por correo o las dos). Se guarda en avisos_reposicion (RLS: solo las suyas; se apaga,
+// no se borra) con el modelo del artículo (textoReposicion: «Xbox Series S») y Blue (components/Campanita.tsx) avisa en
+// la app cuando entra otro parecido. El correo aún no se manda (la tienda no tiene envío de correos propio): mientras
+// tanto Blue también avisa en la app a quien eligió «Por correo», y Administración lo dice.
+
+/** Motivos de cancelación que elige el administrador (app/admin/pedidos.tsx). El primero, por defecto, ofrece el aviso. */
+export const MOTIVO_NO_DISPONIBLE = "El artículo ya no se encuentra disponible";
+export const MOTIVOS_CANCELACION = [MOTIVO_NO_DISPONIBLE, "No hemos podido confirmar el pago", "Lo has pedido tú"] as const;
+export const MOTIVO_MAX = 200;
+
+export type CanalReposicion = "app" | "correo" | "ambas";
+export const CANALES_REPOSICION: { valor: CanalReposicion; texto: string; icono: "phone-portrait-outline" | "mail-outline" | "layers-outline" }[] = [
+  { valor: "app", texto: "En la app", icono: "phone-portrait-outline" },
+  { valor: "correo", texto: "Por correo", icono: "mail-outline" },
+  { valor: "ambas", texto: "Las dos", icono: "layers-outline" },
+];
+
+export type AvisoReposicion = {
+  id: string;
+  pedido_id: string;
+  product_id: string | null;
+  texto: string;
+  canal: CanalReposicion;
+  activo: boolean;
+  activado_en: string;
+  avisado_en: string | null;
+};
+const COLUMNAS_REPOSICION = "id,pedido_id,product_id,texto,canal,activo,activado_en,avisado_en";
+let sinAvisosReposicion = false;
+const oyentesReposicion = new Set<() => void>();
+
+/** Quien escucha cambios (Blue relee sus avisos al encender, apagar o cambiar uno). Devuelve cómo dejar de escuchar. */
+export function alCambiarAvisosReposicion(f: () => void): () => void {
+  oyentesReposicion.add(f);
+  return () => {
+    oyentesReposicion.delete(f);
+  };
+}
+
+/**
+ * El modelo del artículo para buscar otro parecido: las palabras antes de la capacidad, el color tras un guion o un
+ * paréntesis, como mucho 3 («Xbox Series S 512GB Blanca» → «Xbox Series S»; «iPhone 13 128GB» → «iPhone 13»).
+ */
+export function textoReposicion(titulo: string): string {
+  const corte = titulo.split(/\s[-–·|(,/]\s?|[(,|]/)[0] ?? titulo;
+  const palabras: string[] = [];
+  for (const w of corte.replace(/\s+/g, " ").trim().split(" ")) {
+    if (/^\d+([.,]\d+)?\s?(gb|tb|mb|go|to)$/i.test(w)) break;
+    if (w) palabras.push(w);
+    if (palabras.length >= 3) break;
+  }
+  const t = palabras.join(" ").slice(0, 60).trim();
+  return t.length >= 2 ? t : titulo.replace(/\s+/g, " ").trim().slice(0, 60);
+}
+
+/** Los avisos de reposición del cliente con sesión (todos o los de esos pedidos). null sin sesión, sin la tabla o si falla. */
+export async function misAvisosReposicion(pedidoIds?: string[]): Promise<AvisoReposicion[] | null> {
+  if (sinAvisosReposicion) return null;
+  try {
+    const { data: s } = await supabase.auth.getSession();
+    const uid = s.session?.user?.id;
+    if (!uid) return null;
+    let q = supabase.from("avisos_reposicion").select(COLUMNAS_REPOSICION).eq("user_id", uid);
+    if (pedidoIds) {
+      if (!pedidoIds.length) return [];
+      q = q.in("pedido_id", pedidoIds);
+    }
+    const { data, error } = await q.order("creado_en", { ascending: false }).limit(50);
+    if (error) {
+      if (esFaltaTabla(error)) sinAvisosReposicion = true;
+      return null;
+    }
+    return (data ?? []) as AvisoReposicion[];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Enciende (con su canal) o apaga el aviso de un pedido cancelado. La primera vez crea la fila; después la cambia. Devuelve
+ * la fila guardada o "sin_sesion" / "error".
+ */
+export async function fijarAvisoReposicion(
+  pedido: { pedidoId: string; productId: string | null; titulo: string },
+  cambios: { activo: boolean; canal: CanalReposicion },
+  existente: AvisoReposicion | null
+): Promise<AvisoReposicion | "sin_sesion" | "error"> {
+  try {
+    const { data: s } = await supabase.auth.getSession();
+    const uid = s.session?.user?.id;
+    if (!uid) return "sin_sesion";
+    const res = existente
+      ? await supabase.from("avisos_reposicion").update({ activo: cambios.activo, canal: cambios.canal }).eq("id", existente.id).select(COLUMNAS_REPOSICION).single()
+      : await supabase
+          .from("avisos_reposicion")
+          .insert({ pedido_id: pedido.pedidoId, product_id: pedido.productId, texto: textoReposicion(pedido.titulo), canal: cambios.canal })
+          .select(COLUMNAS_REPOSICION)
+          .single();
+    if (res.error || !res.data) {
+      if (esFaltaTabla(res.error)) sinAvisosReposicion = true;
+      return "error";
+    }
+    oyentesReposicion.forEach((f) => f());
+    return res.data as AvisoReposicion;
+  } catch {
+    return "error";
+  }
+}
+
+/** Blue ya avisó de este aviso (el cliente lo ha tocado): no se repite en ningún dispositivo. */
+export async function marcarReposicionAvisada(id: string): Promise<void> {
+  try {
+    await supabase.from("avisos_reposicion").update({ avisado_en: new Date().toISOString() }).eq("id", id);
+  } catch {
+    // sin red: se volverá a avisar, no pasa nada
+  }
 }

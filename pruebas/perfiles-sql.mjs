@@ -140,6 +140,13 @@
  *    crecientes; cada cliente ve solo sus reservas y nadie las escribe desde el navegador; una activa por artículo; otro
  *    cliente no compra un artículo reservado (quien lo reservó y el administrador, sí); disparadores sin security definer;
  *    se aplica dos veces (con su «prueba de la prueba»).
+ *  - Motivo de la cancelación y «Avisarme cuando haya otro» (20261116100000_cancelacion_motivo_aviso.sql): motivo ≤ 200
+ *    que pone el administrador (el cliente lo lee y no lo cambia) y hora de la cancelación de la base de datos;
+ *    avisos_reposicion solo de pedidos propios cancelados porque el artículo ya no está disponible, de quien la crea, una
+ *    por pedido, canal app|correo|ambas, cada cliente solo las suyas (el administrador todas), nadie borra, el cliente solo
+ *    cambia canal y activo (encenderla de nuevo la rearma); disparadores sin security definer; la privacidad una vez; se
+ *    aplica dos veces (con su «prueba de la prueba»: con las reglas rotas, un cliente ve las de otro o pide aviso de un
+ *    pedido en curso).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -3796,6 +3803,107 @@ try {
     const xr = (await cVp2.query(`select vendido_en from public.products where id = '${XBOX}'`)).rows[0];
     ok(rotaVp !== VENDP && xr.vendido_en !== null, "(control) sin la condición del pedido pagado y sin cancelar, el arreglo marcaría la Xbox: la prueba SÍ lo detecta");
     await cVp2.end();
+  }
+
+  // Motivo de la cancelación y «Avisarme cuando haya otro» (20261116100000_cancelacion_motivo_aviso.sql, dueño 2026-11-16):
+  // el motivo con su comprobación (como mucho 200) y la hora de la cancelación que pone la base de datos; avisos_reposicion:
+  // solo pedidos PROPIOS cancelados porque el artículo ya no está disponible, de quien la crea, una por pedido, canal
+  // app|correo|ambas; cada cliente solo las suyas (el administrador, todas); nadie borra; el cliente solo cambia canal,
+  // activo y avisado; la privacidad lo dice una vez. Con su «prueba de la prueba».
+  {
+    const CANC = readFileSync("supabase/migrations/20261116100000_cancelacion_motivo_aviso.sql", "utf8");
+    const MOT = "El artículo ya no se encuentra disponible";
+    const PA = "91919191-9191-4919-8919-919191919191"; // de U1, cancelado por artículo no disponible
+    const PB = "92929292-9292-4929-8929-929292929292"; // de U1, cancelado por otro motivo
+    const PC = "93939393-9393-4939-8939-939393939393"; // de U2, cancelado por artículo no disponible
+    const PD = "94949494-9494-4949-8949-949494949494"; // de U1, en curso
+    const XB = "95959595-9595-4959-8959-959595959595";
+    const ESQUEMA_CA = `
+      create table public.products (id uuid primary key default gen_random_uuid(), title text not null, status text not null default 'PUBLISHED', is_active boolean not null default true);
+      insert into public.products (id, title) values ('${XB}', 'Xbox Series S 512GB');
+      create table public.pedidos (id uuid primary key default gen_random_uuid(), user_id uuid, estado text not null default 'pendiente', created_at timestamptz not null default now());
+      alter table public.pedidos enable row level security;
+      create policy pedidos_admin_select on public.pedidos for select to authenticated using ((select public.is_admin()));
+      create policy pedidos_cliente_select on public.pedidos for select to authenticated using (user_id = (select auth.uid()));
+      create policy pedidos_admin_update on public.pedidos for update to authenticated using ((select public.is_admin())) with check ((select public.is_admin()));
+      insert into public.pedidos (id, user_id) values ('${PA}', '${U1}'), ('${PB}', '${U1}'), ('${PC}', '${U2}'), ('${PD}', '${U1}');
+      create table public.policy_pages (slug text primary key, sections jsonb not null, updated_at timestamptz);
+      insert into public.policy_pages (slug, sections) values ('privacidad', '[{"heading": "Qué datos tratamos", "body": "Datos."}, {"heading": "Para qué usamos tus datos", "body": "Para gestionar tu pedido."}]');`;
+    const cCa = await nuevaBase("vz_aislada_cancelacion_aviso", ESQUEMA_CA);
+    const definerAntes = Number((await cCa.query("select count(*) as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef")).rows[0].n);
+    let repetidaCa = true;
+    try {
+      await cCa.query(CANC);
+      await cCa.query(CANC);
+    } catch (e) {
+      repetidaCa = false;
+      console.log(String(e.message));
+    }
+    const n = async (sql) => Number((await cCa.query(sql)).rows[0].n);
+    const definerDespues = await n("select count(*) as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef");
+    const politicasCa = (await cCa.query("select string_agg(policyname || ':' || cmd || ':' || roles::text, ',' order by policyname) as p from pg_policies where tablename = 'avisos_reposicion'")).rows[0].p;
+    ok(
+      repetidaCa && definerDespues === definerAntes && (await n("select count(*) as n from pg_trigger where tgname in ('pedidos_apuntar_cancelacion', 'avisos_reposicion_normalizar')")) === 2 &&
+        politicasCa === "avisos_reposicion_insert_propio:INSERT:{authenticated},avisos_reposicion_select:SELECT:{authenticated},avisos_reposicion_update_propio:UPDATE:{authenticated}",
+      `Cancelación: se aplica dos veces; dos disparadores normales (sin permisos especiales) y 3 reglas solo con sesión, sin borrar (${politicasCa}; ${definerAntes}→${definerDespues})`
+    );
+
+    // El administrador cancela con su motivo: la hora la pone la base de datos; el cliente no puede cambiar el motivo.
+    const largo = await como(cCa, "authenticated", ADMIN, `update public.pedidos set estado = 'cancelado', cancelacion_motivo = '${"x".repeat(201)}' where id = '${PA}'`);
+    ok(!largo.ok && largo.codigo === "23514", `Cancelación: el motivo como mucho 200 letras (${largo.codigo ?? "entró"})`);
+    const cancela = await como(cCa, "authenticated", ADMIN, `update public.pedidos set estado = 'cancelado', cancelacion_motivo = '${MOT}' where id in ('${PA}', '${PC}') returning cancelado_en`, { confirmar: true });
+    await como(cCa, "authenticated", ADMIN, `update public.pedidos set estado = 'cancelado', cancelacion_motivo = 'Lo has pedido tú' where id = '${PB}'`, { confirmar: true });
+    ok(cancela.ok && cancela.cuantas === 2 && cancela.filas.every((f) => f.cancelado_en && Math.abs(Date.now() - new Date(f.cancelado_en).getTime()) < 120000), "Cancelación: al cancelar, la hora la pone la base de datos");
+    const clienteMotivo = await como(cCa, "authenticated", U1, `update public.pedidos set cancelacion_motivo = 'otro' where id = '${PA}'`, { confirmar: true });
+    const leeMotivo = await como(cCa, "authenticated", U1, `select cancelacion_motivo from public.pedidos where id = '${PA}'`);
+    ok(clienteMotivo.cuantas === 0 && leeMotivo.ok && leeMotivo.filas[0]?.cancelacion_motivo === MOT, "Cancelación: el cliente lee su motivo y no puede cambiarlo");
+
+    // Avisos de reposición.
+    const crea = await como(cCa, "authenticated", U1, `insert into public.avisos_reposicion (pedido_id, product_id, texto, canal, user_id, activo, avisado_en) values ('${PA}', '${XB}', ' Xbox Series S ', 'ambas', '${U2}', false, now()) returning user_id, texto, canal, activo, avisado_en`, { confirmar: true });
+    ok(crea.ok && crea.filas[0].user_id === U1 && crea.filas[0].texto === "Xbox Series S" && crea.filas[0].canal === "ambas" && crea.filas[0].activo === true && crea.filas[0].avisado_en === null, `Reposición: la fila es de quien la crea, encendida y sin avisar (${JSON.stringify(crea.filas ?? crea.mensaje)})`);
+    const repe = await como(cCa, "authenticated", U1, `insert into public.avisos_reposicion (pedido_id, texto) values ('${PA}', 'Xbox Series S')`);
+    ok(!repe.ok && repe.codigo === "23505", `Reposición: una por pedido (${repe.codigo})`);
+    const otroMotivo = await como(cCa, "authenticated", U1, `insert into public.avisos_reposicion (pedido_id, texto) values ('${PB}', 'Mando')`);
+    const enCurso = await como(cCa, "authenticated", U1, `insert into public.avisos_reposicion (pedido_id, texto) values ('${PD}', 'Mando')`);
+    const ajenoPed = await como(cCa, "authenticated", U1, `insert into public.avisos_reposicion (pedido_id, texto) values ('${PC}', 'Xbox')`);
+    const anon = await como(cCa, "anon", null, `insert into public.avisos_reposicion (pedido_id, texto) values ('${PA}', 'Xbox')`);
+    const canalMalo = await como(cCa, "authenticated", U2, `insert into public.avisos_reposicion (pedido_id, texto, canal) values ('${PC}', 'Xbox', 'sms')`);
+    ok(!otroMotivo.ok && !enCurso.ok && !ajenoPed.ok && !anon.ok && !canalMalo.ok, `Reposición: ni con otro motivo, ni en curso, ni de otro, ni sin cuenta, ni con un canal raro (${[otroMotivo, enCurso, ajenoPed, anon, canalMalo].map((x) => x.codigo).join(", ")})`);
+    await como(cCa, "authenticated", U2, `insert into public.avisos_reposicion (pedido_id, texto) values ('${PC}', 'Xbox')`, { confirmar: true });
+    const verU1 = await como(cCa, "authenticated", U1, "select user_id from public.avisos_reposicion");
+    const verAdmin = await como(cCa, "authenticated", ADMIN, "select count(*)::int as n from public.avisos_reposicion");
+    const verAnon = await como(cCa, "anon", null, "select user_id from public.avisos_reposicion");
+    ok(verU1.ok && verU1.filas.length === 1 && verU1.filas[0].user_id === U1, `Reposición: un cliente solo ve las suyas (${verU1.filas?.length})`);
+    ok(verAdmin.ok && verAdmin.filas[0]?.n === 2, "Reposición: el administrador las ve todas");
+    ok(!verAnon.ok || verAnon.filas.length === 0, "Reposición: un visitante no ve ninguna");
+    const ajeno = await como(cCa, "authenticated", U2, `update public.avisos_reposicion set canal = 'app' where user_id = '${U1}'`, { confirmar: true });
+    const borra = await como(cCa, "authenticated", U1, "delete from public.avisos_reposicion", { confirmar: true });
+    ok(ajeno.cuantas === 0 && borra.ok && borra.cuantas === 0, "Reposición: nadie cambia las de otro ni borra desde el navegador (se apagan)");
+    const propio = await como(cCa, "authenticated", U1, `update public.avisos_reposicion set canal = 'correo', activo = false, texto = 'PS5', pedido_id = '${PB}' returning canal, activo, texto, pedido_id`, { confirmar: true });
+    ok(propio.ok && propio.filas[0].canal === "correo" && propio.filas[0].activo === false && propio.filas[0].texto === "Xbox Series S" && propio.filas[0].pedido_id === PA, `Reposición: el cliente solo cambia el canal y si está activo (${JSON.stringify(propio.filas ?? propio.mensaje)})`);
+    await como(cCa, "authenticated", U1, "update public.avisos_reposicion set avisado_en = now()", { confirmar: true });
+    const reactiva = await como(cCa, "authenticated", U1, "update public.avisos_reposicion set activo = true returning activo, avisado_en, activado_en > creado_en as rearmado", { confirmar: true });
+    ok(reactiva.ok && reactiva.filas[0].activo === true && reactiva.filas[0].avisado_en === null, `Reposición: encenderlo otra vez lo vuelve a armar (${JSON.stringify(reactiva.filas ?? reactiva.mensaje)})`);
+    const priv = (await cCa.query("select sections::text as t from public.policy_pages where slug = 'privacidad'")).rows[0].t;
+    ok((priv.match(/Avisarme cuando haya otro/g) ?? []).length === 1, "Reposición: la privacidad lo dice una sola vez");
+    const textoMig = CANC.replace(/^--.*$/gm, "").toLowerCase();
+    ok(!/\b(drop\s|delete\s+from|truncate|grant\b|revoke\b|security\s+definer|to\s+(anon|public)\b|using\s*\(\s*true\s*\)|auth\.(users|identities|sessions|refresh_tokens))/.test(textoMig), "Cancelación: la migración no borra ni toca permisos delicados (nada que bloquee el guardián)");
+    await cCa.end();
+
+    // PRUEBA DE LA PRUEBA: con la regla de lectura abierta, un cliente vería los avisos de otro; sin la comprobación del
+    // pedido en el disparador, podría pedir aviso de un pedido en curso.
+    const abierta = CANC.replace("using (user_id = (select auth.uid()) or (select public.is_admin()));", "using (true);");
+    const sinPedido = CANC.replace("and p.cancelacion_motivo = 'El artículo ya no se encuentra disponible'", "").replace("and p.estado = 'cancelado'", "");
+    ok(abierta !== CANC && sinPedido !== CANC, "(control) se han podido romper las reglas en la copia de prueba");
+    const cCa2 = await nuevaBase("vz_aislada_cancelacion_aviso_rota", ESQUEMA_CA + abierta);
+    await cCa2.query(`update public.pedidos set estado = 'cancelado', cancelacion_motivo = '${MOT}' where id = '${PC}'`);
+    await como(cCa2, "authenticated", U2, `insert into public.avisos_reposicion (pedido_id, texto) values ('${PC}', 'Xbox')`, { confirmar: true });
+    const fuga = await como(cCa2, "authenticated", U1, "select user_id from public.avisos_reposicion");
+    await cCa2.end();
+    const cCa3 = await nuevaBase("vz_aislada_cancelacion_aviso_sin_pedido", ESQUEMA_CA + sinPedido);
+    const cuela = await como(cCa3, "authenticated", U1, `insert into public.avisos_reposicion (pedido_id, texto) values ('${PD}', 'Mando')`);
+    await cCa3.end();
+    ok(fuga.filas?.length === 1 && cuela.ok, `(control) con las reglas rotas, un cliente ve avisos de otro y pide aviso de un pedido en curso: la prueba SÍ lo detecta (${fuga.filas?.length ?? fuga.mensaje}, ${cuela.ok})`);
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
