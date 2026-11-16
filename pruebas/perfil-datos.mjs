@@ -16436,7 +16436,9 @@ async function seccionCOMPA() {
     const p = await abrirComparar(ctx, [ID(1), ID(4)]);
     await p.waitForTimeout(800);
     const e = await texto(p, "#comparar-entrega-todos");
-    ok(/^Llega (hoy|mañana, lunes)$/.test(e) && /Código postal 50001 \(de tu perfil\)/.test(await texto(p, "#comparar-fila-entrega")), `COMPA: con el código postal del perfil, la entrega de Zaragoza (${e})`);
+    // Con las franjas de reparto (PR #273) el texto depende de la hora: «Llega hoy entre las 17:15 y las 19:00» o, pasada la
+    // hora de corte, «Llega mañana, martes, entre las 11:00 y las 12:45» (el domingo, «mañana, lunes»).
+    ok(/^Llega (hoy|mañana, (lunes|martes|miércoles|jueves|viernes|sábado|domingo),?)( entre las \d{2}:\d{2} y las \d{2}:\d{2})?$/.test(e) && /Código postal 50001 \(de tu perfil\)/.test(await texto(p, "#comparar-fila-entrega")), `COMPA: con el código postal del perfil, la entrega de Zaragoza (${e})`);
     ok(sinDatos(estado), "COMPA: el código postal no va a la analítica");
     await capturar(p, "COMPA4-entrega-cp-390");
     ok(p.errores.length === 0, `COMPA4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
