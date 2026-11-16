@@ -210,6 +210,12 @@
  *    A la venta, Borrador, Oculto, Reservado, Vendido (pedido VZ-…), Revisado, Peso estimado…; al tocarlas, el detalle
  *    por bloques con las acciones abajo; formularios por bloques); 360/390/1280 sin desbordar, táctiles de 44 px, letra de
  *    13 px o más, campos de 16 px y sin errores. Datos FICTICIOS. Se lanza con SOLO = PANRED2 y en la pasada completa.
+ *  - PANRED3) Tanda 3 del rediseño: Administración → Chats, Cotizaciones e Inventario con el mismo estilo (cifras que
+ *    filtran, buscador de 16 px, pastillas con su recuento, filas compactas con su etiqueta de color: Por revisar, Listo
+ *    para publicar, En reparación; Nueva, Contactada, Descartada, Cambio desde la cesta; La empezó la tienda, Vendido a
+ *    este cliente; al tocarlas, el detalle por bloques con las acciones abajo, y en Chats el hilo); 360/390/1280 sin
+ *    desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px y sin errores. Datos FICTICIOS. Se lanza con
+ *    SOLO = PANRED3 y en la pasada completa.
  *  - RESEN) Reservar con señal (mejora 14): apagada, ni la ficha ni Mis seguimientos enseñan nada; Administración no deja
  *    activar sin reglas ni sin «Revisado por mi gestor» (borrador marcado, escala 1-70 %); activa, la ficha calcula el % y
  *    los € según los días, la casilla es obligatoria y «Pagar señal» solo manda artículo y días; sin cuenta invita; «Mis
@@ -17418,13 +17424,17 @@ async function seccionCHATP() {
     ok(/Retirado/.test(t3), `CHATP (${nombre}): y el retirado, «Retirado» (${t3})`);
     const fotos = await p.evaluate((id) => document.querySelectorAll(`[id="chats-tarjeta-${id}"] img`).length, ID(1));
     ok(fotos >= 1, `CHATP (${nombre}): con su foto (${fotos})`);
-    ok((await p.getByText("Atención al cliente").count()) >= 1, `CHATP (${nombre}): con «Todas» sale también la consulta general`);
+    // (desde el rediseño PANRED3 la consulta general va en su grupo #chats-grupo-atencion, y «Atención al cliente» es
+    // también el nombre de una cifra: se mira el grupo)
+    ok((await p.locator("#chats-grupo-atencion").count()) === 1 && /Atención al cliente/.test(await texto(p, "#chats-grupo-atencion")), `CHATP (${nombre}): con «Todas» sale también la consulta general`);
     await capturar(p, `CHATP5-admin-lista-${nombre}`);
-    await p.getByRole("button", { name: "Con producto (3)" }).click();
+    ok((await texto(p, "#chats-filtro-producto")) === "Con producto (3)", `CHATP (${nombre}): la pastilla dice «Con producto (3)» (${await texto(p, "#chats-filtro-producto")})`);
+    await p.locator("#chats-filtro-producto").click();
     await p.waitForTimeout(400);
-    ok((await p.getByText("Atención al cliente").count()) === 0 && (await p.locator('[id^="chats-producto-d2000000"]').count()) === 3, `CHATP (${nombre}): el filtro «Con producto» deja solo las 3 con producto`);
+    ok((await p.locator("#chats-grupo-atencion").count()) === 0 && (await p.locator('[id^="chats-producto-d2000000"]').count()) === 3, `CHATP (${nombre}): el filtro «Con producto» deja solo las 3 con producto`);
+    // (desde PANRED3, cuatro pastillas: Todas, Con producto, Atención y Ventas)
     const chipsFiltro = await p.evaluate(() => [...document.querySelectorAll('#chats-filtro [role="button"]')].map((b) => Math.round(b.getBoundingClientRect().height)));
-    ok(chipsFiltro.length === 2 && chipsFiltro.every((h) => h >= 44), `CHATP (${nombre}): los filtros miden 44 px (${chipsFiltro.join(", ")})`);
+    ok(chipsFiltro.length === 4 && chipsFiltro.every((h) => h >= 44), `CHATP (${nombre}): los filtros miden 44 px (${chipsFiltro.join(", ")})`);
     let d = await sinDesborde(p);
     ok(d.a <= d.v + 1, `CHATP (${nombre}): la lista no se ensancha (${d.a}/${d.v})`);
     await capturar(p, `CHATP5-admin-con-producto-${nombre}`);
@@ -20391,6 +20401,328 @@ async function seccionPANRED2() {
   }
 }
 
+// ===== PANRED3) Tanda 3 del rediseño (2026-11-16): Administración → Chats, Cotizaciones (solicitudes de venta) e
+// Inventario con el estilo de Usuarios, Pedidos y las tandas 1 y 2 (components/admin/PanelUI.tsx: FilaCifras, FilaLista y
+// DetalleFila): cifras que filtran, buscador de 16 px, pastillas con su recuento, filas compactas con su etiqueta de color
+// y, al tocar una, el detalle por bloques con las acciones abajo (en Chats, el hilo); 360, 390 y 1280 sin desbordar,
+// táctiles de 44 px, letra de 13 px o más, campos de 16 px y sin errores. Datos FICTICIOS (nada llega a la base de datos
+// real). ===================================================================================================================
+async function seccionPANRED3() {
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const ahora = new Date().toISOString();
+  const hace = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+
+  // Inventario: uno de cada estado.
+  const INVENTARIO = () => [
+    { id: "i1", code: "INV-001", title: "PlayStation 4 Slim 500 GB sin mando", status: "TO_REVIEW", notes: "Falta cable de alimentación y revisar el lector.", created_at: hace(300), updated_at: hace(60) },
+    { id: "i2", code: "INV-002", title: "Mando Xbox One blanco", status: "READY_TO_LIST", notes: null, created_at: hace(200), updated_at: hace(50) },
+    { id: "i3", code: "INV-003", title: "Nintendo Switch con joystick roto", status: "IN_REPAIR", notes: "Cambiar joystick izquierdo.", created_at: hace(100), updated_at: hace(40) },
+  ];
+  // Cotizaciones: una desde la cesta (con foto), una con avería contactada y una descartada.
+  const S = (n) => `b0000000-0000-4000-8000-0000000009d${n}`;
+  const solicitud = (n, extra) => ({
+    id: S(n), created_at: hace(n * 60), updated_at: hace(n * 60), nombre: "Ana", apellido: "García", articulo: "Artículo", funciona_bien: true, motivo_venta: "Ya no la uso",
+    descripcion_problema: null, ciudad: "Zaragoza", precio_estimado: "120€", metodo_contacto: "gmail", contacto: "ana.prueba@gmail.com", opcion_venta: "entrega", direccion: null,
+    disponibilidad: "manana", mayor_edad: true, genero: "femenino", status: "nuevo", ...extra,
+  });
+  const SOLICITUDES = () => [
+    solicitud(1, { articulo: "PS4 Pro 1 TB", motivo_venta: "[Cambio desde la cesta · para comprar: Playstation 5 Slim Con Lector] Quiero cambiarlo por otro artículo de la tienda" }),
+    solicitud(2, { articulo: "Nintendo Switch OLED con pantalla rayada", nombre: "Lucía", apellido: "Marín", funciona_bien: false, motivo_venta: null, descripcion_problema: "No carga bien", ciudad: "Cuarte de Huerva", precio_estimado: "unos 90", metodo_contacto: "whatsapp", contacto: "600111222", opcion_venta: "domicilio", direccion: "Calle Mayor 1", disponibilidad: null, status: "contactado" }),
+    solicitud(3, { articulo: "Xbox 360 con dos mandos", nombre: "Pablo", apellido: "Ruiz", status: "descartado", mayor_edad: false }),
+  ];
+  const MEDIA = [{ id: "sm1", sell_request_id: S(1), kind: "image", storage_path: "panred3/ps4.jpg", file_name: "ps4.jpg", mime_type: "image/jpeg", size_bytes: 1000, duration_seconds: null, sort_order: 0, created_at: ahora }];
+  // Chats: una con producto (vendido a este cliente), una general empezada por la tienda y una venta de un cliente.
+  const CAT = { id: "c0000000-0000-4000-8000-0000000000d3", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true };
+  const PROD = "d3000000-0000-4000-8000-000000000001";
+  const PRODUCTOS = [{
+    id: PROD, title: "PlayStation 5 Slim con mando", description: "Revisada.", price_eur: 349.99, status: "PUBLISHED", is_active: true, condition: "GOOD", category_id: CAT.id,
+    category: { id: CAT.id, name: CAT.name, slug: CAT.slug }, created_at: "2026-11-01T10:00:00Z", updated_at: "2026-11-14T10:00:00Z", novedad_en: null, view_count: 3, images: [],
+    like_count: 0, reference: null, revisado: false, garantia_meses: null, solo_entrega_mano: false,
+  }];
+  const fotosCatalogo = [{ id: "cp0", product_id: PROD, kind: "image", public_url: "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/panred3/0.jpg", file_name: "0.jpg", sort_order: 0, is_cover: true, duration_seconds: null }];
+  const CH = (n) => `e1000000-0000-4000-8000-0000000004${String(n).padStart(2, "0")}`;
+  const VENTA = "d0000000-0000-4000-8000-0000000004a1";
+  const chatFila = (n, extra, min, vista) => ({ id: CH(n), created_at: hace(min + 5), product_id: null, sell_request_id: null, customer_user_id: CLIENTE.id, last_message_at: hace(min), last_message_preview: vista, last_sender_role: "customer", admin_deleted_at: null, customer_deleted_at: null, customer_last_read_at: hace(min), admin_last_read_at: hace(min), ...extra });
+  const mensaje = (n, rol, min, body) => ({ id: `mp${n}-${min}`, created_at: hace(min), chat_id: CH(n), sender_user_id: rol === "admin" ? ADMIN.id : CLIENTE.id, sender_role: rol, sender_name: rol === "admin" ? "Tienda" : "Ana", body });
+  const chatp = () => ({
+    chats: [chatFila(1, { product_id: PROD }, 5, "¿Sigue disponible?"), chatFila(2, {}, 10, "Tengo un mando que no carga"), chatFila(3, { sell_request_id: VENTA }, 15, "Os vendo mi PS4")],
+    mensajes: [mensaje(1, "customer", 5, "¿Sigue disponible?"), mensaje(2, "admin", 12, "Hola Ana, ¿qué tal va el mando?"), mensaje(2, "customer", 10, "Tengo un mando que no carga"), mensaje(3, "customer", 15, "Os vendo mi PS4")],
+    ventas: [{ product_id: PROD, buyer_user_id: CLIENTE.id }],
+    usuarios: [{ id: CLIENTE.id, full_name: "Ana García", username: "ana_g", email: CLIENTE.email }],
+  });
+
+  const limpio = (t) => String(t ?? "").replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+  const texto = async (p, sel) => limpio(await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => ""));
+  const pastillas = async (p, sel) => (await p.evaluate((s) => [...document.querySelectorAll(`${s} [role="button"]`)].map((b) => ({ t: b.innerText, h: Math.round(b.getBoundingClientRect().height) })), sel)).map((x) => ({ ...x, t: limpio(x.t) }));
+  const caja = (p, sel) => p.evaluate((s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? { y: Math.round(r.y), bottom: Math.round(r.bottom), h: Math.round(r.height), w: Math.round(r.width) } : null; }, sel);
+  const letra = (p, sel) => p.evaluate((s) => (document.querySelector(s) ? parseFloat(getComputedStyle(document.querySelector(s)).fontSize) : 0), sel);
+  const fondo = (p, sel) => p.evaluate((s) => (document.querySelector(s) ? getComputedStyle(document.querySelector(s)).backgroundColor : ""), sel);
+  const ids = (p, sel) => p.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.id), sel);
+  const alturas = (p, sel) => p.evaluate((s) => [...document.querySelectorAll(s)].map((e) => Math.round(e.getBoundingClientRect().height)), sel);
+  // Letra < 13 px, táctiles < 44 × 44 (los más externos; el «+» flotante, aparte), campos de menos de 16 px y el ancho.
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily)) continue;
+        if (parseFloat(cs.fontSize) < 13) pequenos.push(`${t.slice(0, 30)} ${cs.fontSize}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[tabindex="0"]';
+      const deBlue = (el) => !!el.closest("#blue-flotante, #blue-mensaje") || /Blue/.test(el.getAttribute("aria-label") ?? "");
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && !deBlue(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      const campos = [...document.querySelectorAll("input,textarea")].filter((el) => !["checkbox", "radio", "file", "range", "hidden"].includes(el.type) && visible(el));
+      const camposChicos = campos.filter((el) => parseFloat(getComputedStyle(el).fontSize) < 16).map((el) => `${el.id || el.placeholder || el.tagName} ${getComputedStyle(el).fontSize}`);
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, campos: campos.length, camposChicos: camposChicos.slice(0, 8), ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    });
+  // (minimo: cuántas cosas que se tocan tiene que haber como poco; el hilo del móvil a toda pantalla tiene pocas)
+  const comprobarDiseno = async (p, nombre, pantalla, momento, minimo = 5) => {
+    const m = await medir(p);
+    ok(m.ancho <= m.v + 1, `PANRED3 (${nombre}): ${pantalla}, ${momento}, la página no se sale por los lados (${m.ancho}/${m.v})`);
+    ok(m.n >= minimo && !m.chicos.length, `PANRED3 (${nombre}): ${pantalla}, ${momento}, todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+    ok(!m.pequenos.length, `PANRED3 (${nombre}): ${pantalla}, ${momento}, ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+    ok(m.campos >= 1 && !m.camposChicos.length, `PANRED3 (${nombre}): ${pantalla}, ${momento}, los campos a 16 px (${m.campos} campos; ${m.camposChicos.join(" | ") || "ninguno pequeño"})`);
+  };
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `PANRED3: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+  // Las acciones van debajo de los bloques del detalle.
+  const accionesAbajo = (p, detalle, acciones) =>
+    p.evaluate(([d, a]) => {
+      const bloques = [...(document.querySelector(d)?.children[0]?.children ?? [])].map((e) => e.getBoundingClientRect().bottom);
+      const acc = document.querySelector(a)?.getBoundingClientRect();
+      return { bloques: bloques.length ? Math.max(...bloques) : 0, acciones: acc ? acc.top : 0, alto: acc ? acc.height : 0 };
+    }, [detalle, acciones]);
+  // Los cambios (PATCH) que mandaría la pantalla, apuntados sin ir a ninguna base de datos.
+  const apuntarCambios = (ctx, tabla, lista) =>
+    ctx.route(`**/rest/v1/${tabla}*`, (r) => {
+      if (r.request().method() !== "PATCH") return r.fallback();
+      lista.push({ filtro: decodeURIComponent(new URL(r.request().url()).search), cuerpo: JSON.parse(r.request().postData() ?? "{}") });
+      return r.fulfill({ status: 204, headers: CORS, body: "" });
+    });
+
+  for (const { nombre, vista } of VISTAS) {
+    // --- Inventario ---
+    await bloque(`Inventario ${nombre}`, async () => {
+      const cambios = [];
+      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin, tablas: { inventory_items: INVENTARIO() } }, vista);
+      await apuntarCambios(ctx, "inventory_items", cambios);
+      const p = await pagina(ctx, "/admin/inventario");
+      await p.locator("#inventario-fila-i1").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const cifras = await texto(p, "#inventario-cifras");
+      ok(/3 Total/.test(cifras) && /1 Por revisar/.test(cifras) && /1 Listos/.test(cifras) && /1 En reparación/.test(cifras), `PANRED3 (${nombre}): Inventario, las cifras (${cifras})`);
+      const bb = await caja(p, "#inventario-buscar-caja");
+      ok(!!bb && bb.h >= 44 && (await letra(p, "#inventario-buscar")) >= 16, `PANRED3 (${nombre}): Inventario, el buscador de 16 px (${JSON.stringify(bb)})`);
+      const pas = await pastillas(p, "#inventario-filtros");
+      ok(pas.map((x) => x.t).join(" · ") === "Todos (3) · Por revisar (1) · Listo para publicar (1) · En reparación (1)" && pas.every((x) => x.h >= 44), `PANRED3 (${nombre}): Inventario, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      const f1 = await texto(p, "#inventario-i1");
+      const alto = (await caja(p, "#inventario-fila-i1"))?.h ?? 0;
+      ok(/INV-001 · PlayStation 4 Slim 500 GB sin mando Por revisar/.test(f1) && /Falta cable de alimentación/.test(f1) && /Actualizado:/.test(f1) && alto >= 44 && alto <= 150, `PANRED3 (${nombre}): Inventario, la fila compacta con código, título, estado, notas y fecha (${f1} · ${alto} px)`);
+      ok(/Sin notas/.test(await texto(p, "#inventario-i2")), `PANRED3 (${nombre}): Inventario, sin notas lo dice`);
+      const fondos = [await fondo(p, "#inventario-estado-i1"), await fondo(p, "#inventario-estado-i2"), await fondo(p, "#inventario-estado-i3")];
+      ok(new Set(fondos).size === 3, `PANRED3 (${nombre}): Inventario, cada estado con su color (${fondos.join(" · ")})`);
+      ok((await p.locator('[aria-label="Editar INV-001 PlayStation 4 Slim 500 GB sin mando"]').count()) === 1 && (await p.locator("#inventario-nuevo").count()) === 1, `PANRED3 (${nombre}): Inventario, el lápiz a mano en cada fila y el «+» para crear`);
+      await capturar(p, `PANRED3-${nombre}-inventario-lista`);
+      await comprobarDiseno(p, nombre, "Inventario", "la lista");
+      // Buscador (también por las notas), cifras y pastillas.
+      await p.locator("#inventario-buscar").fill("cable");
+      await p.waitForTimeout(300);
+      ok((await texto(p, "#inventario-recuento")) === "1 artículo encontrado" && JSON.stringify(await ids(p, '[id^="inventario-fila-"]')) === JSON.stringify(["inventario-fila-i1"]), `PANRED3 (${nombre}): Inventario, el buscador encuentra por las notas (${await texto(p, "#inventario-recuento")})`);
+      await p.locator("#inventario-buscar").fill("");
+      await p.locator("#inventario-cifra-IN_REPAIR").click();
+      await p.waitForTimeout(300);
+      const enReparacion = await ids(p, '[id^="inventario-fila-"]');
+      await p.locator("#inventario-cifra-IN_REPAIR").click();
+      await p.waitForTimeout(300);
+      const todos = await ids(p, '[id^="inventario-fila-"]');
+      await p.locator("#inventario-filtro-READY_TO_LIST").click();
+      await p.waitForTimeout(300);
+      const listos = await ids(p, '[id^="inventario-fila-"]');
+      ok(JSON.stringify(enReparacion) === '["inventario-fila-i3"]' && todos.length === 3 && JSON.stringify(listos) === '["inventario-fila-i2"]', `PANRED3 (${nombre}): Inventario, la cifra «En reparación» y la pastilla «Listo para publicar» filtran (${enReparacion.join(",")} · ${todos.length} · ${listos.join(",")})`);
+      await p.locator("#inventario-filtro-todos").click();
+      await p.waitForTimeout(300);
+      // Detalle por bloques y acciones abajo.
+      await p.locator("#inventario-fila-i1").click();
+      await p.waitForTimeout(400);
+      const d = await texto(p, "#inventario-detalle-i1");
+      ok((await p.locator("#inventario-fila-i1").getAttribute("aria-expanded")) === "true" && /Artículo/.test(d) && /Estado/.test(d) && /Código: INV-001/.test(d) && /Notas: Falta cable/.test(d) && /Creado:/.test(d), `PANRED3 (${nombre}): Inventario, al tocar la fila se despliega por bloques (${d.slice(0, 200)})`);
+      const orden = await accionesAbajo(p, "#inventario-detalle-i1", "#inventario-acciones-i1");
+      const acc = await alturas(p, '#inventario-acciones-i1 [role="button"]');
+      ok(orden.acciones >= orden.bloques - 1 && acc.length === 3 && acc.every((h) => h >= 44), `PANRED3 (${nombre}): Inventario, «Pasar a…» (los otros dos estados) y borrar van abajo y miden 44 px (${JSON.stringify(orden)} · ${acc.join(",")})`);
+      await p.locator("#inventario-detalle-i1").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `PANRED3-${nombre}-inventario-detalle`);
+      await comprobarDiseno(p, nombre, "Inventario", "con el detalle abierto");
+      await p.locator("#inventario-pasar-READY_TO_LIST-i1").click();
+      await p.waitForTimeout(500);
+      ok(cambios.length === 1 && JSON.stringify(cambios[0].cuerpo) === '{"status":"READY_TO_LIST"}' && /id=eq\.i1/.test(cambios[0].filtro) && (await texto(p, "#inventario-estado-i1")) === "Listo para publicar", `PANRED3 (${nombre}): Inventario, «Pasar a Listo para publicar» cambia el estado con un toque (${JSON.stringify(cambios)})`);
+      // El lápiz y el «+» abren el formulario (el «+» con el siguiente código).
+      await p.locator('[aria-label="Editar INV-002 Mando Xbox One blanco"]').click();
+      await p.waitForTimeout(500);
+      const valores = () => p.evaluate(() => [...document.querySelectorAll("input,textarea")].map((i) => i.value));
+      ok((await p.getByText("Editar artículo").count()) >= 1 && (await valores()).includes("INV-002"), `PANRED3 (${nombre}): Inventario, el lápiz abre «Editar artículo» con sus datos`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(400);
+      await p.locator("#inventario-nuevo").click();
+      await p.waitForTimeout(500);
+      ok((await p.getByText("Nuevo artículo").count()) >= 1 && (await valores()).includes("004"), `PANRED3 (${nombre}): Inventario, el «+» abre «Nuevo artículo» con el código siguiente (004)`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(300);
+      ok(p.errores.length === 0, `PANRED3 (${nombre}): Inventario sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+
+    // --- Cotizaciones (solicitudes de venta) ---
+    await bloque(`Cotizaciones ${nombre}`, async () => {
+      const cambios = [];
+      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin, tablas: { sell_requests: SOLICITUDES(), sell_request_media: MEDIA } }, vista);
+      await apuntarCambios(ctx, "sell_requests", cambios);
+      const p = await pagina(ctx, "/admin/cotizaciones");
+      await p.locator(`#cotizacion-fila-${S(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const cifras = await texto(p, "#cotizaciones-cifras");
+      ok(/3 Total/.test(cifras) && /1 Nuevas/.test(cifras) && /0 Revisadas/.test(cifras) && /1 Contactadas/.test(cifras), `PANRED3 (${nombre}): Cotizaciones, las cifras (${cifras})`);
+      const bb = await caja(p, "#cotizaciones-buscar-caja");
+      ok(!!bb && bb.h >= 44 && (await letra(p, "#cotizaciones-buscar")) >= 16, `PANRED3 (${nombre}): Cotizaciones, el buscador de 16 px`);
+      const pas = await pastillas(p, "#cotizaciones-filtros");
+      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Nuevas (1) · Revisadas (0) · Contactadas (1) · Descartadas (1) · Cambio desde la cesta (1)" && pas.every((x) => x.h >= 44), `PANRED3 (${nombre}): Cotizaciones, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      const f1 = await texto(p, `#cotizacion-${S(1)}`);
+      const alto = (await caja(p, `#cotizacion-fila-${S(1)}`))?.h ?? 0;
+      ok(/PS4 Pro 1 TB Nueva/.test(f1) && /Ana García · Zaragoza · 120,00 ?€/.test(f1) && /1 adjunto/.test(f1) && alto >= 44 && alto <= 170, `PANRED3 (${nombre}): Cotizaciones, la fila compacta con artículo, estado, cliente, ciudad, precio y adjuntos (${f1} · ${alto} px)`);
+      ok((await texto(p, `#cotizacion-cesta-${S(1)}`)) === "Cambio desde la cesta · para comprar: Playstation 5 Slim Con Lector" && !(await p.evaluate(() => document.body.innerText)).includes("[Cambio desde la cesta"), `PANRED3 (${nombre}): Cotizaciones, la etiqueta «Cambio desde la cesta» en la fila, sin la marca cruda`);
+      ok(/Presenta una avería/.test(await texto(p, `#cotizacion-${S(2)}`)) && /unos 90/.test(await texto(p, `#cotizacion-${S(2)}`)) && /Mayoría de edad sin confirmar/.test(await texto(p, `#cotizacion-${S(3)}`)), `PANRED3 (${nombre}): Cotizaciones, la avería, el precio tal cual y la mayoría de edad sin confirmar a la vista`);
+      const fondos = [await fondo(p, `#cotizacion-estado-${S(1)}`), await fondo(p, `#cotizacion-estado-${S(2)}`), await fondo(p, `#cotizacion-estado-${S(3)}`)];
+      ok(new Set(fondos).size === 3, `PANRED3 (${nombre}): Cotizaciones, cada estado con su color (${fondos.join(" · ")})`);
+      await capturar(p, `PANRED3-${nombre}-cotizaciones-lista`);
+      await comprobarDiseno(p, nombre, "Cotizaciones", "la lista");
+      await p.locator("#cotizaciones-buscar").fill("600111");
+      await p.waitForTimeout(300);
+      ok((await texto(p, "#cotizaciones-recuento")) === "1 solicitud encontrada" && JSON.stringify(await ids(p, '[id^="cotizacion-fila-"]')) === JSON.stringify([`cotizacion-fila-${S(2)}`]), `PANRED3 (${nombre}): Cotizaciones, el buscador encuentra por el contacto (${await texto(p, "#cotizaciones-recuento")})`);
+      await p.locator("#cotizaciones-buscar").fill("");
+      await p.locator("#cotizaciones-cifra-nuevo").click();
+      await p.waitForTimeout(300);
+      const nuevas = await ids(p, '[id^="cotizacion-fila-"]');
+      await p.locator("#cotizaciones-cifra-nuevo").click();
+      await p.locator("#cotizaciones-filtro-descartado").click();
+      await p.waitForTimeout(300);
+      const descartadas = await ids(p, '[id^="cotizacion-fila-"]');
+      await p.locator("#cotizaciones-filtro-todas").click();
+      await p.locator("#cotizaciones-filtro-cesta").click();
+      await p.waitForTimeout(300);
+      const cesta = await ids(p, '[id^="cotizacion-fila-"]');
+      await p.locator("#cotizaciones-filtro-cesta").click();
+      await p.waitForTimeout(300);
+      ok(JSON.stringify(nuevas) === JSON.stringify([`cotizacion-fila-${S(1)}`]) && JSON.stringify(descartadas) === JSON.stringify([`cotizacion-fila-${S(3)}`]) && JSON.stringify(cesta) === JSON.stringify([`cotizacion-fila-${S(1)}`]) && (await ids(p, '[id^="cotizacion-fila-"]')).length === 3, `PANRED3 (${nombre}): Cotizaciones, la cifra «Nuevas», la pastilla «Descartadas» y «Cambio desde la cesta» filtran (${nuevas.length}/${descartadas.length}/${cesta.length})`);
+      // Detalle por bloques y acciones abajo.
+      await p.locator(`#cotizacion-fila-${S(1)}`).click();
+      await p.waitForTimeout(400);
+      const d = await texto(p, `#cotizacion-detalle-${S(1)}`);
+      ok((await p.locator(`#cotizacion-fila-${S(1)}`).getAttribute("aria-expanded")) === "true" && /Artículo/.test(d) && /Cliente/.test(d) && /Entrega/.test(d) && /Funciona bien/.test(d) && /Contacto \(Gmail\): ana\.prueba@gmail\.com/.test(d) && /Género: Femenino/.test(d) && /Disponibilidad: Mañana/.test(d) && /Fotos y vídeo adjuntos \(1\)/.test(d) && /Descargar foto 1/.test(d) && /Por qué lo vende: Quiero cambiarlo/.test(d), `PANRED3 (${nombre}): Cotizaciones, al tocar la fila se despliega por bloques (${d.slice(0, 260)})`);
+      const orden = await accionesAbajo(p, `#cotizacion-detalle-${S(1)}`, `#cotizacion-acciones-${S(1)}`);
+      const acc = await alturas(p, `#cotizacion-acciones-${S(1)} [role="button"]`);
+      ok(orden.acciones >= orden.bloques - 1 && acc.length === 4 && acc.every((h) => h >= 44), `PANRED3 (${nombre}): Cotizaciones, Marcar revisada, Marcar contactada, Descartar y borrar van abajo y miden 44 px (${JSON.stringify(orden)} · ${acc.join(",")})`);
+      await p.locator(`#cotizacion-detalle-${S(1)}`).scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `PANRED3-${nombre}-cotizaciones-detalle`);
+      await comprobarDiseno(p, nombre, "Cotizaciones", "con el detalle abierto");
+      await p.locator(`#cotizacion-fila-${S(2)}`).click();
+      await p.waitForTimeout(300);
+      const d2 = await texto(p, `#cotizacion-detalle-${S(2)}`);
+      ok(/Presenta una avería/.test(d2) && /Qué le pasa: No carga bien/.test(d2) && /Recogida en domicilio: Calle Mayor 1/.test(d2) && /Contacto \(WhatsApp\): 600111222/.test(d2) && (await p.locator(`#cotizacion-contactada-${S(2)}`).count()) === 0, `PANRED3 (${nombre}): Cotizaciones, la de avería dice qué le pasa, la recogida y no ofrece «Marcar contactada» otra vez (${d2.slice(0, 200)})`);
+      await p.locator(`#cotizacion-revisada-${S(1)}`).click();
+      await p.waitForTimeout(500);
+      ok(cambios.length === 1 && JSON.stringify(cambios[0].cuerpo) === '{"status":"revisado"}' && cambios[0].filtro.includes(S(1)) && (await texto(p, `#cotizacion-estado-${S(1)}`)) === "Revisada", `PANRED3 (${nombre}): Cotizaciones, «Marcar revisada» cambia el estado (${JSON.stringify(cambios)})`);
+      ok(p.errores.length === 0, `PANRED3 (${nombre}): Cotizaciones sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+
+    // --- Chats ---
+    await bloque(`Chats ${nombre}`, async () => {
+      const estado = { filas: perfilAdmin, guardados: [], categorias: [CAT], catalogoFB: PRODUCTOS, fotosCatalogo, chatp: chatp(), tablas: { sell_requests: [{ id: VENTA, articulo: "PS4 Pro 1 TB" }] } };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, "/admin/chats");
+      await p.locator(`#chat-fila-${CH(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(700);
+      const cifras = await texto(p, "#chats-cifras");
+      ok(/3 Conversaciones/.test(cifras) && /1 Con producto/.test(cifras) && /1 Atención al cliente/.test(cifras) && /1 Ventas de clientes/.test(cifras), `PANRED3 (${nombre}): Chats, las cifras (${cifras})`);
+      const bb = await caja(p, "#chats-buscar-caja");
+      ok(!!bb && bb.h >= 44 && (await letra(p, "#chats-buscar")) >= 16, `PANRED3 (${nombre}): Chats, el buscador de 16 px`);
+      const pas = await pastillas(p, "#chats-filtro");
+      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Con producto (1) · Atención (1) · Ventas (1)" && pas.every((x) => x.h >= 44), `PANRED3 (${nombre}): Chats, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      const inv = await alturas(p, '#chat-invitar-registro [role="button"]');
+      ok(/¿Te escriben por WhatsApp o Instagram\?/.test(await texto(p, "#chat-invitar-registro")) && inv.length === 2 && inv.every((h) => h >= 44), `PANRED3 (${nombre}): Chats, la invitación a registrarse sigue arriba, con copiar y WhatsApp de 44 px (${inv.join(",")})`);
+      ok(/Atención al cliente/.test(await texto(p, "#chats-grupo-atencion")) && /Vende: PS4 Pro 1 TB/.test(await texto(p, "#chats-grupo-ventas")) && /Preguntas por artículos/.test(await texto(p, "#chats-grupo-productos")) && /PlayStation 5 Slim con mando/.test(await texto(p, `[id="chats-tarjeta-${PROD}"]`)), `PANRED3 (${nombre}): Chats, los tres grupos (atención, ventas y artículos con su tarjeta)`);
+      const f2 = await texto(p, `#chat-${CH(2)}`);
+      const alto = (await caja(p, `#chat-fila-${CH(2)}`))?.h ?? 0;
+      ok(/^Ana García Tengo un mando que no carga/.test(f2) && /La empezó la tienda/.test(f2) && alto >= 44 && alto <= 110, `PANRED3 (${nombre}): Chats, la fila compacta con el cliente, su etiqueta y el último mensaje (${f2} · ${alto} px)`);
+      ok(/Vendido a este cliente/.test(await texto(p, `#chat-${CH(1)}`)) && (await fondo(p, `#chat-vendido-${CH(1)}`)) !== (await fondo(p, `#chat-empezo-${CH(2)}`)), `PANRED3 (${nombre}): Chats, «Vendido a este cliente» y «La empezó la tienda» con su color`);
+      ok((await p.locator('[aria-label="Borrar la conversación"]').count()) === 3, `PANRED3 (${nombre}): Chats, la papelera en cada fila`);
+      await capturar(p, `PANRED3-${nombre}-chats-lista`);
+      await comprobarDiseno(p, nombre, "Chats", "la lista");
+      await p.locator("#chats-buscar").fill("ps4");
+      await p.waitForTimeout(300);
+      ok((await texto(p, "#chats-recuento")) === "1 conversación encontrada" && JSON.stringify(await ids(p, '[id^="chat-fila-"]')) === JSON.stringify([`chat-fila-${CH(3)}`]), `PANRED3 (${nombre}): Chats, el buscador encuentra por el artículo que vende (${await texto(p, "#chats-recuento")})`);
+      await p.locator("#chats-buscar").fill("");
+      await p.locator("#chats-cifra-atencion").click();
+      await p.waitForTimeout(300);
+      const atencion = await ids(p, '[id^="chat-fila-"]');
+      await p.locator("#chats-cifra-atencion").click();
+      await p.locator("#chats-filtro-ventas").click();
+      await p.waitForTimeout(300);
+      const ventas = await ids(p, '[id^="chat-fila-"]');
+      await p.locator("#chats-filtro-todas").click();
+      await p.waitForTimeout(300);
+      ok(JSON.stringify(atencion) === JSON.stringify([`chat-fila-${CH(2)}`]) && JSON.stringify(ventas) === JSON.stringify([`chat-fila-${CH(3)}`]) && (await ids(p, '[id^="chat-fila-"]')).length === 3, `PANRED3 (${nombre}): Chats, la cifra «Atención al cliente» y la pastilla «Ventas» filtran (${atencion.join(",")} · ${ventas.join(",")})`);
+      // Al tocar una fila se abre su hilo (el detalle), con «Asignar seguimiento» y quién la empezó.
+      await p.locator(`#chat-fila-${CH(2)}`).click();
+      await p.locator("#chat-asignar-seguimiento").waitFor({ timeout: 15000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      ok((await p.locator("#chat-asignar-seguimiento").count()) === 1 && /Conversación empezada por la tienda/.test(await texto(p, "#chat-empezo-tienda")) && (await p.getByText("Hola Ana, ¿qué tal va el mando?").count()) >= 1, `PANRED3 (${nombre}): Chats, al tocar la fila se abre su hilo con sus mensajes y «Asignar seguimiento»`);
+      if (nombre === "1280") {
+        ok((await fondo(p, `#chat-fila-${CH(2)}`)) !== "rgba(0, 0, 0, 0)" && (await p.locator(`#chat-fila-${CH(1)}`).count()) === 1, `PANRED3 (${nombre}): Chats, en el ordenador la lista sigue al lado y la elegida se marca (${await fondo(p, `#chat-fila-${CH(2)}`)})`);
+      } else {
+        ok((await p.getByRole("button", { name: "Volver a las conversaciones" }).count()) === 1, `PANRED3 (${nombre}): Chats, en el móvil el hilo ocupa la pantalla y se vuelve con «Volver a las conversaciones»`);
+      }
+      await capturar(p, `PANRED3-${nombre}-chats-hilo`);
+      await comprobarDiseno(p, nombre, "Chats", "con el hilo abierto", nombre === "1280" ? 5 : 3);
+      if (nombre !== "1280") {
+        await p.getByRole("button", { name: "Volver a las conversaciones" }).click();
+        await p.waitForTimeout(400);
+      }
+      // La del producto: «Ya vendido» en vez de «Marcar como vendido».
+      await p.locator(`#chat-fila-${CH(1)}`).click();
+      await p.locator("#chat-producto-tarjeta").first().waitFor({ timeout: 15000 }).catch(() => {});
+      await p.waitForTimeout(500);
+      ok((await p.getByText("Ya vendido").count()) >= 1 && (await p.getByText("Marcar como vendido").count()) === 0, `PANRED3 (${nombre}): Chats, la del producto vendido a este cliente dice «Ya vendido»`);
+      ok(p.errores.length === 0, `PANRED3 (${nombre}): Chats sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+}
+
 // ===== PEDRED) Rediseño de Administración → Pedidos (dueño, 2026-11-15: «lo veo todo muy confuso»), con el estilo de
 // Usuarios y participación: avisos plegados arriba, cifras que filtran, pastillas con su recuento y «Más filtros», filas
 // compactas con su etiqueta de estado de color, el detalle por bloques al tocar una fila, cancelados y devueltos en gris,
@@ -20628,6 +20960,7 @@ try {
   if (SOLO === "CANCAV") await seccionCANCAV();
   if (SOLO === "PANRED1") await seccionPANRED1();
   if (SOLO === "PANRED2") await seccionPANRED2();
+  if (SOLO === "PANRED3") await seccionPANRED3();
   if (SOLO === "PEDRED") await seccionPEDRED();
   if (SOLO === "VENDP") await seccionVENDP();
   if (SOLO === "FRANJ") await seccionFRANJ();
@@ -21754,6 +22087,7 @@ try {
   await seccionPEDRED();
   await seccionPANRED1();
   await seccionPANRED2();
+  await seccionPANRED3();
   await seccionCANCAV();
   }
 } catch (e) {

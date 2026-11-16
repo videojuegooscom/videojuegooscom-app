@@ -11,8 +11,9 @@
  *
  * Conectado con: app/admin/categories.tsx, app/admin/services.tsx y app/admin/envios.tsx (rediseño del 2026-11-16,
  * prueba PANRED1 de pruebas/perfil-datos.mjs) y app/admin/products.tsx, app/admin/reservas.tsx y app/admin/escaparate.tsx
- * (tanda 2, prueba PANRED2; de ella son EtiquetaFila y Miniatura). app/admin/pedidos.tsx tiene sus propias copias de las
- * mismas piezas (mismo aspecto).
+ * (tanda 2, prueba PANRED2; de ella son EtiquetaFila y Miniatura) y app/admin/chats.tsx, app/admin/cotizaciones.tsx y
+ * app/admin/inventario.tsx (tanda 3, prueba PANRED3; de ella son FilaCifras, FilaLista y DetalleFila). app/admin/pedidos.tsx
+ * tiene sus propias copias de las mismas piezas (mismo aspecto).
  */
 import React from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -412,6 +413,133 @@ export function ListaVacia({ nativeID, icono, titulo, texto }: { nativeID?: stri
       <Ionicons name={icono} size={24} color={PANEL.muted} />
       <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, textAlign: "center" }}>{titulo}</Text>
       <Text style={{ color: PANEL.muted, fontSize: TAMANOS.cuerpo, lineHeight: 21, textAlign: "center" }}>{texto}</Text>
+    </View>
+  );
+}
+
+// La fila de cifras de arriba (las tarjetas que filtran), a 8 px entre sí (tanda 3, PANRED3).
+export function FilaCifras({ nativeID, children }: { nativeID?: string; children: React.ReactNode }) {
+  return (
+    <View nativeID={nativeID} style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+      {children}
+    </View>
+  );
+}
+
+// Una fila compacta de una lista (tanda 3, PANRED3: Chats, Cotizaciones e Inventario; el mismo aspecto que las de
+// Categorías, Reservas y Productos): miniatura, título con su etiqueta de color, una línea de datos, etiquetas pequeñas y la
+// flecha. Al tocarla se despliega su detalle (`children`) o, sin `desplegable`, se elige (la conversación de Chats, que se
+// abre al lado). `derecha`: un botón de icono junto a la fila (editar, borrar), a 8 px. 4 px arriba y abajo: entre una
+// fila y la siguiente quedan 8 px sin tocar.
+export function FilaLista({
+  nativeID,
+  idFila,
+  primera,
+  abierta,
+  activa,
+  desplegable = true,
+  onPress,
+  etiquetaAccesible,
+  miniatura,
+  titulo,
+  colorTitulo,
+  etiqueta,
+  subtitulo,
+  idSubtitulo,
+  lineasSubtitulo = 2,
+  etiquetas,
+  derecha,
+  children,
+}: {
+  nativeID?: string;
+  idFila?: string;
+  primera?: boolean;
+  abierta?: boolean;
+  activa?: boolean;
+  desplegable?: boolean;
+  onPress: () => void;
+  etiquetaAccesible?: string;
+  miniatura?: React.ReactNode;
+  titulo: React.ReactNode;
+  colorTitulo?: string;
+  etiqueta?: React.ReactNode;
+  subtitulo?: React.ReactNode;
+  idSubtitulo?: string;
+  lineasSubtitulo?: number;
+  etiquetas?: React.ReactNode;
+  derecha?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  return (
+    <View nativeID={nativeID} style={{ borderTopWidth: primera ? 0 : 1, borderTopColor: PANEL.border, paddingVertical: 4 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion }}>
+        <Pressable
+          nativeID={idFila}
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityState={desplegable ? { expanded: !!abierta } : { selected: !!activa }}
+          {...(desplegable ? ({ "aria-expanded": !!abierta } as object) : null)}
+          accessibilityLabel={etiquetaAccesible}
+          style={({ pressed }) => ({
+            flex: 1,
+            minWidth: 0,
+            minHeight: TACTIL.minimo,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            paddingVertical: 8,
+            // El fondo de la elegida sobresale 8 px por la izquierda (el texto sigue alineado con el resto); por la
+            // derecha no, para dejar los 8 px con el botón de al lado.
+            paddingLeft: 8,
+            paddingRight: 4,
+            marginLeft: -8,
+            borderRadius: 12,
+            backgroundColor: activa ? PANEL.accent2 : "transparent",
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          {miniatura}
+          <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 8, rowGap: 4 }}>
+              <Text style={{ color: colorTitulo ?? PANEL.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21, flexShrink: 1 }}>{titulo}</Text>
+              {etiqueta}
+            </View>
+            {subtitulo ? (
+              <Text nativeID={idSubtitulo} numberOfLines={lineasSubtitulo} style={{ color: PANEL.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                {subtitulo}
+              </Text>
+            ) : null}
+            {etiquetas ? <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 14, rowGap: 4 }}>{etiquetas}</View> : null}
+          </View>
+          <Ionicons name={desplegable ? (abierta ? "chevron-up" : "chevron-down") : "chevron-forward"} size={18} color={PANEL.muted} />
+        </Pressable>
+        {derecha}
+      </View>
+      {abierta && children ? children : null}
+    </View>
+  );
+}
+
+// El detalle desplegado de una fila: los bloques (uno al lado de otro en el ordenador) y, debajo, las acciones.
+export function DetalleFila({
+  nativeID,
+  idAcciones,
+  acciones,
+  children,
+}: {
+  nativeID?: string;
+  idAcciones?: string;
+  acciones?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <View nativeID={nativeID} style={{ gap: 12, paddingBottom: 16 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>{children}</View>
+      {acciones ? (
+        <View nativeID={idAcciones} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 18, rowGap: TACTIL.separacion }}>
+          {acciones}
+        </View>
+      ) : null}
     </View>
   );
 }

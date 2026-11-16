@@ -37,6 +37,9 @@
  *      apunta pero queda marcado como doble venta (el primero no); crear el pago de un artículo vendido (por la web o en la
  *      tienda física) se rechaza con «Este artículo se acaba de vender» sin ir a Stripe y cierra el pago abierto; sin las
  *      columnas nuevas, el artículo sale igual de la venta. Con su control (sin apartar, sin rechazar, sin marcar).
+ *  V9-V10) El fallo del 2026-11-16 (pedido 8), con el reloj: lo que VeoAura marca vendido (sin pedido) unos segundos
+ *      DESPUÉS de hacer el pedido es la misma venta: se deja pagar, el cobro no marca doble_venta_en y el artículo queda
+ *      con el vendido_pedido_id de ese pedido; vendido ANTES de existir el pedido, sí es doble venta. Con su control.
  *  CONTROL) Sin la comprobación de Klarna o de Bizum en la privacidad, sin el reintento sin Bizum, sin la de
  *      administrador, sin la de «paid», sin la de la firma, sin la del dueño del pedido (al pagar y al pedir la
  *      referencia) o con «Pedido nº» en Stripe, las pruebas lo detectan.
@@ -666,6 +669,8 @@ const XBOX = "60f1bafb-b4af-49c5-b074-984eb6677a08";
 const MANDO = "c1000000-0000-4000-8000-000000000002";
 const FUERA = "c1000000-0000-4000-8000-000000000003"; // vendido antes en la tienda física (VeoAura), sin pedido web
 const SUELTO = "c1000000-0000-4000-8000-000000000004";
+const PS5PRO = "c1000000-0000-4000-8000-000000000008"; // el del pedido 8: VeoAura lo da por vendido tras el aviso del pedido
+const SWITCH2 = "c1000000-0000-4000-8000-000000000009"; // vendido en la tienda física antes de existir el pedido
 
 async function bateriaVendidos(manejador, { sinColumnas = false } = {}) {
   const r = {};
@@ -759,6 +764,40 @@ async function bateriaVendidos(manejador, { sinColumnas = false } = {}) {
   r.fila206 = { ...pedido(206) };
   r.suelto = { ...vend.articulos[3] };
   r.nadaBorrado = vend.articulos.length === 4 && vend.lineas.length === 7;
+  if (!sinColumnas) {
+    // V9: el fallo del 2026-11-16 (pedido 8, PS5 Pro), con el reloj: el pedido se hace (created_at), la tienda avisa a
+    // VeoAura y VeoAura devuelve «vendido» 5 s DESPUÉS (vendido_en sin pedido apuntado); luego el cliente paga y llega el
+    // cobro. Es la misma venta: se deja pagar, NO es doble venta y el artículo queda con el pedido apuntado.
+    const hecho208 = Date.now() - 60_000;
+    pedidos.push(fila(208, { total_eur: 799, codigo_seguimiento: "VZ-PS5P-0008", created_at: new Date(hecho208).toISOString() }));
+    vend.articulos.push({ id: PS5PRO, status: "PUBLISHED", is_active: false, vendido_en: new Date(hecho208 + 5_000).toISOString(), vendido_pedido_id: null });
+    vend.lineas.push(linea(208, PS5PRO));
+    r.crea208 = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 208 } });
+    const s208 = pedido(208).pago_sesion;
+    if (s208) {
+      pagarEnStripe(s208, "pi_3Ps5Pro208");
+      r.aviso208 = await avisar(s208, "evt_v9");
+      r.confirma208 = await pedir(manejador, "POST", { cuerpo: { accion: "confirmar", sesion: s208 } });
+    }
+    r.fila208 = { ...pedido(208) };
+    r.ps5pro = { ...vend.articulos.find((a) => a.id === PS5PRO) };
+    // V10: al revés, vendido ANTES de existir el pedido (en la tienda física, con el aviso de VeoAura llegando tarde,
+    // cuando el cliente ya tenía abierta la página de pago): el cobro se apunta, pero SÍ es doble venta y el artículo no
+    // se le apunta a este pedido.
+    const hecho209 = Date.now() - 60_000;
+    pedidos.push(fila(209, { total_eur: 449, created_at: new Date(hecho209).toISOString() }));
+    vend.articulos.push({ id: SWITCH2, status: "PUBLISHED", is_active: true, vendido_en: null, vendido_pedido_id: null });
+    vend.lineas.push(linea(209, SWITCH2));
+    r.crea209 = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 209 } });
+    Object.assign(vend.articulos.find((a) => a.id === SWITCH2), { is_active: false, vendido_en: new Date(hecho209 - 120_000).toISOString() });
+    const s209 = pedido(209).pago_sesion;
+    if (s209) {
+      pagarEnStripe(s209, "pi_3Switch209");
+      r.aviso209 = await avisar(s209, "evt_v10");
+    }
+    r.fila209 = { ...pedido(209) };
+    r.switch2 = { ...vend.articulos.find((a) => a.id === SWITCH2) };
+  }
   vend = null;
   return r;
 }
@@ -784,6 +823,11 @@ function comprobarVendidos(r, sinColumnas) {
   ok(r.crea204.codigo === 200 && /^https:\/\/checkout\.stripe\.com\//.test(r.crea204.cuerpo?.url ?? ""), `${t}6: un artículo sin vender se paga como siempre (${r.crea204.codigo})`);
   ok(r.aviso207.codigo === 200 && r.mando.vendido_pedido_id === r.id207 && r.crea204otra.codigo === 409 && r.expirada204, `${t}7: si otro lo paga mientras tiene la página abierta, al volver se rechaza y su pago abierto se cierra (${r.crea204otra.codigo}, cerrada ${r.expirada204})`);
   ok(r.nadaBorrado, `${t}: no se borra ningún artículo ni ninguna línea`);
+  ok(r.crea208?.codigo === 200 && !!r.fila208?.pago_sesion, `${t}9: el «vendido» que devuelve VeoAura 5 s después de hacer el pedido no impide pagarlo (${r.crea208?.codigo} ${r.crea208?.cuerpo?.error ?? ""})`);
+  ok(r.aviso208?.codigo === 200 && r.confirma208?.cuerpo?.pagado === true && r.fila208?.pago_estado === "pagado" && (r.fila208?.doble_venta_en ?? null) === null, `${t}9: al llegar el cobro se apunta y NO queda como doble venta (doble_venta_en ${r.fila208?.doble_venta_en ?? "vacío"})`);
+  ok(r.ps5pro?.vendido_pedido_id === r.fila208?.id && r.ps5pro?.is_active === false, `${t}9: el artículo queda vendido a ESE pedido (vendido_pedido_id ${r.ps5pro?.vendido_pedido_id})`);
+  ok(r.crea209?.codigo === 200 && r.aviso209?.codigo === 200 && r.fila209?.pago_estado === "pagado" && !!r.fila209?.doble_venta_en, `${t}10: vendido ANTES de existir el pedido, el cobro se apunta y SÍ queda como doble venta (${r.fila209?.doble_venta_en ?? "sin marcar"})`);
+  ok(r.switch2?.vendido_pedido_id === null, `${t}10: y el artículo no se apunta a ese pedido (${r.switch2?.vendido_pedido_id})`);
 }
 
 // Un GET con la ruta completa (los parámetros van en req.url, como en Vercel).
@@ -992,6 +1036,21 @@ try {
     ["apartar al pagar", "  await apartarArticulos(supabase, p.id);\n  // A la vez", "  // A la vez", (m) => m.xboxPagada.is_active === true, "la Xbox pagada sigue a la venta (V2)"],
     ["no dejar pagar lo vendido", "if (await articuloYaVendido(supabase, p.id)) {", "if (false) {", (m) => m.crea203.codigo === 200, "se abre el pago de un artículo ya vendido (V5)"],
     ["marcar la doble venta", "if (anterior || vendidoAntes) resultado.doble = true;", "", (m) => !m.fila202.doble_venta_en, "el segundo cobro no queda marcado como doble venta (V4)"],
+    // El fallo del pedido 8: sin mirar la hora del pedido, el «vendido» de VeoAura posterior cuenta como doble venta.
+    [
+      "vendido antes del pedido",
+      "const vendidoAntes = !!a.vendido_en && !a.vendido_pedido_id && instante(a.vendido_en) < miPedido;",
+      "const vendidoAntes = !!a.vendido_en && !a.vendido_pedido_id;",
+      (m) => !!m.fila208?.doble_venta_en,
+      "el «vendido» de VeoAura tras el pedido se toma por doble venta (V9)",
+    ],
+    [
+      "dejar pagar la misma venta",
+      "(!!a.vendido_pedido_id || instante(a.vendido_en) < miPedido)",
+      "true",
+      (m) => m.crea208?.codigo !== 200,
+      "no se deja pagar el pedido que VeoAura acaba de dar por vendido (V9)",
+    ],
   ];
   for (const [i, [nombre, buscar, poner, detecta, texto]] of mutacionesV.entries()) {
     const roto = fuente.replace(buscar, poner);
