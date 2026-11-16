@@ -643,6 +643,13 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       estado.re2.subidas = [...(estado.re2.subidas ?? []), { ruta: decodeURIComponent(url.pathname.slice("/storage/v1/object/".length)), tipo: peticion.headers()["content-type"] ?? "" }];
       return json({ Key: url.pathname.slice("/storage/v1/object/".length) });
     }
+    // Enlaces firmados de las fotos de una solicitud de venta (Cotizaciones, VERFOT): una foto falsa por ruta (la
+    // sustituye pruebas/sin-fotos-reales.mjs); nada llega al almacén.
+    if (url.pathname === "/storage/v1/object/sign/sell-request-media" && metodo === "POST") {
+      const rutas = JSON.parse(peticion.postData() ?? "{}").paths ?? [];
+      estado.firmadasVenta = [...(estado.firmadasVenta ?? []), ...rutas];
+      return json(rutas.map((path) => ({ path, signedURL: `/object/sign/sell-request-media/${path}?token=firmado`, error: null })));
+    }
     // Subida de la foto de perfil o de una portada de categoría (nada llega a ningún almacén): se apunta qué se mandaría
     // (y la foto, para mirarla).
     if (/^\/storage\/v1\/object\/(avatares|product-media)\//.test(url.pathname) && metodo === "POST") {
@@ -20606,7 +20613,8 @@ async function seccionPANRED3() {
     // --- Cotizaciones (solicitudes de venta) ---
     await bloque(`Cotizaciones ${nombre}`, async () => {
       const cambios = [];
-      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin, tablas: { sell_requests: SOLICITUDES(), sell_request_media: MEDIA } }, vista);
+      const estadoC = { guardados: [], filas: perfilAdmin, tablas: { sell_requests: SOLICITUDES(), sell_request_media: MEDIA } };
+      const ctx = await contexto(navegador, ADMIN, "admin", estadoC, vista);
       await apuntarCambios(ctx, "sell_requests", cambios);
       const p = await pagina(ctx, "/admin/cotizaciones");
       await p.locator(`#cotizacion-fila-${S(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
@@ -20649,6 +20657,19 @@ async function seccionPANRED3() {
       await p.waitForTimeout(400);
       const d = await texto(p, `#cotizacion-detalle-${S(1)}`);
       ok((await p.locator(`#cotizacion-fila-${S(1)}`).getAttribute("aria-expanded")) === "true" && /Artículo/.test(d) && /Cliente/.test(d) && /Entrega/.test(d) && /Funciona bien/.test(d) && /Contacto \(Gmail\): ana\.prueba@gmail\.com/.test(d) && /Género: Femenino/.test(d) && /Disponibilidad: Mañana/.test(d) && /Fotos y vídeo adjuntos \(1\)/.test(d) && /Descargar foto 1/.test(d) && /Por qué lo vende: Quiero cambiarlo/.test(d), `PANRED3 (${nombre}): Cotizaciones, al tocar la fila se despliega por bloques (${d.slice(0, 260)})`);
+      // VERFOT (dueño, 2026-11-16: «no me deja visualizar los archivos multimedia»): la foto se VE en el panel, con un
+      // enlace firmado solo de sus rutas, y se abre en grande; sin adjuntos, el bloque lo dice.
+      await p.locator("#cotizacion-ver-foto-sm1").waitFor({ timeout: 10000 }).catch(() => {});
+      const mini = await caja(p, "#cotizacion-ver-foto-sm1");
+      const firmadas = estadoC.firmadasVenta;
+      ok(!!mini && mini.w >= 44 && mini.h >= 44 && (await p.locator("#cotizacion-ver-foto-sm1 img").count()) === 1 && JSON.stringify(firmadas) === '["panred3/ps4.jpg"]',`PANRED3 (${nombre}): Cotizaciones, VERFOT: la foto adjunta se ve en el detalle (${JSON.stringify(mini)} · ${JSON.stringify(firmadas ?? null)})`);
+      await p.locator("#cotizacion-ver-foto-sm1").click();
+      await p.waitForTimeout(400);
+      ok((await p.locator("#cotizacion-foto-grande img").count()) === 1, `PANRED3 (${nombre}): Cotizaciones, VERFOT: al tocarla se abre en grande`);
+      await p.locator("#cotizacion-foto-grande").click();
+      await p.waitForTimeout(300);
+      ok((await p.locator("#cotizacion-foto-grande").count()) === 0, `PANRED3 (${nombre}): Cotizaciones, VERFOT: «Cerrar» la cierra`);
+      ok((await p.locator(`#cotizacion-sin-fotos-${S(1)}`).count()) === 0, `PANRED3 (${nombre}): Cotizaciones, VERFOT: con fotos no sale «no adjuntó»`);
       const orden = await accionesAbajo(p, `#cotizacion-detalle-${S(1)}`, `#cotizacion-acciones-${S(1)}`);
       const acc = await alturas(p, `#cotizacion-acciones-${S(1)} [role="button"]`);
       ok(orden.acciones >= orden.bloques - 1 && acc.length === 4 && acc.every((h) => h >= 44), `PANRED3 (${nombre}): Cotizaciones, Marcar revisada, Marcar contactada, Descartar y borrar van abajo y miden 44 px (${JSON.stringify(orden)} · ${acc.join(",")})`);
@@ -20658,6 +20679,7 @@ async function seccionPANRED3() {
       await p.locator(`#cotizacion-fila-${S(2)}`).click();
       await p.waitForTimeout(300);
       const d2 = await texto(p, `#cotizacion-detalle-${S(2)}`);
+      ok((await texto(p, `#cotizacion-sin-fotos-${S(2)}`)) === "El cliente no adjuntó fotos ni vídeo. Si las necesitas, pídeselas al contactar." && (await p.locator(`#cotizacion-galeria-${S(2)}`).count()) === 0, `PANRED3 (${nombre}): Cotizaciones, VERFOT: sin adjuntos, el bloque dice que el cliente no adjuntó nada`);
       ok(/Presenta una avería/.test(d2) && /Qué le pasa: No carga bien/.test(d2) && /Recogida en domicilio: Calle Mayor 1/.test(d2) && /Contacto \(WhatsApp\): 600111222/.test(d2) && (await p.locator(`#cotizacion-contactada-${S(2)}`).count()) === 0, `PANRED3 (${nombre}): Cotizaciones, la de avería dice qué le pasa, la recogida y no ofrece «Marcar contactada» otra vez (${d2.slice(0, 200)})`);
       await p.locator(`#cotizacion-revisada-${S(1)}`).click();
       await p.waitForTimeout(500);
