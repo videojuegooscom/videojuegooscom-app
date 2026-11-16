@@ -1704,8 +1704,12 @@ type PedidoSeg = {
   primerProducto?: string | null;
   // Título de ese artículo (para «Avisarme cuando haya otro» tras una cancelación).
   primerTitulo?: string | null;
-  // Motivo de la cancelación (migración 20261116100000; puede no venir).
+  // Motivo de la cancelación y su hora (migración 20261116100000; pueden no venir).
   cancelacion_motivo?: string | null;
+  cancelado_en?: string | null;
+  // Cancelados: ¿el primer artículo sigue a la venta? y su categoría (products; si no se puede leer, sin «Volver a comprar»).
+  articuloALaVenta?: boolean;
+  articuloCategoria?: string | null;
 };
 
 // «Pagado con Bizum · Entregado» bajo el título «Compra en tienda VZ-…» (venta en mano que manda VeoAura, evento
@@ -1839,23 +1843,63 @@ function PagoDelPedido({ p }: { p: PedidoSeg }) {
   );
 }
 
-// Pedido cancelado (dueño, 2026-11-16): tarjeta con «Pedido cancelado · {motivo}», la devolución si la hubo y, si el
-// motivo es que el artículo ya no está disponible, el interruptor «Avisarme cuando haya otro» (44 px) y, encendido, «¿Cómo
-// quieres que te avisemos?»: En la app · Por correo · Las dos (avisos_reposicion, lib/interaccion.ts). Blue
-// (components/Campanita.tsx) avisa en la app cuando entra otro parecido. Analítica: aviso_reposicion_activado (canal) y
-// aviso_reposicion_desactivado, sin datos personales. Se prueba con la sección CANCAV de pruebas/perfil-datos.mjs.
+// «15 de noviembre» (hora de Madrid); con otro año, «15 de noviembre de 2025». Vacío sin fecha válida.
+function fechaLargaSeg(iso: string | null | undefined) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const anio = (x: Date) => x.toLocaleString("es-ES", { timeZone: "Europe/Madrid", year: "numeric" });
+  return d.toLocaleDateString("es-ES", { timeZone: "Europe/Madrid", day: "numeric", month: "long", ...(anio(d) !== anio(new Date()) ? { year: "numeric" } : {}) });
+}
+
+// El reembolso de un pedido cancelado, con las columnas que ya lee «Mis pedidos» (pago_estado, pago_metodo, pagado_eur,
+// devuelto_eur y devuelto_en; las escribe solo el servidor con Stripe): emitido, en curso o «No se te ha cobrado nada».
+const REEMBOLSO_A: Record<string, string> = { card: "a tu tarjeta", klarna: "a tu cuenta de Klarna", bizum: "a tu Bizum" };
+function reembolsoDelCancelado(p: PedidoSeg): { estado: "emitido" | "en_curso" | "sin_cobro"; titulo: string; detalle: string | null } {
+  if (p.pago_estado !== "pagado") return { estado: "sin_cobro", titulo: "No se te ha cobrado nada", detalle: null };
+  const pagado = Number(p.pagado_eur ?? p.total_eur ?? 0);
+  if (p.devuelto_en) {
+    const devuelto = Number(p.devuelto_eur ?? 0) > 0 ? Number(p.devuelto_eur) : pagado;
+    const a = REEMBOLSO_A[p.pago_metodo ?? ""] ?? "por el mismo medio de pago";
+    return {
+      estado: "emitido",
+      titulo: `Reembolso de ${segEuros(devuelto)} emitido el ${fechaLargaSeg(p.devuelto_en)} ${a}${p.pago_modo === "prueba" ? " (de prueba)" : ""}`,
+      detalle: p.pago_metodo === "klarna" ? "Klarna actualizará tus plazos." : "Puede tardar de 5 a 10 días hábiles en verse en tu cuenta.",
+    };
+  }
+  return { estado: "en_curso", titulo: `Reembolso en curso: te devolveremos ${segEuros(pagado)} por el mismo medio de pago`, detalle: null };
+}
+
+// Pedido cancelado (dueño, 2026-11-16: «que se vea profesional, estilo Amazon»): una sola tarjeta con la cabecera
+// (etiqueta roja suave «Cancelado», «Cancelado el 15 de noviembre», la referencia y el total tachado), el artículo con su
+// foto, dos pasos limpios («Pedido recibido» y «Cancelado» con su hora; sin la barra de cinco puntos), el motivo (o un
+// texto neutro en los antiguos, nunca notas internas), el reembolso, «Ver artículos parecidos» y «Volver a comprar» (solo si
+// sigue a la venta; 44 px), el interruptor «Avisarme cuando haya otro» si el artículo ya no está disponible (avisos_reposicion,
+// lib/interaccion.ts; Blue avisa en la app cuando entra otro) y, al pie, «¿Necesitas ayuda? Escríbenos por el chat».
+// Analítica sin datos personales: aviso_reposicion_activado (canal) / _desactivado, y cancelado_volver_comprar /
+// cancelado_ver_parecidos (solo el id del artículo; Administración → Analítica, «Pedidos cancelados: recuperación»).
+// Se prueba con las secciones CANDIS y CANCAV de pruebas/perfil-datos.mjs.
 function CancelacionDelPedido({
   p,
+  historial,
   aviso,
   avisosOk,
   onGuardado,
+  onAyuda,
 }: {
   p: PedidoSeg;
+  historial: HistorialPedidos | null;
   aviso: AvisoReposicion | null;
   avisosOk: boolean;
   onGuardado: (a: AvisoReposicion) => void;
+  onAyuda: () => void;
 }) {
   const ref = p.numero ?? p.id;
+  // La hora de la cancelación: la columna cancelado_en o, si no viene, el último «cancelado» del historial.
+  const canceladoEn = p.cancelado_en ?? [...(historial?.[p.id] ?? [])].reverse().find((c) => c.estado === "cancelado")?.creado_en ?? null;
+  const fechaCancel = fechaLargaSeg(canceladoEn);
+  const reembolso = reembolsoDelCancelado(p);
+  const titulo = p.primerTitulo ?? p.items[0] ?? "";
   // Estrecho (móvil): las tres opciones del canal, una debajo de otra (a 16 px no caben en una fila sin cortarse).
   const estrecho = useWindowDimensions().width < 520;
   const activo = !!aviso?.activo;
@@ -1867,7 +1911,6 @@ function CancelacionDelPedido({
   }, [aviso?.canal]);
   const ofreceAviso = avisosOk && p.cancelacion_motivo === MOTIVO_NO_DISPONIBLE && !!(p.primerTitulo ?? p.items[0]);
   const modelo = textoReposicion(p.primerTitulo ?? p.items[0] ?? "");
-  const devuelto = !!p.devuelto_en && Number(p.devuelto_eur ?? 0) > 0;
   const nombreCanal = (c: CanalReposicion) => (c === "app" ? "en la app" : c === "correo" ? "por correo" : "en la app y por correo");
 
   async function guardar(cambios: { activo: boolean; canal: CanalReposicion }) {
@@ -1892,30 +1935,170 @@ function CancelacionDelPedido({
     });
   }
 
+  // «Ver artículos parecidos»: el catálogo de su categoría (si se sabe) o la búsqueda por el modelo del artículo.
+  function verParecidos() {
+    const destino = p.articuloCategoria ? "categoria" : titulo ? "busqueda" : "catalogo";
+    void trackEvent("cancelado_ver_parecidos", "Pedido cancelado: ver artículos parecidos", { metadata: { product_id: p.primerProducto ?? null, destino } });
+    if (p.articuloCategoria) router.push(`/catalogo?cat=${encodeURIComponent(p.articuloCategoria)}`);
+    else if (titulo) router.push(`/catalogo?query=${encodeURIComponent(modelo || titulo)}`);
+    else router.push("/catalogo");
+  }
+  function volverAComprar() {
+    if (!p.primerProducto) return;
+    void trackEvent("cancelado_volver_comprar", "Pedido cancelado: volver a comprar", { metadata: { product_id: p.primerProducto } });
+    router.push(`/producto/${p.primerProducto}`);
+  }
+  const puedeRecomprar = !!p.primerProducto && !!p.articuloALaVenta;
+
+  // Un bloque de información con su icono (sin burbuja): «Motivo» o «Reembolso».
+  const bloque = (id: string, icono: React.ComponentProps<typeof Ionicons>["name"], color: string, etiqueta: string, cuerpo: React.ReactNode) => (
+    <View nativeID={id} style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+      <Ionicons name={icono} size={20} color={color} style={{ marginTop: 1 }} />
+      <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+        <Text style={{ color: SEG.muted, fontWeight: "800", fontSize: TAMANOS.minimo, letterSpacing: 0.2 }}>{etiqueta}</Text>
+        {cuerpo}
+      </View>
+    </View>
+  );
+
   return (
     <View
       nativeID={`cancelacion-pedido-${ref}`}
-      style={{ width: "100%", maxWidth: 460, alignSelf: "center", gap: 12, borderRadius: 18, borderWidth: 1, borderColor: SEG.line, backgroundColor: "#FFFFFF", padding: 14 }}
+      style={{ width: "100%", maxWidth: 520, alignSelf: "center", borderRadius: 16, borderWidth: 1, borderColor: SEG.line, backgroundColor: "#FFFFFF", overflow: "hidden" }}
     >
-      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
-        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "#FEE2E2", alignItems: "center", justifyContent: "center" }}>
-          <Ionicons name="close" size={18} color={SEG.danger} />
-        </View>
-        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-          <Text nativeID={`cancelacion-motivo-${ref}`} style={{ color: SEG.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
-            Pedido cancelado
-            {p.cancelacion_motivo ? <Text style={{ color: SEG.text, fontWeight: "700" }}>{` · ${p.cancelacion_motivo}`}</Text> : null}
+      {/* Cabecera: estado, fecha, referencia y total (tachado: no se ha cobrado o se devuelve). */}
+      <View nativeID={`cancelado-cabecera-${ref}`} style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: SEG.line }}>
+        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 10, rowGap: 6 }}>
+          <View nativeID={`cancelado-etiqueta-${ref}`} style={{ borderRadius: 999, backgroundColor: "#FEE2E2", paddingHorizontal: 10, paddingVertical: 3 }}>
+            <Text style={{ color: "#B91C1C", fontWeight: "900", fontSize: TAMANOS.minimo }}>Cancelado</Text>
+          </View>
+          <Text nativeID={`cancelado-fecha-${ref}`} style={{ color: SEG.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, flexShrink: 1 }}>
+            {fechaCancel ? `Cancelado el ${fechaCancel}` : "Pedido cancelado"}
           </Text>
-          {devuelto ? (
-            <View nativeID={`cancelacion-devolucion-${ref}`} style={{ gap: 2 }}>
-              <Text style={{ color: SEG.ok, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>Te hemos devuelto {segEuros(Number(p.devuelto_eur))}</Text>
-              <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>Según tu banco, lo verás en tu cuenta en 5-10 días hábiles.</Text>
-            </View>
-          ) : p.pago_estado === "pagado" ? (
-            <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>Te devolveremos el importe pagado en breve.</Text>
+        </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", columnGap: 12, rowGap: 2 }}>
+          <Text nativeID={`mis-pedidos-titulo-${ref}`} style={{ color: SEG.muted, fontWeight: "800", fontSize: TAMANOS.minimo, flexShrink: 1 }}>
+            Pedido{p.codigo_seguimiento ? ` ${p.codigo_seguimiento}` : ""} · {segFecha(p.created_at)}
+          </Text>
+          {p.total_eur != null ? (
+            <Text nativeID={`cancelado-total-${ref}`} style={{ color: SEG.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+              Total <Text style={{ textDecorationLine: "line-through" }}>{segEuros(p.total_eur)}</Text>
+            </Text>
           ) : null}
         </View>
       </View>
+
+      <View style={{ padding: 16, gap: 16 }}>
+        {/* El artículo con su foto. */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <MiniaturaSeguimiento nativeID={`seguimiento-mini-${ref}`} foto={p.foto} icono="cube-outline" alt={p.items[0] ?? "Artículo del pedido"} />
+          <Text nativeID={`cancelado-articulo-${ref}`} numberOfLines={3} style={{ color: SEG.text, fontWeight: "700", fontSize: TAMANOS.cuerpo, lineHeight: 20, flex: 1, minWidth: 0 }}>
+            {p.items.length ? p.items.join(" · ") : "Artículo del pedido"}
+          </Text>
+        </View>
+
+        {/* Dos pasos limpios: cuándo llegó y cuándo se canceló (con su hora, si se sabe; nunca inventada). */}
+        <View nativeID={`pasos-pedido-${ref}`} style={{ gap: 6 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 4 }}>
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: SEG.accent }} />
+            <View style={{ flex: 1, height: 2, backgroundColor: "#F3C5C5" }} />
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: SEG.danger }} />
+          </View>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
+            <View nativeID={`paso-${ref}-pendiente`} style={{ flexShrink: 1, gap: 1 }}>
+              <Text style={{ color: SEG.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>Pedido recibido</Text>
+              {fechaHoraPaso(p.created_at) ? (
+                <Text nativeID={`paso-${ref}-pendiente-fecha`} style={{ color: SEG.muted, fontWeight: "700", fontSize: TAMANOS.minimo }}>
+                  {fechaHoraPaso(p.created_at)}
+                </Text>
+              ) : null}
+            </View>
+            <View nativeID={`paso-${ref}-cancelado`} style={{ flexShrink: 1, alignItems: "flex-end", gap: 1 }}>
+              <Text style={{ color: SEG.danger, fontWeight: "900", fontSize: TAMANOS.minimo }}>Cancelado</Text>
+              {fechaHoraPaso(canceladoEn) ? (
+                <Text nativeID={`paso-${ref}-cancelado-fecha`} style={{ color: SEG.muted, fontWeight: "700", fontSize: TAMANOS.minimo, textAlign: "right" }}>
+                  {fechaHoraPaso(canceladoEn)}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        </View>
+
+        <View style={{ gap: 14, borderTopWidth: 1, borderTopColor: SEG.line, paddingTop: 14 }}>
+          {bloque(
+            `cancelacion-motivo-${ref}`,
+            "information-circle-outline",
+            SEG.muted,
+            "Motivo",
+            <Text style={{ color: SEG.text, fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
+              {p.cancelacion_motivo || "Este pedido se ha cancelado. Si tienes cualquier duda, escríbenos por el chat de la tienda."}
+            </Text>
+          )}
+          {bloque(
+            `cancelacion-devolucion-${ref}`,
+            reembolso.estado === "sin_cobro" ? "checkmark-circle-outline" : reembolso.estado === "emitido" ? "return-down-back-outline" : "time-outline",
+            reembolso.estado === "en_curso" ? SEG.accent : SEG.ok,
+            "Reembolso",
+            <>
+              <Text nativeID={`cancelado-reembolso-${ref}`} style={{ color: reembolso.estado === "en_curso" ? SEG.text : SEG.ok, fontWeight: "800", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
+                {reembolso.titulo}
+              </Text>
+              {reembolso.detalle ? <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>{reembolso.detalle}</Text> : null}
+            </>
+          )}
+        </View>
+
+        {/* Qué hacer ahora: parecidos y, si sigue a la venta, volver a comprarlo (44 px). */}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          {puedeRecomprar ? (
+            <Pressable
+              nativeID={`cancelado-recomprar-${ref}`}
+              onPress={volverAComprar}
+              accessibilityRole="button"
+              accessibilityLabel="Volver a comprar"
+              style={({ pressed }) => ({
+                flexGrow: 1,
+                flexBasis: 180,
+                minHeight: TACTIL.minimo,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                paddingHorizontal: 16,
+                borderRadius: 999,
+                backgroundColor: SEG.accent,
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Ionicons name="refresh" size={17} color="#FFFFFF" />
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Volver a comprar</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            nativeID={`cancelado-parecidos-${ref}`}
+            onPress={verParecidos}
+            accessibilityRole="button"
+            accessibilityLabel="Ver artículos parecidos"
+            style={({ pressed }) => ({
+              flexGrow: 1,
+              flexBasis: 180,
+              minHeight: TACTIL.minimo,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              paddingHorizontal: 16,
+              borderRadius: 999,
+              borderWidth: 1.5,
+              borderColor: SEG.accent,
+              backgroundColor: "#FFFFFF",
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Ionicons name="grid-outline" size={17} color={SEG.accent} />
+            <Text style={{ color: SEG.accentTexto, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Ver artículos parecidos</Text>
+          </Pressable>
+        </View>
 
       {ofreceAviso ? (
         <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: SEG.line, paddingTop: 12 }}>
@@ -2017,6 +2200,32 @@ function CancelacionDelPedido({
           {mensaje.texto}
         </Text>
       ) : null}
+      </View>
+
+      {/* Pie: la ayuda (el mismo destino que «Preguntar por esto»: Blue IA con la referencia del pedido). */}
+      <Pressable
+        nativeID={`cancelado-ayuda-${ref}`}
+        onPress={onAyuda}
+        accessibilityRole="button"
+        accessibilityLabel="¿Necesitas ayuda? Escríbenos por el chat"
+        style={({ pressed }) => ({
+          minHeight: TACTIL.minimo,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          borderTopWidth: 1,
+          borderTopColor: SEG.line,
+          opacity: pressed ? 0.7 : 1,
+        })}
+      >
+        <Ionicons name="chatbubble-ellipses-outline" size={18} color={SEG.accent} />
+        <Text style={{ flex: 1, minWidth: 0, color: SEG.text, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+          ¿Necesitas ayuda? <Text style={{ color: SEG.accentTexto, fontWeight: "900" }}>Escríbenos por el chat</Text>
+        </Text>
+        <Ionicons name="chevron-forward" size={16} color={SEG.muted} />
+      </Pressable>
     </View>
   );
 }
@@ -3844,12 +4053,28 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
         // Cancelados: el motivo (migración 20261116100000; sin la columna, sin él) y sus «Avisarme cuando haya otro».
         const canceladosIds = filas.filter((p) => p.estado === "cancelado").map((p) => p.id);
         const motivos: Record<string, string | null> = {};
+        const canceladosEn: Record<string, string | null> = {};
         let avisosCancel: AvisoReposicion[] | null = null;
+        // ¿Su artículo sigue a la venta? y su categoría, para «Volver a comprar» y «Ver artículos parecidos» (products:
+        // con la sesión del cliente solo se leen los publicados; si no viene o falla, sin «Volver a comprar»).
+        const articulos: Record<string, { venta: boolean; categoria: string | null }> = {};
         if (canceladosIds.length) {
-          const mot = await supabase.from("pedidos").select("id,cancelacion_motivo").in("id", canceladosIds);
+          const mot = await supabase.from("pedidos").select("id,cancelacion_motivo,cancelado_en").in("id", canceladosIds);
           if (!mot.error) {
-            for (const m of (mot.data ?? []) as { id: string; cancelacion_motivo: string | null }[]) motivos[m.id] = m.cancelacion_motivo;
+            for (const m of (mot.data ?? []) as { id: string; cancelacion_motivo: string | null; cancelado_en?: string | null }[]) {
+              motivos[m.id] = m.cancelacion_motivo;
+              canceladosEn[m.id] = m.cancelado_en ?? null;
+            }
             avisosCancel = await misAvisosReposicion(canceladosIds);
+          }
+          const prodIds = [...new Set(canceladosIds.map((id) => primerProducto[id]).filter(Boolean))];
+          if (prodIds.length) {
+            const pr = await supabase.from("products").select("id,category_id,is_active,status").in("id", prodIds);
+            if (!pr.error) {
+              for (const f of (pr.data ?? []) as { id: string; category_id: string | null; is_active: boolean | null; status: string | null }[]) {
+                articulos[f.id] = { venta: !!f.is_active && f.status === "PUBLISHED", categoria: f.category_id ?? null };
+              }
+            }
           }
         }
         setAvisosReposicion(avisosCancel ? Object.fromEntries(avisosCancel.map((a) => [a.pedido_id, a])) : null);
@@ -3897,6 +4122,9 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
             primerProducto: primerProducto[p.id] ?? null,
             primerTitulo: primerTitulo[p.id] ?? porPedido[p.id]?.[0] ?? null,
             cancelacion_motivo: motivos[p.id] ?? null,
+            cancelado_en: canceladosEn[p.id] ?? null,
+            articuloALaVenta: !!(primerProducto[p.id] && articulos[primerProducto[p.id]]?.venta),
+            articuloCategoria: primerProducto[p.id] ? articulos[primerProducto[p.id]]?.categoria ?? null : null,
             envio_seguimiento: seg.numeros[p.id] ?? null,
             ...devueltos[p.id],
             items: porPedido[p.id] ?? [],
@@ -4123,6 +4351,19 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
             {pedidos.filter((p) => pasaFiltroPedido(p, filtroPedidos)).map((p, i) => (
               <View key={p.id} nativeID={`seguimiento-pedido-${p.numero ?? p.id}`} style={{ gap: 10, alignItems: "center", width: "100%" }}>
                 {i > 0 ? <SegSeparador /> : null}
+                {p.estado === "cancelado" && p.origen !== "tienda_fisica" ? (
+                  // Cancelado (dueño, 2026-11-16): una sola tarjeta con todo (estado, pasos, motivo, reembolso, qué hacer y
+                  // ayuda), sin la barra de cinco puntos ni la línea de la factura.
+                  <CancelacionDelPedido
+                    p={p}
+                    historial={historial}
+                    aviso={avisosReposicion?.[p.id] ?? null}
+                    avisosOk={avisosReposicion !== null}
+                    onGuardado={(a) => setAvisosReposicion((prev) => ({ ...(prev ?? {}), [p.id]: a }))}
+                    onAyuda={() => router.push(`/blue-ia?pedido=${encodeURIComponent(p.codigo_seguimiento ?? "")}`)}
+                  />
+                ) : (
+                <>
                 {/* La referencia del pedido (VZ-XXXX-XXXX), como una empresa: nunca el número interno (dueño, 2026-11-11). */}
                 <Text nativeID={`mis-pedidos-titulo-${p.numero ?? p.id}`} style={{ color: SEG.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, textAlign: "center" }}>
                   {p.origen === "tienda_fisica" ? "Compra en tienda" : "Pedido"}
@@ -4151,14 +4392,6 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
                       cancelado={p.estado === "cancelado"}
                     />
                     <PasosDelPedido p={p} historial={historial} />
-                    {p.estado === "cancelado" ? (
-                      <CancelacionDelPedido
-                        p={p}
-                        aviso={avisosReposicion?.[p.id] ?? null}
-                        avisosOk={avisosReposicion !== null}
-                        onGuardado={(a) => setAvisosReposicion((prev) => ({ ...(prev ?? {}), [p.id]: a }))}
-                      />
-                    ) : null}
                     {p.entrega !== "recogida" && p.estado !== "cancelado" ? (
                       <BotonSeguirEnvio id={`seguir-envio-${p.numero ?? p.id}`} numero={p.envio_seguimiento} tipo="pedido" />
                     ) : null}
@@ -4185,6 +4418,8 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
                   />
                 ) : null}
                 <PreguntarBoton onPress={() => router.push(`/blue-ia?pedido=${encodeURIComponent(p.codigo_seguimiento ?? "")}`)} />
+                </>
+                )}
               </View>
             ))}
             </>
