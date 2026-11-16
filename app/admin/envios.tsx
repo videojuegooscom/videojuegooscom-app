@@ -17,6 +17,13 @@
  *   el envío puesto a mano y cuántos sin zona.
  * - Sin la migración aplicada, la pantalla lo dice y la tienda sigue con el envío gratis.
  *
+ * - DISEÑO (2026-11-16, el de Usuarios y Pedidos; piezas de components/admin/PanelUI.tsx): cifras arriba (zonas
+ *   activas y sin envío web, que filtran, y los datos de 30 días), buscador de 16 px (nombre, clave o un código postal:
+ *   deja la zona a la que iría), pastillas con su recuento (Todas, Activas, Sin envío web, Por kilos, Con «gratis
+ *   desde») y cada zona en una fila compacta (nombre, etiqueta Activa / Sin envío web / Sin guardar, códigos, precio
+ *   fijo o por kilos y «gratis desde»). Al tocarla se despliega su editor por bloques: Nombre y precio, Códigos
+ *   postales, Precio por kilos y En la web; «Abrir todas» las despliega. Debajo, «Guardar cambios», la «Prueba de un
+ *   código postal» y las franjas de entrega. Prueba PANRED1 (y TE, FRANJ, TM5, CAMPOS16).
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario, texto azul pequeño en azulTexto, todo lo que se toca de 44 px y los
  *   campos de 16 px y 48 de alto.
@@ -42,6 +49,20 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
+import {
+  Bloque,
+  Buscador,
+  Chip,
+  Cifra,
+  Detalle,
+  Etiqueta,
+  EtiquetaColor,
+  FilaPastillas,
+  ListaVacia,
+  RecuentoLista,
+  Seccion,
+  useDesplegables,
+} from "../../components/admin/PanelUI";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import {
   calcularEnvio,
@@ -141,10 +162,21 @@ function leerTramos(filas: TramoBorrador[]): TramoEnvio[] | null {
 
 const mismosTramos = (a: TramoEnvio[] | null, b: TramoEnvio[] | null) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
 
+// Pastillas de filtro de las zonas.
+type FiltroZonas = "todas" | "activas" | "sin_envio" | "kilos" | "gratis";
+
+// Icono de cada zona: en mano, a domicilio cerca, península o islas.
+function iconoZona(z: ZonaEnvio): React.ComponentProps<typeof Ionicons>["name"] {
+  if (z.zona === "mano") return "hand-left-outline";
+  if (/local/.test(z.zona)) return "bicycle-outline";
+  if (/balear|canari|islas|ceuta|melilla/i.test(`${z.zona} ${z.nombre}`)) return "boat-outline";
+  return "cube-outline";
+}
+
 export default function AdminEnvios() {
   const { width } = useWindowDimensions();
   const isMobile = (width > 0 ? width : 1024) < 700;
-  const pagePadding = isMobile ? 14 : 20;
+  const pagePadding = isMobile ? 16 : 20;
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
@@ -355,6 +387,84 @@ export default function AdminEnvios() {
     });
   }, [zonasEditadas, cEntrega, cCodigo, cImporte, cPeso]);
 
+  // --- Rediseño (2026-11-16): buscador, pastillas con recuento y zonas en filas compactas que se despliegan ---
+  const [busqueda, setBusqueda] = useState("");
+  const [filtro, setFiltro] = useState<FiltroZonas>("todas");
+  const desplegables = useDesplegables();
+
+  // Cómo va cada zona ahora (con lo escrito, aunque aún no se haya guardado).
+  const resumenZona = (z: ZonaEnvio) => {
+    const b = borradores[z.zona];
+    const tramos = b ? leerTramos(b.tramos) ?? [] : z.tramos ?? [];
+    const precio = b ? leerImporte(b.precio) : z.precio_eur;
+    const gratis = b ? leerImporte(b.gratisDesde) : z.gratis_desde_eur;
+    const conKilos = conTramos && z.zona !== "mano" && tramos.length > 0;
+    const precioTexto = conKilos
+      ? `${fmtEUR(Math.min(...tramos.map((t) => t.precio_eur)))} – ${fmtEUR(Math.max(...tramos.map((t) => t.precio_eur)))}`
+      : precio === null || Number.isNaN(precio)
+        ? "Revisa el precio"
+        : precio === 0
+          ? "Gratis"
+          : fmtEUR(precio);
+    return {
+      activa: b ? b.activa : z.activa,
+      conKilos,
+      tramos: tramos.length,
+      precioTexto,
+      gratis: gratis !== null && !Number.isNaN(gratis) ? gratis : null,
+      codigos: (b ? b.codigos : z.codigos ?? "").trim(),
+      cambiada: cambiadas.some((c) => c.zona === z.zona),
+    };
+  };
+
+  const cuentasZonas = useMemo(() => {
+    const r = zonas.map((z) => ({ z, ...resumenZona(z) }));
+    return {
+      todas: r.length,
+      activas: r.filter((x) => x.activa).length,
+      sin_envio: r.filter((x) => !x.activa).length,
+      kilos: r.filter((x) => x.conKilos).length,
+      gratis: r.filter((x) => x.gratis !== null).length,
+    };
+    // resumenZona depende de borradores, cambiadas y conTramos.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zonas, borradores, cambiadas, conTramos]);
+
+  const zonasVisibles = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    // Un código postal de 5 cifras: la zona a la que iría (con lo escrito) y las que lo nombran.
+    const porCodigo =
+      /^\d{5}$/.test(q) && zonasEditadas ? calcularEnvio(zonasEditadas, { entrega: "envio", codigoPostal: q, productos: 0, pesoKg: null }).zona?.zona ?? null : null;
+    return zonas.filter((z) => {
+      const r = resumenZona(z);
+      if (q) {
+        const b = borradores[z.zona];
+        const texto = `${b?.nombre ?? z.nombre} ${z.zona} ${r.codigos}`.toLowerCase();
+        if (!(texto.includes(q) || z.zona === porCodigo)) return false;
+        return true;
+      }
+      if (filtro === "activas") return r.activa;
+      if (filtro === "sin_envio") return !r.activa;
+      if (filtro === "kilos") return r.conKilos;
+      if (filtro === "gratis") return r.gratis !== null;
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zonas, borradores, busqueda, filtro, zonasEditadas, cambiadas, conTramos]);
+
+  const buscando = !!busqueda.trim();
+  const idsVisibles = zonasVisibles.map((z) => z.zona);
+  const anchoCifra = isMobile ? "45%" : 0;
+  const anchoBloque = isMobile ? "100%" : "45%";
+
+  const PASTILLAS: { value: FiltroZonas; label: string }[] = [
+    { value: "todas", label: `Todas (${cuentasZonas.todas})` },
+    { value: "activas", label: `Activas (${cuentasZonas.activas})` },
+    { value: "sin_envio", label: `Sin envío web (${cuentasZonas.sin_envio})` },
+    ...(conTramos ? [{ value: "kilos" as const, label: `Por kilos (${cuentasZonas.kilos})` }] : []),
+    { value: "gratis", label: `Con «gratis desde» (${cuentasZonas.gratis})` },
+  ];
+
   const campo = (props: React.ComponentProps<typeof TextInput>) => (
     <TextInput
       placeholderTextColor="rgba(11,33,56,0.35)"
@@ -391,7 +501,7 @@ export default function AdminEnvios() {
           paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 960, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
@@ -401,7 +511,7 @@ export default function AdminEnvios() {
           >
             <Ionicons name="chevron-back" size={24} color={COLORS.text} />
           </Pressable>
-          <Text style={{ color: COLORS.text, fontSize: isMobile ? 19 : 22, fontWeight: "900", textAlign: "center", paddingHorizontal: 44 }}>
+          <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: TAMANOS.destacado, fontWeight: "900", textAlign: "center", paddingHorizontal: 48 }}>
             Tarifas de envío
           </Text>
         </View>
@@ -420,35 +530,64 @@ export default function AdminEnvios() {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={CIERRE_TECLADO}
           >
-            <View style={{ width: "100%", maxWidth: 860, gap: 16 }}>
-              <View nativeID="envios-explicacion" style={{ gap: 6 }}>
-                <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 21, textAlign: "center" }}>
+            <View style={{ width: "100%", maxWidth: 960, gap: 16 }}>
+              <View nativeID="envios-explicacion" style={{ gap: 4 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
                   La tienda calcula sola el envío de cada compra con estas tarifas: por la entrega, el código postal y el importe.
                 </Text>
-                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                   Aquí cambias los precios a mano. Si un pedido concreto necesita otro precio (un envío pesado, una isla…), cámbialo en Pedidos.
                 </Text>
               </View>
 
-              {resumen ? (
-                <View nativeID="envios-resumen" style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 16, rowGap: 6 }}>
-                  {(
-                    [
-                      { icon: "receipt-outline", texto: `${resumen.pedidos} ${resumen.pedidos === 1 ? "pedido" : "pedidos"} en 30 días` },
-                      { icon: "cash-outline", texto: `${fmtEUR(resumen.cobrado)} de envío` },
-                      { icon: "create-outline", texto: `${resumen.aMano} con el envío a mano` },
-                      { icon: "help-circle-outline", texto: `${resumen.sinZona} sin zona` },
-                    ] as { icon: React.ComponentProps<typeof Ionicons>["name"]; texto: string }[]
-                  )
-                    .concat(sinPeso !== null ? [{ icon: "barbell-outline", texto: `${sinPeso} ${sinPeso === 1 ? "artículo" : "artículos"} sin peso (cuentan ${fmtKg(PESO_SIN_DATO_KG)})` }] : [])
-                    .concat(soloMano ? [{ icon: "hand-left-outline", texto: `${soloMano} solo en mano (no se envían)` }] : [])
-                    .map((d) => (
-                    <View key={d.icon} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Ionicons name={d.icon} size={16} color={COLORS.accent} />
-                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14 }}>{d.texto}</Text>
-                    </View>
-                  ))}
+              {/* Cifras: las zonas (activas y sin envío web filtran la lista) y los pedidos de los últimos 30 días. */}
+              {zonas.length ? (
+                <View nativeID="envios-cifras" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+                  <Cifra
+                    nativeID="envios-cifra-activas"
+                    valor={String(cuentasZonas.activas)}
+                    etiqueta="zonas activas"
+                    icono="checkmark-circle-outline"
+                    ancho={anchoCifra}
+                    activa={!buscando && filtro === "activas"}
+                    onPress={() => setFiltro((f) => (f === "activas" ? "todas" : "activas"))}
+                  />
+                  <Cifra
+                    nativeID="envios-cifra-sin-envio"
+                    valor={String(cuentasZonas.sin_envio)}
+                    etiqueta="sin envío web"
+                    icono="close-circle-outline"
+                    ancho={anchoCifra}
+                    activa={!buscando && filtro === "sin_envio"}
+                    onPress={() => setFiltro((f) => (f === "sin_envio" ? "todas" : "sin_envio"))}
+                  />
+                  {resumen ? (
+                    <>
+                      <Cifra nativeID="envios-cifra-pedidos" valor={String(resumen.pedidos)} etiqueta={`${resumen.pedidos === 1 ? "pedido" : "pedidos"} en 30 días`} icono="receipt-outline" ancho={anchoCifra} />
+                      <Cifra nativeID="envios-cifra-cobrado" valor={fmtEUR(resumen.cobrado)} etiqueta="cobrado de envío" icono="cash-outline" ancho={anchoCifra} />
+                    </>
+                  ) : null}
                 </View>
+              ) : null}
+
+              {/* Buscador (16 px): nombre de la zona, su clave o un código postal (deja la zona a la que iría). */}
+              {zonas.length ? (
+                <Buscador
+                  nativeID="envios-buscar"
+                  valor={busqueda}
+                  onCambiar={setBusqueda}
+                  placeholder={isMobile ? "Zona o código postal" : "Buscar una zona por su nombre o por un código postal (50410)"}
+                  etiqueta="Buscar una zona por su nombre o por un código postal"
+                />
+              ) : null}
+
+              {/* Pastillas con su recuento. */}
+              {zonas.length ? (
+                <FilaPastillas isMobile={isMobile} nativeID="envios-filtros">
+                  {PASTILLAS.map((c) => (
+                    <Chip key={c.value} nativeID={`envios-filtro-${c.value}`} label={c.label} activo={!buscando && filtro === c.value} onPress={() => setFiltro(c.value)} />
+                  ))}
+                </FilaPastillas>
               ) : null}
 
               {sinTabla ? (
@@ -460,41 +599,124 @@ export default function AdminEnvios() {
                 </View>
               ) : null}
 
-              {zonas.map((z) => {
+              {/* Las zonas: filas compactas (nombre, estado, códigos, precio) que se despliegan con su editor por bloques. */}
+              {zonas.length ? (
+                <RecuentoLista
+                  nativeID="envios-recuento"
+                  texto={buscando ? `${zonasVisibles.length} ${zonasVisibles.length === 1 ? "zona encontrada" : "zonas encontradas"}` : `${zonasVisibles.length} de ${zonas.length} zonas`}
+                  abiertas={desplegables.todasAbiertas(idsVisibles)}
+                  onAlternar={zonasVisibles.length ? () => desplegables.abrirOCerrarTodas(idsVisibles) : undefined}
+                  idBoton="envios-abrir-todas"
+                  femenino
+                />
+              ) : null}
+              {zonas.length && !zonasVisibles.length ? (
+                <ListaVacia nativeID="envios-vacio" icono="map-outline" titulo="Ninguna zona con esto." texto="Prueba a borrar el buscador o a elegir «Todas»." />
+              ) : null}
+              {zonasVisibles.length ? (
+              <View nativeID="envios-lista">
+              {zonasVisibles.map((z, i) => {
                 const b = borradores[z.zona];
                 if (!b) return null;
                 const pedidos = pedidosPorZona ? pedidosPorZona[z.zona] ?? 0 : null;
+                const r = resumenZona(z);
+                const abierta = desplegables.estaAbierta(z.zona);
                 return (
-                  <View key={z.zona} nativeID={`envio-zona-${z.zona}`} style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: isMobile ? 14 : 18, gap: 10 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                      <Ionicons name={z.zona === "mano" ? "hand-left-outline" : "cube-outline"} size={18} color={COLORS.accent} />
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center", flexShrink: 1 }}>{b.nombre || z.zona}</Text>
-                    </View>
+                  <View key={z.zona} nativeID={`envio-zona-${z.zona}`} style={{ borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border, paddingVertical: 4 }}>
+                    <Pressable
+                      nativeID={`envios-fila-${z.zona}`}
+                      onPress={() => desplegables.alternar(z.zona)}
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: abierta }}
+                      {...({ "aria-expanded": abierta } as object)}
+                      accessibilityLabel={`${b.nombre || z.zona}, ${r.precioTexto}, ${r.activa ? "activa" : "sin envío desde la web"}. ${abierta ? "Plegar" : "Editar"}`}
+                      style={({ pressed }) => ({ flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 8, opacity: pressed ? 0.85 : 1 })}
+                    >
+                      <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.card, alignItems: "center", justifyContent: "center" }}>
+                        <Ionicons name={iconoZona(z)} size={20} color={r.activa ? COLORS.accent : COLORS.muted} />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 8, rowGap: 4 }}>
+                          <Text nativeID={`envios-nombre-${z.zona}`} style={{ color: r.activa ? COLORS.text : COLORS.muted, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21, flexShrink: 1 }}>
+                            {b.nombre || z.zona}
+                          </Text>
+                          <EtiquetaColor nativeID={`envios-estado-${z.zona}`} texto={r.activa ? "Activa" : "Sin envío web"} tono={r.activa ? "verde" : "gris"} />
+                          {r.cambiada ? <EtiquetaColor texto="Sin guardar" tono="amarillo" /> : null}
+                        </View>
+                        <Text numberOfLines={1} style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                          {z.zona === "mano" ? "Sin código postal · se entrega en mano" : r.codigos ? `Códigos: ${r.codigos}` : "Sin códigos postales"}
+                        </Text>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 14, rowGap: 4, marginTop: 1 }}>
+                          <Etiqueta icon={r.conKilos ? "barbell-outline" : "pricetag-outline"} color={COLORS.text} texto={r.conKilos ? `Por kilos · ${r.tramos} ${r.tramos === 1 ? "tramo" : "tramos"}` : "Precio fijo"} />
+                          {r.gratis !== null ? <Etiqueta icon="gift-outline" color={COLORS.text} texto={`Gratis desde ${fmtEUR(r.gratis)}`} /> : null}
+                          {pedidos !== null ? <Etiqueta icon="receipt-outline" color={COLORS.muted} texto={`${pedidos} ${pedidos === 1 ? "pedido" : "pedidos"} (30 días)`} /> : null}
+                        </View>
+                      </View>
+                      <View style={{ alignItems: "flex-end", gap: 2, maxWidth: "40%" }}>
+                        <Text nativeID={`envios-precio-${z.zona}`} style={{ color: r.activa ? COLORS.text : COLORS.muted, fontWeight: "900", fontSize: TAMANOS.destacado, lineHeight: 22, textAlign: "right" }}>
+                          {r.precioTexto}
+                        </Text>
+                        <Ionicons name={abierta ? "chevron-up" : "chevron-down"} size={18} color={COLORS.muted} style={{ marginTop: 2 }} />
+                      </View>
+                    </Pressable>
+
+                    {abierta ? (
+                    <View nativeID={`envio-detalle-${z.zona}`} style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, paddingBottom: 16 }}>
+                    <Bloque icono="create-outline" titulo="Nombre y precio" ancho={anchoBloque}>
                     {pedidos !== null ? (
-                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
+                      <Detalle>
                         {pedidos} {pedidos === 1 ? "pedido" : "pedidos"} en los últimos 30 días
-                      </Text>
+                      </Detalle>
                     ) : null}
 
                     <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Nombre que ve el cliente</Text>
                     {campo({ value: b.nombre, onChangeText: (t) => cambiar(z.zona, "nombre", t), maxLength: 90, accessibilityLabel: `Nombre de ${z.zona}` })}
 
-                    {z.zona !== "mano" ? (
-                      <>
+                    <View style={{ flexDirection: "row", gap: 10 }}>
+                      <View style={{ flex: 1, gap: 6 }}>
                         <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
-                          Códigos postales (separados por comas; un rango con guion, 50001-50022; 2 cifras = toda la provincia; * = el resto)
+                          {conTramos && z.zona !== "mano" ? "Precio fijo (€), si no hay tramos" : "Precio (€)"}
+                        </Text>
+                        {campo({
+                          nativeID: `envio-precio-${z.zona}`,
+                          value: b.precio,
+                          onChangeText: (t) => cambiar(z.zona, "precio", t),
+                          keyboardType: "decimal-pad",
+                          placeholder: "0,00",
+                          accessibilityLabel: `Precio de ${z.zona}`,
+                        })}
+                      </View>
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Gratis desde (€)</Text>
+                        {campo({
+                          nativeID: `envio-gratis-${z.zona}`,
+                          value: b.gratisDesde,
+                          onChangeText: (t) => cambiar(z.zona, "gratisDesde", t),
+                          keyboardType: "decimal-pad",
+                          placeholder: "Nunca",
+                          accessibilityLabel: `Gratis desde, ${z.zona}`,
+                        })}
+                      </View>
+                    </View>
+                    </Bloque>
+
+                    {z.zona !== "mano" ? (
+                      <Bloque icono="location-outline" titulo="Códigos postales" ancho={anchoBloque}>
+                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                          Separados por comas; un rango con guion, 50001-50022; 2 cifras = toda la provincia; * = el resto
                         </Text>
                         {campo({ value: b.codigos, onChangeText: (t) => cambiar(z.zona, "codigos", t), maxLength: 300, autoCapitalize: "none", accessibilityLabel: `Códigos postales de ${z.zona}` })}
-                      </>
+                      </Bloque>
                     ) : null}
 
                     {/* Tramos por kilos (Correos): si hay, el envío es el del peso del pedido; si no, el precio fijo. */}
                     {conTramos && z.zona !== "mano" ? (
+                      <Bloque icono="barbell-outline" titulo="Precio por kilos" ancho={anchoBloque}>
                       <View nativeID={`envio-tramos-${z.zona}`} style={{ gap: 6 }}>
                         <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                           {b.tramos.length
                             ? "Precio por kilos (peso del pedido con embalaje): hasta X kg, Y €"
-                            : "Precio por kilos: sin tramos, se cobra el precio fijo de abajo"}
+                            : "Sin tramos: se cobra el precio fijo de «Nombre y precio»"}
                         </Text>
                         {b.tramos.map((t, i) => (
                           <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -536,40 +758,15 @@ export default function AdminEnvios() {
                           style={({ pressed }) => ({ alignSelf: "center", minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
                         >
                           <Ionicons name="add-circle-outline" size={18} color={COLORS.accent} />
-                          <Text style={{ color: COLORS.accentText, fontWeight: "800" }}>Añadir tramo</Text>
+                          <Text style={{ color: COLORS.accentText, fontWeight: "800", fontSize: TAMANOS.cuerpo }}>Añadir tramo</Text>
                         </Pressable>
                       </View>
+                      </Bloque>
                     ) : null}
 
-                    <View style={{ flexDirection: "row", gap: 10 }}>
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
-                          {conTramos && z.zona !== "mano" ? "Precio fijo (€), si no hay tramos" : "Precio (€)"}
-                        </Text>
-                        {campo({
-                          nativeID: `envio-precio-${z.zona}`,
-                          value: b.precio,
-                          onChangeText: (t) => cambiar(z.zona, "precio", t),
-                          keyboardType: "decimal-pad",
-                          placeholder: "0,00",
-                          accessibilityLabel: `Precio de ${z.zona}`,
-                        })}
-                      </View>
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Gratis desde (€)</Text>
-                        {campo({
-                          nativeID: `envio-gratis-${z.zona}`,
-                          value: b.gratisDesde,
-                          onChangeText: (t) => cambiar(z.zona, "gratisDesde", t),
-                          keyboardType: "decimal-pad",
-                          placeholder: "Nunca",
-                          accessibilityLabel: `Gratis desde, ${z.zona}`,
-                        })}
-                      </View>
-                    </View>
-
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                      <Text style={{ color: b.activa ? COLORS.text : COLORS.danger, fontWeight: "800", flexShrink: 1 }}>
+                    <Bloque icono="globe-outline" titulo="En la web" ancho={anchoBloque}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: TACTIL.minimo }}>
+                      <Text style={{ color: b.activa ? COLORS.text : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19, flexShrink: 1 }}>
                         {b.activa ? "Se puede pedir desde la web" : "No se envía desde la web (se pide escribir antes)"}
                       </Text>
                       <Switch
@@ -579,9 +776,15 @@ export default function AdminEnvios() {
                         accessibilityLabel={`Se envía a ${z.zona}`}
                       />
                     </View>
+                    <Detalle>Los cambios se guardan con «Guardar cambios», abajo, y se aplican a los pedidos nuevos.</Detalle>
+                    </Bloque>
+                    </View>
+                    ) : null}
                   </View>
                 );
               })}
+              </View>
+              ) : null}
 
               {zonas.length ? (
                 <View style={{ alignItems: "center", gap: 8 }}>
@@ -620,12 +823,9 @@ export default function AdminEnvios() {
 
               {/* Calculadora: prueba un código postal y un importe con lo escrito (antes de guardar). */}
               {zonas.length ? (
-                <View nativeID="envios-calculadora" style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: isMobile ? 14 : 18, gap: 10 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                    <Ionicons name="calculator-outline" size={18} color={COLORS.accent} />
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>Calculadora</Text>
-                  </View>
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 18 }}>
+                <Seccion icon="calculator-outline" title="Prueba de un código postal" extra="con lo escrito, antes de guardar">
+                <View nativeID="envios-calculadora" style={{ borderRadius: 16, backgroundColor: COLORS.card, padding: isMobile ? 12 : 16, gap: 10 }}>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 18 }}>
                     {(
                       [
                         { key: "envio", label: "A domicilio" },
@@ -640,7 +840,7 @@ export default function AdminEnvios() {
                         style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}
                       >
                         <Ionicons name={cEntrega === op.key ? "radio-button-on" : "radio-button-off"} size={20} color={cEntrega === op.key ? COLORS.accent : COLORS.muted} />
-                        <Text style={{ color: COLORS.text, fontWeight: "800" }}>{op.label}</Text>
+                        <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.cuerpo }}>{op.label}</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -657,7 +857,7 @@ export default function AdminEnvios() {
                       </View>
                     ) : null}
                   </View>
-                  <Text nativeID="envios-calc-resultado" style={{ color: COLORS.text, fontWeight: "900", textAlign: "center", lineHeight: 21 }}>
+                  <Text nativeID="envios-calc-resultado" style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
                     {!zonasEditadas
                       ? "Revisa los importes de arriba."
                       : !prueba.zona
@@ -669,9 +869,33 @@ export default function AdminEnvios() {
                           }${prueba.disponible ? "" : " · no se envía desde la web"}`}
                   </Text>
                 </View>
+                </Seccion>
               ) : null}
 
-              <EditorFranjas compacto={isMobile} />
+              <Seccion icon="time-outline" title="Franjas de entrega el mismo día" extra="Zaragoza y en mano">
+                <EditorFranjas compacto={isMobile} />
+              </Seccion>
+
+              {/* Más datos del envío (30 días y artículos): los recuentos de siempre, en una línea de detalle. */}
+              {zonas.length && (resumen || sinPeso !== null || soloMano) ? (
+                <Seccion icon="stats-chart-outline" title="Más datos del envío">
+                  <View style={{ gap: 8, borderRadius: 16, backgroundColor: COLORS.card, padding: 14 }}>
+                    <Detalle nativeID="envios-resumen" color={COLORS.text}>
+                      {[
+                        resumen ? `${resumen.pedidos} ${resumen.pedidos === 1 ? "pedido" : "pedidos"} en 30 días` : null,
+                        resumen ? `${fmtEUR(resumen.cobrado)} de envío` : null,
+                        resumen ? `${resumen.aMano} con el envío a mano` : null,
+                        resumen ? `${resumen.sinZona} sin zona` : null,
+                        sinPeso !== null ? `${sinPeso} ${sinPeso === 1 ? "artículo" : "artículos"} sin peso (cuentan ${fmtKg(PESO_SIN_DATO_KG)})` : null,
+                        soloMano ? `${soloMano} solo en mano (no se envían)` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </Detalle>
+                    <Detalle>Un pedido «sin zona» no tiene código postal (asignado desde el chat) o es una venta de VeoAura: la base de datos no le suma envío.</Detalle>
+                  </View>
+                </Seccion>
+              ) : null}
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -822,12 +1046,8 @@ function EditorFranjas({ compacto }: { compacto: boolean }) {
   );
 
   return (
-    <View nativeID="envios-franjas" style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: compacto ? 14 : 18, gap: 10 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-        <Ionicons name="time-outline" size={18} color={COLORS.accent} />
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>Franjas de entrega el mismo día</Text>
-      </View>
-      <Text nativeID="envios-franjas-explicacion" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 19, textAlign: "center" }}>
+    <View nativeID="envios-franjas" style={{ borderRadius: 16, backgroundColor: COLORS.card, padding: compacto ? 12 : 16, gap: 10 }}>
+      <Text nativeID="envios-franjas-explicacion" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>
         Para la entrega a domicilio en Zaragoza y alrededores y la entrega en mano (Correos no). Al pagar, el cliente elige
         una franja de hoy o del siguiente día de reparto. El margen es hasta cuántos minutos antes de que empiece una franja se
         puede pedir para ella: con {Number.isInteger(margen) ? margen : "—"} minutos, la mañana se pide hasta las {corte(horas[0])} y la tarde hasta

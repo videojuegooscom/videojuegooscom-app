@@ -26,8 +26,15 @@
  *   foto se vea más suave o más fuerte (10-100 %, columna
  *   "portada_opacidad"; sin valor, 55 %). Al guardar, Inicio se entera al
  *   momento (olvidarPortadasCategorias avisa a las pantallas abiertas).
- * - Lista en rejilla (2 por fila en el móvil), buscador arriba, «+» flotante
- *   para crear y acciones con iconos. «A otras», junto a «Categoría activa»,
+ * - DISEÑO (2026-11-16, el de Usuarios y Pedidos; piezas de components/admin/PanelUI.tsx): buscador de
+ *   16 px arriba; cifras que filtran (Categorías, Visibles, Ocultas, Con productos, Vacías, Sin portada; los
+ *   productos de cada una se cuentan con una lectura de products: category_id e is_active); pastillas con
+ *   su recuento; filas compactas (portada pequeña, nombre, etiqueta Visible / Oculta / Siempre en Inicio,
+ *   slug y orden, nº de productos y de portadas) con el lápiz «Editar» a mano. Al tocar la fila se despliega
+ *   su detalle por bloques (Cómo se ve en Inicio y Datos, con los toques desde Inicio y cuándo se cambió) y,
+ *   abajo, las acciones: «Visible en la tienda», «Cambiar nombre y portadas» y borrar. «Abrir todas»
+ *   despliega todas. Prueba PANRED1 (y W, Y, EN, NO, TM5, CAMPOS16).
+ * - «+» flotante para crear y acciones con iconos. «A otras», junto a «Categoría activa»,
  *   copia la transparencia de la foto a las categorías elegidas. (El nombre ya
  *   no se mueve sobre la foto: va encima del recuadro; la columna
  *   "titulo_posicion" sigue en la base de datos, sin usar.)
@@ -114,16 +121,33 @@ import {
   IconButton,
   PieVentana,
   PrimaryButton,
-  StatCard,
 } from "../../lib/admin/products.components";
+import {
+  AccionTexto,
+  Bloque,
+  Buscador,
+  Chip,
+  Cifra,
+  Dato,
+  Detalle,
+  Etiqueta,
+  EtiquetaColor,
+  FilaPastillas,
+  ListaVacia,
+  RecuentoLista,
+  useDesplegables,
+  type IoniconName,
+} from "../../components/admin/PanelUI";
 import { CIERRE_TECLADO, pickMediaFilesWeb, reducirImagenWeb } from "../../lib/admin/products.utils";
 import { MEDIA_BUCKET } from "../../lib/admin/products.constants";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 // «−» y «+» de cuánto se ve la foto: de 10 en 10, para que cada toque se note (la barra va de 5 en 5).
 const PASO_BOTON_OPACIDAD = 10;
-// Separación entre las fichas de la rejilla.
-const GAP_REJILLA = 10;
+// Filtros de las cifras y las pastillas.
+type FiltroCategorias = "todas" | "visibles" | "ocultas" | "con_productos" | "vacias" | "sin_portada";
+// Clave de cada fila (la de «Reparación / Limpieza» aún puede no tener id).
+const claveCategoria = (c: { id: string; slug: string }) => c.id || c.slug;
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -298,16 +322,14 @@ export default function AdminCategories() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const isDesktopish = widthSafe >= 1024;
-  const pagePadding = isMobile ? 12 : 16;
-  const sectionGap = isMobile ? 20 : 24;
-  // Rejilla de fichas: 2 por fila en el móvil, 3 en tableta y 4 en el ordenador; el ancho sale del de la pantalla
-  // (sin márgenes) y, si hay barra de desplazamiento, de lo que mide de verdad la rejilla.
-  const columnasRejilla = isMobile ? 2 : isDesktopish ? 4 : 3;
-  const [anchoRejilla, setAnchoRejilla] = useState(0);
-  const anchoDisponible = anchoRejilla || Math.min(widthSafe - pagePadding * 2, 1040);
-  const anchoFicha = Math.floor((anchoDisponible - GAP_REJILLA * (columnasRejilla - 1)) / columnasRejilla);
+  const pagePadding = 16;
+  const sectionGap = 16;
   const insets = useSafeAreaInsets();
+  // Filtro de las cifras y las pastillas, y las filas desplegadas («Abrir todas»).
+  const [filtro, setFiltro] = useState<FiltroCategorias>("todas");
+  const desplegables = useDesplegables();
+  // Productos de cada categoría (todos y a la venta). null si no se han podido leer.
+  const [productosPorCategoria, setProductosPorCategoria] = useState<Record<string, { total: number; activos: number }> | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -368,25 +390,59 @@ export default function AdminCategories() {
     [isEdit]
   );
 
+  // Cuántos productos tiene (los de «Reparación / Limpieza» no cuentan: lleva a Servicios).
+  const productosDe = (c: CategoryRow) => (productosPorCategoria && c.id ? productosPorCategoria[c.id]?.total ?? 0 : 0);
+
   const stats = useMemo(() => {
     const total = items.length;
     const active = items.filter((x) => !!x.is_active).length;
     const hidden = items.filter((x) => !x.is_active).length;
+    const deProductos = items.filter((x) => !esCategoriaServicios(x.slug));
+    const conProductos = deProductos.filter((x) => productosDe(x) > 0).length;
+    const vacias = deProductos.length - conProductos;
+    const sinPortada = items.filter((x) => !portadasInicioDe(x).length).length;
 
-    return { total, active, hidden };
-  }, [items]);
+    return { total, active, hidden, conProductos, vacias, sinPortada };
+    // productosDe depende de productosPorCategoria.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, productosPorCategoria]);
 
+  const buscando = !!search.trim();
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return items;
+    // Con algo escrito busca en todas (como en Pedidos).
+    if (q) {
+      return items.filter((c) => String(c.name ?? "").toLowerCase().includes(q) || String(c.slug ?? "").toLowerCase().includes(q));
+    }
+    switch (filtro) {
+      case "visibles":
+        return items.filter((c) => !!c.is_active);
+      case "ocultas":
+        return items.filter((c) => !c.is_active);
+      case "con_productos":
+        return items.filter((c) => !esCategoriaServicios(c.slug) && productosDe(c) > 0);
+      case "vacias":
+        return items.filter((c) => !esCategoriaServicios(c.slug) && productosDe(c) === 0);
+      case "sin_portada":
+        return items.filter((c) => !portadasInicioDe(c).length);
+      default:
+        return items;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, search, filtro, productosPorCategoria]);
 
-    return items.filter((c) => {
-      return (
-        String(c.name ?? "").toLowerCase().includes(q) ||
-        String(c.slug ?? "").toLowerCase().includes(q)
-      );
-    });
-  }, [items, search]);
+  const pastillas: { value: FiltroCategorias; label: string }[] = [
+    { value: "todas", label: `Todas (${stats.total})` },
+    { value: "visibles", label: `Visibles (${stats.active})` },
+    { value: "ocultas", label: `Ocultas (${stats.hidden})` },
+    ...(productosPorCategoria
+      ? [
+          { value: "con_productos" as const, label: `Con productos (${stats.conProductos})` },
+          { value: "vacias" as const, label: `Vacías (${stats.vacias})` },
+        ]
+      : []),
+    { value: "sin_portada", label: `Sin portada (${stats.sinPortada})` },
+  ];
 
   async function load() {
     setLoading(true);
@@ -396,7 +452,7 @@ export default function AdminCategories() {
       // «*»: trae las columnas que existan, sin errores 400 si falta alguna (migración pendiente); con lo que trae la
       // primera fila se sabe qué se puede guardar (sin filas, se da por hecho que todo y al guardar se comprueba).
       const desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const [res, toquesRes] = await Promise.all([
+      const [res, toquesRes, prodRes] = await Promise.all([
         consultarCategorias("*"),
         supabase
           .from("analytics_events")
@@ -404,7 +460,22 @@ export default function AdminCategories() {
           .eq("event_name", "categoria_inicio")
           .gte("created_at", desde)
           .limit(5000),
+        // Productos de cada categoría (solo la categoría y si está a la venta): para «Con productos» y «Vacías».
+        supabase.from("products").select("category_id,is_active").limit(5000),
       ]);
+      if (prodRes.error || !Array.isArray(prodRes.data)) {
+        setProductosPorCategoria(null);
+      } else {
+        const cuenta: Record<string, { total: number; activos: number }> = {};
+        for (const f of prodRes.data as { category_id: string | null; is_active: boolean | null }[]) {
+          if (!f.category_id) continue;
+          const c = cuenta[f.category_id] ?? { total: 0, activos: 0 };
+          cuenta[f.category_id] = c;
+          c.total += 1;
+          if (f.is_active) c.activos += 1;
+        }
+        setProductosPorCategoria(cuenta);
+      }
       if (toquesRes.error) {
         setToquesInicio(null);
       } else {
@@ -796,21 +867,50 @@ export default function AdminCategories() {
         {/* Columna centrada con el mismo ancho máximo para todo */}
         <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
 
-          {/* El buscador arriba de los contadores (petición del dueño); «Nueva categoría» es el «+» flotante. */}
-          <TextInput
+          {/* 1) El buscador arriba de las cifras (petición del dueño); «Nueva categoría» es el «+» flotante. */}
+          <Buscador
             nativeID="categorias-buscar"
-            value={search}
-            onChangeText={(v) => setSearch(v)}
+            valor={search}
+            onCambiar={setSearch}
             placeholder="Buscar por nombre o slug"
-            placeholderTextColor="rgba(11,33,56,0.40)"
-            style={inputStyle}
+            etiqueta="Buscar categorías por nombre o slug"
           />
 
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            <StatCard label="Total" value={String(stats.total)} icon="folder-outline" isMobile={isMobile} columns={3} />
-            <StatCard label="Activas" value={String(stats.active)} icon="checkmark-circle-outline" isMobile={isMobile} columns={3} />
-            <StatCard label="Ocultas" value={String(stats.hidden)} icon="eye-off-outline" isMobile={isMobile} columns={3} />
+          {/* 2) Cifras que filtran al tocarlas. */}
+          <View nativeID="categorias-cifras" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+            {(
+              [
+                { key: "todas", valor: stats.total, etiqueta: "Categorías", icono: "folder-outline" },
+                { key: "visibles", valor: stats.active, etiqueta: "Visibles", icono: "eye-outline" },
+                { key: "ocultas", valor: stats.hidden, etiqueta: "Ocultas", icono: "eye-off-outline" },
+                ...(productosPorCategoria
+                  ? [
+                      { key: "con_productos", valor: stats.conProductos, etiqueta: "Con productos", icono: "cube-outline" },
+                      { key: "vacias", valor: stats.vacias, etiqueta: "Vacías", icono: "file-tray-outline" },
+                    ]
+                  : []),
+                { key: "sin_portada", valor: stats.sinPortada, etiqueta: "Sin portada", icono: "image-outline" },
+              ] as { key: FiltroCategorias; valor: number; etiqueta: string; icono: IoniconName }[]
+            ).map((c) => (
+              <Cifra
+                key={c.key}
+                nativeID={`categorias-cifra-${c.key}`}
+                valor={String(c.valor)}
+                etiqueta={c.etiqueta}
+                icono={c.icono}
+                ancho={isMobile ? "30%" : 0}
+                activa={!buscando && filtro === c.key && c.key !== "todas"}
+                onPress={() => setFiltro((f) => (f === c.key ? "todas" : c.key))}
+              />
+            ))}
           </View>
+
+          {/* 3) Pastillas con su recuento. */}
+          <FilaPastillas isMobile={isMobile} nativeID="categorias-filtros">
+            {pastillas.map((c) => (
+              <Chip key={c.value} nativeID={`categorias-filtro-${c.value}`} label={c.label} activo={!buscando && filtro === c.value} onPress={() => setFiltro(c.value)} />
+            ))}
+          </FilaPastillas>
 
           {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
 
@@ -821,116 +921,179 @@ export default function AdminCategories() {
             />
           )}
 
-          {filteredItems.length === 0 ? (
-            <EmptyState
-              icon="folder-open-outline"
-              title="No hay categorías para este filtro."
-              text="Crea tu primera categoría para empezar a organizar el catálogo."
+          {/* 4) Cuántas salen, «Abrir todas» y la lista de filas compactas. */}
+          <View style={{ gap: 4 }}>
+            <RecuentoLista
+              nativeID="categorias-recuento"
+              texto={buscando ? `${filteredItems.length} ${filteredItems.length === 1 ? "categoría encontrada" : "categorías encontradas"}` : `${filteredItems.length} de ${items.length} categorías`}
+              abiertas={desplegables.todasAbiertas(filteredItems.map(claveCategoria))}
+              onAlternar={filteredItems.length ? () => desplegables.abrirOCerrarTodas(filteredItems.map(claveCategoria)) : undefined}
+              idBoton="categorias-abrir-todas"
+              femenino
             />
+          {filteredItems.length === 0 ? (
+            items.length ? (
+              <ListaVacia nativeID="categorias-vacio" icono="folder-open-outline" titulo="No hay categorías en esta lista." texto="Prueba a borrar el buscador o a elegir «Todas»." />
+            ) : (
+              <EmptyState
+                icon="folder-open-outline"
+                title="No hay categorías para este filtro."
+                text="Crea tu primera categoría para empezar a organizar el catálogo."
+              />
+            )
           ) : (
-            // Fichas en rejilla, una al lado de otra (petición del dueño): 2 por fila en el móvil, 3 o 4 en pantallas
-            // anchas. Arriba, el recuadro tal cual sale en Inicio (encuadre, nombre y transparencia).
-            <View
-              nativeID="categorias-rejilla"
-              onLayout={(e) => {
-                const w = Math.floor(e.nativeEvent.layout.width);
-                if (w && Math.abs(w - anchoRejilla) > 1) setAnchoRejilla(w);
-              }}
-              style={{ flexDirection: "row", flexWrap: "wrap", gap: GAP_REJILLA }}
-            >
-            {filteredItems.map((c) => {
+            // Filas compactas (dueño, 2026-11-16: el diseño de Usuarios y Pedidos): portada pequeña, nombre, estado y nº de
+            // productos; el lápiz abre el editor. Al tocar la fila se despliega su detalle (cómo se ve en Inicio, datos,
+            // toques desde Inicio) con las acciones abajo.
+            <View nativeID="categorias-lista">
+            {filteredItems.map((c, i) => {
               const servicios = esCategoriaServicios(c.slug);
               const fotos = portadasInicioDe(c);
+              const clave = claveCategoria(c);
+              const abierta = desplegables.estaAbierta(clave);
+              const prods = productosPorCategoria && c.id ? productosPorCategoria[c.id] ?? { total: 0, activos: 0 } : null;
+              const estado = servicios
+                ? { texto: "Siempre en Inicio", tono: "azul" as const }
+                : c.is_active
+                  ? { texto: "Visible", tono: "verde" as const }
+                  : { texto: "Oculta", tono: "gris" as const };
               return (
               <View
                 key={c.id || c.slug}
                 nativeID={servicios ? "categoria-servicios" : `categoria-ficha-${c.slug}`}
-                style={{
-                  width: anchoFicha,
-                  borderRadius: 18,
-                  backgroundColor: COLORS.card,
-                  padding: 8,
-                  gap: 8,
-                }}
+                // 4 px arriba y abajo: entre una fila y la siguiente quedan 8 px o más de zona sin tocar (TM5).
+                style={{ borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border, paddingVertical: 4 }}
               >
-                {fotos.length ? (
-                  <PortadaRecuadro
-                    imagenes={fotos}
-                    enteras={enterasInicioDe(c)}
-                    opacidad={opacidadDe(c)}
-                    titulo={c.name}
-                    proporcion={PROPORCION_RECUADRO_INICIO}
-                    radio={14}
-                  />
-                ) : (
-                  <View
-                    style={{
-                      width: "100%",
-                      aspectRatio: PROPORCION_RECUADRO_INICIO,
-                      borderRadius: 14,
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                      backgroundColor: "#F8FBFE",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 4,
-                    }}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion }}>
+                  <Pressable
+                    nativeID={`categoria-fila-${c.slug}`}
+                    onPress={() => desplegables.alternar(clave)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: abierta }}
+                    {...({ "aria-expanded": abierta } as object)}
+                    accessibilityLabel={`${c.name}, ${estado.texto}${prods ? `, ${prods.total} productos` : ""}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+                    style={({ pressed }) => ({ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8, opacity: pressed ? 0.85 : 1 })}
                   >
-                    <Ionicons name="images-outline" size={24} color={COLORS.muted2} />
-                    <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: TAMANOS.minimo }}>Sin portada</Text>
-                  </View>
-                )}
-
-                <View style={{ gap: 3, paddingHorizontal: 2 }}>
-                  <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 19 }}>
-                    {c.name}
-                  </Text>
-                  <Text numberOfLines={2} style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 17 }}>
-                    {servicios ? "Recuadro de Inicio · lleva a Servicios" : `${c.is_active ? "Visible" : "Oculta"} · ${c.slug} · orden ${c.sort_order}`}
-                  </Text>
-                  {toquesInicio ? (
-                    <Text
-                      nativeID={`categoria-toques-${c.slug}`}
-                      numberOfLines={2}
-                      style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 17 }}
-                    >
-                      {(() => {
-                        const t = toquesInicio[c.slug] ?? { toques: 0, conPortada: 0 };
-                        const veces = `${t.toques} ${t.toques === 1 ? "toque" : "toques"}`;
-                        return `Desde Inicio (30 días): ${veces}${t.toques ? ` · con portada: ${t.conPortada}` : ""}`;
-                      })()}
-                    </Text>
-                  ) : null}
-                  {c.id && c.updated_at ? (
-                    <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, lineHeight: 17 }}>
-                      Actualizada: {new Date(c.updated_at).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}
-                    </Text>
-                  ) : null}
+                    {/* Portada pequeña (la primera, con su encuadre de Inicio) o «sin portada». */}
+                    <View style={{ width: 72, height: 48, borderRadius: 10, overflow: "hidden", backgroundColor: COLORS.cardSoft, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", justifyContent: "center" }}>
+                      {fotos.length ? (
+                        <SmartImage uri={fotos[0]} contentFit={enterasInicioDe(c)[0] ? "contain" : "cover"} ancho={150} alt={`Portada de ${c.name}`} style={{ width: "100%", height: "100%" }} />
+                      ) : (
+                        <Ionicons name="images-outline" size={20} color={COLORS.muted2} />
+                      )}
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 8, rowGap: 4 }}>
+                        <Text style={{ color: !servicios && !c.is_active ? COLORS.muted : COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21, flexShrink: 1 }}>
+                          {c.name}
+                        </Text>
+                        <EtiquetaColor nativeID={`categoria-estado-${c.slug}`} texto={estado.texto} tono={estado.tono} />
+                      </View>
+                      <Text numberOfLines={2} style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                        {servicios ? "Recuadro de Inicio · lleva a Servicios" : `${c.slug} · orden ${c.sort_order}`}
+                      </Text>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 14, rowGap: 4 }}>
+                        {prods && !servicios ? (
+                          <Etiqueta
+                            nativeID={`categoria-productos-${c.slug}`}
+                            icon="cube-outline"
+                            color={prods.total ? COLORS.text : COLORS.muted}
+                            texto={prods.total ? `${prods.total} ${prods.total === 1 ? "producto" : "productos"}${prods.activos !== prods.total ? ` (${prods.activos} a la venta)` : ""}` : "Sin productos"}
+                          />
+                        ) : null}
+                        <Etiqueta
+                          icon="images-outline"
+                          color={fotos.length ? COLORS.text : COLORS.muted}
+                          texto={fotos.length ? `${fotos.length} ${fotos.length === 1 ? "portada" : "portadas"}` : "Sin portada"}
+                        />
+                      </View>
+                    </View>
+                    <Ionicons name={abierta ? "chevron-up" : "chevron-down"} size={18} color={COLORS.muted} />
+                  </Pressable>
+                  {/* Editar: el lápiz, siempre a mano (icono de 44 px, con su nombre para el lector de pantalla). */}
+                  <IconButton icon="create-outline" label={`Editar ${c.name}`} variant="primary" onPress={() => openEdit(c)} />
                 </View>
 
-                {/* Acciones con iconos: visible (no en «Reparación / Limpieza», que está siempre), editar y borrar. */}
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: TACTIL.separacion, marginTop: "auto" }}>
-                  {!servicios ? (
-                    <Switch
-                      value={c.is_active}
-                      onValueChange={() => toggleActive(c)}
-                      accessibilityLabel={c.is_active ? `Ocultar ${c.name}` : `Mostrar ${c.name}`}
-                    />
-                  ) : (
-                    <View />
-                  )}
-                  <View style={{ flexDirection: "row", gap: TACTIL.separacion }}>
-                    <IconButton icon="create-outline" label={`Editar ${c.name}`} variant="primary" onPress={() => openEdit(c)} />
-                    {!servicios ? (
-                      <IconButton icon="trash-outline" label={`Borrar ${c.name}`} variant="danger" onPress={() => askRemove(c)} />
-                    ) : null}
+                {abierta ? (
+                  <View nativeID={`categoria-detalle-${c.slug}`} style={{ gap: 12, paddingBottom: 16 }}>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                      {/* Cómo se ve en Inicio: el recuadro tal cual (encuadre, nombre y transparencia). */}
+                      <Bloque icono="home-outline" titulo="Cómo se ve en Inicio" ancho={isMobile ? "100%" : "45%"}>
+                        <View style={{ width: "100%", maxWidth: 220, gap: 6 }}>
+                          <NombreCategoria titulo={c.name} />
+                          {fotos.length ? (
+                            <PortadaRecuadro imagenes={fotos} enteras={enterasInicioDe(c)} opacidad={opacidadDe(c)} titulo={c.name} proporcion={PROPORCION_RECUADRO_INICIO} radio={14} />
+                          ) : (
+                            <View style={{ width: "100%", aspectRatio: PROPORCION_RECUADRO_INICIO, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, backgroundColor: "#F8FBFE", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                              <Ionicons name="images-outline" size={24} color={COLORS.muted2} />
+                              <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: TAMANOS.minimo }}>Sin portada</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Detalle>
+                          {fotos.length ? `Foto al ${opacidadDe(c)} % · ${fotos.length} de ${maxPortadas || 1} portadas` : "Ponle una portada con «Cambiar nombre y portadas»."}
+                        </Detalle>
+                      </Bloque>
+
+                      {/* Datos: enlace, orden, productos y cuándo se cambió. */}
+                      <Bloque icono="information-circle-outline" titulo="Datos" ancho={isMobile ? "100%" : "45%"}>
+                        {servicios ? <Dato etiqueta="Lleva a">Servicios (siempre visible en Inicio)</Dato> : null}
+                        <Dato etiqueta="Slug">{c.slug}</Dato>
+                        {!servicios ? <Dato etiqueta="Orden">{String(c.sort_order)}</Dato> : null}
+                        {!servicios ? <Dato etiqueta="En la tienda">{c.is_active ? "Visible" : "Oculta"}</Dato> : null}
+                        {prods && !servicios ? (
+                          <Dato etiqueta="Productos">
+                            {prods.total ? `${prods.total} (${prods.activos} a la venta)` : "Ninguno todavía"}
+                          </Dato>
+                        ) : null}
+                        {toquesInicio ? (
+                          <Text nativeID={`categoria-toques-${c.slug}`} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                            {(() => {
+                              const t = toquesInicio[c.slug] ?? { toques: 0, conPortada: 0 };
+                              const veces = `${t.toques} ${t.toques === 1 ? "toque" : "toques"}`;
+                              return `Desde Inicio (30 días): ${veces}${t.toques ? ` · con portada: ${t.conPortada}` : ""}`;
+                            })()}
+                          </Text>
+                        ) : null}
+                        {c.id && c.updated_at ? (
+                          <Detalle>
+                            Actualizada: {new Date(c.updated_at).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}
+                          </Detalle>
+                        ) : null}
+                      </Bloque>
+                    </View>
+
+                    {/* Acciones abajo: visible (no en «Reparación / Limpieza», que está siempre), el editor y borrar. */}
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 18, rowGap: TACTIL.separacion }}>
+                      {!servicios ? (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion, minHeight: TACTIL.minimo }}>
+                          <Switch
+                            value={c.is_active}
+                            onValueChange={() => toggleActive(c)}
+                            accessibilityLabel={c.is_active ? `Ocultar ${c.name}` : `Mostrar ${c.name}`}
+                          />
+                          <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.cuerpo }}>{c.is_active ? "Visible en la tienda" : "Oculta en la tienda"}</Text>
+                        </View>
+                      ) : null}
+                      <AccionTexto
+                        nativeID={`categoria-abrir-editor-${c.slug}`}
+                        icono="images-outline"
+                        texto={servicios ? "Cambiar portadas" : "Cambiar nombre y portadas"}
+                        etiqueta={`Cambiar el nombre y las portadas de ${c.name}`}
+                        onPress={() => openEdit(c)}
+                      />
+                      {!servicios ? (
+                        <IconButton icon="trash-outline" label={`Borrar ${c.name}`} variant="danger" onPress={() => askRemove(c)} />
+                      ) : null}
+                    </View>
                   </View>
-                </View>
+                ) : null}
               </View>
               );
             })}
             </View>
           )}
+          </View>
         </View>
       </ScrollView>
       )}

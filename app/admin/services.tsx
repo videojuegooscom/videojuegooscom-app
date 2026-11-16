@@ -69,6 +69,20 @@
  *   Bizum de Stripe (dueño, 2026-11-11; migración 20261111150000): lo pagado online dice con qué de verdad
  *   («por Bizum online», «por tarjeta online», «por Klarna online»; lo dice Stripe, pago_metodo y
  *   etiqueta_pago_metodo); sin esas columnas, «por tarjeta» como antes. El recuento está en Analítica.
+ * - DISEÑO (2026-11-16, el de Usuarios y Pedidos; piezas de components/admin/PanelUI.tsx):
+ *   · Catálogo: buscador de 16 px, las 4 cifras (Servicios, Publicados, Visibles y Visitas; tocarlas filtra),
+ *     pastillas con su recuento (Todos, Publicados, Borradores, Ocultos) y filas compactas con la etiqueta de
+ *     color del estado (Publicado, Borrador, Por revisar, Oculto); el lápiz y la papelera siguen en cada fila.
+ *   · Solicitudes: los ajustes de la reparación por envío (plegados), el buscador (nombre, nº VZ-…, servicio,
+ *     contacto o ciudad), cifras que filtran (Abiertas, En el taller, Listas, Por envío, Por cobrar, Dicen que
+ *     pagaron y Garantías abiertas, según las migraciones aplicadas), pastillas por estado con su recuento y
+ *     «Más filtros» (Opción, Recogida, Entrega, Contacto y Cobro y garantía). Cada solicitud es una fila compacta
+ *     (cliente, etiqueta de su estado, servicio y fecha, etapa, por envío o recogida, nº VZ-…, cobro, garantía e
+ *     importe); al tocarla se despliega por bloques: Cliente · Aparato y servicio · Pasos para el cliente ·
+ *     Envío, presupuesto y pago (etiqueta de Correos, fotos de recepción, diagnóstico, cobros y vuelta) y, abajo,
+ *     las acciones («Escribir al cliente» por WhatsApp si dejó teléfono, «Pasar a» otro estado y borrar).
+ *     «Abrir todas» las despliega. Abajo, «Más datos de las solicitudes» (cobros y números de seguimiento).
+ *   Prueba PANRED1 (y P, CS, RS, SV, VP, AF, RE2, RE3, TM4, CAMPOS16).
  * - Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px (12 solo en
  *   la insignia «Portada/Usar» de las fotos), grises desde COLORES_TEXTO.secundario, texto azul pequeño en
  *   azulTexto y botones, filtros y volver de 44 px como mínimo (los contadores salen de StatCard).
@@ -100,6 +114,23 @@ import { leerModalidades, type ModalidadServicio } from "../../components/Contra
 import { cargarAjustesReparacionEnvio, cargarTarifas, hayTarifaCorreos, type AjustesReparacionEnvio } from "../../lib/envio";
 import { enlaceVideo, esEnlaceCorto } from "../servicios";
 import CargaMarca from "../../components/marca/CargaMarca";
+import { openExternalLink } from "../../lib/openExternalLink";
+import {
+  Bloque,
+  Buscador,
+  Chip,
+  Cifra,
+  Dato,
+  Detalle,
+  Etiqueta,
+  EtiquetaColor,
+  FilaPastillas,
+  ListaVacia,
+  RecuentoLista,
+  Seccion,
+  useDesplegables,
+  type Tono,
+} from "../../components/admin/PanelUI";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import {
   AdminHeader,
@@ -113,7 +144,6 @@ import {
   PieVentana,
   PrimaryButton,
   SelectorIOS,
-  StatCard,
   useGestoPestanas,
   useSeleccionFotos,
 } from "../../lib/admin/products.components";
@@ -363,12 +393,15 @@ const REQUEST_STATUS_LABEL: Record<RequestStatus, string> = {
   descartado: "Descartada",
 };
 
-const REQUEST_STATUS_COLORS: Record<RequestStatus, { bg: string; border: string }> = {
-  nuevo: { bg: COLORS.warningBg, border: COLORS.warningBorder },
-  revisado: { bg: COLORS.accent2, border: COLORS.accentBorder },
-  contactado: { bg: COLORS.successBg, border: COLORS.successBorder },
-  descartado: { bg: COLORS.dangerBg, border: COLORS.dangerBorder },
-};
+// Etiqueta de color de cada estado (components/admin/PanelUI.tsx) y su nombre en plural para las pastillas.
+const REQUEST_STATUS_TONO: Record<RequestStatus, Tono> = { nuevo: "amarillo", revisado: "azul", contactado: "verde", descartado: "gris" };
+const REQUEST_STATUS_PLURAL: Record<RequestStatus, string> = { nuevo: "Nuevas", revisado: "Revisadas", contactado: "Contactadas", descartado: "Descartadas" };
+// Las etapas en las que el aparato está en el taller («En reparación»).
+const ETAPAS_TALLER: Seguimiento[] = ["recibido", "diagnostico", "presupuesto", "esperando_pieza", "reparando"];
+// Cifras de «Solicitudes» (filtran al tocarlas).
+type VistaSol = "ALL" | "abiertas" | "reparacion" | "listas" | "envio" | "por_cobrar" | "avisado" | "garantia";
+// Pastillas del catálogo.
+type FiltroCatalogo = "todos" | "publicados" | "visibles" | "borradores" | "ocultos";
 
 const METODO_LABEL: Record<MetodoContacto, string> = {
   whatsapp: "WhatsApp",
@@ -645,9 +678,9 @@ function EditorVideosServicios({ isMobile }: { isMobile: boolean }) {
                   style={{ ...estiloCampo, textAlign: "center" }}
                 />
                 {corto ? (
-                  <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>Enlace corto de la app: al guardar se cambia por el completo.</Text>
+                  <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>Enlace corto de la app: al guardar se cambia por el completo.</Text>
                 ) : f.url.trim() && !enlace ? (
-                  <Text style={{ color: COLORS.danger, fontSize: TAMANOS.minimo, textAlign: "center" }}>Este enlace no es de un vídeo de Instagram o TikTok.</Text>
+                  <Text style={{ color: COLORS.danger, fontSize: TAMANOS.minimo, lineHeight: 19 }}>Este enlace no es de un vídeo de Instagram o TikTok.</Text>
                 ) : null}
               </View>
             );
@@ -689,7 +722,7 @@ function RequestSeguimiento({
 
   if (!disponible) {
     return (
-      <Text style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+      <Text style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
         Falta aplicar la migración de seguimiento
       </Text>
     );
@@ -722,12 +755,12 @@ function RequestSeguimiento({
   }
 
   return (
-    <View style={{ gap: 8, alignItems: "center", paddingTop: 4 }}>
-      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+    <View style={{ gap: 8 }}>
+      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
         SEGUIMIENTO PARA EL CLIENTE
         {request.seguimiento_actualizado ? ` · ${formatDate(request.seguimiento_actualizado)}` : ""}
       </Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
         {(!envioOk ? SEGUIMIENTO_ETAPAS : request.entrega_modo === "correos" ? SEGUIMIENTO_ETAPAS_ENVIO : SEGUIMIENTO_ETAPAS_RECOGIDA).map((s) => (
           <ChipButton
             key={s}
@@ -819,8 +852,8 @@ function MarcarPagado({
   const valida = /^\d{4}-\d{2}-\d{2}$/.test(fecha.trim()) && !Number.isNaN(new Date(`${fecha.trim()}T12:00:00`).getTime());
   if (!abierto) return <ChipButton label={etiqueta} icon="card-outline" disabled={ocupado} isMobile={isMobile} onPress={() => setAbierto(true)} />;
   return (
-    <View nativeID={id} style={{ gap: 6, alignItems: "center", width: "100%", maxWidth: 520 }}>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
+    <View nativeID={id} style={{ gap: 6, width: "100%", maxWidth: 520 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
         {FORMAS_PAGO.map((f) => (
           <ChipButton key={f.value} label={f.label} variant={modo === f.value ? "primary" : "ghost"} isMobile={isMobile} onPress={() => setModo(f.value)} />
         ))}
@@ -828,7 +861,7 @@ function MarcarPagado({
       <View style={{ width: "100%", maxWidth: 240 }}>
         <TextField label="Fecha del pago" value={fecha} onChangeText={setFecha} placeholder="AAAA-MM-DD" />
       </View>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
         <ChipButton
           label={ocupado ? "Guardando…" : "Guardar pago"}
           variant="primary"
@@ -950,13 +983,13 @@ function PanelEnvioSolicitud({
   const piezaValida = pieza.trim() === "" || /^\d{4}-\d{2}-\d{2}$/.test(pieza.trim());
 
   return (
-    <View nativeID={`solicitud-envio-${request.id}`} style={{ gap: 8, alignItems: "center", paddingTop: 4 }}>
-      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+    <View nativeID={`solicitud-envio-${request.id}`} style={{ gap: 8 }}>
+      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
         {porEnvio ? "REPARACIÓN POR ENVÍO" : "PRESUPUESTO"}
       </Text>
       {porEnvio ? (
         <>
-          <Text nativeID={`solicitud-envio-datos-${request.id}`} style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
+          <Text nativeID={`solicitud-envio-datos-${request.id}`} style={{ color: COLORS.text, fontSize: 13, lineHeight: 19 }}>
             <Text style={{ fontWeight: "800" }}>Aparatos: </Text>
             {request.aparatos ?? 1}
             {request.codigo_postal ? ` · C.P. ${request.codigo_postal}` : ""}
@@ -972,14 +1005,14 @@ function PanelEnvioSolicitud({
                 : "sin pagar"}
           </Text>
           {request.condiciones_aceptadas_en ? (
-            <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>Condiciones aceptadas el {formatDate(request.condiciones_aceptadas_en)}</Text>
+            <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>Condiciones aceptadas el {formatDate(request.condiciones_aceptadas_en)}</Text>
           ) : null}
           {request.etiqueta_avisada_en && !request.etiqueta_pagada_en ? (
-            <Text nativeID={`solicitud-etiqueta-avisada-${request.id}`} style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+            <Text nativeID={`solicitud-etiqueta-avisada-${request.id}`} style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
               El cliente dice que ya pagó la etiqueta ({formatDate(request.etiqueta_avisada_en)}): compruébalo y márcala pagada
             </Text>
           ) : null}
-          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
             {!request.etiqueta_pagada_en && parte2 && Number(request.etiqueta_eur ?? 0) > 0 ? (
               <MarcarPagado
                 id={`solicitud-etiqueta-pago-${request.id}`}
@@ -1018,7 +1051,7 @@ function PanelEnvioSolicitud({
         </>
       ) : null}
 
-      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
         <View style={{ flexGrow: 1, flexBasis: 140 }}>
           <TextField label="Presupuesto (€)" value={presupuesto} onChangeText={setPresupuesto} placeholder="Ej: 59,90" keyboardType="decimal-pad" />
         </View>
@@ -1031,7 +1064,7 @@ function PanelEnvioSolicitud({
           onPress={() => guardar({ presupuesto_eur: Math.round(precio * 100) / 100 }, "presupuesto", "Presupuesto guardado ✓ · pon la etapa «Presupuesto» para que el cliente lo acepte")}
         />
       </View>
-      <Text nativeID={`solicitud-presupuesto-estado-${request.id}`} style={{ color: request.presupuesto_aceptado_en ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+      <Text nativeID={`solicitud-presupuesto-estado-${request.id}`} style={{ color: request.presupuesto_aceptado_en ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
         {request.presupuesto_eur == null
           ? "Sin presupuesto todavía"
           : request.presupuesto_aceptado_en
@@ -1040,10 +1073,10 @@ function PanelEnvioSolicitud({
       </Text>
 
       {parte2 ? (
-        <View nativeID={`solicitud-cobro-${request.id}`} style={{ gap: 8, alignItems: "center", width: "100%" }}>
+        <View nativeID={`solicitud-cobro-${request.id}`} style={{ gap: 8, width: "100%" }}>
           {/* Diagnóstico: reparable o sin arreglo (con «Te lo compramos por», opcional). */}
-          <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>DIAGNÓSTICO</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
+          <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>DIAGNÓSTICO</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
             {(["reparable", "sin_arreglo"] as const).map((d) => (
               <ChipButton
                 key={d}
@@ -1057,7 +1090,7 @@ function PanelEnvioSolicitud({
           </View>
           {request.diagnostico_resultado === "sin_arreglo" ? (
             <>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
                 <View style={{ flexGrow: 1, flexBasis: 140 }}>
                   <TextField label="Te lo compramos por (€, opcional)" value={oferta} onChangeText={setOferta} placeholder="Ej: 40" keyboardType="decimal-pad" />
                 </View>
@@ -1072,7 +1105,7 @@ function PanelEnvioSolicitud({
                   }}
                 />
               </View>
-              <Text nativeID={`solicitud-eleccion-${request.id}`} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+              <Text nativeID={`solicitud-eleccion-${request.id}`} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                 {request.sin_arreglo_eleccion === "comprar"
                   ? `El cliente eligió «Te lo compramos»${request.sin_arreglo_eleccion_en ? ` el ${formatDate(request.sin_arreglo_eleccion_en)}` : ""}: le llega su solicitud a Vender`
                   : request.sin_arreglo_eleccion === "devolver"
@@ -1085,7 +1118,7 @@ function PanelEnvioSolicitud({
           {/* Cobro de la reparación (o de la vuelta si no tiene arreglo). */}
           {porEnvio ? (
             <>
-              <Text nativeID={`solicitud-pago-${request.id}`} style={{ color: request.pago_estado === "pagado" ? COLORS.success : COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+              <Text nativeID={`solicitud-pago-${request.id}`} style={{ color: request.pago_estado === "pagado" ? COLORS.success : COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                 {request.pago_estado === "pagado"
                   ? `Pagado ${fmtEUR(Number(request.pagado_eur ?? 0))}${request.pago_modo ? ` por ${formaDePago(request.pago_modo, request.pago_metodo)}` : ""}${request.pagado_en ? ` el ${formatDate(request.pagado_en)}` : ""}`
                   : request.diagnostico_resultado === "sin_arreglo"
@@ -1099,7 +1132,7 @@ function PanelEnvioSolicitud({
                       : "Sin nada que cobrar todavía"}
               </Text>
               {request.pago_avisado_en && request.pago_estado !== "pagado" ? (
-                <Text nativeID={`solicitud-pago-avisado-${request.id}`} style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                <Text nativeID={`solicitud-pago-avisado-${request.id}`} style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                   El cliente dice que ya lo pagó ({formatDate(request.pago_avisado_en)}): compruébalo y márcalo pagado
                 </Text>
               ) : null}
@@ -1117,7 +1150,7 @@ function PanelEnvioSolicitud({
               {/* Pagada (o sin coste): se envía con el número de Correos de la vuelta. */}
               {request.seguimiento !== "enviada" && request.seguimiento !== "entregado" &&
               (request.pago_estado === "pagado" || (request.seguimiento === "listo" && request.presupuesto_aceptado_en && Number(request.presupuesto_eur ?? -1) === 0)) ? (
-                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
                   <View style={{ flexGrow: 1, flexBasis: 160 }}>
                     <TextField label="Nº de seguimiento de Correos (vuelta)" value={numeroVuelta} onChangeText={setNumeroVuelta} placeholder="Ej: PK123456789ES" />
                   </View>
@@ -1137,14 +1170,14 @@ function PanelEnvioSolicitud({
                   />
                 </View>
               ) : request.vuelta_seguimiento ? (
-                <Text style={{ color: COLORS.text, fontSize: TAMANOS.minimo, textAlign: "center" }}>Vuelta por Correos: nº {request.vuelta_seguimiento}</Text>
+                <Text style={{ color: COLORS.text, fontSize: TAMANOS.minimo, lineHeight: 19 }}>Vuelta por Correos: nº {request.vuelta_seguimiento}</Text>
               ) : null}
             </>
           ) : null}
         </View>
       ) : null}
 
-      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
         <View style={{ flexGrow: 1, flexBasis: 140 }}>
           <TextField label="Esperando pieza hasta" value={pieza} onChangeText={setPieza} placeholder="AAAA-MM-DD" />
         </View>
@@ -1156,7 +1189,7 @@ function PanelEnvioSolicitud({
           onPress={() => guardar({ espera_pieza_hasta: pieza.trim() || null }, "pieza", pieza.trim() ? "Fecha de la pieza guardada ✓" : "Fecha quitada ✓")}
         />
       </View>
-      {msg ? <Text style={{ color: msg.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>{msg.text}</Text> : null}
+      {msg ? <Text style={{ color: msg.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>{msg.text}</Text> : null}
     </View>
   );
 }
@@ -1201,7 +1234,7 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
   if (aj === undefined) return null;
   if (aj === null) {
     return (
-      <Text nativeID="reparacion-envio-ajustes" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+      <Text nativeID="reparacion-envio-ajustes" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
         Reparación por envío: falta aplicar su migración (20261111100000).
       </Text>
     );
@@ -1323,7 +1356,7 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
             </Text>
           ) : null}
           {pesoEstimado ? (
-            <Text nativeID="reparacion-envio-peso-estimado" style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+            <Text nativeID="reparacion-envio-peso-estimado" style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
               Peso estimado ({form.peso} kg con embalaje): corrígelo con el real de lo que más reparas.
             </Text>
           ) : null}
@@ -1351,8 +1384,8 @@ export default function AdminServices() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 760;
-  const pagePadding = isMobile ? 12 : 16;
-  const sectionGap = isMobile ? 20 : 24;
+  const pagePadding = 16;
+  const sectionGap = 16;
   const insets = useSafeAreaInsets();
 
   const [tab, setTab] = useState<"catalogo" | "solicitudes">("catalogo");
@@ -1430,21 +1463,29 @@ export default function AdminServices() {
     loadServices();
   }, [loadServices]);
 
+  // Pastilla o cifra elegida del catálogo (con algo escrito en el buscador, busca en todos).
+  const [filtroCatalogo, setFiltroCatalogo] = useState<FiltroCatalogo>("todos");
   const filteredServices = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return services;
-    return services.filter(
-      (s) => s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)
-    );
-  }, [services, search]);
+    if (q) return services.filter((s) => s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q));
+    if (filtroCatalogo === "publicados") return services.filter((s) => s.status === "PUBLISHED");
+    if (filtroCatalogo === "visibles") return services.filter((s) => s.status === "PUBLISHED" && s.is_active);
+    if (filtroCatalogo === "borradores") return services.filter((s) => s.status !== "PUBLISHED");
+    if (filtroCatalogo === "ocultos") return services.filter((s) => !s.is_active);
+    return services;
+  }, [services, search, filtroCatalogo]);
 
   const stats = useMemo(() => {
     const total = services.length;
     const published = services.filter((s) => s.status === "PUBLISHED").length;
     const visible = services.filter((s) => s.status === "PUBLISHED" && s.is_active).length;
     const views = services.reduce((sum, s) => sum + (s.view_count ?? 0), 0);
-    return { total, published, visible, views };
+    const borradores = services.filter((s) => s.status !== "PUBLISHED").length;
+    const ocultos = services.filter((s) => !s.is_active).length;
+    return { total, published, visible, views, borradores, ocultos };
   }, [services]);
+  // Las 4 cifras del catálogo en una fila (de 2 en 2 en los móviles más estrechos, para que nada se corte).
+  const anchoCifra4 = widthSafe < 380 ? "45%" : 0;
 
   // --- Modal crear/editar ---
   const [modalOpen, setModalOpen] = useState(false);
@@ -2024,6 +2065,289 @@ export default function AdminServices() {
     };
   }, [requests]);
 
+  // --- Rediseño (2026-11-16): buscador, cifras que filtran, «Más filtros» y filas compactas que se despliegan ---
+  const [busquedaSol, setBusquedaSol] = useState("");
+  const [vistaSol, setVistaSol] = useState<VistaSol>("ALL");
+  const [masFiltrosSol, setMasFiltrosSol] = useState(false);
+  const desplegablesSol = useDesplegables();
+  const masFiltrosActivos = [filtroOpcion, filtroRecogida, filtroEntrega, filtroMetodo, filtroCobro].filter((f) => f !== "ALL").length;
+
+  const pasaVista = useCallback(
+    (r: ServiceRequestRow, v: VistaSol) => {
+      const seg = r.seguimiento ?? "solicitado";
+      if (v === "abiertas") return r.status !== "descartado" && seg !== "entregado" && seg !== "cancelado";
+      if (v === "reparacion") return ETAPAS_TALLER.includes(seg);
+      if (v === "listas") return seg === "listo";
+      if (v === "envio") return r.entrega_modo === "correos";
+      if (v === "por_cobrar") return pasaCobro(r, "pendiente");
+      if (v === "avisado") return pasaCobro(r, "avisado");
+      if (v === "garantia") return !!r.garantia_de && seg !== "entregado" && seg !== "cancelado";
+      return true;
+    },
+    [pasaCobro]
+  );
+
+  const cifrasSolicitudes = useMemo(() => {
+    const n = (v: VistaSol) => requests.filter((r) => pasaVista(r, v)).length;
+    const lista: { key: VistaSol; valor: number; etiqueta: string; icono: IoniconName; alerta?: boolean }[] = [
+      { key: "abiertas", valor: n("abiertas"), etiqueta: "Abiertas", icono: "folder-open-outline" },
+      ...(seguimientoOk
+        ? [
+            { key: "reparacion" as const, valor: n("reparacion"), etiqueta: "En el taller", icono: "construct-outline" as IoniconName },
+            { key: "listas" as const, valor: n("listas"), etiqueta: "Listas", icono: "checkmark-done-outline" as IoniconName },
+          ]
+        : []),
+      ...(envioOk ? [{ key: "envio" as const, valor: n("envio"), etiqueta: "Por envío", icono: "cube-outline" as IoniconName }] : []),
+      ...(parte2Ok
+        ? [
+            { key: "por_cobrar" as const, valor: n("por_cobrar"), etiqueta: "Por cobrar", icono: "wallet-outline" as IoniconName },
+            { key: "avisado" as const, valor: n("avisado"), etiqueta: "Avisos de pago", icono: "alert-circle-outline" as IoniconName, alerta: n("avisado") > 0 },
+            { key: "garantia" as const, valor: n("garantia"), etiqueta: "Garantías en curso", icono: "shield-checkmark-outline" as IoniconName },
+          ]
+        : []),
+    ];
+    return lista;
+  }, [requests, pasaVista, seguimientoOk, envioOk, parte2Ok]);
+
+  function elegirVistaSol(v: VistaSol) {
+    setBusquedaSol("");
+    setRequestFilter("ALL");
+    setVistaSol((actual) => (actual === v ? "ALL" : v));
+  }
+
+  // Con algo escrito busca en todas (nombre, servicio, nº VZ-…, contacto, ciudad); si no, los filtros y la cifra elegida.
+  const visiblesSol = useMemo(() => {
+    const q = busquedaSol.trim().toLowerCase();
+    if (q) {
+      const sinGuiones = q.replace(/[\s-]/g, "");
+      return requests.filter((r) => {
+        const texto = `${r.nombre} ${r.apellido} ${r.service_title} ${r.contacto ?? ""} ${r.ciudad ?? ""} ${r.modalidad ?? ""}`.toLowerCase();
+        const codigo = (r.codigo_seguimiento ?? "").toLowerCase().replace(/[\s-]/g, "");
+        return texto.includes(q) || (!!sinGuiones && codigo.includes(sinGuiones));
+      });
+    }
+    return vistaSol === "ALL" ? filteredRequests : filteredRequests.filter((r) => pasaVista(r, vistaSol));
+  }, [requests, filteredRequests, busquedaSol, vistaSol, pasaVista]);
+
+  // «Escribir al cliente» por WhatsApp si dejó un teléfono (WhatsApp o una ficha de VeoAura con teléfono).
+  function telefonoDe(r: ServiceRequestRow): string | null {
+    if (!r.contacto) return null;
+    if (r.metodo_contacto && r.metodo_contacto !== "whatsapp") return null;
+    const tel = r.contacto.replace(/[^\d]/g, "");
+    if (tel.length < 9 || tel.length > 13 || /@/.test(r.contacto)) return null;
+    return tel.length === 9 ? `34${tel}` : tel;
+  }
+  function escribirAlCliente(r: ServiceRequestRow) {
+    const tel = telefonoDe(r);
+    if (!tel) return;
+    const ref = r.codigo_seguimiento ? ` ${r.codigo_seguimiento}` : "";
+    const texto = encodeURIComponent(`Hola ${r.nombre}, te escribimos por tu solicitud de «${r.service_title}»${ref} en Videojuegoszaragoza.com.`);
+    openExternalLink(`https://wa.me/${tel}?text=${texto}`);
+  }
+
+  // ---------- Fila compacta de una solicitud y su detalle por bloques ----------
+  function filaSolicitud(r: ServiceRequestRow, i: number) {
+    const abierta = desplegablesSol.estaAbierta(r.id);
+    const seg = r.seguimiento ?? null;
+    const gris = r.status === "descartado" || seg === "cancelado";
+    const importe = r.presupuesto_eur != null ? Number(r.presupuesto_eur) : r.modalidad_precio_eur != null ? Number(r.modalidad_precio_eur) : null;
+    const garantiaDe = r.garantia_de ? requests.find((x) => x.id === r.garantia_de) : undefined;
+    const pago = !parte2Ok
+      ? null
+      : r.pago_estado === "pagado"
+        ? { texto: "Pagado", icono: "card" as IoniconName, color: COLORS.success }
+        : pasaCobro(r, "avisado")
+          ? { texto: "Dice que ya pagó", icono: "alert-circle-outline" as IoniconName, color: COLORS.warning }
+          : pasaCobro(r, "pendiente")
+            ? { texto: "Por cobrar", icono: "wallet-outline" as IoniconName, color: COLORS.danger }
+            : null;
+    const anchoBloque = isMobile ? "100%" : "45%";
+    const tel = telefonoDe(r);
+    return (
+      <View key={r.id} style={{ borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border, paddingVertical: 4 }}>
+        <Pressable
+          nativeID={`solicitud-fila-${r.id}`}
+          onPress={() => desplegablesSol.alternar(r.id)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: abierta }}
+          {...({ "aria-expanded": abierta } as object)}
+          accessibilityLabel={`${r.nombre} ${r.apellido}, ${r.service_title}, ${REQUEST_STATUS_LABEL[r.status]}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+          style={({ pressed }) => ({ flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 8, opacity: pressed ? 0.85 : 1 })}
+        >
+          <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 8, rowGap: 4 }}>
+              <Text nativeID={`solicitud-titulo-${r.id}`} style={{ color: gris ? COLORS.muted : COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
+                {`${r.nombre} ${r.apellido}`.trim() || "Sin nombre"}
+              </Text>
+              <EtiquetaColor nativeID={`solicitud-estado-${r.id}`} texto={REQUEST_STATUS_LABEL[r.status]} tono={REQUEST_STATUS_TONO[r.status]} />
+            </View>
+            <Text numberOfLines={1} style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+              {r.service_title} · {formatDate(r.created_at)}
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 14, rowGap: 4, marginTop: 1 }}>
+              {seguimientoOk && seg ? (
+                <Etiqueta
+                  nativeID={`solicitud-etapa-${r.id}`}
+                  icon={seg === "cancelado" ? "close-circle-outline" : seg === "entregado" ? "checkmark-done-outline" : "git-commit-outline"}
+                  color={gris ? COLORS.muted : COLORS.text}
+                  texto={SEGUIMIENTO_LABEL[seg]}
+                />
+              ) : null}
+              {envioOk && r.entrega_modo === "correos" ? (
+                <Etiqueta icon="cube-outline" color={gris ? COLORS.muted : COLORS.text} texto={`Por envío${r.aparatos && r.aparatos > 1 ? ` · ${r.aparatos} aparatos` : ""}`} />
+              ) : r.direccion?.trim() ? (
+                <Etiqueta icon="car-outline" color={gris ? COLORS.muted : COLORS.text} texto="Recogida a domicilio" />
+              ) : null}
+              {r.codigo_seguimiento ? <Etiqueta icon="barcode-outline" color={COLORS.muted} texto={r.codigo_seguimiento} /> : null}
+              {pago ? <Etiqueta nativeID={`solicitud-cobro-fila-${r.id}`} icon={pago.icono} color={pago.color} texto={pago.texto} /> : null}
+              {r.garantia_de ? (
+                <Etiqueta
+                  nativeID={`solicitud-garantia-${r.id}`}
+                  icon="shield-checkmark-outline"
+                  color={COLORS.success}
+                  texto={`Garantía · sin coste${garantiaDe?.codigo_seguimiento ? ` · de ${garantiaDe.codigo_seguimiento}` : ""}`}
+                />
+              ) : null}
+            </View>
+          </View>
+          <View style={{ alignItems: "flex-end", gap: 2 }}>
+            {importe !== null ? (
+              <Text nativeID={`solicitud-importe-${r.id}`} style={{ color: gris ? COLORS.muted : COLORS.text, fontWeight: "900", fontSize: TAMANOS.destacado, lineHeight: 22 }}>
+                {fmtEUR(importe)}
+              </Text>
+            ) : null}
+            <Ionicons name={abierta ? "chevron-up" : "chevron-down"} size={18} color={COLORS.muted} style={{ marginTop: 2 }} />
+          </View>
+        </Pressable>
+
+        {abierta ? (
+          <View nativeID={`solicitud-detalle-${r.id}`} style={{ gap: 12, paddingBottom: 16 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              {/* Cliente: contacto, ciudad, disponibilidad y su número de seguimiento. */}
+              <Bloque nativeID={`solicitud-bloque-cliente-${r.id}`} icono="person-outline" titulo="Cliente" ancho={anchoBloque}>
+                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>{`${r.nombre} ${r.apellido}`.trim() || "Sin nombre"}</Text>
+                {r.metodo_contacto ? (
+                  <Dato etiqueta={METODO_LABEL[r.metodo_contacto]}>{r.contacto || "—"}</Dato>
+                ) : r.contacto ? (
+                  // Fichas de VeoAura: el teléfono o el email que vino con la ficha.
+                  <Dato etiqueta="Contacto">{r.contacto}</Dato>
+                ) : null}
+                {r.ciudad ? <Dato etiqueta="Ciudad">{r.ciudad}</Dato> : null}
+                {r.disponibilidad ? <Dato etiqueta="Disponibilidad">{DISPONIBILIDAD_LABEL[r.disponibilidad]}</Dato> : null}
+                {r.codigo_seguimiento ? (
+                  <View style={{ gap: 2, marginTop: 2 }}>
+                    <Text selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, letterSpacing: 0.5, lineHeight: 19 }}>
+                      Nº de seguimiento {r.codigo_seguimiento}
+                    </Text>
+                    <Detalle>
+                      {[
+                        r.id_veoaura ? "Ficha de VeoAura" : null,
+                        r.customer_user_id
+                          ? r.vinculado_en
+                            ? `El cliente la añadió a su cuenta el ${formatDate(r.vinculado_en)}`
+                            : r.nota_admin === NOTA_ASIGNADO_CHAT
+                              ? "Asignada desde el chat: ya está en la cuenta del cliente"
+                              : "En la cuenta del cliente"
+                          : "Aún no está en ninguna cuenta: dale este número al cliente",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </Detalle>
+                  </View>
+                ) : null}
+              </Bloque>
+
+              {/* Aparato y servicio: la opción elegida, dónde recogerlo, lo que contó y su valoración. */}
+              <Bloque nativeID={`solicitud-bloque-aparato-${r.id}`} icono="game-controller-outline" titulo="Aparato y servicio" ancho={anchoBloque}>
+                <Dato etiqueta="Servicio">{r.service_title}</Dato>
+                {r.modalidad ? (
+                  <Dato nativeID={`solicitud-opcion-${r.id}`} etiqueta="Opción">
+                    {r.modalidad}
+                    {r.modalidad_precio_eur != null ? ` · ${fmtEUR(Number(r.modalidad_precio_eur))}` : ""}
+                  </Dato>
+                ) : null}
+                {r.direccion ? <Dato etiqueta="Recogida en">{r.direccion}</Dato> : null}
+                {r.comentario ? <Dato etiqueta="Detalles">{r.comentario}</Dato> : null}
+                {resenasSolicitud[r.id] ? (
+                  <Text nativeID={`solicitud-resena-${r.id}`} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                    <Text style={{ fontWeight: "800" }}>Valoración del cliente: </Text>
+                    <Text style={{ color: COLORS.warning }}>{"★".repeat(resenasSolicitud[r.id].rating)}</Text>
+                    {resenasSolicitud[r.id].comment ? ` «${resenasSolicitud[r.id].comment}»` : ""}
+                  </Text>
+                ) : null}
+                <Detalle>Pedida el {formatDate(r.created_at)}</Detalle>
+              </Bloque>
+
+              {/* Pasos: la etapa y la nota que ve el cliente en «Mis seguimientos». */}
+              <Bloque nativeID={`solicitud-bloque-pasos-${r.id}`} icono="git-network-outline" titulo="Pasos para el cliente" ancho="100%">
+                <RequestSeguimiento
+                  key={`seg-${r.id}-${r.seguimiento ?? ""}`}
+                  request={r}
+                  disponible={seguimientoOk}
+                  isMobile={isMobile}
+                  onSaved={(patch) => setRequests((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...patch } : x)))}
+                  onMissingMigration={() => setSeguimientoOk(false)}
+                  envioOk={envioOk}
+                />
+              </Bloque>
+
+              {/* Envío (etiqueta de Correos), fotos de recepción, presupuesto, diagnóstico, pago y garantía. */}
+              {envioOk ? (
+                <Bloque
+                  nativeID={`solicitud-bloque-envio-${r.id}`}
+                  icono={r.entrega_modo === "correos" ? "cube-outline" : "pricetag-outline"}
+                  titulo={r.entrega_modo === "correos" ? "Envío, presupuesto y pago" : "Presupuesto y pago"}
+                  ancho="100%"
+                >
+                  <PanelEnvioSolicitud
+                    request={r}
+                    isMobile={isMobile}
+                    onSaved={(patch) => setRequests((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...patch } : x)))}
+                    onVerFotos={setVisorEnvio}
+                    parte2={parte2Ok}
+                  />
+                </Bloque>
+              ) : null}
+            </View>
+
+            {/* Acciones abajo: escribir al cliente, cambiar el estado de la solicitud y borrarla. */}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: TACTIL.separacion }}>
+              {tel ? (
+                <Pressable
+                  nativeID={`solicitud-whatsapp-${r.id}`}
+                  onPress={() => escribirAlCliente(r)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.88 : 1,
+                    minHeight: TACTIL.minimo,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    paddingHorizontal: 14,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    backgroundColor: COLORS.bg,
+                  })}
+                >
+                  <Ionicons name="logo-whatsapp" size={16} color={COLORS.success} />
+                  <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.cuerpo }}>Escribir al cliente</Text>
+                </Pressable>
+              ) : null}
+              <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Pasar a:</Text>
+              {(["nuevo", "revisado", "contactado", "descartado"] as RequestStatus[])
+                .filter((s) => s !== r.status)
+                .map((s) => (
+                  <ChipButton key={s} label={REQUEST_STATUS_LABEL[s]} onPress={() => setRequestStatus(r.id, s)} isMobile={isMobile} variant={s === "descartado" ? "danger" : "ghost"} />
+                ))}
+              <IconButton icon="trash-outline" label="Borrar la solicitud" variant="danger" onPress={() => setDeleteRequestTarget(r)} />
+            </View>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
   async function setRequestStatus(id: string, next: RequestStatus) {
     setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: next } : r)));
     const { error } = await supabase.from("service_requests").update({ status: next }).eq("id", id);
@@ -2083,38 +2407,39 @@ export default function AdminServices() {
 
       {tab === "catalogo" ? (
           <>
-            {/* El buscador arriba de los contadores, igual que en Productos (mismo alto y mismo sitio). */}
-            <TextInput
-              nativeID="servicios-buscar"
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Buscar por título o descripción"
-              placeholderTextColor="rgba(11,33,56,0.40)"
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                borderRadius: 14,
-                paddingHorizontal: 12,
-                paddingVertical: 12,
-                color: COLORS.text,
-                backgroundColor: "#F8FBFE",
-                // 16 px: Safari en iPhone no hace zoom de toda la pantalla al escribir.
-                fontSize: 16,
-              }}
-            />
+            {/* El buscador (16 px) arriba de las cifras, como en Usuarios y Pedidos. */}
+            <Buscador nativeID="servicios-buscar" valor={search} onCambiar={setSearch} placeholder="Buscar por título o descripción" etiqueta="Buscar servicios por título o descripción" />
 
             {avisoPrecio ? <AdminNotice tone="warning" text={avisoPrecio} /> : null}
 
-            {/* Los cuatro contadores en una sola fila, también en el móvil (dueño, 2026-11-03). */}
-            <View nativeID="servicios-contadores" style={{ flexDirection: "row", flexWrap: "nowrap", gap: isMobile ? 8 : 10 }}>
-              <StatCard label="Servicios" value={String(stats.total)} icon="construct-outline" isMobile={isMobile} columns={4} />
-              <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} columns={4} />
-              <StatCard label="Visibles" value={String(stats.visible)} icon="eye-outline" isMobile={isMobile} columns={4} />
-              <StatCard label="Visitas" value={String(stats.views)} icon="trending-up-outline" isMobile={isMobile} columns={4} />
+            {/* Las cuatro cifras en una sola fila, también en el móvil (dueño, 2026-11-03); tocarlas filtra la lista. */}
+            <View nativeID="servicios-contadores" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+              <Cifra nativeID="servicios-cifra-todos" valor={String(stats.total)} etiqueta="Servicios" icono="construct-outline" ancho={anchoCifra4} onPress={() => setFiltroCatalogo("todos")} />
+              <Cifra nativeID="servicios-cifra-publicados" valor={String(stats.published)} etiqueta="Publicados" icono="checkmark-circle-outline" ancho={anchoCifra4} activa={!search.trim() && filtroCatalogo === "publicados"} onPress={() => setFiltroCatalogo((f) => (f === "publicados" ? "todos" : "publicados"))} />
+              <Cifra nativeID="servicios-cifra-visibles" valor={String(stats.visible)} etiqueta="Visibles" icono="eye-outline" ancho={anchoCifra4} activa={!search.trim() && filtroCatalogo === "visibles"} onPress={() => setFiltroCatalogo((f) => (f === "visibles" ? "todos" : "visibles"))} />
+              <Cifra nativeID="servicios-cifra-visitas" valor={String(stats.views)} etiqueta="Visitas" icono="trending-up-outline" ancho={anchoCifra4} />
             </View>
+
+            {/* Pastillas con su recuento. */}
+            {!loading && services.length ? (
+              <FilaPastillas isMobile={isMobile} nativeID="servicios-filtros">
+                {(
+                  [
+                    { value: "todos", label: `Todos (${stats.total})` },
+                    { value: "publicados", label: `Publicados (${stats.published})` },
+                    { value: "borradores", label: `Borradores (${stats.borradores})` },
+                    { value: "ocultos", label: `Ocultos (${stats.ocultos})` },
+                  ] as { value: FiltroCatalogo; label: string }[]
+                ).map((c) => (
+                  <Chip key={c.value} nativeID={`servicios-filtro-${c.value}`} label={c.label} activo={!search.trim() && filtroCatalogo === c.value} onPress={() => setFiltroCatalogo(c.value)} />
+                ))}
+              </FilaPastillas>
+            ) : null}
 
             {loading ? (
               <CargaMarca texto="Cargando servicios…" />
+            ) : filteredServices.length === 0 && services.length ? (
+              <ListaVacia nativeID="servicios-vacio" icono="construct-outline" titulo="No hay servicios en esta lista." texto="Prueba a borrar el buscador o a elegir «Todos»." />
             ) : filteredServices.length === 0 ? (
               <EmptyState
                 icon="construct-outline"
@@ -2166,21 +2491,26 @@ export default function AdminServices() {
 
                       {/* Título y datos enteros, en las líneas que hagan falta (dueño, 2026-11-04: «que se vean perfectamente»). */}
                       <View nativeID={`servicio-fila-${s.id}`} style={{ flex: 1, minWidth: 0, gap: 4 }}>
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, lineHeight: 19, textAlign: "center" }}>
+                        <Text style={{ color: s.status === "PUBLISHED" && s.is_active ? COLORS.text : COLORS.muted, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
                           {s.title || "Sin título"}
                         </Text>
-                        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 17, textAlign: "center" }}>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 8, rowGap: 4 }}>
+                        <EtiquetaColor
+                          nativeID={`servicio-estado-${s.id}`}
+                          texto={!s.is_active ? "Oculto" : STATUS_LABEL[s.status]}
+                          tono={!s.is_active ? "gris" : s.status === "PUBLISHED" ? "verde" : s.status === "REVIEW" ? "azul" : "amarillo"}
+                        />
+                        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, flexShrink: 1 }}>
                           {s.modalidades?.length
                             ? `Desde ${fmtEUR(s.price_eur)} · ${s.modalidades.length} opciones${
                                 s.modalidades.some((m) => m.foto) ? ` (${s.modalidades.filter((m) => m.foto).length} con foto)` : ""
                               }`
-                            : fmtEUR(s.price_eur)}{" "}
-                          ·{" "}
-                          {STATUS_LABEL[s.status]}
-                          {!s.is_active ? " · Oculto" : ""} · {s.view_count ?? 0} visitas
+                            : fmtEUR(s.price_eur)}
+                          {!s.is_active ? ` · ${STATUS_LABEL[s.status]}` : ""} · {s.view_count ?? 0} visitas
                           {typeof s.like_count === "number" ? ` · ${s.like_count} me gusta` : ""}
                           {mediaServicio[s.id] ? ` · ★ ${mediaServicio[s.id].media.toFixed(1).replace(".", ",")} (${mediaServicio[s.id].n})` : ""}
                         </Text>
+                        </View>
                       </View>
 
                       <IconButton icon="create-outline" label={`Editar ${s.title || "el servicio"}`} variant="primary" onPress={() => openEdit(s)} />
@@ -2197,36 +2527,83 @@ export default function AdminServices() {
           <>
             {/* Ajustes de la reparación por envío (plegados). */}
             <AjustesEnvioPanel isMobile={isMobile} />
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
-              {(["ALL", "nuevo", "revisado", "contactado", "descartado"] as const).map((f) => (
-                <ChipButton
-                  key={f}
-                  label={f === "ALL" ? "Todas" : REQUEST_STATUS_LABEL[f]}
-                  onPress={() => setRequestFilter(f)}
-                  variant={requestFilter === f ? "primary" : "ghost"}
-                  isMobile={isMobile}
-                />
-              ))}
-              {numerosOk
-                ? (
-                    [
-                      ["sin_cuenta", `Sin cuenta (${resumenNumeros.sinCuenta})`],
-                      ["veoaura", `De VeoAura (${resumenNumeros.veoaura})`],
-                    ] as const
-                  ).map(([f, label]) => (
-                    <ChipButton
-                      key={f}
-                      label={label}
-                      onPress={() => setRequestFilter(f)}
-                      variant={requestFilter === f ? "primary" : "ghost"}
-                      isMobile={isMobile}
-                    />
-                  ))
-                : null}
-            </View>
+
+            {/* Buscador (16 px): nombre, servicio, nº VZ-…, contacto o ciudad. Con algo escrito busca en todas. */}
+            <Buscador
+              nativeID="solicitudes-buscar"
+              valor={busquedaSol}
+              onCambiar={setBusquedaSol}
+              placeholder={isMobile ? "Nombre, VZ-…, servicio o contacto" : "Buscar por nombre, nº de seguimiento (VZ-…), servicio, contacto o ciudad"}
+              etiqueta="Buscar solicitudes por nombre, número de seguimiento, servicio, contacto o ciudad"
+            />
+
+            {/* Cifras que filtran al tocarlas: abiertas, en reparación, por envío, por cobrar, avisos de pago y garantías. */}
+            {!requestsLoading ? (
+              <View nativeID="solicitudes-cifras" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+                {cifrasSolicitudes.map((c) => (
+                  <Cifra
+                    key={c.key}
+                    nativeID={`solicitudes-cifra-${c.key}`}
+                    valor={String(c.valor)}
+                    etiqueta={c.etiqueta}
+                    icono={c.icono}
+                    alerta={c.alerta}
+                    ancho={isMobile ? "30%" : 0}
+                    activa={!busquedaSol.trim() && vistaSol === c.key}
+                    onPress={() => elegirVistaSol(c.key)}
+                  />
+                ))}
+              </View>
+            ) : null}
+
+            {/* Pastillas por estado (con su recuento) y «Más filtros» (opción, recogida, entrega, contacto, cobro). */}
+            <View style={{ gap: 10 }}>
+              <FilaPastillas isMobile={isMobile} nativeID="solicitudes-estados">
+                {(["ALL", "nuevo", "revisado", "contactado", "descartado"] as const).map((f) => (
+                  <Chip
+                    key={f}
+                    nativeID={`solicitudes-estado-${f}`}
+                    label={`${f === "ALL" ? "Todas" : REQUEST_STATUS_PLURAL[f]} (${f === "ALL" ? requests.length : requests.filter((r) => r.status === f).length})`}
+                    activo={!busquedaSol.trim() && requestFilter === f && vistaSol === "ALL"}
+                    onPress={() => {
+                      setVistaSol("ALL");
+                      setRequestFilter(f);
+                    }}
+                  />
+                ))}
+                {numerosOk
+                  ? (
+                      [
+                        ["sin_cuenta", `Sin cuenta (${resumenNumeros.sinCuenta})`],
+                        ["veoaura", `De VeoAura (${resumenNumeros.veoaura})`],
+                      ] as const
+                    ).map(([f, label]) => (
+                      <Chip
+                        key={f}
+                        nativeID={`solicitudes-estado-${f}`}
+                        label={label}
+                        activo={!busquedaSol.trim() && requestFilter === f}
+                        onPress={() => {
+                          setVistaSol("ALL");
+                          setRequestFilter(f);
+                        }}
+                      />
+                    ))
+                  : null}
+                {!requestsLoading && requests.length ? (
+                  <Chip
+                    nativeID="solicitudes-mas-filtros"
+                    label={masFiltrosActivos ? `Más filtros · ${masFiltrosActivos}` : "Más filtros"}
+                    activo={masFiltrosActivos > 0}
+                    desplegable
+                    abierto={masFiltrosSol}
+                    onPress={() => setMasFiltrosSol((v) => !v)}
+                  />
+                ) : null}
+              </FilaPastillas>
             {/* Filtros de la opción, la recogida y el método de contacto: desplegables del propio móvil, de dos en dos. */}
-            {!requestsLoading && requests.length ? (
-              <View nativeID="solicitudes-filtros" style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            {!requestsLoading && requests.length && masFiltrosSol ? (
+              <View nativeID="solicitudes-filtros" style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, borderRadius: 16, backgroundColor: COLORS.card, padding: 12 }}>
                 <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "30%" }}>
                   <SelectorIOS
                     nativeID="solicitudes-filtro-opcion"
@@ -2305,194 +2682,60 @@ export default function AdminServices() {
                 ) : null}
               </View>
             ) : null}
+            </View>
 
-            {parte2Ok && !requestsLoading && requests.length ? (
-              <Text nativeID="servicios-cobros-resumen" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
-                Cobros · dicen que ya pagaron: {cuentaCobro.avisado} · pendientes: {cuentaCobro.pendiente} · pagadas: {cuentaCobro.pagada} · sin arreglo:{" "}
-                {cuentaCobro.sin_arreglo} (te lo compramos {cuentaCobro.comprar}, devuélvemelo {cuentaCobro.devolver}) · garantías: {cuentaCobro.garantia} (abiertas{" "}
-                {garantiasAbiertas})
-              </Text>
-            ) : null}
-
-            {numerosOk && !requestsLoading ? (
-              <Text nativeID="servicios-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
-                Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculadas}) ·
-                añadidas con su número: {resumenNumeros.anadidasConNumero} · sin cuenta: {resumenNumeros.sinCuenta} · asignadas desde
-                el chat: {resumenNumeros.desdeChat}
-              </Text>
-            ) : null}
+            {/* Cuántas salen y «Abrir todas». */}
+            <RecuentoLista
+              nativeID="solicitudes-recuento"
+              texto={
+                requestsLoading
+                  ? "Cargando…"
+                  : busquedaSol.trim()
+                    ? `${visiblesSol.length} ${visiblesSol.length === 1 ? "solicitud encontrada" : "solicitudes encontradas"}`
+                    : `${visiblesSol.length} de ${requests.length} solicitudes`
+              }
+              abiertas={desplegablesSol.todasAbiertas(visiblesSol.map((r) => r.id))}
+              onAlternar={!requestsLoading && visiblesSol.length ? () => desplegablesSol.abrirOCerrarTodas(visiblesSol.map((r) => r.id)) : undefined}
+              idBoton="solicitudes-abrir-todas"
+              femenino
+            />
 
             {requestsLoading ? (
               <CargaMarca texto="Cargando solicitudes…" />
-            ) : filteredRequests.length === 0 ? (
+            ) : visiblesSol.length === 0 && requests.length ? (
+              <ListaVacia nativeID="solicitudes-vacio" icono="document-text-outline" titulo="No hay solicitudes en esta lista." texto="Prueba a borrar el buscador o a elegir «Todas»." />
+            ) : visiblesSol.length === 0 ? (
               <EmptyState
                 icon="document-text-outline"
                 title="Sin solicitudes todavía"
                 text="Aquí aparecerán los clientes que pulsen «Contratar servicio ahora» en la ficha de un servicio."
               />
             ) : (
-              // Sin recuadro alrededor de cada solicitud: separadas por una línea fina, como el catálogo.
-              <View nativeID="solicitudes-lista">
-                {filteredRequests.map((r, i) => {
-                  const sc = REQUEST_STATUS_COLORS[r.status];
-                  return (
-                    <View
-                      key={r.id}
-                      style={{
-                        paddingVertical: 16,
-                        gap: 10,
-                        borderTopWidth: i === 0 ? 0 : 1,
-                        borderTopColor: COLORS.border,
-                      }}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>
-                            {r.nombre} {r.apellido}
-                          </Text>
-                          <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, marginTop: 2, textAlign: "center" }}>
-                            {r.service_title} · {formatDate(r.created_at)}
-                          </Text>
-                          {r.garantia_de ? (
-                            <Text nativeID={`solicitud-garantia-${r.id}`} style={{ color: COLORS.success, fontWeight: "900", fontSize: TAMANOS.minimo, marginTop: 4, textAlign: "center" }}>
-                              Garantía · sin coste
-                              {(() => {
-                                const o = requests.find((x) => x.id === r.garantia_de);
-                                return o?.codigo_seguimiento ? ` · de ${o.codigo_seguimiento}` : "";
-                              })()}
-                            </Text>
-                          ) : null}
-                          {r.codigo_seguimiento ? (
-                            <View style={{ alignItems: "center", gap: 2, marginTop: 6 }}>
-                              <Text selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5, letterSpacing: 1 }}>
-                                Nº de seguimiento {r.codigo_seguimiento}
-                              </Text>
-                              <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                                {[
-                                  r.id_veoaura ? "Ficha de VeoAura" : null,
-                                  r.customer_user_id
-                                    ? r.vinculado_en
-                                      ? `El cliente la añadió a su cuenta el ${formatDate(r.vinculado_en)}`
-                                      : r.nota_admin === NOTA_ASIGNADO_CHAT
-                                        ? "Asignada desde el chat: ya está en la cuenta del cliente"
-                                        : "En la cuenta del cliente"
-                                    : "Aún no está en ninguna cuenta: dale este número al cliente",
-                                ]
-                                  .filter(Boolean)
-                                  .join(" · ")}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </View>
-                        <View
-                          style={{
-                            paddingVertical: 5,
-                            paddingHorizontal: 10,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: sc.border,
-                            backgroundColor: sc.bg,
-                          }}
-                        >
-                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                            {REQUEST_STATUS_LABEL[r.status]}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={{ gap: 4, alignItems: "center" }}>
-                        {r.modalidad ? (
-                          <Text nativeID={`solicitud-opcion-${r.id}`} style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
-                            <Text style={{ fontWeight: "800" }}>Opción: </Text>
-                            {r.modalidad}
-                            {r.modalidad_precio_eur != null ? ` · ${fmtEUR(Number(r.modalidad_precio_eur))}` : ""}
-                          </Text>
-                        ) : null}
-                        {r.ciudad ? (
-                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
-                            <Text style={{ fontWeight: "800" }}>Ciudad: </Text>
-                            {r.ciudad}
-                          </Text>
-                        ) : null}
-                        {r.metodo_contacto ? (
-                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
-                            <Text style={{ fontWeight: "800" }}>{METODO_LABEL[r.metodo_contacto]}: </Text>
-                            {r.contacto || "—"}
-                          </Text>
-                        ) : r.contacto ? (
-                          // Fichas de VeoAura: el teléfono o el email que vino con la ficha.
-                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
-                            <Text style={{ fontWeight: "800" }}>Contacto: </Text>
-                            {r.contacto}
-                          </Text>
-                        ) : null}
-                        {r.direccion ? (
-                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
-                            <Text style={{ fontWeight: "800" }}>Recogida en: </Text>
-                            {r.direccion}
-                          </Text>
-                        ) : null}
-                        {r.disponibilidad ? (
-                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
-                            <Text style={{ fontWeight: "800" }}>Disponibilidad: </Text>
-                            {DISPONIBILIDAD_LABEL[r.disponibilidad]}
-                          </Text>
-                        ) : null}
-                        {r.comentario ? (
-                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
-                            <Text style={{ fontWeight: "800" }}>Detalles: </Text>
-                            {r.comentario}
-                          </Text>
-                        ) : null}
-                        {resenasSolicitud[r.id] ? (
-                          <Text nativeID={`solicitud-resena-${r.id}`} style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
-                            <Text style={{ fontWeight: "800" }}>Valoración del cliente: </Text>
-                            <Text style={{ color: "#F5A524" }}>{"★".repeat(resenasSolicitud[r.id].rating)}</Text>
-                            {resenasSolicitud[r.id].comment ? ` «${resenasSolicitud[r.id].comment}»` : ""}
-                          </Text>
-                        ) : null}
-                      </View>
-
-                      <RequestSeguimiento
-                        key={`seg-${r.id}-${r.seguimiento ?? ""}`}
-                        request={r}
-                        disponible={seguimientoOk}
-                        isMobile={isMobile}
-                        onSaved={(patch) =>
-                          setRequests((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...patch } : x)))
-                        }
-                        onMissingMigration={() => setSeguimientoOk(false)}
-                        envioOk={envioOk}
-                      />
-
-                      {envioOk ? (
-                        <PanelEnvioSolicitud
-                          request={r}
-                          isMobile={isMobile}
-                          onSaved={(patch) => setRequests((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...patch } : x)))}
-                          onVerFotos={setVisorEnvio}
-                          parte2={parte2Ok}
-                        />
-                      ) : null}
-
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
-                        {(["nuevo", "revisado", "contactado", "descartado"] as RequestStatus[])
-                          .filter((s) => s !== r.status)
-                          .map((s) => (
-                            <ChipButton
-                              key={s}
-                              label={REQUEST_STATUS_LABEL[s]}
-                              onPress={() => setRequestStatus(r.id, s)}
-                              isMobile={isMobile}
-                            />
-                          ))}
-                        <IconButton icon="trash-outline" label="Borrar la solicitud" variant="danger" onPress={() => setDeleteRequestTarget(r)} />
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
+              // Filas compactas separadas por una línea fina; al tocarlas, su detalle por bloques y las acciones abajo.
+              <View nativeID="solicitudes-lista">{visiblesSol.map((r, i) => filaSolicitud(r, i))}</View>
             )}
+
+            {/* Más datos de las solicitudes: los recuentos de siempre. */}
+            {!requestsLoading && ((parte2Ok && requests.length) || numerosOk) ? (
+              <Seccion nativeID="solicitudes-resumen" icon="stats-chart-outline" title="Más datos de las solicitudes" extra={`${requests.length} últimas`}>
+                <View style={{ gap: 8, borderRadius: 16, backgroundColor: COLORS.card, padding: 14 }}>
+                  {parte2Ok && requests.length ? (
+                    <Detalle nativeID="servicios-cobros-resumen">
+                      Cobros · dicen que ya pagaron: {cuentaCobro.avisado} · pendientes: {cuentaCobro.pendiente} · pagadas: {cuentaCobro.pagada} · sin arreglo:{" "}
+                      {cuentaCobro.sin_arreglo} (te lo compramos {cuentaCobro.comprar}, devuélvemelo {cuentaCobro.devolver}) · garantías: {cuentaCobro.garantia} (abiertas{" "}
+                      {garantiasAbiertas})
+                    </Detalle>
+                  ) : null}
+                  {numerosOk ? (
+                    <Detalle nativeID="servicios-numeros">
+                      Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculadas}) ·
+                      añadidas con su número: {resumenNumeros.anadidasConNumero} · sin cuenta: {resumenNumeros.sinCuenta} · asignadas desde
+                      el chat: {resumenNumeros.desdeChat}
+                    </Detalle>
+                  ) : null}
+                </View>
+              </Seccion>
+            ) : null}
           </>
       )}
         </Animated.View>
@@ -2590,7 +2833,7 @@ export default function AdminServices() {
                   />
                   {pesoEstimado && !pesoTocado && pesoEnvio.trim() ? (
                     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                      <Text nativeID="servicio-peso-estimado" style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                      <Text nativeID="servicio-peso-estimado" style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                         Estimado: corrígelo con el real o dalo por bueno
                       </Text>
                       <ChipButton label="Es correcto" icon="checkmark" isMobile={isMobile} onPress={() => setPesoTocado(true)} />
@@ -2711,7 +2954,7 @@ export default function AdminServices() {
                         nativeID={`servicio-opcion-fotos-${i}`}
                         style={{ gap: 8, padding: 10, borderRadius: 14, backgroundColor: COLORS.cardSoft, borderWidth: 1, borderColor: COLORS.border }}
                       >
-                        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                           Elige la foto de «{o.nombre.trim() || `opción ${i + 1}`}» o sube una nueva
                         </Text>
                         <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
@@ -2902,7 +3145,7 @@ export default function AdminServices() {
                 </View>
 
                 {picking && (
-                  <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                  <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                     Procesando fotos… puede tardar unos segundos si son varias o vienen en formato
                     HEIC del iPhone.
                   </Text>
