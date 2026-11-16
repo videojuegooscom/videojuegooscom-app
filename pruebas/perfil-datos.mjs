@@ -201,11 +201,13 @@
  *    interruptor (44 px, role switch) y el canal (En la app · Por correo · Las dos; radios de 44 px y 16 px) que se guardan
  *    y se apagan; otro motivo no lo ofrece; Blue avisa de otro parecido (y no de otro modelo); Analítica sin datos
  *    personales; sin la migración se cancela como antes. 360/390/1280. Se lanza con SOLO = CANCAV y en la pasada completa.
- *  - CANDIS) Diseño del pedido cancelado en Mis pedidos (dueño, 2026-11-16: «estilo Amazon»): cabecera con «Cancelado»,
- *    «Cancelado el …», referencia y total tachado; dos pasos (sin la barra de cinco puntos); «Motivo» (o el texto neutro en
- *    los antiguos); «Reembolso» emitido (tarjeta, Klarna), en curso o «No se te ha cobrado nada»; «Ver artículos parecidos»
- *    y «Volver a comprar» (solo si sigue a la venta) de 44 px con su analítica (solo ids; nada si se rechaza); ayuda al pie;
- *    Analítica «Pedidos cancelados: recuperación»; 360/390/1280 sin desbordes y letra de 13 px o más, con su control.
+ *  - CANDIS) Diseño del pedido cancelado en Mis pedidos (dueño, 2026-11-16: «estilo Amazon», adaptado a móvil y
+ *    ordenador): un solo título «Cancelado el …» (sin la pastilla repetida) y en gris «Pedido VZ-… · Realizado el … ·
+ *    total» SIN tachar; dos pasos discretos (puntos de 8 px, línea de 1 px, textos de 13); «Motivo» solo si lo hay;
+ *    «Reembolso» emitido (tarjeta, Klarna) o en curso, o «Pago · No se te ha cobrado nada»; «Volver a comprar» (solo si
+ *    sigue a la venta) y «Ver artículos parecidos» con su analítica (solo ids; nada si se rechaza); ayuda; Analítica
+ *    «Pedidos cancelados: recuperación»; 360/390 con los botones a lo ancho, 1280 con la tarjeta de 800 px o más, la franja
+ *    gris y las acciones en una columna a la derecha; sin desbordes, sin textos cortados, letra de 13 px o más, con control.
  *    Se lanza con SOLO = CANDIS y en la pasada completa.
  *  - PEDRED) Rediseño de Administración → Pedidos (dueño, 2026-11-15: «lo veo todo muy confuso»), con el estilo de
  *    Usuarios: «Avisos en este móvil · …» plegado arriba; cifras (Hoy, Por pagar, Por preparar, Reparto de hoy, Doble venta,
@@ -20052,7 +20054,7 @@ async function seccionCANCAV() {
     // Tarjeta del cancelado (diseño CANDIS, 2026-11-16): «Motivo» y «Reembolso» en su bloque.
     const t = await texto(p, "#cancelacion-motivo-301");
     ok(t === "Motivo El artículo ya no se encuentra disponible", `CANCAV2: el motivo en su bloque (${t})`);
-    ok(/Reembolso de 289,90\s?€ emitido el/.test(await texto(p, "#cancelacion-devolucion-301")), `CANCAV2: «Reembolso de 289,90 € emitido…» (${await texto(p, "#cancelacion-devolucion-301")})`);
+    ok(/^Reembolso 289,90\s?€ devueltos el/.test(await texto(p, "#cancelacion-devolucion-301")), `CANCAV2: «Reembolso · 289,90 € devueltos el…» (${await texto(p, "#cancelacion-devolucion-301")})`);
     ok((await p.locator("#cancelacion-aviso-301").count()) === 1 && (await marcado(p, "#cancelacion-aviso-301")) === "false", "CANCAV2: el interruptor sale apagado");
     const rol = await p.locator("#cancelacion-aviso-301").getAttribute("role").catch(() => null);
     ok(rol === "switch" && (await alto(p, "#cancelacion-aviso-301")) >= 44, `CANCAV2: el interruptor es accesible (role ${rol}) y mide 44 px o más (${await alto(p, "#cancelacion-aviso-301")})`);
@@ -20213,7 +20215,7 @@ async function seccionCANCAV() {
     await q.locator("#cancelacion-pedido-301").waitFor({ timeout: 40000 }).catch(() => {});
     await q.waitForTimeout(500);
     const tq = await texto(q, "#cancelacion-motivo-301");
-    ok(/^Motivo Este pedido se ha cancelado\./.test(tq) && (await texto(q, "#cancelado-fecha-301")) === "Pedido cancelado" && (await q.locator("#cancelacion-aviso-301").count()) === 0, `CANCAV6: sin la migración, la tarjeta con el texto neutro, sin motivo ni interruptor (${tq})`);
+    ok(tq === "" && (await q.locator("#cancelacion-motivo-301").count()) === 0 && (await texto(q, "#cancelado-fecha-301")) === "Pedido cancelado" && (await q.locator("#cancelacion-aviso-301").count()) === 0, `CANCAV6: sin la migración, la tarjeta sin bloque «Motivo» ni interruptor (${tq})`);
     ok(q.errores.length === 0, `CANCAV6: Mis pedidos sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
     await c.ctx.close();
   });
@@ -20398,17 +20400,21 @@ async function seccionCANDIS() {
     const { ctx } = await cliente(s);
     const p = await abrirMisPedidos(ctx);
     // Caso 1: motivo y reembolso con tarjeta emitido.
-    ok((await texto(p, "#cancelado-etiqueta-401")) === "Cancelado", `CANDIS1: la etiqueta «Cancelado» (${await texto(p, "#cancelado-etiqueta-401")})`);
-    const fondoEtiqueta = await p.evaluate(() => getComputedStyle(document.getElementById("cancelado-etiqueta-401")).backgroundColor);
-    ok(fondoEtiqueta === "rgb(254, 226, 226)", `CANDIS1: la etiqueta en rojo suave (${fondoEtiqueta})`);
+    // Cabecera sin repetir (2026-11-16, captura del iPhone del dueño): sin la pastilla «Cancelado»; un solo título y debajo,
+    // en gris, «Pedido VZ-… · Realizado el … · 55,00 €» con el total SIN tachar.
+    ok((await cuantos(p, "#cancelado-etiqueta-401")) === 0, "CANDIS1: sin la pastilla «Cancelado» repetida");
+    const cab = await texto(p, "#cancelado-cabecera-401");
+    ok((cab.match(/Cancelado/g) ?? []).length === 1, `CANDIS1: «Cancelado» una sola vez en la cabecera (${cab})`);
     ok((await texto(p, "#cancelado-fecha-401")) === `Cancelado el ${larga(T.cancelado)}`, `CANDIS1: «Cancelado el ${larga(T.cancelado)}» (${await texto(p, "#cancelado-fecha-401")})`);
-    ok(/^Pedido VZ-CDIS-0401 · /.test(await texto(p, "#mis-pedidos-titulo-401")), `CANDIS1: la referencia del pedido (${await texto(p, "#mis-pedidos-titulo-401")})`);
-    const tachado = await p.evaluate(() => [...document.querySelectorAll("#cancelado-total-401 *")].some((e) => /line-through/.test(getComputedStyle(e).textDecorationLine)));
-    ok(/^Total 55,00\s?€$/.test(await texto(p, "#cancelado-total-401")) && tachado, `CANDIS1: el total tachado (${await texto(p, "#cancelado-total-401")} · tachado ${tachado})`);
+    const letraTitulo = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById("cancelado-fecha-401")).fontSize));
+    ok(letraTitulo >= 16 && letraTitulo <= 17, `CANDIS1: el título a 16-17 px (${letraTitulo})`);
+    ok(/^Pedido VZ-CDIS-0401 · Realizado el .+ · 55,00\s?€$/.test(await texto(p, "#mis-pedidos-titulo-401")), `CANDIS1: la referencia, el día y el total en gris (${await texto(p, "#mis-pedidos-titulo-401")})`);
+    const tachado = await p.evaluate(() => [document.getElementById("cancelado-total-401"), ...document.querySelectorAll("#cancelado-total-401 *")].some((e) => e && /line-through/.test(getComputedStyle(e).textDecorationLine)));
+    ok(/^55,00\s?€$/.test(await texto(p, "#cancelado-total-401")) && !tachado, `CANDIS1: el total sin tachar (${await texto(p, "#cancelado-total-401")} · tachado ${tachado})`);
     ok((await texto(p, "#cancelado-articulo-401")) === "Xbox Series S 512GB Blanca" && (await cuantos(p, "#seguimiento-mini-401")) === 1, "CANDIS1: el artículo con su foto");
     ok((await texto(p, "#cancelacion-motivo-401")) === `Motivo ${MOTIVO}`, `CANDIS1: el bloque «Motivo» (${await texto(p, "#cancelacion-motivo-401")})`);
     ok(
-      new RegExp(`^Reembolso Reembolso de 55,00\\s?€ emitido el ${larga(T.devuelto)} a tu tarjeta Puede tardar de 5 a 10 días hábiles en verse en tu cuenta\\.$`).test(await texto(p, "#cancelacion-devolucion-401")),
+      new RegExp(`^Reembolso 55,00\\s?€ devueltos el ${larga(T.devuelto)} a tu tarjeta Puede tardar de 5 a 10 días hábiles en verse en tu cuenta\\.$`).test(await texto(p, "#cancelacion-devolucion-401")),
       `CANDIS1: el reembolso con tarjeta emitido (${await texto(p, "#cancelacion-devolucion-401")})`
     );
     ok(
@@ -20419,21 +20425,29 @@ async function seccionCANDIS() {
     const viejo = await p.evaluate(() =>
       [...document.querySelectorAll('[id^="seguimiento-pedido-"]')]
         .filter((e) => e.querySelector('[id^="cancelacion-pedido-"]'))
-        .map((e) => ({ id: e.id, puntos: [...e.querySelectorAll("div")].filter((d) => d.getBoundingClientRect().width === 10 && d.getBoundingClientRect().height === 10).length, factura: /Sin factura/.test(e.innerText), preguntar: /Preguntar por esto/.test(e.innerText), entrega: /Envío a domicilio/.test(e.innerText) }))
+        .map((e) => ({ id: e.id, puntos: [...e.querySelectorAll("div")].filter((d) => d.getBoundingClientRect().width === 8 && d.getBoundingClientRect().height === 8).length, barra: [...e.querySelectorAll("div")].filter((d) => d.getBoundingClientRect().width === 10 && d.getBoundingClientRect().height === 10).length, factura: /Sin factura/.test(e.innerText), preguntar: /Preguntar por esto/.test(e.innerText), entrega: /Envío a domicilio/.test(e.innerText) }))
     );
-    ok(viejo.length === 4 && viejo.every((v) => v.puntos === 2 && !v.factura && !v.preguntar && !v.entrega), `CANDIS1: sin la barra de cinco puntos (dos puntos de los pasos), ni «Sin factura», ni «Preguntar por esto» (${JSON.stringify(viejo)})`);
+    ok(viejo.length === 4 && viejo.every((v) => v.puntos === 2 && v.barra === 0 && !v.factura && !v.preguntar && !v.entrega), `CANDIS1: sin la barra de cinco puntos (dos puntos discretos de 8 px), ni «Sin factura», ni «Preguntar por esto» (${JSON.stringify(viejo)})`);
+    // La línea de tiempo, discreta: línea de 1 px y textos de 13.
+    const linea = await p.evaluate(() => {
+      const c = document.getElementById("pasos-pedido-401");
+      const l = [...(c?.querySelectorAll("div") ?? [])].find((d) => Math.round(d.getBoundingClientRect().height) === 1 && d.getBoundingClientRect().width > 40);
+      const letras = [...(c?.querySelectorAll("div") ?? [])].filter((d) => [...d.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())).map((d) => parseFloat(getComputedStyle(d).fontSize));
+      return { fina: !!l, letras: [...new Set(letras)] };
+    });
+    ok(linea.fina && linea.letras.length > 0 && linea.letras.every((x) => x === 13), `CANDIS1: la línea de tiempo fina y con textos de 13 px (${JSON.stringify(linea)})`);
     ok((await cuantos(p, "#cancelado-recomprar-401")) === 0 && (await cuantos(p, "#cancelado-parecidos-401")) === 1, "CANDIS1: su Xbox ya no está a la venta: sin «Volver a comprar», con «Ver artículos parecidos»");
     ok((await cuantos(p, "#cancelacion-aviso-401")) === 1, "CANDIS1: el interruptor «Avisarme cuando haya otro» sigue en la tarjeta");
     ok(/^¿Necesitas ayuda\? Escríbenos por el chat$/.test(await texto(p, "#cancelado-ayuda-401")) && (await alto(p, "#cancelado-ayuda-401")) >= 44, `CANDIS1: la ayuda al pie, de 44 px (${await texto(p, "#cancelado-ayuda-401")} · ${await alto(p, "#cancelado-ayuda-401")})`);
     // Caso 2: pagado sin reembolso aún; sigue a la venta.
     ok((await texto(p, "#cancelacion-motivo-402")) === "Motivo Lo has pedido tú", `CANDIS1: el motivo del 402 (${await texto(p, "#cancelacion-motivo-402")})`);
-    ok(/^Reembolso Reembolso en curso: te devolveremos 55,00\s?€ por el mismo medio de pago$/.test(await texto(p, "#cancelacion-devolucion-402")), `CANDIS1: reembolso en curso (${await texto(p, "#cancelacion-devolucion-402")})`);
+    ok(/^Reembolso En curso: te devolveremos 55,00\s?€ por el mismo medio de pago$/.test(await texto(p, "#cancelacion-devolucion-402")), `CANDIS1: reembolso en curso (${await texto(p, "#cancelacion-devolucion-402")})`);
     ok((await cuantos(p, "#cancelado-recomprar-402")) === 1 && (await texto(p, "#cancelado-recomprar-402")) === "Volver a comprar", "CANDIS1: el mando sigue a la venta: «Volver a comprar»");
     ok((await cuantos(p, "#cancelacion-aviso-402")) === 0, "CANDIS1: con otro motivo, sin «Avisarme cuando haya otro»");
     // Caso 3: antiguo, sin pagar y sin motivo.
     ok((await texto(p, "#cancelado-fecha-403")) === "Pedido cancelado", `CANDIS1: sin hora de cancelación, «Pedido cancelado» (${await texto(p, "#cancelado-fecha-403")})`);
-    ok((await texto(p, "#cancelacion-motivo-403")) === "Motivo Este pedido se ha cancelado. Si tienes cualquier duda, escríbenos por el chat de la tienda.", `CANDIS1: el texto neutro sin motivo (${await texto(p, "#cancelacion-motivo-403")})`);
-    ok((await texto(p, "#cancelacion-devolucion-403")) === "Reembolso No se te ha cobrado nada", `CANDIS1: sin pagar, «No se te ha cobrado nada» (${await texto(p, "#cancelacion-devolucion-403")})`);
+    ok((await cuantos(p, "#cancelacion-motivo-403")) === 0 && !/Motivo/.test(await texto(p, "#cancelacion-pedido-403")), "CANDIS1: sin motivo guardado, sin bloque «Motivo» (nada de texto genérico)");
+    ok((await texto(p, "#cancelacion-devolucion-403")) === "Pago No se te ha cobrado nada", `CANDIS1: sin cobro, «Pago · No se te ha cobrado nada» (${await texto(p, "#cancelacion-devolucion-403")})`);
     ok((await texto(p, "#paso-403-cancelado")) === "Cancelado" && (await cuantos(p, "#paso-403-cancelado-fecha")) === 0, "CANDIS1: sin hora conocida, el paso sin fecha (nunca inventada)");
     ok((await cuantos(p, "#cancelado-recomprar-403")) === 0 && (await cuantos(p, "#cancelado-parecidos-403")) === 1, "CANDIS1: sin artículo de la tienda, sin «Volver a comprar»");
     // Klarna.
@@ -20512,6 +20526,41 @@ async function seccionCANDIS() {
       ok(m.n === 4 && m.ancho <= m.v + 1 && !m.fuera.length, `CANDIS3 (${nombre}): las cuatro tarjetas caben sin ensanchar la página (${m.ancho}/${m.v} · ${m.fuera.join(" | ") || "nada fuera"})`);
       ok(!m.pequenos.length, `CANDIS3 (${nombre}): ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
       ok(!m.chicos.length, `CANDIS3 (${nombre}): todo lo que se toca mide 44 px o más (${m.chicos.join(" | ") || "ninguno pequeño"})`);
+      // Disposición: en 1280, tarjeta de 800 px o más con la franja «Pedido realizado · Total · Pedido nº» y las acciones en
+      // una columna a la DERECHA del contenido; en 360 y 390, los botones uno debajo del otro a lo ancho (44-48 px).
+      const d = await p.evaluate(() => {
+        const r = (id) => document.getElementById(id)?.getBoundingClientRect();
+        const tarjeta = r("cancelacion-pedido-402");
+        const cont = r("cancelado-contenido-402");
+        const acc = r("cancelado-acciones-402");
+        const rec = r("cancelado-recomprar-402");
+        const par = r("cancelado-parecidos-402");
+        const cab = document.getElementById("cancelado-cabecera-402");
+        return {
+          tarjeta: Math.round(tarjeta?.width ?? 0),
+          derecha: !!(cont && acc) && acc.left >= cont.right - 1 && Math.abs(acc.top - cont.top) < 40,
+          accAncho: Math.round(acc?.width ?? 0),
+          apilados: !!(rec && par) && par.top >= rec.bottom - 1 && Math.abs(rec.left - par.left) < 2 && Math.abs(rec.width - par.width) < 2,
+          rec: rec ? { w: Math.round(rec.width), h: Math.round(rec.height) } : null,
+          disp: tarjeta ? Math.round(tarjeta.width - 32) : 0,
+          cab: (cab?.innerText ?? "").replace(/\s+/g, " ").trim(),
+          fondo: cab ? getComputedStyle(cab).backgroundColor : "",
+        };
+      });
+      if (nombre === "1280") {
+        ok(d.tarjeta >= 800 && d.derecha && d.accAncho >= 240 && d.accAncho <= 280, `CANDIS3 (1280): tarjeta de ${d.tarjeta} px con las acciones a la derecha en una columna de ${d.accAncho} px`);
+        ok(/^Pedido realizado .+ Total 55,00\s?€ Pedido nº VZ-CDIS-0402$/i.test(d.cab) && d.fondo !== "rgba(0, 0, 0, 0)" && d.fondo !== "rgb(255, 255, 255)", `CANDIS3 (1280): la franja gris con «Pedido realizado · Total · Pedido nº» (${d.cab} · ${d.fondo})`);
+        ok(d.apilados && d.rec && d.rec.h >= 44 && d.rec.h <= 52, `CANDIS3 (1280): los botones apilados en la columna (${JSON.stringify(d.rec)})`);
+      } else {
+        ok(d.apilados && d.rec && d.rec.w >= d.disp - 2 && d.rec.h >= 44 && d.rec.h <= 52, `CANDIS3 (${nombre}): los botones uno debajo del otro a lo ancho, de 44-48 px (${JSON.stringify(d.rec)} de ${d.disp})`);
+      }
+      // Nada cortado: los textos de la tarjeta no se recortan (su contenido cabe en su caja).
+      const cortados = await p.evaluate(() =>
+        [...document.querySelectorAll('[id^="cancelacion-pedido-"] *')]
+          .filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && getComputedStyle(e).overflow !== "visible" && e.scrollWidth > e.clientWidth + 1)
+          .map((e) => e.textContent.slice(0, 30))
+      );
+      ok(!cortados.length, `CANDIS3 (${nombre}): ningún texto cortado (${cortados.join(" | ") || "ninguno"})`);
       await p.locator("#cancelacion-pedido-401").scrollIntoViewIfNeeded().catch(() => {});
       await capturar(p, `CANDIS3-cancelado-${nombre}`);
       await p.locator("#cancelacion-pedido-402").scrollIntoViewIfNeeded().catch(() => {});
@@ -20549,8 +20598,8 @@ async function seccionCANDIS() {
     const p = await pagina(ctx, "/perfil?tab=seguimientos");
     await p.locator("#cancelacion-pedido-403").waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(600);
-    ok((await cuantos(p, '[id^="cancelacion-pedido-"]')) === 4 && /^Motivo Este pedido se ha cancelado\./.test(await texto(p, "#cancelacion-motivo-401")), `CANDIS4: las tarjetas salen con el texto neutro (${await texto(p, "#cancelacion-motivo-401")})`);
-    ok(/^Reembolso Reembolso en curso/.test(await texto(p, "#cancelacion-devolucion-401")), `CANDIS4: sin la hora de la devolución, «en curso» (${await texto(p, "#cancelacion-devolucion-401")})`);
+    ok((await cuantos(p, '[id^="cancelacion-pedido-"]')) === 4 && (await cuantos(p, '[id^="cancelacion-motivo-"]')) === 0, `CANDIS4: las tarjetas salen sin el bloque «Motivo» (no hay motivo que enseñar)`);
+    ok(/^Reembolso En curso/.test(await texto(p, "#cancelacion-devolucion-401")), `CANDIS4: sin la hora de la devolución, «en curso» (${await texto(p, "#cancelacion-devolucion-401")})`);
     ok(p.errores.length === 0, `CANDIS4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   });
