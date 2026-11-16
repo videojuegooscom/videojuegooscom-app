@@ -1091,21 +1091,25 @@ export function ValoracionPedidoAdmin({
   nativeID,
   valoracion,
   entregadoEn,
+  izquierda = false,
 }: {
   nativeID: string;
   valoracion: ValoracionPedido | null | undefined;
   entregadoEn: string | null;
+  // Alineado a la izquierda (Administración → Pedidos, dentro de su bloque «Valoración»); centrado por defecto (ficha).
+  izquierda?: boolean;
 }) {
+  const alinear = izquierda ? ("left" as const) : ("center" as const);
   if (valoracion) {
     const baja = valoracion.nota <= 2;
     return (
-      <View nativeID={nativeID} style={{ alignItems: "center", gap: 2, maxWidth: 460, alignSelf: "center" }}>
-        <Text style={{ color: baja ? COLORS.danger : COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+      <View nativeID={nativeID} style={{ alignItems: izquierda ? "flex-start" : "center", gap: 2, maxWidth: 460, alignSelf: izquierda ? "flex-start" : "center" }}>
+        <Text style={{ color: baja ? COLORS.danger : COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: alinear }}>
           Valoración: <Text style={{ color: "#B7791F", letterSpacing: 1 }}>{estrellasDeNota(valoracion.nota)}</Text> {valoracion.nota}/5
           {baja ? " · baja" : ""}
         </Text>
         {valoracion.comentario ? (
-          <Text selectable style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+          <Text selectable style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: alinear }}>
             «{valoracion.comentario}»
           </Text>
         ) : null}
@@ -1119,7 +1123,7 @@ export function ValoracionPedidoAdmin({
     ? "Sin valorar · ya se le pide"
     : `Sin valorar · se le pedirá el ${new Date(t + VALORACION_ESPERA_MS).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`;
   return (
-    <Text nativeID={nativeID} style={{ color: COLORES_TEXTO.secundario, fontWeight: "700", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+    <Text nativeID={nativeID} style={{ color: COLORES_TEXTO.secundario, fontWeight: "700", fontSize: TAMANOS.minimo, textAlign: alinear }}>
       {texto}
     </Text>
   );
