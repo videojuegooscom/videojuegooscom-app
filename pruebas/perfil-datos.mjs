@@ -216,6 +216,13 @@
  *    este cliente; al tocarlas, el detalle por bloques con las acciones abajo, y en Chats el hilo); 360/390/1280 sin
  *    desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px y sin errores. Datos FICTICIOS. Se lanza con
  *    SOLO = PANRED3 y en la pasada completa.
+ *  - PANRED4) Tanda 4 del rediseño: Administración → Blog, Noticias Flash · Blue IA y Políticas con el mismo estilo
+ *    (cifras que filtran, buscador de 16 px, pastillas con su recuento, filas compactas con su etiqueta de color:
+ *    Publicado, Borrador; Activa, Oculta; Publicada, Oculta, En el pie de página; lápiz y papelera en cada fila; al
+ *    tocarlas, el detalle por bloques con publicar u ocultar abajo; el «+» flotante, que en Noticias desaparece con 5);
+ *    360/390/1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px, sin errores y con su control
+ *    (un desborde y una letra de 10 px puestos a propósito se detectan). Datos FICTICIOS. Se lanza con SOLO = PANRED4 y en
+ *    la pasada completa.
  *  - RESEN) Reservar con señal (mejora 14): apagada, ni la ficha ni Mis seguimientos enseñan nada; Administración no deja
  *    activar sin reglas ni sin «Revisado por mi gestor» (borrador marcado, escala 1-70 %); activa, la ficha calcula el % y
  *    los € según los días, la casilla es obligatoria y «Pagar señal» solo manda artículo y días; sin cuenta invita; «Mis
@@ -20723,6 +20730,353 @@ async function seccionPANRED3() {
   }
 }
 
+// ===== PANRED4) Tanda 4 del rediseño (2026-11-16): Administración → Blog, Noticias Flash · Blue IA y Políticas con el
+// estilo de las tandas 1 a 3 (components/admin/PanelUI.tsx: FilaCifras, FilaLista, DetalleFila y BotonesFila): cifras que
+// filtran, buscador de 16 px, pastillas con su recuento, filas compactas con su etiqueta de color, el lápiz y la papelera
+// en cada fila y, al tocar una, el detalle por bloques con publicar u ocultar abajo; el «+» flotante para crear (en
+// Noticias, que desaparece con 5); 360, 390 y 1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16
+// px y sin errores, con su control (un desborde y una letra pequeña puestos a propósito se detectan). Datos FICTICIOS
+// (nada llega a la base de datos real). =====================================================================================
+async function seccionPANRED4() {
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const hace = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+
+  // Blog: dos publicados (uno sin resumen) y un borrador.
+  const BLOG = () => [
+    { id: "b1", slug: "elegir-consola-segunda-mano", title: "Cómo elegir una consola de segunda mano", excerpt: "Qué revisar antes de comprar una consola usada.", body: "Mira el estado del lector, los puertos y los mandos. Pide siempre la garantía por escrito.", status: "PUBLISHED", sort_order: 0, created_at: hace(3000), updated_at: hace(300) },
+    { id: "b2", slug: "mantenimiento-consola", title: "Mantenimiento de tu consola", excerpt: "", body: "Limpia el polvo cada tres meses.", status: "PUBLISHED", sort_order: 10, created_at: hace(2000), updated_at: hace(200) },
+    { id: "b3", slug: "novedades-diciembre", title: "Novedades de diciembre", excerpt: "Lo que llega a la tienda este mes.", body: "Muy pronto.", status: "DRAFT", sort_order: 20, created_at: hace(1000), updated_at: hace(100) },
+  ];
+  // Noticias Flash: dos activas y una oculta (y, aparte, cinco para el límite).
+  const noticia = (n, extra) => ({ id: `f${n}`, message: `Aviso ${n}`, color_hex: "#FFB200", display_seconds: 6, sort_order: n * 10, is_active: true, created_at: hace(n * 100), updated_at: hace(n * 50), ...extra });
+  const NOTICIAS = () => [
+    noticia(1, { message: "Garantía de 12 meses en todo", sort_order: 0 }),
+    noticia(2, { message: "Envío gratis desde 100 euros", color_hex: "#1EA7E8", display_seconds: 8 }),
+    noticia(3, { message: "Cerrado el 25 de diciembre", color_hex: "#EF4444", display_seconds: 5, is_active: false }),
+  ];
+  // Políticas: dos del pie de página publicadas (una sin secciones) y una oculta fuera del pie.
+  const POLITICAS = () => [
+    { id: "p1", slug: "envios", title: "Envíos", intro: "Cómo y cuándo enviamos tu pedido.", sections: [{ heading: "Plazos", body: "Zaragoza y Cuarte, el mismo día." }, { heading: "Precio", body: "Gratis desde 100 euros." }], is_active: true, sort_order: 0, created_at: hace(5000), updated_at: hace(500) },
+    { id: "p2", slug: "devoluciones", title: "Devoluciones", intro: "", sections: [], is_active: true, sort_order: 10, created_at: hace(4000), updated_at: hace(400) },
+    { id: "p3", slug: "garantia", title: "Garantía de los productos", intro: "Doce meses en consolas revisadas.", sections: [{ heading: "Cobertura", body: "Fallos de funcionamiento." }], is_active: false, sort_order: 20, created_at: hace(3000), updated_at: hace(300) },
+  ];
+
+  // Los iconos (letra de iconos, rango privado de Unicode) fuera del texto.
+  const limpio = (t) => String(t ?? "").replace(/\p{Co}/gu, "").replace(/\s+/g, " ").trim();
+  const texto = async (p, sel) => limpio(await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => ""));
+  const pastillas = async (p, sel) => (await p.evaluate((s) => [...document.querySelectorAll(`${s} [role="button"]`)].map((b) => ({ t: b.innerText, h: Math.round(b.getBoundingClientRect().height) })), sel)).map((x) => ({ ...x, t: limpio(x.t) }));
+  const caja = (p, sel) => p.evaluate((s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? { y: Math.round(r.y), bottom: Math.round(r.bottom), h: Math.round(r.height), w: Math.round(r.width) } : null; }, sel);
+  const letra = (p, sel) => p.evaluate((s) => (document.querySelector(s) ? parseFloat(getComputedStyle(document.querySelector(s)).fontSize) : 0), sel);
+  const fondo = (p, sel) => p.evaluate((s) => (document.querySelector(s) ? getComputedStyle(document.querySelector(s)).backgroundColor : ""), sel);
+  const ids = (p, sel) => p.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.id), sel);
+  const alturas = (p, sel) => p.evaluate((s) => [...document.querySelectorAll(s)].map((e) => Math.round(e.getBoundingClientRect().height)), sel);
+  const valores = (p) => p.evaluate(() => [...document.querySelectorAll("input,textarea")].map((i) => i.value));
+  // Letra < 13 px, táctiles < 44 × 44 (los más externos), campos de menos de 16 px y el ancho.
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily)) continue;
+        if (parseFloat(cs.fontSize) < 13) pequenos.push(`${t.slice(0, 30)} ${cs.fontSize}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[tabindex="0"]';
+      const deBlue = (el) => !!el.closest("#blue-flotante, #blue-mensaje") || /Blue/.test(el.getAttribute("aria-label") ?? "");
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && !deBlue(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      const campos = [...document.querySelectorAll("input,textarea")].filter((el) => !["checkbox", "radio", "file", "range", "hidden"].includes(el.type) && visible(el));
+      const camposChicos = campos.filter((el) => parseFloat(getComputedStyle(el).fontSize) < 16).map((el) => `${el.id || el.placeholder || el.tagName} ${getComputedStyle(el).fontSize}`);
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, campos: campos.length, camposChicos: camposChicos.slice(0, 8), ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    });
+  const comprobarDiseno = async (p, nombre, pantalla, momento, minimo = 5) => {
+    const m = await medir(p);
+    ok(m.ancho <= m.v + 1, `PANRED4 (${nombre}): ${pantalla}, ${momento}, la página no se sale por los lados (${m.ancho}/${m.v})`);
+    ok(m.n >= minimo && !m.chicos.length, `PANRED4 (${nombre}): ${pantalla}, ${momento}, todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+    ok(!m.pequenos.length, `PANRED4 (${nombre}): ${pantalla}, ${momento}, ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+    ok(m.campos >= 1 && !m.camposChicos.length, `PANRED4 (${nombre}): ${pantalla}, ${momento}, los campos a 16 px (${m.campos} campos; ${m.camposChicos.join(" | ") || "ninguno pequeño"})`);
+  };
+  // El control: con un recuadro de 2000 px y una letra de 10 px puestos a propósito, la medida TIENE que fallar (si no, las
+  // comprobaciones de arriba no valdrían nada). Después se quitan.
+  const control = async (p, nombre, pantalla) => {
+    await p.evaluate(() => {
+      const d = document.createElement("div");
+      d.id = "panred4-control";
+      d.style.cssText = "width:2000px;height:24px;font-size:10px;position:relative";
+      d.textContent = "Control PANRED4";
+      document.body.appendChild(d);
+    });
+    const m = await medir(p);
+    await p.evaluate(() => document.getElementById("panred4-control")?.remove());
+    const despues = await medir(p);
+    ok(m.ancho > m.v + 1 && m.pequenos.some((t) => /Control PANRED4/.test(t)) && despues.ancho <= despues.v + 1, `PANRED4 (${nombre}): ${pantalla}, el control falla cuando debe (desborde ${m.ancho}/${m.v} y letra de 10 px detectados; sin ellos, ${despues.ancho}/${despues.v})`);
+  };
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `PANRED4: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+  // Las acciones van debajo de los bloques del detalle.
+  const accionesAbajo = (p, detalle, acciones) =>
+    p.evaluate(([d, a]) => {
+      const bloques = [...(document.querySelector(d)?.children[0]?.children ?? [])].map((e) => e.getBoundingClientRect().bottom);
+      const acc = document.querySelector(a)?.getBoundingClientRect();
+      return { bloques: bloques.length ? Math.max(...bloques) : 0, acciones: acc ? acc.top : 0, alto: acc ? acc.height : 0 };
+    }, [detalle, acciones]);
+  // Los cambios (PATCH) que mandaría la pantalla, apuntados sin ir a ninguna base de datos.
+  const apuntarCambios = (ctx, tabla, lista) =>
+    ctx.route(`**/rest/v1/${tabla}*`, (r) => {
+      if (r.request().method() !== "PATCH") return r.fallback();
+      lista.push({ filtro: decodeURIComponent(new URL(r.request().url()).search), cuerpo: JSON.parse(r.request().postData() ?? "{}") });
+      return r.fulfill({ status: 204, headers: CORS, body: "" });
+    });
+  // Lápiz y papelera de la fila, de 44 px.
+  const botonesFila = async (p, etiquetas) =>
+    p.evaluate((ls) => ls.map((l) => { const r = document.querySelector(`[aria-label="${l}"]`)?.getBoundingClientRect(); return r ? Math.round(Math.min(r.width, r.height)) : 0; }), etiquetas);
+
+  for (const { nombre, vista } of VISTAS) {
+    // --- Blog ---
+    await bloque(`Blog ${nombre}`, async () => {
+      const cambios = [];
+      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin, tablas: { blog_posts: BLOG() } }, vista);
+      await apuntarCambios(ctx, "blog_posts", cambios);
+      const p = await pagina(ctx, "/admin/blog");
+      await p.locator("#blog-fila-b1").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const cifras = await texto(p, "#blog-cifras");
+      ok(/3 Total/.test(cifras) && /2 Publicados/.test(cifras) && /1 Borradores/.test(cifras), `PANRED4 (${nombre}): Blog, las cifras (${cifras})`);
+      const bb = await caja(p, "#blog-buscar-caja");
+      ok(!!bb && bb.h >= 44 && (await letra(p, "#blog-buscar")) >= 16, `PANRED4 (${nombre}): Blog, el buscador de 16 px (${JSON.stringify(bb)})`);
+      const pas = await pastillas(p, "#blog-filtros");
+      ok(pas.map((x) => x.t).join(" · ") === "Todos (3) · Publicados (2) · Borradores (1)" && pas.every((x) => x.h >= 44), `PANRED4 (${nombre}): Blog, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      const f1 = await texto(p, "#blog-b1");
+      const alto = (await caja(p, "#blog-fila-b1"))?.h ?? 0;
+      ok(/Cómo elegir una consola de segunda mano Publicado/.test(f1) && /Qué revisar antes de comprar/.test(f1) && /slug: elegir-consola-segunda-mano/.test(f1) && /Actualizado:/.test(f1) && alto >= 44 && alto <= 190, `PANRED4 (${nombre}): Blog, la fila compacta con título, estado, resumen, slug y fecha (${f1} · ${alto} px)`);
+      ok(/Sin resumen/.test(await texto(p, "#blog-b2")) && /Borrador/.test(await texto(p, "#blog-estado-b3")), `PANRED4 (${nombre}): Blog, sin resumen lo dice y el borrador se marca`);
+      ok((await fondo(p, "#blog-estado-b1")) !== (await fondo(p, "#blog-estado-b3")), `PANRED4 (${nombre}): Blog, publicado y borrador con su color`);
+      const bf = await botonesFila(p, ["Editar Cómo elegir una consola de segunda mano", "Borrar Cómo elegir una consola de segunda mano"]);
+      ok(bf.every((h) => h >= 44) && (await p.locator("#blog-nuevo").count()) === 1, `PANRED4 (${nombre}): Blog, el lápiz y la papelera de 44 px en cada fila y el «+» para crear (${bf.join(",")})`);
+      await capturar(p, `PANRED4-${nombre}-blog-lista`);
+      await comprobarDiseno(p, nombre, "Blog", "la lista");
+      await control(p, nombre, "Blog");
+      // Buscador, cifras y pastillas.
+      await p.locator("#blog-buscar").fill("diciembre");
+      await p.waitForTimeout(300);
+      ok((await texto(p, "#blog-recuento")) === "1 artículo encontrado" && JSON.stringify(await ids(p, '[id^="blog-fila-"]')) === '["blog-fila-b3"]', `PANRED4 (${nombre}): Blog, el buscador encuentra por el título (${await texto(p, "#blog-recuento")})`);
+      await p.locator("#blog-buscar").fill("zzzz");
+      await p.waitForTimeout(300);
+      ok((await ids(p, '[id^="blog-fila-"]')).length === 0 && (await p.locator("#blog-vacio").count()) === 1, `PANRED4 (${nombre}): Blog, una búsqueda sin resultados no enseña filas y lo dice`);
+      await p.locator("#blog-buscar").fill("");
+      await p.locator("#blog-cifra-DRAFT").click();
+      await p.waitForTimeout(300);
+      const borradores = await ids(p, '[id^="blog-fila-"]');
+      await p.locator("#blog-cifra-DRAFT").click();
+      await p.locator("#blog-filtro-PUBLISHED").click();
+      await p.waitForTimeout(300);
+      const publicados = await ids(p, '[id^="blog-fila-"]');
+      await p.locator("#blog-filtro-todos").click();
+      await p.waitForTimeout(300);
+      ok(JSON.stringify(borradores) === '["blog-fila-b3"]' && JSON.stringify(publicados) === '["blog-fila-b1","blog-fila-b2"]' && (await ids(p, '[id^="blog-fila-"]')).length === 3, `PANRED4 (${nombre}): Blog, la cifra «Borradores» y la pastilla «Publicados» filtran (${borradores.join(",")} · ${publicados.join(",")})`);
+      // Detalle por bloques y acciones abajo.
+      await p.locator("#blog-fila-b1").click();
+      await p.waitForTimeout(400);
+      const d = await texto(p, "#blog-detalle-b1");
+      ok((await p.locator("#blog-fila-b1").getAttribute("aria-expanded")) === "true" && /Artículo/.test(d) && /Publicación/.test(d) && /Contenido \(\d+ palabras\)/.test(d) && /Enlace: \/blog\?open=elegir-consola-segunda-mano/.test(d) && /Se muestra en el listado público del Blog/.test(d) && /Orden: 0/.test(d), `PANRED4 (${nombre}): Blog, al tocar la fila se despliega por bloques (${d.slice(0, 220)})`);
+      const orden = await accionesAbajo(p, "#blog-detalle-b1", "#blog-acciones-b1");
+      const acc = await alturas(p, '#blog-acciones-b1 [role="button"]');
+      ok(orden.acciones >= orden.bloques - 1 && acc.length === 2 && acc.every((h) => h >= 44), `PANRED4 (${nombre}): Blog, «Pasar a borrador» y «Editar el artículo» van abajo y miden 44 px (${JSON.stringify(orden)} · ${acc.join(",")})`);
+      await p.locator("#blog-detalle-b1").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `PANRED4-${nombre}-blog-detalle`);
+      await comprobarDiseno(p, nombre, "Blog", "con el detalle abierto");
+      await p.locator("#blog-publicar-b1").click();
+      await p.waitForTimeout(500);
+      ok(cambios.length === 1 && JSON.stringify(cambios[0].cuerpo) === '{"status":"DRAFT"}' && /id=eq\.b1/.test(cambios[0].filtro) && (await texto(p, "#blog-estado-b1")) === "Borrador", `PANRED4 (${nombre}): Blog, «Pasar a borrador» cambia el estado con un toque (${JSON.stringify(cambios)})`);
+      // El lápiz y el «+» abren el formulario.
+      await p.locator('[aria-label="Editar Mantenimiento de tu consola"]').click();
+      await p.waitForTimeout(500);
+      ok((await p.getByText("Editar artículo").count()) >= 1 && (await valores(p)).includes("mantenimiento-consola"), `PANRED4 (${nombre}): Blog, el lápiz abre «Editar artículo» con sus datos`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(400);
+      await p.locator("#blog-nuevo").click();
+      await p.waitForTimeout(500);
+      ok((await p.getByText("Nuevo artículo").count()) >= 1 && (await valores(p)).includes("30"), `PANRED4 (${nombre}): Blog, el «+» abre «Nuevo artículo» con el orden siguiente (30)`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(300);
+      await p.locator('[aria-label="Borrar Novedades de diciembre"]').click();
+      await p.waitForTimeout(400);
+      ok((await p.getByText("Borrar artículo").count()) >= 1 && (await p.getByText("Sí, borrar").count()) >= 1, `PANRED4 (${nombre}): Blog, la papelera pide confirmación antes de borrar`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(300);
+      ok(p.errores.length === 0, `PANRED4 (${nombre}): Blog sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+
+    // --- Noticias Flash · Blue IA ---
+    await bloque(`Noticias ${nombre}`, async () => {
+      const cambios = [];
+      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin, tablas: { flash_news: NOTICIAS() } }, vista);
+      await apuntarCambios(ctx, "flash_news", cambios);
+      const p = await pagina(ctx, "/admin/flash-news");
+      await p.locator("#noticia-fila-f1").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const cifras = await texto(p, "#noticias-cifras");
+      ok(/3 \/ 5 Noticias/.test(cifras) && /2 Activas/.test(cifras) && /1 Ocultas/.test(cifras) && /2 Huecos libres/.test(cifras), `PANRED4 (${nombre}): Noticias, las cifras (${cifras})`);
+      const bb = await caja(p, "#noticias-buscar-caja");
+      ok(!!bb && bb.h >= 44 && (await letra(p, "#noticias-buscar")) >= 16, `PANRED4 (${nombre}): Noticias, el buscador de 16 px`);
+      const pas = await pastillas(p, "#noticias-filtros");
+      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Activas (2) · Ocultas (1)" && pas.every((x) => x.h >= 44), `PANRED4 (${nombre}): Noticias, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      const f1 = await texto(p, "#noticia-f1");
+      const alto = (await caja(p, "#noticia-fila-f1"))?.h ?? 0;
+      ok(/Garantía de 12 meses en todo Activa/.test(f1) && /6 s en pantalla · Orden 0/.test(f1) && alto >= 44 && alto <= 150, `PANRED4 (${nombre}): Noticias, la fila compacta con el aviso, su estado, los segundos y el orden (${f1} · ${alto} px)`);
+      ok((await texto(p, "#noticia-estado-f3")) === "Oculta" && (await fondo(p, "#noticia-estado-f1")) !== (await fondo(p, "#noticia-estado-f3")), `PANRED4 (${nombre}): Noticias, activa y oculta con su color`);
+      ok((await p.locator('[aria-label="Editar la noticia"]').count()) === 3 && (await p.locator('[aria-label="Borrar la noticia"]').count()) === 3 && (await p.locator("#noticias-nueva").count()) === 1, `PANRED4 (${nombre}): Noticias, el lápiz y la papelera en cada fila y el «+» para crear`);
+      await capturar(p, `PANRED4-${nombre}-noticias-lista`);
+      await comprobarDiseno(p, nombre, "Noticias", "la lista");
+      await control(p, nombre, "Noticias");
+      await p.locator("#noticias-buscar").fill("gratis");
+      await p.waitForTimeout(300);
+      ok((await texto(p, "#noticias-recuento")) === "1 noticia encontrada" && JSON.stringify(await ids(p, '[id^="noticia-fila-"]')) === '["noticia-fila-f2"]', `PANRED4 (${nombre}): Noticias, el buscador encuentra por el texto (${await texto(p, "#noticias-recuento")})`);
+      await p.locator("#noticias-buscar").fill("");
+      await p.locator("#noticias-cifra-ocultas").click();
+      await p.waitForTimeout(300);
+      const ocultas = await ids(p, '[id^="noticia-fila-"]');
+      await p.locator("#noticias-cifra-ocultas").click();
+      await p.locator("#noticias-filtro-activas").click();
+      await p.waitForTimeout(300);
+      const activas = await ids(p, '[id^="noticia-fila-"]');
+      await p.locator("#noticias-filtro-todas").click();
+      await p.waitForTimeout(300);
+      ok(JSON.stringify(ocultas) === '["noticia-fila-f3"]' && JSON.stringify(activas) === '["noticia-fila-f1","noticia-fila-f2"]' && (await ids(p, '[id^="noticia-fila-"]')).length === 3, `PANRED4 (${nombre}): Noticias, la cifra «Ocultas» y la pastilla «Activas» filtran (${ocultas.join(",")} · ${activas.join(",")})`);
+      await p.locator("#noticia-fila-f1").click();
+      await p.waitForTimeout(400);
+      const d = await texto(p, "#noticia-detalle-f1");
+      ok((await p.locator("#noticia-fila-f1").getAttribute("aria-expanded")) === "true" && /Aviso/.test(d) && /Ajustes/.test(d) && /Color: Dorado \(#FFB200\)/.test(d) && /En pantalla: 6 segundos/.test(d) && /28 de 140 caracteres/.test(d) && /Blue IA la muestra y la usa al responder/.test(d), `PANRED4 (${nombre}): Noticias, al tocar la fila se despliega por bloques con su vista previa (${d.slice(0, 240)})`);
+      const orden = await accionesAbajo(p, "#noticia-detalle-f1", "#noticia-acciones-f1");
+      const acc = await alturas(p, '#noticia-acciones-f1 [role="button"]');
+      ok(orden.acciones >= orden.bloques - 1 && acc.length === 2 && acc.every((h) => h >= 44), `PANRED4 (${nombre}): Noticias, «Ocultar en Blue IA» y «Editar la noticia» van abajo y miden 44 px (${JSON.stringify(orden)} · ${acc.join(",")})`);
+      await p.locator("#noticia-detalle-f1").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `PANRED4-${nombre}-noticias-detalle`);
+      await comprobarDiseno(p, nombre, "Noticias", "con el detalle abierto");
+      await p.locator("#noticia-fila-f3").click();
+      await p.waitForTimeout(300);
+      await p.locator("#noticia-activar-f3").click();
+      await p.waitForTimeout(500);
+      ok(cambios.length === 1 && JSON.stringify(cambios[0].cuerpo) === '{"is_active":true}' && /id=eq\.f3/.test(cambios[0].filtro) && (await texto(p, "#noticia-estado-f3")) === "Activa", `PANRED4 (${nombre}): Noticias, «Activar en Blue IA» la activa con un toque (${JSON.stringify(cambios)})`);
+      await p.locator('[aria-label="Editar la noticia"]').nth(1).click();
+      await p.waitForTimeout(500);
+      ok((await p.getByText("Editar noticia").count()) >= 1 && (await valores(p)).includes("Envío gratis desde 100 euros"), `PANRED4 (${nombre}): Noticias, el lápiz abre «Editar noticia» con sus datos`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(400);
+      await p.locator("#noticias-nueva").click();
+      await p.waitForTimeout(500);
+      ok((await p.getByText("Nueva noticia").count()) >= 1 && (await valores(p)).includes("#FFB200"), `PANRED4 (${nombre}): Noticias, el «+» abre «Nueva noticia» con el color dorado`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(300);
+      ok(p.errores.length === 0, `PANRED4 (${nombre}): Noticias sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+      // Con 5 noticias, el «+» no sale y un aviso lo explica.
+      if (nombre === "390") {
+        const ctx5 = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin, tablas: { flash_news: [1, 2, 3, 4, 5].map((n) => noticia(n)) } }, vista);
+        const p5 = await pagina(ctx5, "/admin/flash-news");
+        await p5.locator("#noticia-fila-f5").waitFor({ timeout: 40000 }).catch(() => {});
+        await p5.waitForTimeout(500);
+        ok((await p5.locator("#noticias-nueva").count()) === 0 && (await p5.getByText("Ya hay 5 noticias, el máximo. Borra una para poder crear otra.").count()) === 1 && /0 Huecos libres/.test(await texto(p5, "#noticias-cifras")), `PANRED4 (${nombre}): Noticias, con 5 el «+» desaparece y el aviso lo explica`);
+        await capturar(p5, `PANRED4-${nombre}-noticias-limite`);
+        await ctx5.close();
+      }
+    });
+
+    // --- Políticas ---
+    await bloque(`Políticas ${nombre}`, async () => {
+      const cambios = [];
+      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin, politicas: POLITICAS() }, vista);
+      await apuntarCambios(ctx, "policy_pages", cambios);
+      const p = await pagina(ctx, "/admin/policies");
+      await p.locator("#politica-fila-p1").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const cifras = await texto(p, "#politicas-cifras");
+      ok(/3 Total/.test(cifras) && /2 Publicadas/.test(cifras) && /1 Ocultas/.test(cifras) && /2 \/ 4 En el pie/.test(cifras), `PANRED4 (${nombre}): Políticas, las cifras (${cifras})`);
+      const bb = await caja(p, "#politicas-buscar-caja");
+      ok(!!bb && bb.h >= 44 && (await letra(p, "#politicas-buscar")) >= 16, `PANRED4 (${nombre}): Políticas, el buscador de 16 px`);
+      const pas = await pastillas(p, "#politicas-filtros");
+      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Publicadas (2) · Ocultas (1) · En el pie de página (2)" && pas.every((x) => x.h >= 44), `PANRED4 (${nombre}): Políticas, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      const f1 = await texto(p, "#politica-p1");
+      const alto = (await caja(p, "#politica-fila-p1"))?.h ?? 0;
+      ok(/Envíos Publicada/.test(f1) && /Cómo y cuándo enviamos/.test(f1) && /\/politicas\/envios/.test(f1) && /2 secciones/.test(f1) && /En el pie de página/.test(f1) && alto >= 44 && alto <= 190, `PANRED4 (${nombre}): Políticas, la fila compacta con título, estado, introducción, dirección, secciones y pie (${f1} · ${alto} px)`);
+      const f3 = await texto(p, "#politica-p3");
+      ok(/Sin introducción/.test(await texto(p, "#politica-p2")) && /0 secciones/.test(await texto(p, "#politica-p2")) && /Oculta/.test(f3) && !/En el pie de página/.test(f3), `PANRED4 (${nombre}): Políticas, sin introducción lo dice y la que no está en el pie no lo pone`);
+      ok((await fondo(p, "#politica-estado-p1")) !== (await fondo(p, "#politica-estado-p3")), `PANRED4 (${nombre}): Políticas, publicada y oculta con su color`);
+      const bf = await botonesFila(p, ["Editar Envíos", "Borrar Envíos"]);
+      ok(bf.every((h) => h >= 44) && (await p.locator("#politicas-nueva").count()) === 1, `PANRED4 (${nombre}): Políticas, el lápiz y la papelera de 44 px en cada fila y el «+» para crear (${bf.join(",")})`);
+      await capturar(p, `PANRED4-${nombre}-politicas-lista`);
+      await comprobarDiseno(p, nombre, "Políticas", "la lista");
+      await control(p, nombre, "Políticas");
+      await p.locator("#politicas-buscar").fill("garantia");
+      await p.waitForTimeout(300);
+      ok((await texto(p, "#politicas-recuento")) === "1 política encontrada" && JSON.stringify(await ids(p, '[id^="politica-fila-"]')) === '["politica-fila-p3"]', `PANRED4 (${nombre}): Políticas, el buscador encuentra por el slug (${await texto(p, "#politicas-recuento")})`);
+      await p.locator("#politicas-buscar").fill("");
+      await p.locator("#politicas-cifra-ocultas").click();
+      await p.waitForTimeout(300);
+      const ocultas = await ids(p, '[id^="politica-fila-"]');
+      await p.locator("#politicas-cifra-ocultas").click();
+      await p.locator("#politicas-filtro-pie").click();
+      await p.waitForTimeout(300);
+      const pie = await ids(p, '[id^="politica-fila-"]');
+      await p.locator("#politicas-filtro-todas").click();
+      await p.waitForTimeout(300);
+      ok(JSON.stringify(ocultas) === '["politica-fila-p3"]' && JSON.stringify(pie) === '["politica-fila-p1","politica-fila-p2"]' && (await ids(p, '[id^="politica-fila-"]')).length === 3, `PANRED4 (${nombre}): Políticas, la cifra «Ocultas» y la pastilla «En el pie de página» filtran (${ocultas.join(",")} · ${pie.join(",")})`);
+      await p.locator("#politica-fila-p1").click();
+      await p.waitForTimeout(400);
+      const d = await texto(p, "#politica-detalle-p1");
+      ok((await p.locator("#politica-fila-p1").getAttribute("aria-expanded")) === "true" && /Página/.test(d) && /Secciones \(2\)/.test(d) && /Dirección: \/politicas\/envios/.test(d) && /Enlazada desde el pie de página de Inicio/.test(d) && /1\. Plazos/.test(d) && /2\. Precio/.test(d), `PANRED4 (${nombre}): Políticas, al tocar la fila se despliega por bloques con sus secciones (${d.slice(0, 240)})`);
+      const orden = await accionesAbajo(p, "#politica-detalle-p1", "#politica-acciones-p1");
+      const acc = await alturas(p, '#politica-acciones-p1 [role="button"]');
+      ok(orden.acciones >= orden.bloques - 1 && acc.length === 2 && acc.every((h) => h >= 44), `PANRED4 (${nombre}): Políticas, «Ocultar en la tienda» y «Editar la política» van abajo y miden 44 px (${JSON.stringify(orden)} · ${acc.join(",")})`);
+      await p.locator("#politica-detalle-p1").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `PANRED4-${nombre}-politicas-detalle`);
+      await comprobarDiseno(p, nombre, "Políticas", "con el detalle abierto");
+      await p.locator("#politica-fila-p2").click();
+      await p.waitForTimeout(300);
+      ok(/Sin secciones: la página muestra solo su introducción/.test(await texto(p, "#politica-detalle-p2")), `PANRED4 (${nombre}): Políticas, sin secciones lo dice`);
+      await p.locator("#politica-publicar-p1").click();
+      await p.waitForTimeout(500);
+      ok(cambios.length === 1 && JSON.stringify(cambios[0].cuerpo) === '{"is_active":false}' && /id=eq\.p1/.test(cambios[0].filtro) && (await texto(p, "#politica-estado-p1")) === "Oculta", `PANRED4 (${nombre}): Políticas, «Ocultar en la tienda» la oculta con un toque (${JSON.stringify(cambios)})`);
+      await p.locator('[aria-label="Editar Devoluciones"]').click();
+      await p.waitForTimeout(500);
+      ok((await p.getByText("Editar política").count()) >= 1 && (await valores(p)).includes("devoluciones"), `PANRED4 (${nombre}): Políticas, el lápiz abre «Editar política» con sus datos`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(400);
+      await p.locator("#politicas-nueva").click();
+      await p.waitForTimeout(500);
+      ok((await p.getByText("Nueva política").count()) >= 1 && (await valores(p)).includes("30"), `PANRED4 (${nombre}): Políticas, el «+» abre «Nueva política» con el orden siguiente (30)`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(300);
+      ok(p.errores.length === 0, `PANRED4 (${nombre}): Políticas sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+}
+
 // ===== PEDRED) Rediseño de Administración → Pedidos (dueño, 2026-11-15: «lo veo todo muy confuso»), con el estilo de
 // Usuarios y participación: avisos plegados arriba, cifras que filtran, pastillas con su recuento y «Más filtros», filas
 // compactas con su etiqueta de estado de color, el detalle por bloques al tocar una fila, cancelados y devueltos en gris,
@@ -20961,6 +21315,7 @@ try {
   if (SOLO === "PANRED1") await seccionPANRED1();
   if (SOLO === "PANRED2") await seccionPANRED2();
   if (SOLO === "PANRED3") await seccionPANRED3();
+  if (SOLO === "PANRED4") await seccionPANRED4();
   if (SOLO === "PEDRED") await seccionPEDRED();
   if (SOLO === "VENDP") await seccionVENDP();
   if (SOLO === "FRANJ") await seccionFRANJ();
@@ -22088,6 +22443,7 @@ try {
   await seccionPANRED1();
   await seccionPANRED2();
   await seccionPANRED3();
+  await seccionPANRED4();
   await seccionCANCAV();
   }
 } catch (e) {
