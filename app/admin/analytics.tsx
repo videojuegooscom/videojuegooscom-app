@@ -100,6 +100,8 @@
  *   consejos_desactivados de components/Campanita.tsx; por momento, mostrados, seguidos y cerrados, y cuántos los apagaron.
  * - «Cambio de consola desde la cesta (30 días)» (#analitica-cambio-cesta, mejora 13 del 2026-11-15): cambio_cesta_mostrado
  *   y cambio_cesta_tocado (app/(tabs)/cesta.tsx) y cambio_cesta_enviado (components/VenderAhoraModal.tsx); solo recuentos.
+ * - «Pedidos cancelados: recuperación (30 días)» (#analitica-cancelados-recuperacion, 2026-11-16): cancelado_volver_comprar
+ *   y cancelado_ver_parecidos de la tarjeta del pedido cancelado (app/(tabs)/perfil.tsx; solo el id del artículo); recuentos.
  * - «Vender ahora: autorrelleno y fotos (30 días)» (#analitica-vender-media, 2026-11-16): vender_autorrelleno (metadata
  *   campos) y vender_sin_media de components/VenderAhoraModal.tsx; solo recuentos y la media de campos rellenados.
  * - «Vistos recientemente (30 días)» (#analitica-vistos, mejora 9 del 2026-11-14): eventos vistos_mostrado (n),
@@ -1094,6 +1096,28 @@ export default function AdminAnalytics() {
       }
       const cuenta = (n: string) => (data as { event_name: string }[]).filter((f) => f.event_name === n).length;
       setCambioCesta({ mostrado: cuenta("cambio_cesta_mostrado"), tocado: cuenta("cambio_cesta_tocado"), enviados: cuenta("cambio_cesta_enviado") });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Pedidos cancelados: recuperación (dueño, 2026-11-16): en 30 días, toques en «Volver a comprar» y «Ver artículos
+  // parecidos» de la tarjeta del pedido cancelado (Mis pedidos). Solo recuentos.
+  const [recuperacionCancel, setRecuperacionCancel] = useState<{ recomprar: number; parecidos: number } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const NOMBRES = ["cancelado_volver_comprar", "cancelado_ver_parecidos"];
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data, error } = await supabase.from("analytics_events").select("event_name").in("event_name", NOMBRES).gte("created_at", desde).limit(5000);
+      if (!vivo) return;
+      if (error || !Array.isArray(data)) {
+        setRecuperacionCancel(null);
+        return;
+      }
+      const cuenta = (n: string) => (data as { event_name: string }[]).filter((f) => f.event_name === n).length;
+      setRecuperacionCancel({ recomprar: cuenta("cancelado_volver_comprar"), parecidos: cuenta("cancelado_ver_parecidos") });
     })();
     return () => {
       vivo = false;
@@ -2562,6 +2586,21 @@ export default function AdminAnalytics() {
                 <View nativeID="analitica-cambio-cesta" style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10 }}>
                   <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                     Mostrado {cambioCesta.mostrado} · tocado {cambioCesta.tocado} · enviados {cambioCesta.enviados}
+                  </Text>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Pedidos cancelados: recuperación (30 días)"
+              subtitle="Toques en «Volver a comprar» (si el artículo sigue a la venta) y en «Ver artículos parecidos» desde la tarjeta de un pedido cancelado en Mis pedidos. Solo recuentos, sin datos de nadie; solo visitantes que aceptaron la analítica."
+            >
+              {!recuperacionCancel ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se ha podido cargar la recuperación de pedidos cancelados.</Text>
+              ) : (
+                <View nativeID="analitica-cancelados-recuperacion" style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10 }}>
+                  <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                    Volver a comprar {recuperacionCancel.recomprar} · ver artículos parecidos {recuperacionCancel.parecidos}
                   </Text>
                 </View>
               )}
