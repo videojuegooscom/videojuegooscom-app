@@ -118,6 +118,9 @@
  *   rendimiento_carga (lib/analytics.ts → medirCargaPantalla, una vez por visita: ms hasta la primera pantalla útil de
  *   Inicio, Catálogo o la ficha, ancho por tramos y tipo de conexión; sin datos de nadie). Mediana y percentil 75 por
  *   pantalla y por móvil/tableta/ordenador.
+ * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx): las cuatro cifras del rango (Visitantes, Páginas
+ *   vistas, Eventos totales y Con cuenta) arriba del todo con FilaCifras, las pastillas de fechas comunes (44 px; en el móvil,
+ *   deslizables) y cada apartado en un bloque limpio con su título y su explicación a la izquierda; mismos datos y consultas.
  * - app/admin/index.tsx → tarjeta "Visitas y métricas" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("analytics") en el Stack.
  */
@@ -140,8 +143,8 @@ import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import { supabase } from "../../lib/supabase";
 import { cargarAjustesReparacionEnvio } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
-
-type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+import { AdminHeader, AdminNotice } from "../../lib/admin/products.components";
+import { Chip, Cifra, Detalle, FilaCifras, FilaPastillas, PANEL } from "../../components/admin/PanelUI";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -199,18 +202,6 @@ const NOMBRE_PANTALLA_VELOCIDAD: Record<string, string> = { inicio: "Inicio", ca
 const NOMBRE_ANCHO_VELOCIDAD: Record<string, string> = { movil: "Móvil", tableta: "Tableta", ordenador: "Ordenador" };
 // En segundos con un decimal y coma (1.234 ms → «1,2 s»).
 const segundos = (ms: number) => `${(Math.round(ms / 100) / 10).toFixed(1).replace(".", ",")} s`;
-
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
 
 function pad2(n: number) {
   return n < 10 ? `0${n}` : String(n);
@@ -338,72 +329,13 @@ function fmtDayLabel(dayStr: string) {
   return `${parts[2]}/${parts[1]}`;
 }
 
-function StatCard({
-  label,
-  value,
-  icon,
-  isMobile,
-}: {
-  label: string;
-  value: string;
-  icon?: IoniconName;
-  isMobile?: boolean;
-}) {
-  return (
-    <View
-      style={{
-        width: isMobile ? "48.5%" : "23.5%",
-        borderRadius: 16,
-        backgroundColor: COLORS.cardSoft,
-        padding: isMobile ? 12 : 14,
-        alignItems: "center",
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%" }}>
-        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: TAMANOS.minimo, flexShrink: 1 }} numberOfLines={1}>
-          {label}
-        </Text>
-      </View>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6, textAlign: "center" }}>
-        {value}
-      </Text>
-    </View>
-  );
+// Un filtro de la pantalla (rango de fechas, nota de las valoraciones): la pastilla común del panel (PanelUI, 44 px).
+function ChipButton({ label, onPress, active }: { label: string; onPress: () => void; active?: boolean; isMobile?: boolean }) {
+  return <Chip label={label} onPress={onPress} activo={active} />;
 }
 
-function ChipButton({
-  label,
-  onPress,
-  active,
-  isMobile,
-}: {
-  label: string;
-  onPress: () => void;
-  active?: boolean;
-  isMobile?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={({ pressed }) => ({
-        minHeight: TACTIL.minimo,
-        justifyContent: "center",
-        borderRadius: 999,
-        paddingVertical: 9,
-        paddingHorizontal: isMobile ? 12 : 14,
-        borderWidth: 1,
-        borderColor: active ? COLORS.accentBorder : COLORS.border,
-        backgroundColor: active ? COLORS.accent2 : "#F6FAFD",
-        opacity: pressed ? 0.88 : 1,
-      })}
-    >
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>{label}</Text>
-    </Pressable>
-  );
-}
-
+// Un bloque de la pantalla (rediseño PANRED5): fondo suave, título y explicación a la izquierda (como los bloques del
+// resto del panel) y su contenido debajo.
 function SectionCard({
   title,
   subtitle,
@@ -416,16 +348,16 @@ function SectionCard({
   return (
     <View
       style={{
-        borderRadius: 20,
-        backgroundColor: COLORS.card,
+        borderRadius: 16,
+        backgroundColor: PANEL.card,
         padding: 14,
-        gap: 10,
+        gap: 12,
       }}
     >
-      <View style={{ alignItems: "center" }}>
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>{title}</Text>
+      <View style={{ gap: 3, borderBottomWidth: 1, borderBottomColor: PANEL.border, paddingBottom: 10 }}>
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.destacado }}>{title}</Text>
         {!!subtitle && (
-          <Text style={{ color: COLORS.muted, marginTop: 3, lineHeight: 18, fontSize: TAMANOS.minimo, textAlign: "center" }}>
+          <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: TAMANOS.minimo }}>
             {subtitle}
           </Text>
         )}
@@ -473,7 +405,6 @@ export default function AdminAnalytics() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const pagePadding = isMobile ? 12 : 16;
   const insets = useSafeAreaInsets();
 
   const [preset, setPreset] = useState<DatePreset>("30d");
@@ -1749,79 +1680,45 @@ export default function AdminAnalytics() {
 
       {/* Cabecera fija y compacta (volver al panel + título centrado). El filtro de fechas
           va dentro del scroll: fijo arriba ocupaba casi media pantalla del móvil. */}
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border,
-          paddingHorizontal: pagePadding,
-          paddingTop: (isMobile ? 10 : 12) + insets.top,
-          paddingBottom: isMobile ? 10 : 12,
-        }}
-      >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
-          <Pressable
-            onPress={smartBackAdminHome}
-            accessibilityRole="button"
-            accessibilityLabel="Volver al panel"
-            hitSlop={8}
-            style={({ pressed }) => ({
-              position: "absolute",
-              // Por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
-              zIndex: 1,
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: TACTIL.minimo,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-          </Pressable>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: isMobile ? 19 : 22,
-              fontWeight: "900",
-              textAlign: "center",
-              paddingHorizontal: 44,
-            }}
-          >
-            Visitas y métricas
-          </Text>
-        </View>
-      </View>
+      <AdminHeader title="Visitas y métricas" isMobile={isMobile} />
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+          contentContainerStyle={{ padding: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={CIERRE_TECLADO}
         >
-        <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
-          <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-            Visitantes, recorrido por la tienda y crecimiento en el rango de fechas elegido.
-          </Text>
+        <View style={{ width: "100%", maxWidth: 1040, gap: isMobile ? 18 : 22 }}>
+          {/* 1) Las cifras del rango elegido (lo primero que se ve; mientras cargan, «…»). */}
+          <FilaCifras nativeID="analitica-cifras">
+            {(
+              [
+                ["visitantes", "Visitantes", totals?.total_sessions, "people-outline"],
+                ["paginas", "Páginas vistas", totals?.total_pageviews, "eye-outline"],
+                ["eventos", "Eventos totales", totals?.total_events, "pulse-outline"],
+                ["cuenta", "Con cuenta", totals?.registered_visitors, "person-circle-outline"],
+              ] as const
+            ).map(([id, etiqueta, valor, icono]) => (
+              <Cifra key={id} nativeID={`analitica-cifra-${id}`} valor={loading ? "…" : String(valor ?? 0)} etiqueta={etiqueta} icono={icono} ancho={isMobile ? "45%" : 0} />
+            ))}
+          </FilaCifras>
+
+          <Detalle>Visitantes, recorrido por la tienda y crecimiento en el rango de fechas elegido.</Detalle>
 
           <View
-            style={{
-              borderRadius: 18,
-              backgroundColor: COLORS.card,
-              padding: 12,
-              gap: 10,
-            }}
+            nativeID="analitica-fechas"
+            // Sin recuadro: las pastillas del móvil se deslizan de borde a borde (FilaPastillas).
+            style={{ gap: 12 }}
           >
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-              <ChipButton label="Hoy" active={preset === "today"} onPress={() => applyPreset("today")} isMobile={isMobile} />
-              <ChipButton label="7 días" active={preset === "7d"} onPress={() => applyPreset("7d")} isMobile={isMobile} />
-              <ChipButton label="30 días" active={preset === "30d"} onPress={() => applyPreset("30d")} isMobile={isMobile} />
-              <ChipButton label="90 días" active={preset === "90d"} onPress={() => applyPreset("90d")} isMobile={isMobile} />
-              <ChipButton label="Todo" active={preset === "all"} onPress={() => applyPreset("all")} isMobile={isMobile} />
-            </View>
+            <FilaPastillas isMobile={isMobile} nativeID="analitica-rangos">
+              <ChipButton label="Hoy" active={preset === "today"} onPress={() => applyPreset("today")} />
+              <ChipButton label="7 días" active={preset === "7d"} onPress={() => applyPreset("7d")} />
+              <ChipButton label="30 días" active={preset === "30d"} onPress={() => applyPreset("30d")} />
+              <ChipButton label="90 días" active={preset === "90d"} onPress={() => applyPreset("90d")} />
+              <ChipButton label="Todo" active={preset === "all"} onPress={() => applyPreset("all")} />
+            </FilaPastillas>
 
             <View style={{ flexDirection: isMobile ? "column" : "row", gap: 8, alignItems: isMobile ? "stretch" : "center" }}>
               <TextInput
@@ -1884,29 +1781,17 @@ export default function AdminAnalytics() {
             </View>
 
             {!!dateErr && (
-              <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+              <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: TAMANOS.minimo }}>
                 {dateErr}
               </Text>
             )}
 
-            <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
+            <Text nativeID="analitica-rango" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700" }}>
               Rango actual: {rangeLabel}
             </Text>
           </View>
 
-          {!!screenErr && (
-            <View
-              style={{
-                borderRadius: 14,
-                backgroundColor: COLORS.dangerBg,
-                padding: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
-                {screenErr}
-              </Text>
-            </View>
-          )}
+          {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
 
           {/* Al cambiar el rango solo se recargan los datos: el filtro sigue a la vista. */}
           {loading ? (
@@ -1915,12 +1800,6 @@ export default function AdminAnalytics() {
             </View>
           ) : (
           <>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "space-between" }}>
-              <StatCard label="Visitantes" value={String(totals?.total_sessions ?? 0)} icon="people-outline" isMobile={isMobile} />
-              <StatCard label="Páginas vistas" value={String(totals?.total_pageviews ?? 0)} icon="eye-outline" isMobile={isMobile} />
-              <StatCard label="Eventos totales" value={String(totals?.total_events ?? 0)} icon="pulse-outline" isMobile={isMobile} />
-              <StatCard label="Con cuenta" value={String(totals?.registered_visitors ?? 0)} icon="person-circle-outline" isMobile={isMobile} />
-            </View>
 
             <SectionCard
               title="Crecimiento de visitantes"
@@ -3114,17 +2993,13 @@ export default function AdminAnalytics() {
               </View>
             </View>
 
-            {/* Nota final como texto suelto centrado, sin recuadro decorativo. */}
-            <View style={{ alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
-              <Ionicons name="information-circle-outline" size={16} color={COLORS.muted2} />
-              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                Estos datos son de analítica propia (tabla analytics_events en Supabase), no de
-                Vercel: Vercel Web Analytics no está activado en este proyecto y, aunque lo
-                estuviera, solo vería la URL de cada página (por ejemplo /catalogo), no el
-                detalle de qué categoría o producto se está viendo. Tus propias visitas como
-                administrador no se cuentan en estas cifras.
-              </Text>
-            </View>
+            {/* Nota final como texto suelto, sin recuadro decorativo. */}
+            <Detalle>
+              Estos datos son de analítica propia (tabla analytics_events en Supabase), no de Vercel: Vercel Web Analytics no está
+              activado en este proyecto y, aunque lo estuviera, solo vería la URL de cada página (por ejemplo /catalogo), no el
+              detalle de qué categoría o producto se está viendo. Tus propias visitas como administrador no se cuentan en estas
+              cifras.
+            </Detalle>
           </>
           )}
         </View>

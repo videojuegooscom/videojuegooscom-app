@@ -230,6 +230,12 @@
  *    360/390/1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px, sin errores y con su control
  *    (un desborde y una letra de 10 px puestos a propósito se detectan). Datos FICTICIOS. Se lanza con SOLO = PANRED4 y en
  *    la pasada completa.
+ *  - PANRED5) Tanda 5 y última del rediseño: Administración → inicio del panel (cifras clave que abren su apartado y los
+ *    recuadros por grupos), Centro De Aprendizajes, «Lo que Blue sabe» y Revisiones (cifras que filtran, buscador de 16 px,
+ *    pastillas con su recuento, filas compactas con su etiqueta de color y el detalle por bloques con sus acciones abajo),
+ *    Marca y SEO y Redes sociales (cifras de estado y bloques con su título) y Visitas y métricas (cifras arriba y bloques
+ *    limpios); 360/390/1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px, sin errores y con su
+ *    control. Datos FICTICIOS. Se lanza con SOLO = PANRED5 y en la pasada completa.
  *  - RESEN) Reservar con señal (mejora 14): apagada, ni la ficha ni Mis seguimientos enseñan nada; Administración no deja
  *    activar sin reglas ni sin «Revisado por mi gestor» (borrador marcado, escala 1-70 %); activa, la ficha calcula el % y
  *    los € según los días, la casilla es obligatoria y «Pagar señal» solo manda artículo y días; sin cuenta invita; «Mis
@@ -444,7 +450,7 @@
  *   /api/factura, /api/asignar-seguimiento, /api/interaccion y /api/escaparate-retorno; pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs NO la lanza.
  */
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { lanzarNavegador } from "./sin-fotos-reales.mjs";
 
@@ -502,7 +508,9 @@ await new Promise((ok) => servidor.listen(0, "127.0.0.1", ok));
 const BASE = `http://127.0.0.1:${servidor.address().port}`;
 
 const fallos = [];
+let comprobaciones = 0;
 const ok = (cond, msg) => {
+  comprobaciones++;
   console.log(`${cond ? "OK   " : "FALLO"} ${msg}`);
   if (!cond) fallos.push(msg);
 };
@@ -649,6 +657,13 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (estado.re2 && /^\/storage\/v1\/object\/reparaciones\//.test(url.pathname) && metodo === "POST") {
       estado.re2.subidas = [...(estado.re2.subidas ?? []), { ruta: decodeURIComponent(url.pathname.slice("/storage/v1/object/".length)), tipo: peticion.headers()["content-type"] ?? "" }];
       return json({ Key: url.pathname.slice("/storage/v1/object/".length) });
+    }
+    // Enlaces firmados de las fotos de una solicitud de venta (Cotizaciones, VERFOT): una foto falsa por ruta (la
+    // sustituye pruebas/sin-fotos-reales.mjs); nada llega al almacén.
+    if (url.pathname === "/storage/v1/object/sign/sell-request-media" && metodo === "POST") {
+      const rutas = JSON.parse(peticion.postData() ?? "{}").paths ?? [];
+      estado.firmadasVenta = [...(estado.firmadasVenta ?? []), ...rutas];
+      return json(rutas.map((path) => ({ path, signedURL: `/object/sign/sell-request-media/${path}?token=firmado`, error: null })));
     }
     // Subida de la foto de perfil o de una portada de categoría (nada llega a ningún almacén): se apunta qué se mandaría
     // (y la foto, para mirarla).
@@ -9210,7 +9225,9 @@ async function seccionPT() {
     await p.locator("#pedido-cancelar-302").click();
     for (let i = 0; i < 20 && !(estado.cambiosEnvio ?? []).length; i++) await p.waitForTimeout(200);
     await p.waitForTimeout(400);
-    ok(JSON.stringify(estado.cambiosEnvio?.[0]?.cuerpo) === '{"estado":"cancelado"}', `PT: y lo cancela (${JSON.stringify(estado.cambiosEnvio?.[0]?.cuerpo)})`);
+    // Desde la cancelación con motivo (CANCAV, 2026-11-16) va también el motivo elegido (por defecto, el del artículo).
+    const cuerpoCancelar = estado.cambiosEnvio?.[0]?.cuerpo ?? {};
+    ok(cuerpoCancelar.estado === "cancelado" && Object.keys(cuerpoCancelar).every((k) => ["estado", "cancelacion_motivo"].includes(k)), `PT: y lo cancela (${JSON.stringify(cuerpoCancelar)})`);
     await capturar(p, "PT7-devolver-cancelar");
     ok(p.errores.length === 0, `PT: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
@@ -20990,7 +21007,8 @@ async function seccionPANRED3() {
     // --- Cotizaciones (solicitudes de venta) ---
     await bloque(`Cotizaciones ${nombre}`, async () => {
       const cambios = [];
-      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin, tablas: { sell_requests: SOLICITUDES(), sell_request_media: MEDIA } }, vista);
+      const estadoC = { guardados: [], filas: perfilAdmin, tablas: { sell_requests: SOLICITUDES(), sell_request_media: MEDIA } };
+      const ctx = await contexto(navegador, ADMIN, "admin", estadoC, vista);
       await apuntarCambios(ctx, "sell_requests", cambios);
       const p = await pagina(ctx, "/admin/cotizaciones");
       await p.locator(`#cotizacion-fila-${S(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
@@ -21033,6 +21051,19 @@ async function seccionPANRED3() {
       await p.waitForTimeout(400);
       const d = await texto(p, `#cotizacion-detalle-${S(1)}`);
       ok((await p.locator(`#cotizacion-fila-${S(1)}`).getAttribute("aria-expanded")) === "true" && /Artículo/.test(d) && /Cliente/.test(d) && /Entrega/.test(d) && /Funciona bien/.test(d) && /Contacto \(Gmail\): ana\.prueba@gmail\.com/.test(d) && /Género: Femenino/.test(d) && /Disponibilidad: Mañana/.test(d) && /Fotos y vídeo adjuntos \(1\)/.test(d) && /Descargar foto 1/.test(d) && /Por qué lo vende: Quiero cambiarlo/.test(d), `PANRED3 (${nombre}): Cotizaciones, al tocar la fila se despliega por bloques (${d.slice(0, 260)})`);
+      // VERFOT (dueño, 2026-11-16: «no me deja visualizar los archivos multimedia»): la foto se VE en el panel, con un
+      // enlace firmado solo de sus rutas, y se abre en grande; sin adjuntos, el bloque lo dice.
+      await p.locator("#cotizacion-ver-foto-sm1").waitFor({ timeout: 10000 }).catch(() => {});
+      const mini = await caja(p, "#cotizacion-ver-foto-sm1");
+      const firmadas = estadoC.firmadasVenta;
+      ok(!!mini && mini.w >= 44 && mini.h >= 44 && (await p.locator("#cotizacion-ver-foto-sm1 img").count()) === 1 && JSON.stringify(firmadas) === '["panred3/ps4.jpg"]',`PANRED3 (${nombre}): Cotizaciones, VERFOT: la foto adjunta se ve en el detalle (${JSON.stringify(mini)} · ${JSON.stringify(firmadas ?? null)})`);
+      await p.locator("#cotizacion-ver-foto-sm1").click();
+      await p.waitForTimeout(400);
+      ok((await p.locator("#cotizacion-foto-grande img").count()) === 1, `PANRED3 (${nombre}): Cotizaciones, VERFOT: al tocarla se abre en grande`);
+      await p.locator("#cotizacion-foto-grande").click();
+      await p.waitForTimeout(300);
+      ok((await p.locator("#cotizacion-foto-grande").count()) === 0, `PANRED3 (${nombre}): Cotizaciones, VERFOT: «Cerrar» la cierra`);
+      ok((await p.locator(`#cotizacion-sin-fotos-${S(1)}`).count()) === 0, `PANRED3 (${nombre}): Cotizaciones, VERFOT: con fotos no sale «no adjuntó»`);
       const orden = await accionesAbajo(p, `#cotizacion-detalle-${S(1)}`, `#cotizacion-acciones-${S(1)}`);
       const acc = await alturas(p, `#cotizacion-acciones-${S(1)} [role="button"]`);
       ok(orden.acciones >= orden.bloques - 1 && acc.length === 4 && acc.every((h) => h >= 44), `PANRED3 (${nombre}): Cotizaciones, Marcar revisada, Marcar contactada, Descartar y borrar van abajo y miden 44 px (${JSON.stringify(orden)} · ${acc.join(",")})`);
@@ -21042,6 +21073,7 @@ async function seccionPANRED3() {
       await p.locator(`#cotizacion-fila-${S(2)}`).click();
       await p.waitForTimeout(300);
       const d2 = await texto(p, `#cotizacion-detalle-${S(2)}`);
+      ok((await texto(p, `#cotizacion-sin-fotos-${S(2)}`)) === "El cliente no adjuntó fotos ni vídeo. Si las necesitas, pídeselas al contactar." && (await p.locator(`#cotizacion-galeria-${S(2)}`).count()) === 0, `PANRED3 (${nombre}): Cotizaciones, VERFOT: sin adjuntos, el bloque dice que el cliente no adjuntó nada`);
       ok(/Presenta una avería/.test(d2) && /Qué le pasa: No carga bien/.test(d2) && /Recogida en domicilio: Calle Mayor 1/.test(d2) && /Contacto \(WhatsApp\): 600111222/.test(d2) && (await p.locator(`#cotizacion-contactada-${S(2)}`).count()) === 0, `PANRED3 (${nombre}): Cotizaciones, la de avería dice qué le pasa, la recogida y no ofrece «Marcar contactada» otra vez (${d2.slice(0, 200)})`);
       await p.locator(`#cotizacion-revisada-${S(1)}`).click();
       await p.waitForTimeout(500);
@@ -21461,6 +21493,468 @@ async function seccionPANRED4() {
   }
 }
 
+// ===== PANRED5) Tanda 5 y última del rediseño (2026-11-16): Administración → inicio del panel, Centro De Aprendizajes,
+// «Lo que Blue sabe», Revisiones, Marca y SEO, Redes sociales y Visitas y métricas con el estilo de las tandas 1 a 4
+// (components/admin/PanelUI.tsx). Listas: cifras que filtran, buscador de 16 px, pastillas con su recuento, filas compactas
+// con su etiqueta de color y el detalle por bloques con sus acciones abajo. Ajustes: cifras de estado arriba y bloques con
+// su título. Analítica: las cifras arriba y bloques limpios. Inicio: las cifras clave (que abren su apartado) y los
+// recuadros por grupos. 360, 390 y 1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px y sin
+// errores, con su control (un desborde y una letra de 10 px puestos a propósito se detectan). Datos FICTICIOS (nada llega
+// a la base de datos real). ================================================================================================
+async function seccionPANRED5() {
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const hace = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+
+  // Centro De Aprendizajes: dos activas (una imprescindible con ejemplos) y una desactivada.
+  const LECCIONES = () => [
+    { id: "l1", created_at: hace(5000), updated_at: hace(500), titulo: "Letra mínima de 13 px", categoria: "diseno", regla: "Ningún texto por debajo de 13 px salvo avisos legales.", ejemplo_mal: "fontSize: 11", ejemplo_bien: "fontSize: 13", prioridad: 1, activa: true },
+    { id: "l2", created_at: hace(4000), updated_at: hace(400), titulo: "Sin palabras en inglés", categoria: "textos", regla: "Todo en español de España, también los botones.", ejemplo_mal: null, ejemplo_bien: null, prioridad: 2, activa: true },
+    { id: "l3", created_at: hace(3000), updated_at: hace(300), titulo: "Una sola PR por petición", categoria: "codigo", regla: "Un commit por bloque.", ejemplo_mal: null, ejemplo_bien: null, prioridad: 3, activa: false },
+  ];
+  // «Lo que Blue sabe»: dos temas en uso y uno oculto (de los 13 que propone Blue quedan 10).
+  const CONOCIMIENTO = () => [
+    { id: "k1", tema: "Horario de atención", respuesta: "Atendemos por mensaje todos los días de 10 a 20 h.", activo: true, created_at: hace(5000), updated_at: hace(500) },
+    { id: "k2", tema: "Garantía", respuesta: "Doce meses en consolas revisadas.", activo: false, created_at: hace(4000), updated_at: hace(400) },
+    { id: "k3", tema: "Métodos de pago", respuesta: "Tarjeta, Bizum y Klarna en la web.", activo: true, created_at: hace(3000), updated_at: hace(300) },
+  ];
+  // Revisiones: la más reciente con un fallo, otra con avisos y otra sin nada.
+  const punto = (n, nombre, estado, detalle) => ({ n, nombre, estado, detalle });
+  const REVISIONES = () => [
+    { id: "a1", ejecutada_en: hace(60), origen: "automatica", resumen: "Un fallo en la portada.", ok: 19, avisos: 0, fallos: 1, manuales: 2, duracion_ms: 4200, cambios: "Nada: solo lee.", resultado: [punto(1, "La web responde", "ok", "200 en 0,4 s"), punto(2, "Portada", "fallo", "Una foto no carga."), punto(3, "Pagos", "manual", "Necesita un navegador.")] },
+    { id: "a2", ejecutada_en: hace(20000), origen: "manual", resumen: "Dos avisos menores.", ok: 18, avisos: 2, fallos: 0, manuales: 2, duracion_ms: 3900, cambios: "Nada: solo lee.", resultado: [punto(1, "Seguridad", "aviso", "El certificado caduca pronto.")] },
+    { id: "a3", ejecutada_en: hace(40000), origen: "automatica", resumen: "Todo en orden.", ok: 20, avisos: 0, fallos: 0, manuales: 0, duracion_ms: 3500, cambios: "Nada: solo lee.", resultado: [] },
+  ];
+  // Redes: cuatro activas (Gmail sin enlace) y YouTube desactivada; toques desde Inicio de dos visitas.
+  const red = (platform, label, sort_order, extra = {}) => ({ platform, label, url: "Videojuegoszaragoza", enabled: true, sort_order, seguidores: null, seguidores_actualizado: null, ...extra });
+  const REDES = () => [
+    red("instagram", "Instagram", 1, { seguidores: 12560, seguidores_actualizado: "2026-10-30T10:00:00Z" }),
+    red("tiktok", "TikTok", 2, { seguidores: 1234 }),
+    red("whatsapp", "WhatsApp", 3, { url: "627748741" }),
+    red("youtube", "YouTube", 4, { url: null, enabled: false }),
+    red("gmail", "Gmail", 5, { url: "" }),
+  ];
+  const AJUSTES = () => ({ id: 1, seo_title: "Videojuegos Zaragoza", seo_description: "Consolas, móviles y portátiles revisados, con garantía.", logo_url: null, social_links_title: "Síguenos", resenas_canales: 350, resenas_canales_actualizado: "2026-10-31T10:00:00Z" });
+
+  // Los iconos (letra de iconos, rango privado de Unicode) fuera del texto.
+  const limpio = (t) => String(t ?? "").replace(/\p{Co}/gu, "").replace(/\s+/g, " ").trim();
+  const texto = async (p, sel) => limpio(await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => ""));
+  const pastillas = async (p, sel) => (await p.evaluate((s) => [...document.querySelectorAll(`${s} [role="button"]`)].map((b) => ({ t: b.innerText, h: Math.round(b.getBoundingClientRect().height) })), sel)).map((x) => ({ ...x, t: limpio(x.t) }));
+  const caja = (p, sel) => p.evaluate((s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? { y: Math.round(r.y), bottom: Math.round(r.bottom), h: Math.round(r.height), w: Math.round(r.width) } : null; }, sel);
+  const letra = (p, sel) => p.evaluate((s) => (document.querySelector(s) ? parseFloat(getComputedStyle(document.querySelector(s)).fontSize) : 0), sel);
+  const fondo = (p, sel) => p.evaluate((s) => (document.querySelector(s) ? getComputedStyle(document.querySelector(s)).backgroundColor : ""), sel);
+  const ids = (p, sel) => p.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.id), sel);
+  const valores = (p) => p.evaluate(() => [...document.querySelectorAll("input,textarea")].map((i) => i.value));
+  // Letra < 13 px, táctiles < 44 × 44 (los más externos), campos de menos de 16 px y el ancho.
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily)) continue;
+        if (parseFloat(cs.fontSize) < 13) pequenos.push(`${t.slice(0, 30)} ${cs.fontSize}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[tabindex="0"]';
+      const deBlue = (el) => !!el.closest("#blue-flotante, #blue-mensaje") || /Blue/.test(el.getAttribute("aria-label") ?? "");
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && !deBlue(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      const campos = [...document.querySelectorAll("input,textarea")].filter((el) => !["checkbox", "radio", "file", "range", "hidden"].includes(el.type) && visible(el));
+      const camposChicos = campos.filter((el) => parseFloat(getComputedStyle(el).fontSize) < 16).map((el) => `${el.id || el.placeholder || el.tagName} ${getComputedStyle(el).fontSize}`);
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, campos: campos.length, camposChicos: camposChicos.slice(0, 8), ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    });
+  const comprobarDiseno = async (p, nombre, pantalla, momento, { minimo = 5, conCampos = true } = {}) => {
+    const m = await medir(p);
+    ok(m.ancho <= m.v + 1, `PANRED5 (${nombre}): ${pantalla}, ${momento}, la página no se sale por los lados (${m.ancho}/${m.v})`);
+    ok(m.n >= minimo && !m.chicos.length, `PANRED5 (${nombre}): ${pantalla}, ${momento}, todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+    ok(!m.pequenos.length, `PANRED5 (${nombre}): ${pantalla}, ${momento}, ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+    ok((conCampos ? m.campos >= 1 : true) && !m.camposChicos.length, `PANRED5 (${nombre}): ${pantalla}, ${momento}, los campos a 16 px (${m.campos} campos; ${m.camposChicos.join(" | ") || "ninguno pequeño"})`);
+  };
+  // El control: con un recuadro de 2000 px y una letra de 10 px puestos a propósito, la medida TIENE que fallar (si no, las
+  // comprobaciones de arriba no valdrían nada). Después se quitan.
+  const control = async (p, nombre, pantalla) => {
+    await p.evaluate(() => {
+      const d = document.createElement("div");
+      d.id = "panred5-control";
+      d.style.cssText = "width:2000px;height:24px;font-size:10px;position:relative";
+      d.textContent = "Control PANRED5";
+      document.body.appendChild(d);
+    });
+    const m = await medir(p);
+    await p.evaluate(() => document.getElementById("panred5-control")?.remove());
+    const despues = await medir(p);
+    ok(m.ancho > m.v + 1 && m.pequenos.some((t) => /Control PANRED5/.test(t)) && despues.ancho <= despues.v + 1, `PANRED5 (${nombre}): ${pantalla}, el control falla cuando debe (desborde ${m.ancho}/${m.v} y letra de 10 px detectados; sin ellos, ${despues.ancho}/${despues.v})`);
+  };
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `PANRED5: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+  // Las acciones van debajo de los bloques del detalle.
+  const accionesAbajo = (p, detalle, acciones) =>
+    p.evaluate(([d, a]) => {
+      const bloques = [...(document.querySelector(d)?.children[0]?.children ?? [])].map((e) => e.getBoundingClientRect().bottom);
+      const acc = document.querySelector(a)?.getBoundingClientRect();
+      return { bloques: bloques.length ? Math.max(...bloques) : 0, acciones: acc ? acc.top : 0, alto: acc ? acc.height : 0 };
+    }, [detalle, acciones]);
+  // Los cambios (PATCH) que mandaría la pantalla, apuntados sin ir a ninguna base de datos.
+  const apuntarCambios = (ctx, tabla, lista) =>
+    ctx.route(`**/rest/v1/${tabla}*`, (r) => {
+      if (r.request().method() !== "PATCH") return r.fallback();
+      lista.push({ filtro: decodeURIComponent(new URL(r.request().url()).search), cuerpo: JSON.parse(r.request().postData() ?? "{}") });
+      return r.fulfill({ status: 204, headers: CORS, body: "" });
+    });
+  const alto44 = (p, sel) => p.evaluate((s) => [...document.querySelectorAll(s)].map((e) => { const r = e.getBoundingClientRect(); return Math.round(Math.min(r.width, r.height)); }), sel);
+
+  for (const { nombre, vista } of VISTAS) {
+    // --- Inicio del panel ---
+    await bloque(`Inicio ${nombre}`, async () => {
+      const estado = {
+        filas: perfilAdmin,
+        guardados: [],
+        chats: [],
+        novedades: {
+          pedidos: [hace(60), hace(120)],
+          service_requests: [hace(90)],
+          sell_requests: [],
+          products: [],
+          escaparate_registro: [],
+          profiles: [],
+          store_reviews: [],
+          auditorias_web: [],
+          chatsSinLeer: 3,
+        },
+      };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, "/admin");
+      await p.locator("#novedades-pedidos").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(800);
+      const cifras = await texto(p, "#panel-cifras");
+      ok(/2 Pedidos nuevos/.test(cifras) && /3 Chats sin leer/.test(cifras) && /1 Solicitud de servicio/.test(cifras) && /0 Cotizaciones nuevas/.test(cifras), `PANRED5 (${nombre}): Inicio, las cifras clave de lo nuevo (${cifras})`);
+      ok((await fondo(p, "#panel-cifra-pedidos")) !== (await fondo(p, "#panel-cifra-cotizaciones")), `PANRED5 (${nombre}): Inicio, la cifra con novedades destaca sobre la que está a cero`);
+      const grupos = await ids(p, '[id^="panel-grupo-"]');
+      ok(JSON.stringify(grupos) === '["panel-grupo-ventas","panel-grupo-catalogo","panel-grupo-contenido","panel-grupo-tienda"]', `PANRED5 (${nombre}): Inicio, los recuadros por grupos (${grupos.join(",")})`);
+      const ventas = await texto(p, "#panel-grupo-ventas");
+      const tienda = await texto(p, "#panel-grupo-tienda");
+      ok(/Ventas y clientes/.test(ventas) && /Pedidos/.test(ventas) && /Chat/.test(ventas) && /Usuarios y participación/.test(ventas) && /Visitas y métricas/.test(tienda) && /Centro De Aprendizajes/.test(tienda) && /Revisiones/.test(tienda), `PANRED5 (${nombre}): Inicio, cada grupo con sus apartados (${ventas.slice(0, 80)} · ${tienda.slice(0, 80)})`);
+      const recuadros = await p.evaluate(() => [...document.querySelectorAll('[id^="panel-grupo-"] [role="button"]')].length);
+      ok(recuadros === 20, `PANRED5 (${nombre}): Inicio, los 20 apartados siguen a mano (${recuadros})`);
+      ok((await texto(p, "#novedades-pedidos")) === "2" && (await texto(p, "#novedades-chats")) === "3", `PANRED5 (${nombre}): Inicio, el número rojo sigue en su recuadro`);
+      await capturar(p, `PANRED5-${nombre}-inicio`);
+      await comprobarDiseno(p, nombre, "Inicio", "la pantalla", { conCampos: false });
+      await control(p, nombre, "Inicio");
+      await p.locator("#panel-cifra-pedidos").click();
+      await p.waitForURL(/\/admin\/pedidos/, { timeout: 15000 }).catch(() => {});
+      ok(/\/admin\/pedidos/.test(p.url()), `PANRED5 (${nombre}): Inicio, la cifra «Pedidos nuevos» abre Pedidos (${new URL(p.url()).pathname})`);
+      ok(p.errores.length === 0, `PANRED5 (${nombre}): Inicio sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+
+    // --- Centro De Aprendizajes ---
+    await bloque(`Aprendizajes ${nombre}`, async () => {
+      const cambios = [];
+      // (sin `tablas`: la tabla se llama como la página, /admin/aprendizajes, y la simulación también respondería a la página)
+      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin }, vista);
+      await ctx.route("**/rest/v1/aprendizajes*", (r) => (r.request().method() === "GET" ? r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(LECCIONES()) }) : r.fallback()));
+      await apuntarCambios(ctx, "aprendizajes", cambios);
+      const p = await pagina(ctx, "/admin/aprendizajes");
+      await p.locator("#leccion-fila-l1").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const cifras = await texto(p, "#aprendizajes-cifras");
+      ok(/3 Total/.test(cifras) && /2 Activas/.test(cifras) && /1 Imprescindibles/.test(cifras) && /1 Desactivadas/.test(cifras), `PANRED5 (${nombre}): Aprendizajes, las cifras (${cifras})`);
+      const bb = await caja(p, "#aprendizajes-buscar-caja");
+      ok(!!bb && bb.h >= 44 && (await letra(p, "#aprendizajes-buscar")) >= 16, `PANRED5 (${nombre}): Aprendizajes, el buscador de 16 px (${JSON.stringify(bb)})`);
+      const pas = await pastillas(p, "#aprendizajes-filtros");
+      const tp = pas.map((x) => x.t).join(" · ");
+      ok(pas.length === 9 && /^Todas \(3\) · General \(0\) · Diseño \(1\) · Textos \(1\)/.test(tp) && /Código \(1\)/.test(tp) && pas.every((x) => x.h >= 44), `PANRED5 (${nombre}): Aprendizajes, pastillas por categoría con su recuento (${tp})`);
+      const f1 = await texto(p, "#leccion-l1");
+      const alto = (await caja(p, "#leccion-fila-l1"))?.h ?? 0;
+      ok(/Letra mínima de 13 px Imprescindible/.test(f1) && /Ningún texto por debajo/.test(f1) && /Diseño/.test(f1) && /Actualizada:/.test(f1) && alto >= 44 && alto <= 190, `PANRED5 (${nombre}): Aprendizajes, la fila compacta con título, prioridad, regla, categoría y fecha (${f1} · ${alto} px)`);
+      ok(/Desactivada/.test(await texto(p, "#leccion-l3")) && !/Desactivada/.test(await texto(p, "#leccion-l2")), `PANRED5 (${nombre}): Aprendizajes, la desactivada se marca`);
+      ok((await fondo(p, "#leccion-prioridad-l1")) !== (await fondo(p, "#leccion-prioridad-l2")), `PANRED5 (${nombre}): Aprendizajes, cada prioridad con su color`);
+      const lapices = await alto44(p, '[aria-label^="Editar la lección "]');
+      ok(lapices.length === 3 && lapices.every((h) => h >= 44) && (await p.locator("#aprendizajes-nueva").count()) === 1, `PANRED5 (${nombre}): Aprendizajes, el lápiz de 44 px en cada fila y el «+» para crear (${lapices.join(",")})`);
+      await capturar(p, `PANRED5-${nombre}-aprendizajes-lista`);
+      await comprobarDiseno(p, nombre, "Aprendizajes", "la lista");
+      await control(p, nombre, "Aprendizajes");
+      await p.locator("#aprendizajes-buscar").fill("inglés");
+      await p.waitForTimeout(300);
+      ok((await texto(p, "#aprendizajes-recuento")) === "1 lección encontrada" && JSON.stringify(await ids(p, '[id^="leccion-fila-"]')) === '["leccion-fila-l2"]', `PANRED5 (${nombre}): Aprendizajes, el buscador encuentra por el título (${await texto(p, "#aprendizajes-recuento")})`);
+      await p.locator("#aprendizajes-buscar").fill("zzzz");
+      await p.waitForTimeout(300);
+      ok((await ids(p, '[id^="leccion-fila-"]')).length === 0 && (await p.locator("#aprendizajes-vacio").count()) === 1, `PANRED5 (${nombre}): Aprendizajes, una búsqueda sin resultados no enseña filas y lo dice`);
+      await p.locator("#aprendizajes-buscar").fill("");
+      await p.locator("#aprendizajes-cifra-desactivadas").click();
+      await p.waitForTimeout(300);
+      const desactivadas = await ids(p, '[id^="leccion-fila-"]');
+      await p.locator("#aprendizajes-cifra-desactivadas").click();
+      await p.locator("#aprendizajes-filtro-diseno").click();
+      await p.waitForTimeout(300);
+      const diseno = await ids(p, '[id^="leccion-fila-"]');
+      await p.locator("#aprendizajes-filtro-todas").click();
+      await p.waitForTimeout(300);
+      ok(JSON.stringify(desactivadas) === '["leccion-fila-l3"]' && JSON.stringify(diseno) === '["leccion-fila-l1"]' && (await ids(p, '[id^="leccion-fila-"]')).length === 3, `PANRED5 (${nombre}): Aprendizajes, la cifra «Desactivadas» y la pastilla «Diseño» filtran (${desactivadas.join(",")} · ${diseno.join(",")})`);
+      await p.locator("#leccion-fila-l1").click();
+      await p.waitForTimeout(400);
+      const d = await texto(p, "#leccion-detalle-l1");
+      ok((await p.locator("#leccion-fila-l1").getAttribute("aria-expanded")) === "true" && /Regla/.test(d) && /Ejemplos/.test(d) && /Mal: fontSize: 11/.test(d) && /Bien: fontSize: 13/.test(d) && /Prioridad: Imprescindible/.test(d) && /Activa: Claude la aplica/.test(d), `PANRED5 (${nombre}): Aprendizajes, al tocar la fila se despliega por bloques (${d.slice(0, 220)})`);
+      const orden = await accionesAbajo(p, "#leccion-detalle-l1", "#leccion-acciones-l1");
+      const acc = await alto44(p, "#leccion-acciones-l1 [role='button']");
+      ok(orden.acciones >= orden.bloques - 1 && acc.length === 2 && acc.every((h) => h >= 44), `PANRED5 (${nombre}): Aprendizajes, «Desactivar la lección» y «Editar la lección» van abajo y miden 44 px (${JSON.stringify(orden)} · ${acc.join(",")})`);
+      await capturar(p, `PANRED5-${nombre}-aprendizajes-detalle`);
+      await comprobarDiseno(p, nombre, "Aprendizajes", "con el detalle abierto");
+      await p.locator("#leccion-activar-l1").click();
+      for (let i = 0; i < 20 && !cambios.length; i++) await p.waitForTimeout(150);
+      ok(cambios.length === 1 && JSON.stringify(cambios[0].cuerpo) === '{"activa":false}' && /id=eq\.l1/.test(cambios[0].filtro) && /Desactivada/.test(await texto(p, "#leccion-l1")), `PANRED5 (${nombre}): Aprendizajes, «Desactivar la lección» la desactiva con un toque (${JSON.stringify(cambios)})`);
+      await p.locator('[aria-label="Editar la lección Sin palabras en inglés"]').click();
+      await p.waitForTimeout(500);
+      ok((await p.getByText("Editar lección").count()) >= 1 && (await valores(p)).includes("Sin palabras en inglés"), `PANRED5 (${nombre}): Aprendizajes, el lápiz abre «Editar lección» con sus datos`);
+      await comprobarDiseno(p, nombre, "Aprendizajes", "con el formulario abierto");
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(300);
+      await p.locator("#aprendizajes-nueva").click();
+      await p.waitForTimeout(500);
+      ok((await p.getByText("Nueva lección").count()) >= 1 && (await p.getByText("Guardar lección").count()) >= 1, `PANRED5 (${nombre}): Aprendizajes, el «+» abre «Nueva lección»`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(300);
+      ok(p.errores.length === 0, `PANRED5 (${nombre}): Aprendizajes sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+
+    // --- Lo que Blue sabe ---
+    await bloque(`Conocimiento ${nombre}`, async () => {
+      const cambios = [];
+      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin, tablas: { blue_conocimiento: CONOCIMIENTO() } }, vista);
+      await apuntarCambios(ctx, "blue_conocimiento", cambios);
+      const p = await pagina(ctx, "/admin/conocimiento");
+      await p.locator("#conocimiento-fila-k1").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const cifras = await texto(p, "#conocimiento-cifras");
+      ok(/3 Temas/.test(cifras) && /2 Blue lo usa/.test(cifras) && /1 Ocultos/.test(cifras) && /10 Propuestas de Blue/.test(cifras), `PANRED5 (${nombre}): Conocimiento, las cifras (${cifras})`);
+      const bb = await caja(p, "#conocimiento-buscar-caja");
+      ok(!!bb && bb.h >= 44 && (await letra(p, "#conocimiento-buscar")) >= 16, `PANRED5 (${nombre}): Conocimiento, el buscador de 16 px`);
+      const pas = await pastillas(p, "#conocimiento-filtros");
+      ok(pas.map((x) => x.t).join(" · ") === "Todos (3) · Blue lo usa (2) · Ocultos (1)" && pas.every((x) => x.h >= 44), `PANRED5 (${nombre}): Conocimiento, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      const prop = await pastillas(p, "#conocimiento-propuestas");
+      ok(prop.length === 10 && prop.every((x) => x.h >= 44) && !prop.some((x) => /Garantía|Horario de atención/.test(x.t)), `PANRED5 (${nombre}): Conocimiento, «Blue te propone» solo los temas sin respuesta (${prop.length})`);
+      const f2 = await texto(p, "#conocimiento-k2");
+      const alto = (await caja(p, "#conocimiento-fila-k2"))?.h ?? 0;
+      ok(/Garantía Oculto/.test(f2) && /Doce meses en consolas revisadas/.test(f2) && /Actualizado:/.test(f2) && alto >= 44 && alto <= 190, `PANRED5 (${nombre}): Conocimiento, la fila compacta con tema, estado, respuesta y fecha (${f2} · ${alto} px)`);
+      ok((await fondo(p, "#conocimiento-estado-k1")) !== (await fondo(p, "#conocimiento-estado-k2")), `PANRED5 (${nombre}): Conocimiento, en uso y oculto con su color`);
+      const bf = await alto44(p, '[aria-label="Editar «Horario de atención»"], [aria-label="Borrar «Horario de atención»"]');
+      ok(bf.length === 2 && bf.every((h) => h >= 44) && (await p.locator("#conocimiento-nuevo").count()) === 1, `PANRED5 (${nombre}): Conocimiento, el lápiz y la papelera de 44 px y el «+» para añadir (${bf.join(",")})`);
+      await capturar(p, `PANRED5-${nombre}-conocimiento-lista`);
+      await comprobarDiseno(p, nombre, "Conocimiento", "la lista");
+      await control(p, nombre, "Conocimiento");
+      await p.locator("#conocimiento-buscar").fill("bizum");
+      await p.waitForTimeout(300);
+      ok((await texto(p, "#conocimiento-recuento")) === "1 tema encontrado" && JSON.stringify(await ids(p, '[id^="conocimiento-fila-"]')) === '["conocimiento-fila-k3"]', `PANRED5 (${nombre}): Conocimiento, el buscador encuentra por la respuesta (${await texto(p, "#conocimiento-recuento")})`);
+      await p.locator("#conocimiento-buscar").fill("");
+      await p.locator("#conocimiento-cifra-ocultos").click();
+      await p.waitForTimeout(300);
+      const ocultos = await ids(p, '[id^="conocimiento-fila-"]');
+      await p.locator("#conocimiento-cifra-ocultos").click();
+      await p.locator("#conocimiento-filtro-activos").click();
+      await p.waitForTimeout(300);
+      const activos = await ids(p, '[id^="conocimiento-fila-"]');
+      await p.locator("#conocimiento-filtro-todos").click();
+      await p.waitForTimeout(300);
+      ok(JSON.stringify(ocultos) === '["conocimiento-fila-k2"]' && JSON.stringify(activos) === '["conocimiento-fila-k1","conocimiento-fila-k3"]', `PANRED5 (${nombre}): Conocimiento, la cifra «Ocultos» y la pastilla «Blue lo usa» filtran (${ocultos.join(",")} · ${activos.join(",")})`);
+      await p.locator("#conocimiento-fila-k1").click();
+      await p.waitForTimeout(400);
+      const d = await texto(p, "#conocimiento-detalle-k1");
+      ok(/Respuesta/.test(d) && /de 10 a 20 h/.test(d) && /Uso/.test(d) && /Blue IA lo tiene en cuenta/.test(d), `PANRED5 (${nombre}): Conocimiento, al tocar la fila se despliega por bloques (${d.slice(0, 200)})`);
+      const orden = await accionesAbajo(p, "#conocimiento-detalle-k1", "#conocimiento-acciones-k1");
+      const acc = await alto44(p, "#conocimiento-acciones-k1 [role='button']");
+      ok(orden.acciones >= orden.bloques - 1 && acc.length === 2 && acc.every((h) => h >= 44), `PANRED5 (${nombre}): Conocimiento, «Ocultar a Blue» y «Editar la respuesta» van abajo y miden 44 px (${acc.join(",")})`);
+      await capturar(p, `PANRED5-${nombre}-conocimiento-detalle`);
+      await p.locator("#conocimiento-alternar-k1").click();
+      for (let i = 0; i < 20 && !cambios.length; i++) await p.waitForTimeout(150);
+      ok(cambios.length === 1 && cambios[0].cuerpo.activo === false && /id=eq\.k1/.test(cambios[0].filtro) && (await texto(p, "#conocimiento-estado-k1")) === "Oculto", `PANRED5 (${nombre}): Conocimiento, «Ocultar a Blue» lo oculta con un toque (${JSON.stringify(cambios)})`);
+      await p.getByRole("button", { name: "Plazo de los envíos" }).click();
+      await p.waitForTimeout(500);
+      ok((await p.getByText(/^Blue pregunta: ¿En cuántos días/).count()) === 1, `PANRED5 (${nombre}): Conocimiento, un tema de Blue abre el formulario con su pregunta`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(300);
+      await p.locator('[aria-label="Editar «Garantía»"]').click();
+      await p.waitForTimeout(500);
+      ok((await p.getByText("Editar información").count()) >= 1 && (await valores(p)).includes("Doce meses en consolas revisadas."), `PANRED5 (${nombre}): Conocimiento, el lápiz abre «Editar información» con sus datos`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(300);
+      await p.locator('[aria-label="Borrar «Garantía»"]').click();
+      await p.waitForTimeout(400);
+      ok((await p.getByText("¿Borrar «Garantía»?").count()) === 1, `PANRED5 (${nombre}): Conocimiento, la papelera pide confirmación antes de borrar`);
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(300);
+      ok(p.errores.length === 0, `PANRED5 (${nombre}): Conocimiento sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+
+    // --- Revisiones ---
+    await bloque(`Revisiones ${nombre}`, async () => {
+      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin, tablas: { auditorias_web: REVISIONES() } }, vista);
+      const p = await pagina(ctx, "/admin/auditorias");
+      await p.locator("#revision-fila-a1").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const cifras = await texto(p, "#revisiones-cifras");
+      ok(/3 Revisiones/.test(cifras) && /1 Con fallos/.test(cifras) && /1 Con avisos/.test(cifras) && /1 Todo bien/.test(cifras), `PANRED5 (${nombre}): Revisiones, las cifras (${cifras})`);
+      const bb = await caja(p, "#revisiones-buscar-caja");
+      ok(!!bb && bb.h >= 44 && (await letra(p, "#revisiones-buscar")) >= 16, `PANRED5 (${nombre}): Revisiones, el buscador de 16 px`);
+      const pas = await pastillas(p, "#revisiones-filtros");
+      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Con fallos (1) · Con avisos (1) · Todo bien (1)" && pas.every((x) => x.h >= 44), `PANRED5 (${nombre}): Revisiones, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      const f1 = await texto(p, "#revision-fila-a1");
+      ok((await p.locator("#revision-fila-a1").getAttribute("aria-expanded")) === "true" && (await p.locator("#revision-detalle-a1").count()) === 1 && (await p.locator("#revision-detalle-a2").count()) === 0, `PANRED5 (${nombre}): Revisiones, la más reciente sale ya abierta`);
+      ok(/Con fallos/.test(f1) && /Un fallo en la portada/.test(f1) && /19 bien/.test(f1) && /1 fallo/.test(f1) && /2 los revisa Claude/.test(f1), `PANRED5 (${nombre}): Revisiones, la fila compacta con fecha, estado, resumen y recuentos (${f1})`);
+      ok((await fondo(p, "#revision-estado-a1")) !== (await fondo(p, "#revision-estado-a3")), `PANRED5 (${nombre}): Revisiones, con fallos y todo bien con su color`);
+      const d = await texto(p, "#revision-detalle-a1");
+      ok(/Resumen/.test(d) && /Qué se cambió: Nada: solo lee/.test(d) && /Cómo se hizo: Automática/.test(d) && /Duración: 4,2 s/.test(d) && /Puntos revisados \(3\)/.test(d) && /2\. Portada/.test(d) && /Fallo: Una foto no carga/.test(d) && /Lo revisa Claude: Necesita un navegador/.test(d), `PANRED5 (${nombre}): Revisiones, el detalle por bloques con cada punto (${d.slice(0, 240)})`);
+      await capturar(p, `PANRED5-${nombre}-revisiones`);
+      await comprobarDiseno(p, nombre, "Revisiones", "con la más reciente abierta");
+      await control(p, nombre, "Revisiones");
+      await p.locator("#revisiones-buscar").fill("certificado");
+      await p.waitForTimeout(300);
+      ok((await texto(p, "#revisiones-recuento")) === "1 revisión encontrada" && JSON.stringify(await ids(p, '[id^="revision-fila-"]')) === '["revision-fila-a2"]', `PANRED5 (${nombre}): Revisiones, el buscador encuentra por un punto (${await texto(p, "#revisiones-recuento")})`);
+      await p.locator("#revisiones-buscar").fill("");
+      await p.locator("#revisiones-cifra-bien").click();
+      await p.waitForTimeout(300);
+      const bien = await ids(p, '[id^="revision-fila-"]');
+      await p.locator("#revisiones-cifra-bien").click();
+      await p.locator("#revisiones-filtro-avisos").click();
+      await p.waitForTimeout(300);
+      const avisos = await ids(p, '[id^="revision-fila-"]');
+      ok(JSON.stringify(bien) === '["revision-fila-a3"]' && JSON.stringify(avisos) === '["revision-fila-a2"]', `PANRED5 (${nombre}): Revisiones, la cifra «Todo bien» y la pastilla «Con avisos» filtran (${bien.join(",")} · ${avisos.join(",")})`);
+      await p.locator("#revisiones-filtro-todas").click();
+      await p.locator("#revision-fila-a3").click();
+      await p.waitForTimeout(300);
+      ok(/Sin puntos apuntados/.test(await texto(p, "#revision-detalle-a3")), `PANRED5 (${nombre}): Revisiones, sin puntos lo dice`);
+      ok(p.errores.length === 0, `PANRED5 (${nombre}): Revisiones sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+
+    // --- Marca y SEO ---
+    await bloque(`Marca y SEO ${nombre}`, async () => {
+      const cambios = [];
+      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: perfilAdmin, ajustes: AJUSTES() }, vista);
+      await apuntarCambios(ctx, "site_settings", cambios);
+      const p = await pagina(ctx, "/admin/marca-seo");
+      await p.locator("#marca-cifras").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const desc = AJUSTES().seo_description.length;
+      const cifras = await texto(p, "#marca-cifras");
+      ok(/Falta Logo/.test(cifras) && /20\/60 Título/.test(cifras) && new RegExp(`${desc}/160 Descripción`).test(cifras), `PANRED5 (${nombre}): Marca y SEO, las cifras de estado (${cifras})`);
+      ok((await fondo(p, "#marca-cifra-logo")) !== (await fondo(p, "#marca-cifra-titulo")), `PANRED5 (${nombre}): Marca y SEO, sin logo destaca en rojo`);
+      ok(/Logo de la tienda/.test(await texto(p, "#marca-logo")) && /Medidas exactas recomendadas/.test(await texto(p, "#marca-logo")) && /Cómo aparece en Google/.test(await texto(p, "#marca-google")) && /Videojuegos Zaragoza/.test(await texto(p, "#marca-vista-previa")), `PANRED5 (${nombre}): Marca y SEO, los dos bloques con su título y la vista previa`);
+      const botones = await alto44(p, "#marca-subir-logo, #marca-guardar-seo");
+      ok(botones.length === 2 && botones.every((h) => h >= 44), `PANRED5 (${nombre}): Marca y SEO, «Subir logo» y «Guardar SEO» de 44 px (${botones.join(",")})`);
+      await capturar(p, `PANRED5-${nombre}-marca-seo`);
+      await comprobarDiseno(p, nombre, "Marca y SEO", "la pantalla", { minimo: 3 });
+      await control(p, nombre, "Marca y SEO");
+      const largo = "Videojuegos Zaragoza: consolas, móviles y portátiles revisados";
+      await p.locator('[aria-label="Título para Google"]').fill(largo);
+      await p.waitForTimeout(300);
+      ok(new RegExp(`${largo.length}/60 Título`).test(await texto(p, "#marca-cifras")) && (await fondo(p, "#marca-cifra-titulo")) === (await fondo(p, "#marca-cifra-logo")), `PANRED5 (${nombre}): Marca y SEO, un título de más de 60 se ve en rojo arriba (${await texto(p, "#marca-cifra-titulo")})`);
+      await p.locator("#marca-guardar-seo").click();
+      for (let i = 0; i < 20 && !cambios.length; i++) await p.waitForTimeout(150);
+      await p.getByText(/^Guardado\./).waitFor({ timeout: 8000 }).catch(() => {});
+      ok(cambios.length === 1 && cambios[0].cuerpo.seo_title === largo && cambios[0].cuerpo.seo_description === AJUSTES().seo_description && /id=eq\.1/.test(cambios[0].filtro) && (await p.getByText(/^Guardado\./).count()) === 1, `PANRED5 (${nombre}): Marca y SEO, «Guardar SEO» guarda el título y la descripción (${JSON.stringify(cambios)})`);
+      ok(p.errores.length === 0, `PANRED5 (${nombre}): Marca y SEO sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+
+    // --- Redes sociales ---
+    await bloque(`Redes ${nombre}`, async () => {
+      const ahora = new Date().toISOString();
+      const estado = {
+        filas: [],
+        guardados: [],
+        redes: REDES(),
+        ajustes: AJUSTES(),
+        eventos: [
+          { event_name: "redes_inicio", session_id: "s1", metadata: { red: "tiktok" }, created_at: ahora },
+          { event_name: "redes_inicio", session_id: "s1", metadata: { red: "tiktok" }, created_at: ahora },
+          { event_name: "redes_inicio", session_id: "s2", metadata: { red: "tiktok" }, created_at: ahora },
+          { event_name: "redes_inicio", session_id: "s2", metadata: { red: "instagram" }, created_at: ahora },
+        ],
+      };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, "/admin/redes-sociales");
+      await p.locator('[aria-label="Seguidores de TikTok"]').waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const cifras = await texto(p, "#redes-cifras");
+      ok(/4 \/ 5 Activas/.test(cifras) && /1 Activas sin enlace/.test(cifras) && /4 Toques desde Inicio/.test(cifras) && /2 Visitas distintas/.test(cifras), `PANRED5 (${nombre}): Redes, las cifras de estado (${cifras})`);
+      ok(/3 toques en TikTok y 1 en Instagram · 2 visitas distintas/.test(await texto(p, "#redes-toques-inicio")), `PANRED5 (${nombre}): Redes, el detalle de los toques desde Inicio`);
+      ok(/Título del bloque/.test(await texto(p, "#redes-titulo")) && /Reseñas en los canales de venta/.test(await texto(p, "#redes-resenas")) && /Redes y enlaces/.test(await texto(p, "#redes-lista")), `PANRED5 (${nombre}): Redes, los bloques con su título`);
+      const estados = [await texto(p, "#red-estado-instagram"), await texto(p, "#red-estado-youtube"), await texto(p, "#red-estado-gmail")];
+      ok(estados.join(" · ") === "Activa · Desactivada · Falta el enlace" && (await fondo(p, "#red-estado-instagram")) !== (await fondo(p, "#red-estado-gmail")), `PANRED5 (${nombre}): Redes, cada red con su etiqueta de color (${estados.join(" · ")})`);
+      ok((await p.locator('[aria-label="Seguidores de TikTok"]').inputValue()) === "1234" && (await p.getByText(/Vale con el número con prefijo/).first().isVisible()) && (await p.getByText(/Está activada pero no tiene enlace todavía/).count()) === 1, `PANRED5 (${nombre}): Redes, los campos de cada red siguen a la vista`);
+      const flechas = await alto44(p, '[aria-label^="Subir "], [aria-label^="Bajar "]');
+      ok(flechas.length === 10 && flechas.every((h) => h >= 44), `PANRED5 (${nombre}): Redes, las flechas de orden de 44 px con su nombre (${flechas.length})`);
+      await capturar(p, `PANRED5-${nombre}-redes`);
+      await comprobarDiseno(p, nombre, "Redes", "la pantalla");
+      await control(p, nombre, "Redes");
+      await p.locator('[aria-label="Bajar Instagram"]').click();
+      await p.waitForTimeout(300);
+      const orden = (await ids(p, '[id^="red-"]')).filter((x) => !x.startsWith("red-estado-"));
+      ok(orden.slice(0, 2).join(",") === "red-tiktok,red-instagram", `PANRED5 (${nombre}): Redes, «Bajar» cambia el orden (${orden.join(",")})`);
+      await p.getByText("Guardar cambios", { exact: true }).click();
+      await p.getByText(/^Guardado\./).waitFor({ timeout: 10000 }).catch(() => {});
+      const g = (pl) => (estado.redesGuardadas ?? []).find((x) => x.plataforma === pl)?.cuerpo;
+      ok(g("tiktok")?.sort_order === 1 && g("instagram")?.sort_order === 2 && (await p.getByText(/^Guardado\./).count()) === 1, `PANRED5 (${nombre}): Redes, «Guardar cambios» guarda el orden nuevo (${JSON.stringify([g("tiktok"), g("instagram")])})`);
+      ok(p.errores.length === 0, `PANRED5 (${nombre}): Redes sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+
+    // --- Visitas y métricas ---
+    await bloque(`Analítica ${nombre}`, async () => {
+      const estado = { guardados: [], filas: perfilAdmin, embudo: [{ step_label: "Inicio", sessions: 10 }, { step_label: "Producto Nintendo Switch OLED", sessions: 6 }, { step_label: "Ficha: foto ampliada", sessions: 4 }] };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, "/admin/analytics");
+      await p.locator("#analitica-cifra-visitantes").filter({ hasText: "10" }).waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(1500);
+      const cifras = await texto(p, "#analitica-cifras");
+      ok(/10 Visitantes/.test(cifras) && /20 Páginas vistas/.test(cifras) && /30 Eventos totales/.test(cifras) && /2 Con cuenta/.test(cifras), `PANRED5 (${nombre}): Analítica, las cifras arriba (${cifras})`);
+      const cajaCifras = await caja(p, "#analitica-cifras");
+      const cajaFechas = await caja(p, "#analitica-fechas");
+      ok(!!cajaCifras && !!cajaFechas && cajaCifras.y < cajaFechas.y, `PANRED5 (${nombre}): Analítica, las cifras van lo primero, encima de las fechas`);
+      const pas = await pastillas(p, "#analitica-rangos");
+      ok(pas.map((x) => x.t).join(" · ") === "Hoy · 7 días · 30 días · 90 días · Todo" && pas.every((x) => x.h >= 44), `PANRED5 (${nombre}): Analítica, las pastillas de fechas de 44 px (${pas.map((x) => x.t).join(" · ")})`);
+      const cuerpo = limpio(await p.evaluate(() => document.body.innerText));
+      ok(/Crecimiento de visitantes/.test(cuerpo) && /Recorrido principal/.test(cuerpo) && /Conversiones por día/.test(cuerpo) && (await p.locator("#analitica-visor-fotos").count()) === 1, `PANRED5 (${nombre}): Analítica, los bloques de siempre siguen ahí`);
+      const alineado = await p.evaluate(() => { const t = [...document.querySelectorAll("div")].find((e) => e.childElementCount === 0 && e.textContent === "Crecimiento de visitantes"); return t ? getComputedStyle(t).textAlign : ""; });
+      ok(alineado !== "center", `PANRED5 (${nombre}): Analítica, el título de cada bloque a la izquierda, como en el resto del panel (${alineado})`);
+      await capturar(p, `PANRED5-${nombre}-analitica`);
+      await comprobarDiseno(p, nombre, "Analítica", "la pantalla");
+      await control(p, nombre, "Analítica");
+      const antes = await texto(p, "#analitica-rango");
+      await p.getByRole("button", { name: "7 días", exact: true }).click();
+      await p.waitForTimeout(1200);
+      const despues = await texto(p, "#analitica-rango");
+      ok(antes !== despues && /→/.test(despues), `PANRED5 (${nombre}): Analítica, la pastilla «7 días» cambia el rango (${antes} · ${despues})`);
+      ok(p.errores.length === 0, `PANRED5 (${nombre}): Analítica sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+}
+
 // ===== PEDRED) Rediseño de Administración → Pedidos (dueño, 2026-11-15: «lo veo todo muy confuso»), con el estilo de
 // Usuarios y participación: avisos plegados arriba, cifras que filtran, pastillas con su recuento y «Más filtros», filas
 // compactas con su etiqueta de estado de color, el detalle por bloques al tocar una fila, cancelados y devueltos en gris,
@@ -21701,6 +22195,7 @@ try {
   if (SOLO === "PANRED3") await seccionPANRED3();
   if (SOLO === "PANRED4") await seccionPANRED4();
   if (SOLO === "VENFOT") await seccionVENFOT();
+  if (SOLO === "PANRED5") await seccionPANRED5();
   if (SOLO === "PEDRED") await seccionPEDRED();
   if (SOLO === "VENDP") await seccionVENDP();
   if (SOLO === "FRANJ") await seccionFRANJ();
@@ -22829,6 +23324,7 @@ try {
   await seccionPANRED2();
   await seccionPANRED3();
   await seccionPANRED4();
+  await seccionPANRED5();
   await seccionCANCAV();
   await seccionVENFOT();
   }
@@ -22841,4 +23337,7 @@ try {
 
 for (const f of fallos) console.log(`FALLO ${f}`);
 console.log(fallos.length ? `${fallos.length} fallos` : "todo bien");
+// Con carpeta de capturas, el resumen también en un archivo (resumen.txt): cuántas comprobaciones y los fallos, para
+// leerlo entero aunque la salida de la consola sea muy larga.
+if (SALIDA) writeFileSync(join(SALIDA, "resumen.txt"), `${SOLO || "TODAS"}: ${comprobaciones} comprobaciones, ${fallos.length} fallos\n${fallos.map((f) => `FALLO ${f}`).join("\n")}\n`);
 process.exit(fallos.length ? 1 : 0);

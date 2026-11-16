@@ -13,31 +13,42 @@
  *
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario y «volver» de 44 px.
+ * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx): cifras que filtran (Revisiones, Con fallos,
+ *   Con avisos, Todo bien), buscador de 16 px (resumen, cambios o puntos), pastillas con su recuento, filas compactas
+ *   (fecha, etiqueta de color, resumen y recuentos) y, al tocar una, el detalle por bloques (Resumen y Puntos revisados).
+ *   La más reciente sale ya abierta.
  *
- * Conectado con: api/auditoria-web.ts, app/admin/index.tsx (tarjeta), app/admin/_layout.tsx.
+ * Conectado con: api/auditoria-web.ts, app/admin/index.tsx (tarjeta), app/admin/_layout.tsx,
+ * components/admin/PanelUI.tsx y pruebas/perfil-datos.mjs (TM5 y PANRED5).
  */
-import React, { useEffect, useState } from "react";
-import { Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
-import { router } from "expo-router";
+import React, { useEffect, useMemo, useState } from "react";
+import { ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import CargaMarca from "../../components/marca/CargaMarca";
-import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
-
-const COLORS = {
-  bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  card: "#F6FAFD",
-  border: "#E3EAF2",
-  text: "#0B2138",
-  muted: COLORES_TEXTO.secundario,
-  ok: "#15803D",
-  aviso: "#92660B",
-  fallo: "#B91C1C",
-  danger: "#B91C1C",
-  dangerBg: "#FFE4E6",
-};
+import { AdminHeader, AdminLoading, AdminNotice, EmptyState } from "../../lib/admin/products.components";
+import { TAMANOS } from "../../constants/theme";
+import {
+  Bloque,
+  Buscador,
+  Chip,
+  Cifra,
+  Dato,
+  Detalle,
+  DetalleFila,
+  Etiqueta,
+  EtiquetaColor,
+  FilaCifras,
+  FilaLista,
+  FilaPastillas,
+  ListaVacia,
+  PANEL,
+  RecuentoLista,
+  type IoniconName,
+  type Tono,
+  fechaPanel,
+  useDesplegables,
+} from "../../components/admin/PanelUI";
 
 type Punto = { n: number; nombre: string; estado: "ok" | "aviso" | "fallo" | "manual"; detalle: string };
 type Fila = {
@@ -54,42 +65,40 @@ type Fila = {
   resultado: Punto[];
 };
 
-const SIMBOLO: Record<Punto["estado"], { icono: React.ComponentProps<typeof Ionicons>["name"]; color: string; texto: string }> = {
-  ok: { icono: "checkmark-circle", color: COLORS.ok, texto: "Bien" },
-  aviso: { icono: "alert-circle", color: COLORS.aviso, texto: "Aviso" },
-  fallo: { icono: "close-circle", color: COLORS.fallo, texto: "Fallo" },
-  manual: { icono: "hand-left-outline", color: COLORS.muted, texto: "Lo revisa Claude" },
+const SIMBOLO: Record<Punto["estado"], { icono: IoniconName; color: string; texto: string }> = {
+  ok: { icono: "checkmark-circle", color: PANEL.success, texto: "Bien" },
+  aviso: { icono: "alert-circle", color: PANEL.warning, texto: "Aviso" },
+  fallo: { icono: "close-circle", color: PANEL.danger, texto: "Fallo" },
+  manual: { icono: "hand-left-outline", color: PANEL.muted, texto: "Lo revisa Claude" },
 };
 
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
-
-function fechaMadrid(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return iso;
-  }
-}
+type Filtro = "todas" | "fallos" | "avisos" | "bien";
+const PASTILLAS: [Filtro, string][] = [
+  ["todas", "Todas"],
+  ["fallos", "Con fallos"],
+  ["avisos", "Con avisos"],
+  ["bien", "Todo bien"],
+];
+// Cada revisión cae en una sola: con algún fallo, con avisos (sin fallos) o todo bien.
+const tipo = (f: Fila): Exclude<Filtro, "todas"> => (f.fallos > 0 ? "fallos" : f.avisos > 0 ? "avisos" : "bien");
+const ETIQUETA: Record<Exclude<Filtro, "todas">, { texto: string; tono: Tono }> = {
+  fallos: { texto: "Con fallos", tono: "rojo" },
+  avisos: { texto: "Con avisos", tono: "amarillo" },
+  bien: { texto: "Todo bien", tono: "verde" },
+};
+const segundos = (ms: number) => `${(Math.round((Number(ms) || 0) / 100) / 10).toFixed(1).replace(".", ",")} s`;
 
 export default function AdminAuditorias() {
   const { width } = useWindowDimensions();
   const isMobile = (width && width > 0 ? width : 1024) < 700;
-  const pagePadding = isMobile ? 12 : 16;
   const insets = useSafeAreaInsets();
+  const desplegables = useDesplegables();
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [filas, setFilas] = useState<Fila[]>([]);
-  const [abierta, setAbierta] = useState<string | null>(null);
+  const [filtro, setFiltro] = useState<Filtro>("todas");
+  const [search, setSearch] = useState("");
+  const { abrir } = desplegables;
 
   useEffect(() => {
     (async () => {
@@ -102,7 +111,8 @@ export default function AdminAuditorias() {
         if (error) throw error;
         const lista = (data ?? []) as Fila[];
         setFilas(lista);
-        setAbierta(lista[0]?.id ?? null);
+        // La más reciente, ya abierta.
+        if (lista[0]) abrir(lista[0].id);
       } catch (e) {
         console.error("Error cargando las revisiones:", e);
         setErr("No se han podido cargar las revisiones. Inténtalo de nuevo.");
@@ -110,106 +120,164 @@ export default function AdminAuditorias() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [abrir]);
+
+  const q = search.trim().toLowerCase();
+  const cuenta = (f: Filtro) => (f === "todas" ? filas.length : filas.filter((x) => tipo(x) === f).length);
+  const visibles = useMemo(
+    () =>
+      filas.filter((f) => {
+        if (filtro !== "todas" && tipo(f) !== filtro) return false;
+        if (!q) return true;
+        const puntos = Array.isArray(f.resultado) ? f.resultado : [];
+        return [f.resumen, f.cambios, ...puntos.map((p) => `${p.nombre} ${p.detalle}`)].some((t) => String(t ?? "").toLowerCase().includes(q));
+      }),
+    [filas, filtro, q]
+  );
+  const hayFiltro = filtro !== "todas" || !!q;
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+    <View style={{ flex: 1, backgroundColor: PANEL.bg }}>
       <StatusBar barStyle="dark-content" />
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border,
-          paddingHorizontal: pagePadding,
-          paddingTop: (isMobile ? 10 : 12) + insets.top,
-          paddingBottom: isMobile ? 10 : 12,
-        }}
-      >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
-          <Pressable
-            onPress={smartBackAdminHome}
-            accessibilityRole="button"
-            accessibilityLabel="Volver al panel"
-            hitSlop={8}
-            // zIndex: por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
-            style={{ position: "absolute", zIndex: 1, left: 0, top: 0, bottom: 0, width: TACTIL.minimo, alignItems: "center", justifyContent: "center" }}
-          >
-            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-          </Pressable>
-          <Text style={{ color: COLORS.text, fontSize: isMobile ? 19 : 22, fontWeight: "900", textAlign: "center", paddingHorizontal: 44 }}>Revisiones</Text>
-        </View>
-      </View>
+      <AdminHeader title="Revisiones" isMobile={isMobile} />
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <CargaMarca texto="Cargando…" />
-        </View>
+        <AdminLoading texto="Cargando…" />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+          contentContainerStyle={{ padding: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
-            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+          <View style={{ width: "100%", maxWidth: 1040, gap: isMobile ? 18 : 22 }}>
+            {/* 1) Cifras que filtran la lista (otro toque en la misma, todas). */}
+            <FilaCifras nativeID="revisiones-cifras">
+              {(
+                [
+                  ["todas", "Revisiones", "clipboard-outline"],
+                  ["fallos", "Con fallos", "close-circle-outline"],
+                  ["avisos", "Con avisos", "alert-circle-outline"],
+                  ["bien", "Todo bien", "checkmark-circle-outline"],
+                ] as const
+              ).map(([f, etiqueta, icono]) => (
+                <Cifra
+                  key={f}
+                  nativeID={`revisiones-cifra-${f}`}
+                  valor={String(cuenta(f))}
+                  etiqueta={etiqueta}
+                  icono={icono}
+                  ancho={isMobile ? "45%" : 0}
+                  alerta={f === "fallos" && cuenta(f) > 0 && filtro !== f}
+                  activa={filtro === f && f !== "todas"}
+                  onPress={() => setFiltro((x) => (x === f ? "todas" : f))}
+                />
+              ))}
+            </FilaCifras>
+
+            <Detalle>
               La tienda se revisa sola los días 1 y 15 de cada mes (sobre las 7 de la mañana), con la lista de 20 puntos de calidad web.
               Aquí queda apuntado cuándo se hizo, qué se miró y qué se encontró. La revisión automática solo lee: no cambia nada.
-            </Text>
+            </Detalle>
 
-            {!!err && (
-              <View style={{ borderRadius: 14, backgroundColor: COLORS.dangerBg, padding: 10 }}>
-                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>{err}</Text>
-              </View>
-            )}
+            {!!err && <AdminNotice tone="danger" text={err} />}
 
-            {filas.length === 0 && !err ? (
-              <View style={{ alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 12 }}>
-                <Ionicons name="clipboard-outline" size={24} color={COLORS.muted} />
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Todavía no hay ninguna revisión.</Text>
-                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>La primera aparecerá el próximo día 1 o 15.</Text>
-              </View>
-            ) : (
-              filas.map((f) => (
-                <View key={f.id} style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: isMobile ? 12 : 14, gap: 10 }}>
-                  <Pressable onPress={() => setAbierta(abierta === f.id ? null : f.id)} accessibilityRole="button" style={{ gap: 6, alignItems: "center" }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>{fechaMadrid(f.ejecutada_en)}</Text>
-                    <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                      {f.origen === "manual" ? "Hecha a mano" : "Automática"} · {Math.round(f.duracion_ms / 100) / 10} s
-                    </Text>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
-                      <Text style={{ color: COLORS.ok, fontWeight: "900" }}>{f.ok} bien</Text>
-                      <Text style={{ color: COLORS.aviso, fontWeight: "900" }}>{f.avisos} avisos</Text>
-                      <Text style={{ color: COLORS.fallo, fontWeight: "900" }}>{f.fallos} fallos</Text>
-                      <Text style={{ color: COLORS.muted, fontWeight: "900" }}>{f.manuales} los revisa Claude</Text>
-                    </View>
-                    <Text style={{ color: COLORS.text, lineHeight: 20, textAlign: "center" }}>{f.resumen}</Text>
-                    <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>Qué se cambió: {f.cambios}</Text>
-                    <Ionicons name={abierta === f.id ? "chevron-up" : "chevron-down"} size={18} color={COLORS.muted} />
-                  </Pressable>
+            {/* 2) Buscador y pastillas con su recuento. */}
+            <View style={{ gap: 12 }}>
+              <Buscador
+                nativeID="revisiones-buscar"
+                valor={search}
+                onCambiar={setSearch}
+                placeholder="Buscar en el resumen o en los puntos"
+                etiqueta="Buscar revisiones por su resumen, sus cambios o sus puntos"
+              />
+              <FilaPastillas isMobile={isMobile} nativeID="revisiones-filtros">
+                {PASTILLAS.map(([f, t]) => (
+                  <Chip key={f} nativeID={`revisiones-filtro-${f}`} label={`${t} (${cuenta(f)})`} activo={filtro === f} onPress={() => setFiltro(f)} />
+                ))}
+              </FilaPastillas>
+            </View>
 
-                  {abierta === f.id ? (
-                    <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 10 }}>
-                      {(Array.isArray(f.resultado) ? f.resultado : []).map((p) => {
-                        const s = SIMBOLO[p.estado] ?? SIMBOLO.manual;
-                        return (
-                          <View key={p.n} style={{ alignItems: "center", gap: 2 }}>
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                              <Ionicons name={s.icono} size={16} color={s.color} />
-                              <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                                {p.n}. {p.nombre}
-                              </Text>
-                            </View>
-                            <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
-                              {s.texto}: {p.detalle}
-                            </Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  ) : null}
+            {/* 3) Cuántas salen, «Abrir todas» y las filas compactas. */}
+            <View style={{ gap: 4 }}>
+              <RecuentoLista
+                nativeID="revisiones-recuento"
+                texto={q ? `${visibles.length} ${visibles.length === 1 ? "revisión encontrada" : "revisiones encontradas"}` : `${visibles.length} de ${filas.length} revisiones`}
+                abiertas={desplegables.todasAbiertas(visibles.map((f) => f.id))}
+                onAlternar={visibles.length ? () => desplegables.abrirOCerrarTodas(visibles.map((f) => f.id)) : undefined}
+                idBoton="revisiones-abrir-todas"
+                femenino
+              />
+              {visibles.length === 0 ? (
+                filas.length && hayFiltro ? (
+                  <ListaVacia nativeID="revisiones-vacio" icono="clipboard-outline" titulo="No hay revisiones para este filtro." texto="Prueba a borrar el buscador o a elegir «Todas»." />
+                ) : err ? null : (
+                  <EmptyState icon="clipboard-outline" title="Todavía no hay ninguna revisión." text="La primera aparecerá el próximo día 1 o 15." />
+                )
+              ) : (
+                <View nativeID="revisiones-lista">
+                  {visibles.map((f, n) => {
+                    const abierta = desplegables.estaAbierta(f.id);
+                    const t = ETIQUETA[tipo(f)];
+                    const puntos = Array.isArray(f.resultado) ? f.resultado : [];
+                    return (
+                      <FilaLista
+                        key={f.id}
+                        nativeID={`revision-${f.id}`}
+                        idFila={`revision-fila-${f.id}`}
+                        primera={n === 0}
+                        abierta={abierta}
+                        onPress={() => desplegables.alternar(f.id)}
+                        etiquetaAccesible={`Revisión del ${fechaPanel(f.ejecutada_en, true)}, ${t.texto.toLowerCase()}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+                        titulo={fechaPanel(f.ejecutada_en, true)}
+                        etiqueta={<EtiquetaColor nativeID={`revision-estado-${f.id}`} texto={t.texto} tono={t.tono} />}
+                        subtitulo={f.resumen}
+                        idSubtitulo={`revision-resumen-${f.id}`}
+                        etiquetas={
+                          <>
+                            <Etiqueta icon="checkmark-circle-outline" color={PANEL.success} texto={`${f.ok} bien`} />
+                            <Etiqueta icon="alert-circle-outline" color={PANEL.warning} texto={`${f.avisos} ${f.avisos === 1 ? "aviso" : "avisos"}`} />
+                            <Etiqueta icon="close-circle-outline" color={PANEL.danger} texto={`${f.fallos} ${f.fallos === 1 ? "fallo" : "fallos"}`} />
+                            <Etiqueta icon="hand-left-outline" color={PANEL.muted} texto={`${f.manuales} los revisa Claude`} />
+                          </>
+                        }
+                      >
+                        <DetalleFila nativeID={`revision-detalle-${f.id}`}>
+                          <Bloque icono="document-text-outline" titulo="Resumen" ancho={isMobile ? "100%" : "35%"}>
+                            <Text style={{ color: PANEL.text, fontSize: TAMANOS.minimo, lineHeight: 19 }}>{f.resumen}</Text>
+                            <Dato etiqueta="Qué se cambió">{f.cambios}</Dato>
+                            <Dato etiqueta="Cómo se hizo">{f.origen === "manual" ? "Hecha a mano" : "Automática"}</Dato>
+                            <Dato etiqueta="Duración">{segundos(f.duracion_ms)}</Dato>
+                          </Bloque>
+                          <Bloque nativeID={`revision-puntos-${f.id}`} icono="list-outline" titulo={`Puntos revisados (${puntos.length})`} ancho={isMobile ? "100%" : "55%"}>
+                            {puntos.length ? (
+                              puntos.map((p) => {
+                                const s = SIMBOLO[p.estado] ?? SIMBOLO.manual;
+                                return (
+                                  <View key={p.n} style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 2 }}>
+                                    <Ionicons name={s.icono} size={16} color={s.color} style={{ marginTop: 2 }} />
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                      <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                                        {p.n}. {p.nombre}
+                                      </Text>
+                                      <Text style={{ color: PANEL.muted, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                                        {s.texto}: {p.detalle}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                );
+                              })
+                            ) : (
+                              <Detalle>Sin puntos apuntados.</Detalle>
+                            )}
+                          </Bloque>
+                        </DetalleFila>
+                      </FilaLista>
+                    );
+                  })}
                 </View>
-              ))
-            )}
+              )}
+            </View>
           </View>
         </ScrollView>
       )}

@@ -11,42 +11,65 @@
  * - Claude consulta las lecciones activas antes de cualquier cambio que se le pida (norma
  *   en CLAUDE.md) y las aplica, empezando por las de prioridad "Imprescindible".
  * - Las lecciones no se borran: se desactivan, para conservar el historial.
- * - Un mismo formulario sirve para crear una lección nueva o editar una existente
- *   (botón "Editar" de cada tarjeta).
+ * - Un mismo formulario (ventana) sirve para crear una lección nueva («+» flotante) o editar una
+ *   existente (lápiz de cada fila).
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, texto azul pequeño en
  *   azulTexto, botones y chips de 44 px separados 8 y campos de 16 px y 48 de alto.
+ * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx, como Blog y Políticas): cifras que filtran
+ *   (Total, Activas, Imprescindibles, Desactivadas), buscador de 16 px (título, regla o ejemplos), pastillas por
+ *   categoría con su recuento, filas compactas (título, etiqueta de prioridad, regla, categoría y fecha) con el lápiz a
+ *   mano y, al tocar una, el detalle por bloques (Regla, Ejemplos y Datos) con «Desactivar» o «Activar» abajo.
  *
  * Conectado con:
  * - app/admin/index.tsx → tarjeta "Centro De Aprendizajes" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("aprendizajes") en el Stack.
  * - CLAUDE.md → norma que obliga a Claude a consultar estas lecciones.
+ * - components/admin/PanelUI.tsx → piezas comunes; pruebas/perfil-datos.mjs (TM5 y PANRED5).
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
   StatusBar,
-  Switch,
   Text,
   TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { IconButton } from "../../lib/admin/products.components";
-import CargaMarca from "../../components/marca/CargaMarca";
+import { AdminHeader, AdminLoading, AdminNotice, BotonFlotante, EmptyState, IconButton, PieVentana } from "../../lib/admin/products.components";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import {
+  AccionTexto,
+  Bloque,
+  BotonesFila,
+  Buscador,
+  Chip,
+  Cifra,
+  Dato,
+  Detalle,
+  DetalleFila,
+  Etiqueta,
+  EtiquetaColor,
+  FilaCifras,
+  FilaLista,
+  FilaPastillas,
+  ListaVacia,
+  PANEL,
+  RecuentoLista,
+  type Tono,
+  fechaPanel,
+  useDesplegables,
+} from "../../components/admin/PanelUI";
 
-// "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, incluido el que hace
-// scrollFieldIntoView (más abajo) al enfocar un campo: el campo se cerraba solo. Por eso solo
-// se usa en nativo.
+// "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
+// propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.
 const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
 type Categoria = "general" | "diseno" | "textos" | "negocio" | "codigo" | "seguridad" | "seo" | "panel";
@@ -92,6 +115,8 @@ const PRIORIDADES: { value: Prioridad; label: string }[] = [
   { value: 3, label: "Preferencia" },
 ];
 
+const TONO_PRIORIDAD: Record<Prioridad, Tono> = { 1: "rojo", 2: "amarillo", 3: "azul" };
+
 const BORRADOR_VACIO: Borrador = {
   id: null,
   titulo: "",
@@ -102,67 +127,11 @@ const BORRADOR_VACIO: Borrador = {
   prioridad: 2,
 };
 
-const COLORS = {
-  bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  card: "#F6FAFD",
-  cardSoft: "#F8FBFE",
-  border: "#E3EAF2",
-  text: "#0B2138",
-  muted: COLORES_TEXTO.secundario,
-  muted2: COLORES_TEXTO.secundario,
-  accent: "#1EA7E8",
-  accentText: COLORES_TEXTO.azulTexto,
-  // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
-  accentDark: "#1EA7E8",
-  accent2: "#EAF6FD",
-  accentBorder: "#BEE6FA",
-  success: "#15803D",
-  successBg: "#DCFCE7",
-  danger: "#B91C1C",
-  dangerBg: "#FFE4E6",
-  warn: "#B45309",
-  warnBg: "#FEF3C7",
-};
-
-const COLOR_PRIORIDAD: Record<Prioridad, { fg: string; bg: string }> = {
-  1: { fg: COLORS.danger, bg: COLORS.dangerBg },
-  2: { fg: COLORS.warn, bg: COLORS.warnBg },
-  3: { fg: COLORS.accentText, bg: COLORS.accent2 },
-};
+// Las cifras de arriba (filtran la lista).
+type FiltroEstado = "todas" | "activas" | "imprescindibles" | "desactivadas";
 
 const labelCategoria = (c: Categoria) => CATEGORIAS.find((x) => x.value === c)?.label ?? c;
 const labelPrioridad = (p: Prioridad) => PRIORIDADES.find((x) => x.value === p)?.label ?? String(p);
-
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
-
-// Igual que en Redes sociales: en web, centra el campo enfocado para que el teclado móvil
-// no lo tape.
-function scrollFieldIntoView(e: any) {
-  if (Platform.OS !== "web") return;
-  const node = e?.target;
-  if (node && typeof node.scrollIntoView === "function") {
-    node.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-}
-
-function fmtFecha(iso: string) {
-  try {
-    return new Date(iso).toLocaleDateString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "2-digit", year: "numeric" });
-  } catch {
-    return iso.slice(0, 10);
-  }
-}
 
 // Error de "la tabla no existe" (la migración aún no se ha aplicado en Supabase).
 function esTablaInexistente(e: any) {
@@ -175,36 +144,21 @@ function esTablaInexistente(e: any) {
   );
 }
 
-function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
-      style={({ pressed }) => ({
-        minHeight: TACTIL.minimo,
-        justifyContent: "center",
-        paddingHorizontal: 14,
-        borderRadius: 999,
-        backgroundColor: active ? COLORS.accent : COLORS.cardSoft,
-        borderWidth: 1,
-        borderColor: active ? COLORS.accent : COLORS.border,
-        opacity: pressed ? 0.85 : 1,
-      })}
-    >
-      <Text style={{ color: active ? "#FFFFFF" : COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>{label}</Text>
-    </Pressable>
-  );
+function cumpleEstado(a: Aprendizaje, f: FiltroEstado) {
+  if (f === "activas") return a.activa;
+  if (f === "imprescindibles") return a.activa && a.prioridad === 1;
+  if (f === "desactivadas") return !a.activa;
+  return true;
 }
 
 const inputStyle = {
   borderWidth: 1,
-  borderColor: COLORS.border,
+  borderColor: PANEL.border,
   borderRadius: 12,
   paddingHorizontal: 12,
   paddingVertical: 10,
-  color: COLORS.text,
-  backgroundColor: COLORS.cardSoft,
+  color: PANEL.text,
+  backgroundColor: "#F8FBFE",
   // 16px: mínimo que evita el zoom automático de Safari/iOS al enfocar.
   fontSize: CAMPO.letra,
   minHeight: CAMPO.alto,
@@ -214,20 +168,22 @@ export default function AdminAprendizajes() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const pagePadding = isMobile ? 12 : 16;
   const insets = useSafeAreaInsets();
+  const desplegables = useDesplegables();
 
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [items, setItems] = useState<Aprendizaje[]>([]);
 
+  const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>("todas");
   const [filtroCategoria, setFiltroCategoria] = useState<Categoria | "todas">("todas");
-  const [verDesactivadas, setVerDesactivadas] = useState(false);
+  const [search, setSearch] = useState("");
 
+  const [open, setOpen] = useState(false);
   const [borrador, setBorrador] = useState<Borrador>(BORRADOR_VACIO);
   const [saving, setSaving] = useState(false);
+  const [modalErr, setModalErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -257,14 +213,27 @@ export default function AdminAprendizajes() {
     load();
   }, [load]);
 
+  const q = search.trim().toLowerCase();
+  const cuentaEstado = (f: FiltroEstado) => items.filter((a) => cumpleEstado(a, f)).length;
+  // Las pastillas de categoría cuentan dentro de la cifra elegida.
+  const delEstado = useMemo(() => items.filter((a) => cumpleEstado(a, filtroEstado)), [items, filtroEstado]);
+  const cuentaCategoria = (c: Categoria | "todas") => (c === "todas" ? delEstado.length : delEstado.filter((a) => a.categoria === c).length);
+
   const visibles = useMemo(
     () =>
-      items.filter(
-        (a) => (verDesactivadas || a.activa) && (filtroCategoria === "todas" || a.categoria === filtroCategoria)
-      ),
-    [items, verDesactivadas, filtroCategoria]
+      delEstado.filter((a) => {
+        if (filtroCategoria !== "todas" && a.categoria !== filtroCategoria) return false;
+        if (!q) return true;
+        return [a.titulo, a.regla, a.ejemplo_mal, a.ejemplo_bien].some((t) => String(t ?? "").toLowerCase().includes(q));
+      }),
+    [delEstado, filtroCategoria, q]
   );
-  const totalActivas = useMemo(() => items.filter((a) => a.activa).length, [items]);
+
+  function abrirNueva() {
+    setBorrador(BORRADOR_VACIO);
+    setModalErr(null);
+    setOpen(true);
+  }
 
   function editar(a: Aprendizaje) {
     setBorrador({
@@ -276,19 +245,20 @@ export default function AdminAprendizajes() {
       ejemplo_bien: a.ejemplo_bien ?? "",
       prioridad: a.prioridad,
     });
+    setModalErr(null);
     setMsg(null);
-    // El formulario está arriba: se sube para que se vea lo que se va a editar.
-    scrollRef.current?.scrollTo({ y: 0, animated: true });
+    setOpen(true);
   }
 
   async function guardar() {
     const titulo = borrador.titulo.trim();
     const regla = borrador.regla.trim();
     if (titulo.length < 3 || regla.length < 3) {
-      setMsg({ type: "error", text: "Escribe al menos un título y la regla a seguir." });
+      setModalErr("Escribe al menos un título y la regla a seguir.");
       return;
     }
     setSaving(true);
+    setModalErr(null);
     setMsg(null);
     try {
       const fila = {
@@ -305,10 +275,11 @@ export default function AdminAprendizajes() {
       if (error) throw error;
       setMsg({ type: "ok", text: borrador.id ? "Lección actualizada." : "Lección guardada. Claude la aplicará desde ahora." });
       setBorrador(BORRADOR_VACIO);
+      setOpen(false);
       await load();
     } catch (e: any) {
       console.error("Error guardando la lección:", e);
-      setMsg({ type: "error", text: "No se ha podido guardar. Inténtalo de nuevo." });
+      setModalErr("No se ha podido guardar. Inténtalo de nuevo.");
     } finally {
       setSaving(false);
     }
@@ -324,301 +295,283 @@ export default function AdminAprendizajes() {
     }
   }
 
+  const hayFiltro = filtroEstado !== "todas" || filtroCategoria !== "todas" || !!q;
+
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+    <View style={{ flex: 1, backgroundColor: PANEL.bg }}>
       <StatusBar barStyle="dark-content" />
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. */}
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border,
-          paddingHorizontal: pagePadding,
-          paddingTop: (isMobile ? 10 : 12) + insets.top,
-          paddingBottom: isMobile ? 10 : 12,
-        }}
-      >
-        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
-          <Pressable
-            onPress={smartBackAdminHome}
-            accessibilityRole="button"
-            accessibilityLabel="Volver al panel"
-            hitSlop={8}
-            style={({ pressed }) => ({
-              position: "absolute",
-              // Por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
-              zIndex: 1,
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: TACTIL.minimo,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-          </Pressable>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: isMobile ? 19 : 22,
-              fontWeight: "900",
-              textAlign: "center",
-              paddingHorizontal: 44,
-            }}
-          >
-            Centro De Aprendizajes
-          </Text>
-        </View>
-      </View>
+      <AdminHeader title="Centro De Aprendizajes" isMobile={isMobile} />
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+      {loading ? (
+        <AdminLoading texto="Cargando lecciones…" />
+      ) : (
         <ScrollView
-          ref={scrollRef}
           style={{ flex: 1 }}
-          contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+          contentContainerStyle={{ padding: 16, paddingBottom: 48 + 74 + insets.bottom, alignItems: "center" }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={CIERRE_TECLADO}
         >
-        <View style={{ width: "100%", maxWidth: 860, gap: 16 }}>
-          <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-            Lo que le corriges a Claude. Lo consulta antes de cada cambio que le pidas · {totalActivas} activas
-          </Text>
-
-          {/* Formulario: nueva lección o edición de una existente. */}
-          <View style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: isMobile ? 14 : 18, gap: 10 }}>
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-              {borrador.id ? "Editar lección" : "Nueva lección"}
-            </Text>
-
-            <TextInput
-              value={borrador.titulo}
-              onChangeText={(titulo) => setBorrador((b) => ({ ...b, titulo }))}
-              onFocus={scrollFieldIntoView}
-              placeholder="Título corto (p. ej. «Nunca pongas textos en inglés»)"
-              placeholderTextColor="rgba(11,33,56,0.40)"
-              maxLength={140}
-              style={inputStyle}
-            />
-
-            <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Categoría</Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
-              {CATEGORIAS.map((c) => (
-                <Chip
-                  key={c.value}
-                  label={c.label}
-                  active={borrador.categoria === c.value}
-                  onPress={() => setBorrador((b) => ({ ...b, categoria: c.value }))}
+          <View style={{ width: "100%", maxWidth: 1040, gap: isMobile ? 18 : 22 }}>
+            {/* 1) Cifras que filtran la lista (otro toque en la misma, todas). */}
+            <FilaCifras nativeID="aprendizajes-cifras">
+              {(
+                [
+                  ["todas", "Total", "school-outline"],
+                  ["activas", "Activas", "checkmark-circle-outline"],
+                  ["imprescindibles", "Imprescindibles", "alert-circle-outline"],
+                  ["desactivadas", "Desactivadas", "pause-circle-outline"],
+                ] as const
+              ).map(([f, etiqueta, icono]) => (
+                <Cifra
+                  key={f}
+                  nativeID={`aprendizajes-cifra-${f}`}
+                  valor={String(cuentaEstado(f))}
+                  etiqueta={etiqueta}
+                  icono={icono}
+                  ancho={isMobile ? "45%" : 0}
+                  activa={filtroEstado === f && f !== "todas"}
+                  onPress={() => setFiltroEstado((x) => (x === f ? "todas" : f))}
                 />
               ))}
+            </FilaCifras>
+
+            <Detalle>Lo que le corriges a Claude. Lo consulta antes de cada cambio que le pidas, empezando por las imprescindibles.</Detalle>
+
+            {/* 2) Buscador y pastillas por categoría con su recuento. */}
+            <View style={{ gap: 12 }}>
+              <Buscador
+                nativeID="aprendizajes-buscar"
+                valor={search}
+                onCambiar={setSearch}
+                placeholder="Buscar por título, regla o ejemplo"
+                etiqueta="Buscar lecciones por título, regla o ejemplo"
+              />
+              <FilaPastillas isMobile={isMobile} nativeID="aprendizajes-filtros">
+                <Chip nativeID="aprendizajes-filtro-todas" label={`Todas (${cuentaCategoria("todas")})`} activo={filtroCategoria === "todas"} onPress={() => setFiltroCategoria("todas")} />
+                {CATEGORIAS.map((c) => (
+                  <Chip
+                    key={c.value}
+                    nativeID={`aprendizajes-filtro-${c.value}`}
+                    label={`${c.label} (${cuentaCategoria(c.value)})`}
+                    activo={filtroCategoria === c.value}
+                    onPress={() => setFiltroCategoria(c.value)}
+                  />
+                ))}
+              </FilaPastillas>
             </View>
 
-            <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Prioridad</Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
-              {PRIORIDADES.map((p) => (
-                <Chip
-                  key={p.value}
-                  label={p.label}
-                  active={borrador.prioridad === p.value}
-                  onPress={() => setBorrador((b) => ({ ...b, prioridad: p.value }))}
+            {!!msg && <AdminNotice tone={msg.type === "ok" ? "success" : "danger"} text={msg.text} />}
+
+            {loadErr ? (
+              <View style={{ gap: 4, alignItems: "center" }}>
+                <AdminNotice tone="danger" text={loadErr} />
+                <AccionTexto nativeID="aprendizajes-reintentar" icono="refresh-outline" texto="Reintentar" onPress={load} />
+              </View>
+            ) : (
+              /* 3) Cuántas salen, «Abrir todas» y las filas compactas. */
+              <View style={{ gap: 4 }}>
+                <RecuentoLista
+                  nativeID="aprendizajes-recuento"
+                  texto={q ? `${visibles.length} ${visibles.length === 1 ? "lección encontrada" : "lecciones encontradas"}` : `${visibles.length} de ${items.length} lecciones`}
+                  abiertas={desplegables.todasAbiertas(visibles.map((a) => a.id))}
+                  onAlternar={visibles.length ? () => desplegables.abrirOCerrarTodas(visibles.map((a) => a.id)) : undefined}
+                  idBoton="aprendizajes-abrir-todas"
+                  femenino
                 />
-              ))}
-            </View>
-
-            <TextInput
-              value={borrador.regla}
-              onChangeText={(regla) => setBorrador((b) => ({ ...b, regla }))}
-              onFocus={scrollFieldIntoView}
-              placeholder="La regla: qué debe hacer (o no hacer) Claude a partir de ahora"
-              placeholderTextColor="rgba(11,33,56,0.40)"
-              multiline
-              maxLength={4000}
-              style={[inputStyle, { minHeight: 90, textAlignVertical: "top" }]}
-            />
-            <TextInput
-              value={borrador.ejemplo_mal}
-              onChangeText={(ejemplo_mal) => setBorrador((b) => ({ ...b, ejemplo_mal }))}
-              onFocus={scrollFieldIntoView}
-              placeholder="Opcional: cómo estaba mal"
-              placeholderTextColor="rgba(11,33,56,0.40)"
-              multiline
-              maxLength={2000}
-              style={[inputStyle, { minHeight: 56, textAlignVertical: "top" }]}
-            />
-            <TextInput
-              value={borrador.ejemplo_bien}
-              onChangeText={(ejemplo_bien) => setBorrador((b) => ({ ...b, ejemplo_bien }))}
-              onFocus={scrollFieldIntoView}
-              placeholder="Opcional: cómo debe quedar"
-              placeholderTextColor="rgba(11,33,56,0.40)"
-              multiline
-              maxLength={2000}
-              style={[inputStyle, { minHeight: 56, textAlignVertical: "top" }]}
-            />
-
-            {!!msg && (
-              <Text
-                style={{
-                  color: msg.type === "ok" ? COLORS.success : COLORS.danger,
-                  fontWeight: "800",
-                  fontSize: TAMANOS.minimo,
-                  textAlign: "center",
-                }}
-              >
-                {msg.text}
-              </Text>
+                {visibles.length === 0 ? (
+                  items.length && hayFiltro ? (
+                    <ListaVacia nativeID="aprendizajes-vacio" icono="school-outline" titulo="No hay lecciones para este filtro." texto="Prueba a borrar el buscador o a elegir «Todas»." />
+                  ) : (
+                    <EmptyState icon="school-outline" title="Aún no hay lecciones." text="Cada vez que corrijas algo a Claude, guárdalo con el «+» para que no vuelva a pasar." />
+                  )
+                ) : (
+                  <View nativeID="aprendizajes-lista">
+                    {visibles.map((a, n) => {
+                      const abierta = desplegables.estaAbierta(a.id);
+                      return (
+                        <FilaLista
+                          key={a.id}
+                          nativeID={`leccion-${a.id}`}
+                          idFila={`leccion-fila-${a.id}`}
+                          primera={n === 0}
+                          abierta={abierta}
+                          onPress={() => desplegables.alternar(a.id)}
+                          etiquetaAccesible={`${a.titulo}, ${labelPrioridad(a.prioridad)}${a.activa ? "" : ", desactivada"}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+                          titulo={a.titulo}
+                          colorTitulo={a.activa ? undefined : PANEL.muted}
+                          etiqueta={
+                            <>
+                              <EtiquetaColor nativeID={`leccion-prioridad-${a.id}`} texto={labelPrioridad(a.prioridad)} tono={a.activa ? TONO_PRIORIDAD[a.prioridad] : "gris"} />
+                              {a.activa ? null : <EtiquetaColor nativeID={`leccion-estado-${a.id}`} texto="Desactivada" tono="gris" />}
+                            </>
+                          }
+                          subtitulo={a.regla}
+                          idSubtitulo={`leccion-regla-${a.id}`}
+                          lineasSubtitulo={2}
+                          etiquetas={
+                            <>
+                              <Etiqueta icon="pricetag-outline" color={COLORES_TEXTO.azulTexto} texto={labelCategoria(a.categoria)} />
+                              <Etiqueta icon="time-outline" color={PANEL.muted} texto={`Actualizada: ${fechaPanel(a.updated_at)}`} />
+                            </>
+                          }
+                          derecha={
+                            <BotonesFila>
+                              <IconButton icon="create-outline" label={`Editar la lección ${a.titulo}`} variant="primary" onPress={() => editar(a)} />
+                            </BotonesFila>
+                          }
+                        >
+                          <DetalleFila
+                            nativeID={`leccion-detalle-${a.id}`}
+                            idAcciones={`leccion-acciones-${a.id}`}
+                            acciones={
+                              <>
+                                <AccionTexto
+                                  nativeID={`leccion-activar-${a.id}`}
+                                  icono={a.activa ? "pause-circle-outline" : "checkmark-circle-outline"}
+                                  texto={a.activa ? "Desactivar la lección" : "Activar la lección"}
+                                  onPress={() => cambiarActiva(a, !a.activa)}
+                                />
+                                <AccionTexto nativeID={`leccion-editar-${a.id}`} icono="create-outline" texto="Editar la lección" onPress={() => editar(a)} />
+                              </>
+                            }
+                          >
+                            <Bloque icono="document-text-outline" titulo="Regla" ancho={isMobile ? "100%" : "45%"}>
+                              <Text style={{ color: PANEL.text, fontSize: TAMANOS.minimo, lineHeight: 19 }}>{a.regla}</Text>
+                            </Bloque>
+                            <Bloque icono="swap-horizontal-outline" titulo="Ejemplos" ancho={isMobile ? "100%" : "45%"}>
+                              {a.ejemplo_mal || a.ejemplo_bien ? (
+                                <>
+                                  {a.ejemplo_mal ? <Dato etiqueta="Mal">{a.ejemplo_mal}</Dato> : null}
+                                  {a.ejemplo_bien ? <Dato etiqueta="Bien">{a.ejemplo_bien}</Dato> : null}
+                                </>
+                              ) : (
+                                <Detalle>Sin ejemplos.</Detalle>
+                              )}
+                            </Bloque>
+                            <Bloque icono="information-circle-outline" titulo="Datos" ancho="100%">
+                              <Dato etiqueta="Categoría">{labelCategoria(a.categoria)}</Dato>
+                              <Dato etiqueta="Prioridad">{labelPrioridad(a.prioridad)}</Dato>
+                              <Dato etiqueta="Estado">{a.activa ? "Activa: Claude la aplica" : "Desactivada: se guarda en el historial"}</Dato>
+                              <Dato etiqueta="Creada">{fechaPanel(a.created_at, true)}</Dato>
+                              <Dato etiqueta="Actualizada">{fechaPanel(a.updated_at, true)}</Dato>
+                            </Bloque>
+                          </DetalleFila>
+                        </FilaLista>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
             )}
+          </View>
+        </ScrollView>
+      )}
 
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <Pressable
-                onPress={guardar}
-                disabled={saving}
-                accessibilityRole="button"
-                style={({ pressed }) => ({
-                  flex: 1,
-                  opacity: pressed || saving ? 0.75 : 1,
-                  minHeight: CAMPO.alto,
-                  borderRadius: 14,
-                  backgroundColor: COLORS.accentDark,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexDirection: "row",
-                  gap: 8,
-                })}
-              >
-                {saving ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
-                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>
-                  {saving ? "Guardando…" : borrador.id ? "Guardar cambios" : "Guardar lección"}
-                </Text>
-              </Pressable>
-              {borrador.id ? (
+      {/* «Nueva lección»: el «+» flotante abajo a la derecha (al alcance del pulgar). */}
+      {!loading && !loadErr ? <BotonFlotante nativeID="aprendizajes-nueva" label="Nueva lección" onPress={abrirNueva} /> : null}
+
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.60)" }}>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              flexGrow: 1,
+              justifyContent: "center",
+              paddingHorizontal: isMobile ? 10 : 16,
+              paddingTop: (isMobile ? 16 : 24) + insets.top,
+              paddingBottom: (isMobile ? 24 : 32) + insets.bottom,
+            }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={CIERRE_TECLADO}
+          >
+            <View style={{ width: "100%", maxWidth: 640, alignSelf: "center", borderRadius: 20, borderWidth: 1, borderColor: PANEL.border, backgroundColor: PANEL.bg, padding: isMobile ? 14 : 16, gap: 12 }}>
+              <Text style={{ color: PANEL.text, fontSize: isMobile ? 19 : 20, fontWeight: "900", textAlign: "center" }}>{borrador.id ? "Editar lección" : "Nueva lección"}</Text>
+
+              <TextInput
+                value={borrador.titulo}
+                onChangeText={(titulo) => setBorrador((b) => ({ ...b, titulo }))}
+                placeholder="Título corto (p. ej. «Nunca pongas textos en inglés»)"
+                placeholderTextColor="rgba(11,33,56,0.40)"
+                accessibilityLabel="Título de la lección"
+                maxLength={140}
+                style={inputStyle}
+              />
+
+              <Text style={{ color: PANEL.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Categoría</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+                {CATEGORIAS.map((c) => (
+                  <Chip key={c.value} label={c.label} activo={borrador.categoria === c.value} onPress={() => setBorrador((b) => ({ ...b, categoria: c.value }))} />
+                ))}
+              </View>
+
+              <Text style={{ color: PANEL.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Prioridad</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+                {PRIORIDADES.map((p) => (
+                  <Chip key={p.value} label={p.label} activo={borrador.prioridad === p.value} onPress={() => setBorrador((b) => ({ ...b, prioridad: p.value }))} />
+                ))}
+              </View>
+
+              <TextInput
+                value={borrador.regla}
+                onChangeText={(regla) => setBorrador((b) => ({ ...b, regla }))}
+                placeholder="La regla: qué debe hacer (o no hacer) Claude a partir de ahora"
+                placeholderTextColor="rgba(11,33,56,0.40)"
+                accessibilityLabel="Regla de la lección"
+                multiline
+                maxLength={4000}
+                style={[inputStyle, { minHeight: 90, textAlignVertical: "top" }]}
+              />
+              <TextInput
+                value={borrador.ejemplo_mal}
+                onChangeText={(ejemplo_mal) => setBorrador((b) => ({ ...b, ejemplo_mal }))}
+                placeholder="Opcional: cómo estaba mal"
+                placeholderTextColor="rgba(11,33,56,0.40)"
+                multiline
+                maxLength={2000}
+                style={[inputStyle, { minHeight: 56, textAlignVertical: "top" }]}
+              />
+              <TextInput
+                value={borrador.ejemplo_bien}
+                onChangeText={(ejemplo_bien) => setBorrador((b) => ({ ...b, ejemplo_bien }))}
+                placeholder="Opcional: cómo debe quedar"
+                placeholderTextColor="rgba(11,33,56,0.40)"
+                multiline
+                maxLength={2000}
+                style={[inputStyle, { minHeight: 56, textAlignVertical: "top" }]}
+              />
+
+              {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
+
+              {/* «Guardar» y, a su derecha, la X para cerrar (dueño, 2026-11-04). */}
+              <PieVentana onCerrar={() => setOpen(false)}>
                 <Pressable
-                  onPress={() => {
-                    setBorrador(BORRADOR_VACIO);
-                    setMsg(null);
-                  }}
+                  onPress={guardar}
+                  disabled={saving}
                   accessibilityRole="button"
                   style={({ pressed }) => ({
-                    opacity: pressed ? 0.85 : 1,
+                    flex: 1,
+                    opacity: pressed || saving ? 0.75 : 1,
                     minHeight: CAMPO.alto,
-                    paddingHorizontal: 16,
-                    borderRadius: 14,
-                    backgroundColor: COLORS.cardSoft,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
+                    borderRadius: 999,
+                    backgroundColor: PANEL.accent,
                     alignItems: "center",
                     justifyContent: "center",
+                    flexDirection: "row",
+                    gap: 8,
                   })}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>Cancelar</Text>
+                  {saving ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>{saving ? "Guardando…" : borrador.id ? "Guardar cambios" : "Guardar lección"}</Text>
                 </Pressable>
-              ) : null}
+              </PieVentana>
             </View>
-          </View>
-
-          {/* Filtros. */}
-          <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion, justifyContent: "center" }}>
-              <Chip label="Todas" active={filtroCategoria === "todas"} onPress={() => setFiltroCategoria("todas")} />
-              {CATEGORIAS.map((c) => (
-                <Chip
-                  key={c.value}
-                  label={c.label}
-                  active={filtroCategoria === c.value}
-                  onPress={() => setFiltroCategoria(c.value)}
-                />
-              ))}
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <Switch
-                value={verDesactivadas}
-                onValueChange={setVerDesactivadas}
-                trackColor={{ false: "#D9E3EC", true: COLORS.accentBorder }}
-                thumbColor={verDesactivadas ? COLORS.accent : "#F4F4F5"}
-              />
-              <Text style={{ color: COLORS.muted, fontWeight: "700" }}>Mostrar también las desactivadas</Text>
-            </View>
-          </View>
-
-          {loading ? (
-            <View style={{ alignItems: "center", paddingVertical: 24 }}>
-              <CargaMarca texto="Cargando lecciones…" />
-            </View>
-          ) : loadErr ? (
-            <View style={{ borderRadius: 14, backgroundColor: COLORS.dangerBg, padding: 12, gap: 8, alignItems: "center" }}>
-              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>{loadErr}</Text>
-              <Pressable onPress={load} accessibilityRole="button" style={{ minHeight: TACTIL.minimo, paddingHorizontal: 16, justifyContent: "center" }}>
-                <Text style={{ color: COLORS.danger, fontWeight: "900", textDecorationLine: "underline", textAlign: "center" }}>
-                  Reintentar
-                </Text>
-              </Pressable>
-            </View>
-          ) : visibles.length === 0 ? (
-            <View style={{ paddingVertical: 24, paddingHorizontal: 12, alignItems: "center", gap: 6 }}>
-              <Ionicons name="school-outline" size={22} color={COLORS.muted2} />
-              <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
-                Aún no hay lecciones aquí. Cada vez que corrijas algo a Claude, guárdalo arriba para que no vuelva a
-                pasar.
-              </Text>
-            </View>
-          ) : (
-            visibles.map((a) => {
-              const colorP = COLOR_PRIORIDAD[a.prioridad];
-              return (
-                <View
-                  key={a.id}
-                  style={{
-                    borderRadius: 20,
-                    backgroundColor: COLORS.card,
-                    padding: isMobile ? 14 : 18,
-                    gap: 8,
-                    opacity: a.activa ? 1 : 0.55,
-                  }}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15.5, flex: 1 }}>{a.titulo}</Text>
-                    <Switch
-                      value={a.activa}
-                      onValueChange={(v) => cambiarActiva(a, v)}
-                      trackColor={{ false: "#D9E3EC", true: COLORS.accentBorder }}
-                      thumbColor={a.activa ? COLORS.accent : "#F4F4F5"}
-                    />
-                  </View>
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                    <View style={{ borderRadius: 999, backgroundColor: colorP.bg, paddingVertical: 3, paddingHorizontal: 9 }}>
-                      <Text style={{ color: colorP.fg, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                        {labelPrioridad(a.prioridad)}
-                      </Text>
-                    </View>
-                    <View style={{ borderRadius: 999, backgroundColor: COLORS.accent2, paddingVertical: 3, paddingHorizontal: 9 }}>
-                      <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                        {labelCategoria(a.categoria)}
-                      </Text>
-                    </View>
-                    <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, alignSelf: "center" }}>
-                      Actualizada el {fmtFecha(a.updated_at)}
-                    </Text>
-                  </View>
-                  <Text style={{ color: COLORS.text, lineHeight: 21 }}>{a.regla}</Text>
-                  {a.ejemplo_mal ? (
-                    <Text style={{ color: COLORS.danger, lineHeight: 19, fontSize: 13 }}>✗ {a.ejemplo_mal}</Text>
-                  ) : null}
-                  {a.ejemplo_bien ? (
-                    <Text style={{ color: COLORS.success, lineHeight: 19, fontSize: 13 }}>✓ {a.ejemplo_bien}</Text>
-                  ) : null}
-                  <View style={{ alignSelf: "flex-start" }}>
-                    <IconButton icon="create-outline" label={`Editar la lección ${a.titulo}`} variant="primary" onPress={() => editar(a)} />
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }

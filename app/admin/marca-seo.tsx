@@ -26,12 +26,16 @@
  *   WhatsApp/Facebook — esos programas no ejecutan JavaScript, así que
  *   necesitarían una pieza aparte (una función de Vercel) que de momento no
  *   se ha construido. Si más adelante se quiere, es un paso siguiente.
+ * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx): arriba, tres cifras de estado (Logo,
+ *   Título y Descripción, con su largo frente al máximo de Google; en rojo si falta o se pasa) y debajo dos bloques con
+ *   su título: «Logo de la tienda» y «Cómo aparece en Google» (vista previa, campos y «Guardar SEO»).
  *
  * Conectado con:
  * - components/SiteHead.tsx → lee esta misma tabla y aplica el título,
  *   descripción, icono y og:image en cada pantalla.
  * - app/admin/index.tsx → tarjeta "Marca y SEO" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("marca-seo") en el Stack.
+ * - components/admin/PanelUI.tsx → piezas comunes; pruebas/perfil-datos.mjs (TM5 y PANRED5).
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario, todo lo que se toca de 44 px y los campos de 16 px y 48 de alto.
  */
@@ -48,40 +52,17 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { IconButton } from "../../lib/admin/products.components";
+import { AdminHeader, AdminLoading, AdminNotice, IconButton } from "../../lib/admin/products.components";
 import SmartImage from "../../components/SmartImage";
-import CargaMarca from "../../components/marca/CargaMarca";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, TAMANOS } from "../../constants/theme";
+import { BloqueFormulario, Cifra, Detalle, FilaCifras, PANEL } from "../../components/admin/PanelUI";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.
 const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
-
-const COLORS = {
-  bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  card: "#F6FAFD",
-  cardSoft: "#F8FBFE",
-  border: "#E3EAF2",
-  text: "#0B2138",
-  muted: COLORES_TEXTO.secundario,
-  muted2: COLORES_TEXTO.secundario,
-  accent: "#1EA7E8",
-  // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
-  accentDark: "#1EA7E8",
-  accent2: "#EAF6FD",
-  accentBorder: "#BEE6FA",
-  success: "#15803D",
-  successBg: "#DCFCE7",
-  successBorder: "#86EFAC",
-  danger: "#B91C1C",
-  dangerBg: "#FFE4E6",
-  dangerBorder: "#FDA4AF",
-};
 
 const LOGO_BUCKET = "site-assets";
 const MAX_LOGO_SIZE_MB = 2;
@@ -95,17 +76,18 @@ type SiteSettingsRow = {
   logo_url: string | null;
 };
 
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
+const campo = {
+  borderWidth: 1,
+  borderColor: PANEL.border,
+  borderRadius: 12,
+  paddingHorizontal: 12,
+  paddingVertical: 10,
+  color: PANEL.text,
+  backgroundColor: PANEL.bg,
+  // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla se queda ampliada y "descuadrada".
+  fontSize: CAMPO.letra,
+  minHeight: CAMPO.alto,
+} as const;
 
 // Selector de UN único archivo de imagen (sin vídeo, sin HEIC): pensado para
 // el logo, no para las fotos de producto/servicio (eso ya lo cubre
@@ -158,11 +140,18 @@ function extFromMime(mime: string) {
   return "jpg";
 }
 
+// Un aviso corto de una acción (guardado o error), alineado a la izquierda dentro de su bloque.
+function Mensaje({ msg }: { msg: { type: "ok" | "error"; text: string } | null }) {
+  if (!msg) return null;
+  return (
+    <Text style={{ color: msg.type === "ok" ? PANEL.success : PANEL.danger, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>{msg.text}</Text>
+  );
+}
+
 export default function AdminMarcaSeo() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const pagePadding = isMobile ? 12 : 16;
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
@@ -343,362 +332,208 @@ export default function AdminMarcaSeo() {
     }
   }
 
+  const largoTitulo = seoTitle.trim().length;
+  const largoDesc = seoDescription.trim().length;
+
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+    <View style={{ flex: 1, backgroundColor: PANEL.bg }}>
       <StatusBar barStyle="dark-content" />
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. */}
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border,
-          paddingHorizontal: pagePadding,
-          paddingTop: (isMobile ? 10 : 12) + insets.top,
-          paddingBottom: isMobile ? 10 : 12,
-        }}
-      >
-        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
-          <Pressable
-            onPress={smartBackAdminHome}
-            accessibilityRole="button"
-            accessibilityLabel="Volver al panel"
-            hitSlop={8}
-            style={({ pressed }) => ({
-              position: "absolute",
-              // Por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
-              zIndex: 1,
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: TACTIL.minimo,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-          </Pressable>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: isMobile ? 19 : 22,
-              fontWeight: "900",
-              textAlign: "center",
-              paddingHorizontal: 44,
-            }}
-          >
-            Marca y SEO
-          </Text>
-        </View>
-      </View>
+      <AdminHeader title="Marca y SEO" isMobile={isMobile} />
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <CargaMarca texto="Cargando…" />
-        </View>
+        <AdminLoading texto="Cargando…" />
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+            contentContainerStyle={{ padding: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={CIERRE_TECLADO}
           >
-          <View style={{ width: "100%", maxWidth: 860, gap: 16 }}>
-            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-              El logo y el texto que se ven al buscar la tienda en Google, y en la pestaña del navegador.
-            </Text>
+            <View style={{ width: "100%", maxWidth: 1040, gap: isMobile ? 18 : 22 }}>
+              {/* 1) Cifras de estado: si hay logo y cuánto miden el título y la descripción (en rojo si faltan o se pasan). */}
+              <FilaCifras nativeID="marca-cifras">
+                <Cifra nativeID="marca-cifra-logo" valor={logoUrl ? "Subido" : "Falta"} etiqueta="Logo" icono="image-outline" ancho={isMobile ? "30%" : 0} alerta={!logoUrl} />
+                <Cifra
+                  nativeID="marca-cifra-titulo"
+                  valor={`${largoTitulo}/${SEO_TITLE_MAX}`}
+                  etiqueta="Título"
+                  icono="text-outline"
+                  ancho={isMobile ? "30%" : 0}
+                  alerta={!largoTitulo || largoTitulo > SEO_TITLE_MAX}
+                />
+                <Cifra
+                  nativeID="marca-cifra-descripcion"
+                  valor={`${largoDesc}/${SEO_DESC_MAX}`}
+                  etiqueta="Descripción"
+                  icono="document-text-outline"
+                  ancho={isMobile ? "30%" : 0}
+                  alerta={!largoDesc || largoDesc > SEO_DESC_MAX}
+                />
+              </FilaCifras>
 
-            {!!loadErr && (
-              <View
-                style={{
-                  borderRadius: 14,
-                  backgroundColor: COLORS.dangerBg,
-                  padding: 10,
-                }}
-              >
-                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
-                  {loadErr}
-                </Text>
-              </View>
-            )}
+              <Detalle>El logo y el texto que se ven al buscar la tienda en Google, y en la pestaña del navegador.</Detalle>
 
-            {/* --- Logo de la tienda --- */}
-            <View
-              style={{
-                borderRadius: 20,
-                backgroundColor: COLORS.card,
-                padding: isMobile ? 14 : 18,
-                gap: 12,
-              }}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <Ionicons name="image-outline" size={18} color={COLORS.accentDark} />
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>Logo de la tienda</Text>
-              </View>
+              {!!loadErr && <AdminNotice tone="danger" text={loadErr} />}
 
-              <View
-                style={{
-                  flexDirection: isMobile ? "column" : "row",
-                  gap: 14,
-                  alignItems: isMobile ? "stretch" : "flex-start",
-                }}
-              >
-                <View
-                  style={{
-                    width: 112,
-                    height: 112,
-                    borderRadius: 16,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: COLORS.cardSoft,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    overflow: "hidden",
-                    alignSelf: isMobile ? "center" : "auto",
-                  }}
-                >
-                  {logoUrl ? (
-                    <SmartImage uri={logoUrl} contentFit="contain" style={{ width: "100%", height: "100%" }} />
-                  ) : (
-                    <Ionicons name="image-outline" size={30} color={COLORS.muted2} />
-                  )}
+              <View style={{ flexDirection: isMobile ? "column" : "row", alignItems: "flex-start", gap: isMobile ? 18 : 16 }}>
+                {/* 2) Logo de la tienda. */}
+                <View style={{ width: isMobile ? "100%" : undefined, flex: isMobile ? undefined : 1, minWidth: 0 }}>
+                  <BloqueFormulario nativeID="marca-logo" icono="image-outline" titulo="Logo de la tienda">
+                    <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
+                      <View
+                        style={{
+                          width: 96,
+                          height: 96,
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          borderColor: PANEL.border,
+                          backgroundColor: PANEL.bg,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {logoUrl ? (
+                          <SmartImage uri={logoUrl} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                        ) : (
+                          <Ionicons name="image-outline" size={30} color={PANEL.muted} />
+                        )}
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                        <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{logoUrl ? "Logo subido" : "Todavía sin logo"}</Text>
+                        <Detalle>{logoUrl ? "Es el que se usa en Google y en la pestaña del navegador." : "Mientras, se usa el icono de la tienda."}</Detalle>
+                      </View>
+                    </View>
+
+                    <View style={{ borderRadius: 14, backgroundColor: PANEL.accent2, padding: 12, gap: 4 }}>
+                      <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Medidas exactas recomendadas</Text>
+                      <Text style={{ color: PANEL.text, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                        Cuadrada, 512 × 512 píxeles (o 1024 × 1024 si tienes calidad de sobra). Formato JPG, PNG o WEBP, con fondo sólido
+                        (evita transparencias: en algunos sitios se ven con fondo negro). Peso máximo {MAX_LOGO_SIZE_MB} MB.
+                      </Text>
+                      <Text style={{ color: PANEL.muted, fontSize: TAMANOS.minimo, lineHeight: 18, marginTop: 4 }}>
+                        Con esa medida se ve bien tanto en el resultado de Google como en la pestaña del navegador. La tarjeta que se ve al
+                        pegar el enlace en WhatsApp o Facebook no está cubierta todavía: es un paso aparte, si en algún momento lo quieres.
+                      </Text>
+                    </View>
+
+                    <Mensaje msg={logoMsg} />
+
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+                      <Pressable
+                        nativeID="marca-subir-logo"
+                        onPress={handlePickLogo}
+                        disabled={uploadingLogo}
+                        accessibilityRole="button"
+                        style={({ pressed }) => ({
+                          opacity: pressed || uploadingLogo ? 0.75 : 1,
+                          minHeight: CAMPO.alto,
+                          paddingHorizontal: 18,
+                          borderRadius: 999,
+                          backgroundColor: PANEL.accent,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 6,
+                        })}
+                      >
+                        {uploadingLogo ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />}
+                        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>{logoUrl ? "Cambiar logo" : "Subir logo"}</Text>
+                      </Pressable>
+
+                      {logoUrl ? (
+                        removingLogo ? (
+                          <ActivityIndicator size="small" color={PANEL.danger} />
+                        ) : (
+                          <IconButton icon="trash-outline" label="Quitar el logo" variant="danger" onPress={handleRemoveLogo} />
+                        )
+                      ) : null}
+                    </View>
+                  </BloqueFormulario>
                 </View>
 
-                <View style={{ flex: 1, gap: 10 }}>
-                  <View
-                    style={{
-                      borderRadius: 14,
-                      backgroundColor: COLORS.accent2,
-                      padding: 12,
-                      gap: 4,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                      Medidas exactas recomendadas
-                    </Text>
-                    <Text style={{ color: COLORS.text, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
-                      Cuadrada, 512 × 512 píxeles (o 1024 × 1024 si tienes calidad de sobra). Formato
-                      JPG, PNG o WEBP, con fondo sólido (evita transparencias: en algunos sitios se
-                      ven con fondo negro). Peso máximo {MAX_LOGO_SIZE_MB} MB.
-                    </Text>
-                    <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, marginTop: 4 }}>
-                      Con esa medida se ve bien tanto en el resultado de Google como en la pestaña del
-                      navegador. La tarjeta que se ve al pegar el enlace en WhatsApp o Facebook no está
-                      cubierta todavía — es un paso aparte, si en algún momento lo quieres.
-                    </Text>
-                  </View>
+                {/* 3) SEO: título y descripción, con la vista previa del resultado de Google. */}
+                <View style={{ width: isMobile ? "100%" : undefined, flex: isMobile ? undefined : 1.25, minWidth: 0 }}>
+                  <BloqueFormulario nativeID="marca-google" icono="search-outline" titulo="Cómo aparece en Google">
+                    <View nativeID="marca-vista-previa" style={{ borderRadius: 14, borderWidth: 1, borderColor: PANEL.border, backgroundColor: "#FFFFFF", padding: 12, gap: 3 }}>
+                      <Text style={{ color: "#1a0dab", fontSize: 16, fontWeight: "600" }} numberOfLines={1}>
+                        {seoTitle.trim() || "Título de la tienda"}
+                      </Text>
+                      <Text style={{ color: "#006621", fontSize: TAMANOS.minimo }}>videojuegoszaragoza.com</Text>
+                      <Text style={{ color: "#545454", fontSize: TAMANOS.minimo, lineHeight: 17 }} numberOfLines={2}>
+                        {seoDescription.trim() || "La descripción aparecerá aquí, tal y como la vería alguien buscando en Google."}
+                      </Text>
+                    </View>
 
-                  {!!logoMsg && (
-                    <Text
-                      style={{
-                        color: logoMsg.type === "ok" ? COLORS.success : COLORS.danger,
-                        fontWeight: "800",
-                        fontSize: TAMANOS.minimo,
-                        textAlign: "center",
-                      }}
-                    >
-                      {logoMsg.text}
-                    </Text>
-                  )}
+                    <View style={{ gap: 6 }}>
+                      <Text style={{ color: PANEL.text, fontWeight: "800", fontSize: 13 }}>Título (lo que se ve en azul en Google y en la pestaña del navegador)</Text>
+                      <TextInput
+                        value={seoTitle}
+                        onChangeText={setSeoTitle}
+                        placeholder="Videojuegoszaragoza.com — Compra y venta de videojuegos"
+                        placeholderTextColor="rgba(11,33,56,0.40)"
+                        accessibilityLabel="Título para Google"
+                        maxLength={SEO_TITLE_MAX + 20}
+                        style={campo}
+                      />
+                      <Text style={{ color: largoTitulo > SEO_TITLE_MAX ? PANEL.danger : PANEL.muted, fontSize: TAMANOS.minimo, fontWeight: "700" }}>
+                        {largoTitulo}/{SEO_TITLE_MAX}: pasado este largo, Google suele recortarlo con «…»
+                      </Text>
+                    </View>
 
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                    <View style={{ gap: 6 }}>
+                      <Text style={{ color: PANEL.text, fontWeight: "800", fontSize: 13 }}>Descripción (el texto gris debajo, en el resultado de Google)</Text>
+                      <TextInput
+                        value={seoDescription}
+                        onChangeText={setSeoDescription}
+                        placeholder="Compra y vende videoconsolas, videojuegos y accesorios en Zaragoza. Envíos a toda España."
+                        placeholderTextColor="rgba(11,33,56,0.40)"
+                        accessibilityLabel="Descripción para Google"
+                        multiline
+                        numberOfLines={3}
+                        maxLength={SEO_DESC_MAX + 40}
+                        style={[campo, { minHeight: 76, textAlignVertical: "top" }]}
+                      />
+                      <Text style={{ color: largoDesc > SEO_DESC_MAX ? PANEL.danger : PANEL.muted, fontSize: TAMANOS.minimo, fontWeight: "700" }}>
+                        {largoDesc}/{SEO_DESC_MAX}: pasado este largo, Google suele recortarla con «…»
+                      </Text>
+                    </View>
+
+                    <Mensaje msg={seoMsg} />
+
                     <Pressable
-                      onPress={handlePickLogo}
-                      disabled={uploadingLogo}
+                      nativeID="marca-guardar-seo"
+                      onPress={handleSaveSeo}
+                      disabled={savingSeo}
                       accessibilityRole="button"
                       style={({ pressed }) => ({
-                        opacity: pressed || uploadingLogo ? 0.75 : 1,
-                        minHeight: TACTIL.minimo,
-                        paddingHorizontal: 16,
+                        opacity: pressed || savingSeo ? 0.75 : 1,
+                        minHeight: CAMPO.alto,
+                        paddingHorizontal: 20,
                         borderRadius: 999,
-                        backgroundColor: COLORS.accentDark,
-                        flexDirection: "row",
+                        backgroundColor: PANEL.accent,
                         alignItems: "center",
-                        gap: 6,
+                        justifyContent: "center",
+                        flexDirection: "row",
+                        gap: 8,
+                        alignSelf: isMobile ? "stretch" : "flex-start",
                       })}
                     >
-                      {uploadingLogo ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <Ionicons name="cloud-upload-outline" size={15} color="#FFFFFF" />
-                      )}
-                      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13 }}>
-                        {logoUrl ? "Cambiar logo" : "Subir logo"}
-                      </Text>
+                      {savingSeo ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
+                      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>{savingSeo ? "Guardando…" : "Guardar SEO"}</Text>
                     </Pressable>
-
-                    {logoUrl ? (
-                      removingLogo ? (
-                        <ActivityIndicator size="small" color={COLORS.danger} />
-                      ) : (
-                        <IconButton icon="trash-outline" label="Quitar el logo" variant="danger" onPress={handleRemoveLogo} />
-                      )
-                    ) : null}
-                  </View>
+                  </BloqueFormulario>
                 </View>
               </View>
+
+              <Detalle>
+                Los cambios se aplican al momento, sin esperar a un nuevo despliegue: Google los recogerá la próxima vez que visite la
+                tienda (normalmente, en pocos días).
+              </Detalle>
             </View>
-
-            {/* --- SEO: título y descripción --- */}
-            <View
-              style={{
-                borderRadius: 20,
-                backgroundColor: COLORS.card,
-                padding: isMobile ? 14 : 18,
-                gap: 12,
-              }}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <Ionicons name="search-outline" size={18} color={COLORS.accentDark} />
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                  Cómo aparece en Google
-                </Text>
-              </View>
-
-              {/* Vista previa tipo resultado de Google */}
-              <View
-                style={{
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: "#FFFFFF",
-                  padding: 12,
-                  gap: 3,
-                }}
-              >
-                <Text style={{ color: "#1a0dab", fontSize: 16, fontWeight: "600" }} numberOfLines={1}>
-                  {seoTitle.trim() || "Título de la tienda"}
-                </Text>
-                <Text style={{ color: "#006621", fontSize: TAMANOS.minimo }}>
-                  videojuegoszaragoza.com
-                </Text>
-                <Text style={{ color: "#545454", fontSize: TAMANOS.minimo, lineHeight: 17 }} numberOfLines={2}>
-                  {seoDescription.trim() || "La descripción aparecerá aquí, tal y como la vería alguien buscando en Google."}
-                </Text>
-              </View>
-
-              <View style={{ gap: 6 }}>
-                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>
-                  Título (lo que se ve en azul en Google y en la pestaña del navegador)
-                </Text>
-                <TextInput
-                  value={seoTitle}
-                  onChangeText={setSeoTitle}
-                  placeholder="Videojuegoszaragoza.com — Compra y venta de videojuegos"
-                  placeholderTextColor="rgba(11,33,56,0.40)"
-                  maxLength={SEO_TITLE_MAX + 20}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    borderRadius: 12,
-                    paddingHorizontal: 12,
-                    paddingVertical: 10,
-                    color: COLORS.text,
-                    backgroundColor: COLORS.cardSoft,
-                    // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
-                    // se queda ampliada y "descuadrada".
-                    fontSize: CAMPO.letra,
-                    minHeight: CAMPO.alto,
-                  }}
-                />
-                <Text
-                  style={{
-                    color: seoTitle.trim().length > SEO_TITLE_MAX ? COLORS.danger : COLORS.muted2,
-                    fontSize: TAMANOS.minimo,
-                    fontWeight: "700",
-                  }}
-                >
-                  {seoTitle.trim().length}/{SEO_TITLE_MAX} — pasado este largo, Google suele recortarlo con «…»
-                </Text>
-              </View>
-
-              <View style={{ gap: 6 }}>
-                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>
-                  Descripción (el texto gris debajo, en el resultado de Google)
-                </Text>
-                <TextInput
-                  value={seoDescription}
-                  onChangeText={setSeoDescription}
-                  placeholder="Compra y vende videoconsolas, videojuegos y accesorios en Zaragoza. Envíos a toda España."
-                  placeholderTextColor="rgba(11,33,56,0.40)"
-                  multiline
-                  numberOfLines={3}
-                  maxLength={SEO_DESC_MAX + 40}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    borderRadius: 12,
-                    paddingHorizontal: 12,
-                    paddingVertical: 10,
-                    color: COLORS.text,
-                    backgroundColor: COLORS.cardSoft,
-                    fontSize: 16,
-                    minHeight: 76,
-                    textAlignVertical: "top",
-                  }}
-                />
-                <Text
-                  style={{
-                    color: seoDescription.trim().length > SEO_DESC_MAX ? COLORS.danger : COLORS.muted2,
-                    fontSize: TAMANOS.minimo,
-                    fontWeight: "700",
-                  }}
-                >
-                  {seoDescription.trim().length}/{SEO_DESC_MAX} — pasado este largo, Google suele recortarla con «…»
-                </Text>
-              </View>
-
-              {!!seoMsg && (
-                <Text
-                  style={{
-                    color: seoMsg.type === "ok" ? COLORS.success : COLORS.danger,
-                    fontWeight: "800",
-                    fontSize: TAMANOS.minimo,
-                    textAlign: "center",
-                  }}
-                >
-                  {seoMsg.text}
-                </Text>
-              )}
-
-              <Pressable
-                onPress={handleSaveSeo}
-                disabled={savingSeo}
-                accessibilityRole="button"
-                style={({ pressed }) => ({
-                  opacity: pressed || savingSeo ? 0.75 : 1,
-                  minHeight: CAMPO.alto,
-                  paddingHorizontal: 20,
-                  borderRadius: 999,
-                  backgroundColor: COLORS.accentDark,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexDirection: "row",
-                  gap: 8,
-                  width: "100%",
-                  maxWidth: 420,
-                  alignSelf: "center",
-                })}
-              >
-                {savingSeo ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
-                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>
-                  {savingSeo ? "Guardando…" : "Guardar SEO"}
-                </Text>
-              </Pressable>
-            </View>
-
-            {/* Nota final como texto suelto centrado, sin recuadro decorativo. */}
-            <View style={{ alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
-              <Ionicons name="information-circle-outline" size={16} color={COLORS.muted2} />
-              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                Los cambios se aplican al momento, sin esperar a un nuevo despliegue: Google los
-                recogerá la próxima vez que visite la tienda (normalmente, en pocos días).
-              </Text>
-            </View>
-          </View>
           </ScrollView>
         </KeyboardAvoidingView>
       )}
