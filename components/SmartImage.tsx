@@ -27,6 +27,8 @@
  * tamaño justo del optimizador) y además loading="lazy", decoding="async" y fetchpriority: la foto con priority="high"
  * (la primera visible de cada pantalla) se pide ya y con prioridad; las demás, solo al acercarse a la pantalla (ver
  * FotoWeb y MARGEN_CERCA). En el móvil y la tableta nativos sigue siendo expo-image.
+ * onFallo (opcional): avisa si la foto no se ha podido cargar ni en su versión original (Usuarios y la ficha del cliente
+ * vuelven entonces a las iniciales).
  * Si no hay URL (uri vacío/null/undefined), no pinta nada — igual que antes
  * hacían las pantallas que envolvían su <Image> en `{p.imageUrl ? ... : ...}`.
  *
@@ -95,6 +97,8 @@ export type SmartImageProps = {
   priority?: ImagePriority;
   /** Al cargar, el tamaño real de la foto en px (el visor lo usa para saber hasta dónde se puede mover). */
   onTamano?: (ancho: number, alto: number) => void;
+  /** La foto no se ha podido cargar (ni la original): quien la pinta puede enseñar otra cosa (p. ej. las iniciales). */
+  onFallo?: () => void;
 };
 
 // En la web (carga rápida, mejora 7 del 2026-11-14) la foto es un <img> del navegador, para poder decirle lo que expo-image
@@ -219,6 +223,7 @@ export default function SmartImage({
   ancho,
   priority = "normal",
   onTamano,
+  onFallo,
 }: SmartImageProps) {
   // Si la versión optimizada falla, se vuelve a la foto original.
   const [usarOriginal, setUsarOriginal] = useState(false);
@@ -276,6 +281,7 @@ export default function SmartImage({
         onFin={handleLoadEnd}
         onFallo={() => {
           if (origen !== uri) setUsarOriginal(true);
+          else onFallo?.();
         }}
       />
     );
@@ -297,6 +303,7 @@ export default function SmartImage({
       onLoadEnd={handleLoadEnd}
       onError={() => {
         if (origen !== uri) setUsarOriginal(true);
+        else onFallo?.();
       }}
     />
   );

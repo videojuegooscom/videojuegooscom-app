@@ -26,6 +26,11 @@
  *    @usuario · provincia (país) · edad · CP, correo, alta y «Última conexión
  *    hace…», etiquetas (Perfil completo / Faltan… / App / Con dirección) y su
  *    participación en una línea; al tocarla, su ficha.
+ *    PEDIDOS Y FOTO (dueño, 2026-11-16): el círculo enseña la foto de «Mi perfil» (perfiles_cliente.foto_url, recortada;
+ *    sin foto o si no carga, las iniciales) y la línea de participación añade «2 pedidos · 1.465,00 €» (pedidos.user_id,
+ *    UNA consulta para todos): pedidos que no están cancelados ni son de prueba y lo gastado con la regla de Ingresos de
+ *    Pedidos (lib/envio.ts → cobradoDeVerdad). Pastilla «Con pedidos (N)» que filtra y orden «Más gastado». Si la
+ *    consulta de pedidos falla, la fila se ve como antes.
  * 4) Participación: tarjetas con la cifra grande (Foro, chats de producto,
  *    valoración media, reseñas en 30 días, solicitudes de venta y de servicio,
  *    «Mis seguimientos» y números de seguimiento) y «Perfiles de clientes»
@@ -133,7 +138,8 @@
  * - app/admin/index.tsx → tarjeta "Usuarios y participación" que lleva aquí.
  * - app/admin/cliente/[userId].tsx → ficha de cliente a la que lleva cada fila.
  * - app/admin/_layout.tsx → registra esta ruta ("users") en el Stack.
- * - pruebas/perfil-datos.mjs → secciones UP (este diseño), E, F, M, ME, CO, DI, SE, C8, P, RE y DV.
+ * - lib/envio.ts → cobradoDeVerdad e importeCobrado (dinero de verdad, igual que Ingresos de Pedidos).
+ * - pruebas/perfil-datos.mjs → secciones UP (este diseño), E, F, M, ME, CO, DI, SE, C8, P, RE, DV y USUFOT (foto y pedidos).
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -156,6 +162,7 @@ import SmartImage from "../../components/SmartImage";
 import { ORIGENES_MEJORA, SUGERENCIAS_RESENA, type OrigenMejora } from "../../components/ReviewModal";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/theme";
 import { direccionesDeFila, textoEtiqueta, type DireccionGuardada } from "../../components/PerfilPublico";
+import { cobradoDeVerdad, importeCobrado, type PedidoDinero } from "../../lib/envio";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 type Ancho = number | `${number}%`;
@@ -297,11 +304,12 @@ type UsoContrasena = {
 // Una idea de «Mejoras en la tienda» (tabla mejoras_tienda, migración 20261101200000_mejoras_tienda.sql).
 type MejoraRow = { id: string; user_id: string; created_at: string; texto: string; origen: OrigenMejora; leida: boolean; leida_en: string | null };
 
-type SortMode = "recent" | "participation" | "conexion";
+type SortMode = "recent" | "participation" | "conexion" | "gastado";
 const ORDENES: { id: SortMode; label: string }[] = [
   { id: "recent", label: "Alta más reciente" },
   { id: "participation", label: "Más participación" },
   { id: "conexion", label: "Última conexión" },
+  { id: "gastado", label: "Más gastado" },
 ];
 
 // Pestañas (en la URL como ?tab=…).
@@ -380,6 +388,49 @@ function iniciales(nombre: string, email: string) {
   const partes = nombre.trim().split(/\s+/).filter(Boolean);
   const letras = partes.length ? partes.slice(0, 2).map((p) => p[0]) : [email.trim()[0] ?? "?"];
   return letras.join("").toUpperCase();
+}
+
+// Círculo de 44 px de cada fila: la foto de «Mi perfil» (perfiles_cliente.foto_url) recortada en círculo; sin foto, o si
+// no se puede cargar, las iniciales.
+function FotoCliente({ userId, foto, nombre, email }: { userId: string; foto: string; nombre: string; email: string }) {
+  const [fallo, setFallo] = useState(false);
+  useEffect(() => setFallo(false), [foto]);
+  const conFoto = !!foto && !fallo;
+  return (
+    <View
+      nativeID={`cliente-foto-${userId}`}
+      style={{ width: 44, height: 44, borderRadius: 22, overflow: "hidden", backgroundColor: COLORS.accent2, alignItems: "center", justifyContent: "center" }}
+    >
+      {conFoto ? (
+        <SmartImage uri={foto} alt={`Foto de ${nombre || email || "cliente"}`} contentFit="cover" onFallo={() => setFallo(true)} style={{ width: 44, height: 44 }} />
+      ) : (
+        <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{iniciales(nombre, email)}</Text>
+      )}
+    </View>
+  );
+}
+
+// Pedidos y dinero de cada cliente. Pedidos: los que no están cancelados ni son de prueba. Gastado: lo cobrado de verdad
+// (la misma regla que Ingresos en Pedidos: pagado online real, venta en tienda o entregado; sin pruebas, cancelados,
+// dobles ventas ni devueltos).
+type Compras = { pedidos: number; gastado: number };
+function comprasPorCliente(filas: (PedidoDinero & { user_id?: string | null })[]): Record<string, Compras> {
+  const mapa: Record<string, Compras> = {};
+  for (const p of filas) {
+    const id = String(p.user_id ?? "");
+    if (!id) continue;
+    const c = (mapa[id] ??= { pedidos: 0, gastado: 0 });
+    if (p.estado !== "cancelado" && p.pago_modo !== "prueba") c.pedidos += 1;
+    if (cobradoDeVerdad(p)) c.gastado += importeCobrado(p);
+  }
+  return mapa;
+}
+
+// Importe con dos decimales, coma decimal y miles con punto («1.465,00 €»).
+function fmtEUR(n: number) {
+  const cents = Math.round((Number.isFinite(n) ? n : 0) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec} €`;
 }
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
@@ -681,6 +732,9 @@ export default function AdminUsers() {
   // Quién entra con la app instalada en alguno de sus dispositivos.
   const [conApp, setConApp] = useState<Set<string>>(() => new Set());
   const [soloActivos, setSoloActivos] = useState(false);
+  // Pedidos y dinero gastado de cada cliente (tabla pedidos). null = no se han podido leer: la fila se ve como antes.
+  const [compras, setCompras] = useState<Record<string, Compras> | null>(null);
+  const [soloConPedidos, setSoloConPedidos] = useState(false);
   const [desplegado, setDesplegado] = useState<Desplegable>(null);
 
   // Perfiles de los clientes (nombre, usuario, país, provincia y edad) y filtros. `perfilesOk` = la tabla existe
@@ -978,6 +1032,14 @@ export default function AdminUsers() {
         setConApp(app);
       }
 
+      // Pedidos y dinero de cada cliente (pedidos.user_id), en UNA consulta para todos. El dinero, con la regla de Ingresos
+      // de Pedidos (lib/envio.ts → cobradoDeVerdad). Si faltan columnas nuevas se pide lo básico; si falla, no sale nada.
+      const COLUMNAS_PEDIDOS = "user_id,estado,total_eur,pago_estado,pago_modo,pagado_eur,devuelto_en,origen,doble_venta_en";
+      const pedirPedidos = (columnas: string) => supabase.from("pedidos").select(columnas).not("user_id", "is", null).limit(5000);
+      let pedidosRes: { data: unknown; error: unknown } = await pedirPedidos(COLUMNAS_PEDIDOS);
+      if (pedidosRes.error) pedidosRes = await pedirPedidos("user_id,estado,total_eur");
+      setCompras(pedidosRes.error || !Array.isArray(pedidosRes.data) ? null : comprasPorCliente(pedidosRes.data as (PedidoDinero & { user_id?: string | null })[]));
+
       if (usersRes.error) throw usersRes.error;
       if (sellRes.error) throw sellRes.error;
       if (serviceRes.error) throw serviceRes.error;
@@ -1107,13 +1169,14 @@ export default function AdminUsers() {
     return { conAlgo, completos, pendientes, conFoto, conDireccion, conTelefono, conVarias, porEtiqueta, porProvincia, porPais, porTramo, media };
   }, [users, perfiles]);
 
-  const hayFiltros = !!filtroProvincia || !!filtroPais || !!filtroTramo || !!filtroEstado || soloActivos;
+  const hayFiltros = !!filtroProvincia || !!filtroPais || !!filtroTramo || !!filtroEstado || soloActivos || soloConPedidos;
   const quitarFiltros = useCallback(() => {
     setFiltroProvincia(null);
     setFiltroPais(null);
     setFiltroTramo(null);
     setFiltroEstado(null);
     setSoloActivos(false);
+    setSoloConPedidos(false);
     setDesplegado(null);
   }, []);
 
@@ -1124,6 +1187,7 @@ export default function AdminUsers() {
     const filtered = users.filter((u) => {
       const p = perfiles[u.user_id];
       if (soloActivos && !esActivo(u, ultimaConexion, ahora)) return false;
+      if (soloConPedidos && compras && (compras[u.user_id]?.pedidos ?? 0) === 0) return false;
       if (filtroProvincia && p?.provincia !== filtroProvincia) return false;
       if (filtroPais && p?.pais !== filtroPais) return false;
       if (filtroEstado === "completo" && !perfilCompleto(p)) return false;
@@ -1144,11 +1208,20 @@ export default function AdminUsers() {
     const sorted = [...filtered].sort((a, b) => {
       if (sortMode === "participation") return totalParticipation(b) - totalParticipation(a);
       if (sortMode === "conexion") return (ultimaConexion?.[b.user_id] ?? "").localeCompare(ultimaConexion?.[a.user_id] ?? "");
+      if (sortMode === "gastado") {
+        const ca = compras?.[a.user_id];
+        const cb = compras?.[b.user_id];
+        const dif = (cb?.gastado ?? 0) - (ca?.gastado ?? 0) || (cb?.pedidos ?? 0) - (ca?.pedidos ?? 0);
+        if (dif) return dif;
+      }
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
 
     return sorted;
-  }, [users, perfiles, search, sortMode, filtroProvincia, filtroPais, filtroTramo, filtroEstado, soloActivos, ultimaConexion]);
+  }, [users, perfiles, search, sortMode, filtroProvincia, filtroPais, filtroTramo, filtroEstado, soloActivos, soloConPedidos, compras, ultimaConexion]);
+
+  // Clientes con al menos un pedido (no cancelado ni de prueba), para la pastilla «Con pedidos».
+  const nConPedidos = useMemo(() => (compras ? users.filter((u) => (compras[u.user_id]?.pedidos ?? 0) > 0).length : 0), [users, compras]);
 
   // Cuántos clientes se han conectado en los últimos 7 días y cuántos usan la app instalada (para las cifras y el
   // filtro). Sin los administradores, como en Analítica: su propia visita al panel no cuenta.
@@ -1209,7 +1282,7 @@ export default function AdminUsers() {
           : [];
   const tramoElegido = TRAMOS_EDAD.find((t) => t.id === filtroTramo);
   const ordenActual = ORDENES.find((o) => o.id === sortMode) ?? ORDENES[0];
-  const conFiltros = !!ultimaConexion || perfilesOk;
+  const conFiltros = !!ultimaConexion || perfilesOk || !!compras;
 
   const contenidoClientes = (
     <View nativeID="usuarios-contenido-clientes" style={{ gap: 12 }}>
@@ -1218,6 +1291,9 @@ export default function AdminUsers() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16 }}>
             <View nativeID="usuarios-filtros" style={{ flexDirection: "row", gap: TACTIL.separacion }}>
               {ultimaConexion ? <Chip label={`Activos 7 días (${activos7})`} activo={soloActivos} onPress={() => setSoloActivos((v) => !v)} /> : null}
+              {compras ? (
+                <Chip nativeID="usuarios-filtro-pedidos" label={`Con pedidos (${nConPedidos})`} activo={soloConPedidos} onPress={() => setSoloConPedidos((v) => !v)} />
+              ) : null}
               {perfilesOk ? (
                 <>
                   {(
@@ -1321,9 +1397,10 @@ export default function AdminUsers() {
           nativeID="usuarios-orden-menu"
           style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: isMobile ? "flex-start" : "flex-end", gap: TACTIL.separacion, borderRadius: 16, backgroundColor: COLORS.card, padding: 12 }}
         >
-          {ORDENES.filter((o) => o.id !== "conexion" || ultimaConexion).map((o) => (
+          {ORDENES.filter((o) => (o.id !== "conexion" || ultimaConexion) && (o.id !== "gastado" || compras)).map((o) => (
             <Chip
               key={o.id}
+              nativeID={`usuarios-orden-${o.id}`}
               label={o.label}
               activo={sortMode === o.id}
               onPress={() => {
@@ -1358,6 +1435,13 @@ export default function AdminUsers() {
               ["chatbubble-ellipses-outline", u.product_chats_count, u.product_chats_count === 1 ? "chat" : "chats", "chats de producto"],
               ["star-outline", u.store_reviews_count, u.store_reviews_count === 1 ? "reseña" : "reseñas", "reseñas"],
             ];
+            // Pedidos (no cancelados ni de prueba) y lo gastado de verdad; sin la consulta de pedidos, no sale.
+            const compra = compras ? compras[u.user_id] ?? { pedidos: 0, gastado: 0 } : null;
+            if (compra) {
+              const palabra = compra.pedidos === 1 ? "pedido" : "pedidos";
+              const importe = compra.pedidos > 0 ? fmtEUR(compra.gastado) : "";
+              datosParticipacion.push(["bag-handle-outline", compra.pedidos, importe ? `${palabra} · ${importe}` : palabra, importe ? `${palabra}, ${importe} gastados` : palabra]);
+            }
             return (
               <Pressable
                 key={u.user_id}
@@ -1375,13 +1459,7 @@ export default function AdminUsers() {
                   opacity: pressed ? 0.85 : 1,
                 })}
               >
-                <View style={{ width: 44, height: 44, borderRadius: 22, overflow: "hidden", backgroundColor: COLORS.accent2, alignItems: "center", justifyContent: "center" }}>
-                  {p?.foto_url ? (
-                    <SmartImage uri={p.foto_url} alt={`Foto de ${p.nombre || u.email || "cliente"}`} contentFit="cover" style={{ width: "100%", height: "100%" }} />
-                  ) : (
-                    <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{iniciales(nombre, u.email ?? "")}</Text>
-                  )}
-                </View>
+                <FotoCliente userId={u.user_id} foto={p?.foto_url ?? ""} nombre={nombre} email={u.email ?? ""} />
                 <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 8 }}>
                     <Text numberOfLines={1} style={{ flexShrink: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
@@ -1423,10 +1501,10 @@ export default function AdminUsers() {
                     {telefonoColumna && conTelefonoDePerfil(p) ? <Etiqueta icon="call-outline" texto="Con teléfono" color={COLORS.text} /> : null}
                     <View
                       accessibilityLabel={datosParticipacion.map(([, n, , largo]) => `${n} ${largo}`).join(", ")}
-                      style={{ flexDirection: "row", alignItems: "center", gap: 12, marginLeft: isMobile ? 0 : "auto" }}
+                      style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 12, rowGap: 4, maxWidth: "100%", marginLeft: isMobile ? 0 : "auto" }}
                     >
                       {datosParticipacion.map(([icono, n, corto]) => (
-                        <View key={icono} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <View key={icono} nativeID={icono === "bag-handle-outline" ? `cliente-pedidos-${u.user_id}` : undefined} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                           <Ionicons name={icono} size={15} color={n ? COLORS.accent : COLORS.muted} />
                           <Text style={{ color: n ? COLORS.text : COLORS.muted, fontWeight: n ? "900" : "700", fontSize: TAMANOS.minimo }}>
                             {n} {corto}

@@ -115,7 +115,9 @@ import {
   cargarAjustesFranjas,
   cargarSeguimientoPedidos,
   cargarTarifas,
+  cobradoDeVerdad,
   enlaceSeguimientoEnvio,
+  importeCobrado,
   fechaCortaEntrega,
   fechaHoyMadrid,
   nombreFranja,
@@ -323,14 +325,8 @@ const porPreparar = (p: Pedido) =>
 const faltaDevolver = (p: Pedido) => pagadoOnline(p) && !p.devuelto_en && (p.estado === "cancelado" || !!p.doble_venta_en);
 // En gris: cancelados y devueltos.
 const apagado = (p: Pedido) => p.estado === "cancelado" || !!p.devuelto_en;
-// Dinero de verdad (Ingresos): pagado online de verdad, venta en tienda o entregado (cobrado en la entrega); sin pruebas,
-// cancelados, dobles ventas ni devueltos.
-const cobradoDeVerdad = (p: Pedido) =>
-  !p.devuelto_en &&
-  p.estado !== "cancelado" &&
-  !p.doble_venta_en &&
-  ((pagadoOnline(p) && p.pago_modo !== "prueba") || enTienda(p) || (p.estado === "entregado" && !pagadoOnline(p)));
-const importeCobrado = (p: Pedido) => (pagadoOnline(p) ? Number(p.pagado_eur ?? p.total_eur ?? 0) : Number(p.total_eur ?? 0));
+// Dinero de verdad (Ingresos): cobradoDeVerdad e importeCobrado de lib/envio.ts (pagado online de verdad, venta en tienda
+// o entregado; sin pruebas, cancelados, dobles ventas ni devueltos). La misma regla cuenta lo gastado en Usuarios.
 
 function etiquetaEstado(p: Pedido) {
   if (p.devuelto_en) return ETIQUETAS.devuelto;
