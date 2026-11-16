@@ -183,6 +183,13 @@
  *    y no con un mando; sin cifras; abre Vender en modo cambio con «para comprar: …»; la solicitud se guarda marcada;
  *    Cotizaciones la marca y la filtra; Analítica cuenta mostrado/tocado/enviados; 360/390/1280; campos de 16 px.
  *    Se lanza con SOLO = CAMBC y en la pasada completa.
+ *  - VENFOT) Fotos y vídeo obligatorios en «Vender ahora» y autorrelleno (dueño, 2026-11-16): sin fotos, con 6 o sin vídeo
+ *    el botón no envía (dice qué falta y se mide vender_sin_media); un vídeo de 15 s o de 35 s, o sin duración medible, se
+ *    rechaza con su aviso; con 7 fotos y un vídeo de 25 s se envía y se suben 8 archivos; si la subida falla, se dice y
+ *    «Reintentar la subida» sube solo los que faltan; con sesión se rellenan nombre, apellido, ciudad y el Gmail (nunca la
+ *    casilla de edad, medido sin datos personales) y sin sesión nada; Cotizaciones con «Faltan fotos o vídeo» (etiqueta y
+ *    filtro con su recuento); Analítica con los dos eventos; 360/390/1280 sin desbordar y su control (un desborde puesto a
+ *    propósito se detecta). Datos FICTICIOS. Se lanza con SOLO = VENFOT y en la pasada completa.
  *  - VENDP) Un artículo único deja de venderse en cuanto se paga (fallo real del 2026-11-15): «Este artículo se acaba de
  *    vender» al guardar el pedido o al ir a pagar (sin Stripe, cesta intacta, medido sin datos personales); Pedidos con la
  *    doble venta avisada y filtrada y «Volver a poner a la venta» (44 px) solo donde toca; Productos «Vendido (pedido
@@ -18180,6 +18187,68 @@ async function seccionMOMB() {
   }
 }
 
+// ===== Fotos y vídeo de «Vender ahora» (obligatorios desde el 2026-11-16: de 7 a 10 fotos y un vídeo de 20 a 30 s) =====
+// Las usan CAMBC y VENFOT. Archivos falsos y pequeños (setFiles con buffers); la duración del vídeo se simula en la página:
+// components/SellRequestMedia.tsx la mide con un <video> oculto (onloadedmetadata + duration), así que se cambian «src» y
+// «duration» de HTMLMediaElement para que avise al momento con los segundos pedidos (0 = no se puede medir). Nada se sube:
+// rutasMediaVender apunta las subidas al almacén privado y las filas de sell_request_media (con `fallar`, las N primeras
+// subidas responden 500, como un corte de red).
+const PNG_1PX = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+async function rutasMediaVender(ctx, media) {
+  media.subidas = media.subidas ?? [];
+  media.filas = media.filas ?? [];
+  await ctx.route("**/storage/v1/object/sell-request-media/**", (r) => {
+    const q = r.request();
+    if (q.method() !== "POST") return r.fallback();
+    const ruta = decodeURIComponent(new URL(q.url()).pathname.split("/storage/v1/object/sell-request-media/")[1] ?? "");
+    if ((media.fallar ?? 0) > 0) {
+      media.fallar -= 1;
+      media.fallidas = (media.fallidas ?? 0) + 1;
+      return r.fulfill({ status: 500, contentType: "application/json", headers: CORS, body: JSON.stringify({ statusCode: "500", error: "fallo de prueba", message: "fallo de prueba" }) });
+    }
+    media.subidas.push(ruta);
+    return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify({ Key: `sell-request-media/${ruta}`, Id: `m${media.subidas.length}` }) });
+  });
+  await ctx.route("**/rest/v1/sell_request_media*", (r) => {
+    const q = r.request();
+    if (q.method() !== "POST") return r.fallback();
+    media.filas.push(...[].concat(JSON.parse(q.postData() ?? "[]")));
+    return r.fulfill({ status: 201, headers: CORS, body: "" });
+  });
+}
+async function adjuntarFotosVender(p, n, desde = 0) {
+  const archivos = Array.from({ length: n }, (_, i) => ({ name: `foto-${desde + i + 1}.png`, mimeType: "image/png", buffer: PNG_1PX }));
+  const [selector] = await Promise.all([p.waitForEvent("filechooser", { timeout: 10000 }).catch(() => null), p.locator("#vender-fotos-boton").click()]);
+  if (selector) await selector.setFiles(archivos);
+  await p.waitForTimeout(500);
+  return !!selector;
+}
+async function adjuntarVideoVender(p, segundos, nombre = "video.mp4") {
+  await p.evaluate((s) => {
+    window.__duracionVideoPrueba = s;
+    if (window.__duracionVideoInstalada) return;
+    window.__duracionVideoInstalada = true;
+    const proto = HTMLMediaElement.prototype;
+    const src = Object.getOwnPropertyDescriptor(proto, "src");
+    Object.defineProperty(proto, "duration", { configurable: true, get: () => window.__duracionVideoPrueba });
+    Object.defineProperty(proto, "src", {
+      configurable: true,
+      get() {
+        return src.get.call(this);
+      },
+      set(v) {
+        // Solo los vídeos elegidos (blob:) avisan al momento con la duración simulada; los demás, como siempre.
+        if (!String(v).startsWith("blob:")) return src.set.call(this, v);
+        setTimeout(() => this.onloadedmetadata?.(new Event("loadedmetadata")), 30);
+      },
+    });
+  }, segundos);
+  const [selector] = await Promise.all([p.waitForEvent("filechooser", { timeout: 10000 }).catch(() => null), p.locator("#vender-video-boton").click()]);
+  if (selector) await selector.setFiles({ name: nombre, mimeType: "video/mp4", buffer: Buffer.from("video de prueba") });
+  await p.waitForTimeout(500);
+  return !!selector;
+}
+
 // ===== CAMBC) Cambio de consola desde la cesta (mejora 13, 2026-11-15) ===============================================
 // app/(tabs)/cesta.tsx → LineaCambioConsola: sale bajo el resumen SOLO con una consola en la cesta o si el cliente con sesión
 // ya compró una (pedidos + pedido_items); con un mando no; texto sin cifras, 13-15 px, enlace azul de texto, 44 px de alto.
@@ -18350,6 +18419,11 @@ async function seccionCAMBC() {
         await p.waitForTimeout(300);
       }
       await p.getByPlaceholder("tunombre@gmail.com").fill("ana.prueba@gmail.com").catch(() => {});
+      // Fotos y vídeo obligatorios (2026-11-16): 7 fotos y un vídeo de 25 s, sin subir nada de verdad.
+      const media = {};
+      await rutasMediaVender(ctx, media);
+      await adjuntarFotosVender(p, 7);
+      await adjuntarVideoVender(p, 25);
       await p.getByText("Confirmo que soy mayor de 18 años").click();
       await p.waitForTimeout(4200);
       await p.getByText("Enviar Formulario").first().click();
@@ -18358,6 +18432,8 @@ async function seccionCAMBC() {
       const g = guardadas[0] ?? {};
       ok(String(g.motivo_venta ?? "").startsWith("[Cambio desde la cesta · para comprar: Playstation 5 Slim Con Lector] Quiero cambiarlo por otro artículo de la tienda: Playstation 5 Slim Con Lector"), `CAMBC: la solicitud se guarda marcada como cambio desde la cesta (${String(g.motivo_venta ?? "nada").slice(0, 160)})`);
       ok(g.articulo === "PS4 Pro 1 TB", `CAMBC: con la consola que entrega (${g.articulo})`);
+      await esperar(p, async () => media.filas.length >= 8);
+      ok(media.subidas.length === 8 && media.filas.length === 8, `CAMBC: con sus 7 fotos y su vídeo (${media.subidas.length} subidas, ${media.filas.length} filas)`);
       await esperar(p, async () => evento(estado, "cambio_cesta_enviado").length > 0);
       ok(JSON.stringify(evento(estado, "cambio_cesta_enviado").map((e) => e.metadata)) === '[{"con_referencia":true}]', `CAMBC: se mide cambio_cesta_enviado sin datos personales (${JSON.stringify(evento(estado, "cambio_cesta_enviado").map((e) => e.metadata))})`);
     }
@@ -18450,6 +18526,314 @@ async function seccionCAMBC() {
     await p.locator("#analitica-cambio-cesta").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, `CAMBC6-analitica-${nombre}`);
     ok(p.errores.length === 0, `CAMBC6 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
+// ===== VENFOT) Fotos y vídeo obligatorios en «Vender ahora» y autorrelleno (dueño, 2026-11-16) =========================
+// components/VenderAhoraModal.tsx y components/SellRequestMedia.tsx: de 7 a 10 fotos y un vídeo de 20 a 30 s cuentan para
+// el % y sin ellos no se envía (al tocar con todo lo demás listo, dice qué falta y se mide vender_sin_media); un vídeo de
+// 15 s, de 35 s o sin duración medible se rechaza con su aviso; con 7 fotos y 25 s se envía y se suben 8 archivos; si la
+// subida falla, la confirmación lo dice y «Reintentar la subida» sube solo los que faltan. Con sesión se rellenan solos
+// nombre, apellido, ciudad y el Gmail (vender_autorrelleno con cuántos campos; nunca la casilla de edad); sin sesión,
+// nada. Cotizaciones: etiqueta y filtro «Faltan fotos o vídeo»; Analítica: los dos eventos. 360/390/1280 sin desbordar y
+// su control. Todo simulado (migración 20261116160000 solo cambia el texto de las políticas). ============================
+async function seccionVENFOT() {
+  const GMAIL = { ...CLIENTE, id: "22222222-2222-4222-8222-222222222222", email: "ana.prueba@gmail.com", user_metadata: { full_name: "Ana" } };
+  const perfil = [{ user_id: GMAIL.id, nombre: "Ana García López", usuario: "ana_g", pais: "España", provincia: "Zaragoza", localidad: "Cuarte de Huerva", fecha_nacimiento: "1990-05-02" }];
+  const nuevoEstado = () => ({ filas: perfil, guardados: [], aceptaAnalitica: true });
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  // Sin los iconos (letras de uso privado de Ionicons), como PANRED4.
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/\p{Co}/gu, "").replace(/\s+/g, " ").trim()).catch(() => "");
+  const cuerpo = (p) => p.evaluate(() => document.body.innerText).then((t) => t.replace(/\p{Co}/gu, "").replace(/\s+/g, " ")).catch(() => "");
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !(await cond()); i++) await p.waitForTimeout(250);
+  };
+  const valor = (p, ph) => p.getByPlaceholder(ph).first().inputValue({ timeout: 3000 }).catch(() => "x");
+  const sinDatos = (estado) => !/Ana|García|Cuarte|gmail|ana_g/.test(JSON.stringify(evento(estado, "vender_autorrelleno").concat(evento(estado, "vender_sin_media")).map((e) => e.metadata)));
+  const preparar = async (ctx, guardadas) => {
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.setItem("videojuegoszaragoza:blue_consejos_off", "1");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    await ctx.route("**/rest/v1/sell_requests*", (r) => {
+      const q = r.request();
+      if (q.method() !== "POST") return r.fallback();
+      guardadas.push(JSON.parse(q.postData() ?? "{}"));
+      return r.fulfill({ status: 201, headers: CORS, body: "" });
+    });
+    await ctx.route("**/rest/v1/rpc/get_or_create_sell_request_chat*", (r) =>
+      r.request().method() === "OPTIONS" ? r.fallback() : r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify("f0000000-0000-4000-8000-0000000009f1") })
+    );
+    await ctx.route("**/rest/v1/product_chat_messages*", (r) => (r.request().method() === "POST" ? r.fulfill({ status: 201, headers: CORS, body: "" }) : r.fallback()));
+  };
+  // Todo lo obligatorio menos las fotos y el vídeo (lo que ya esté escrito, p. ej. autorrellenado, se deja).
+  const rellenarResto = async (p) => {
+    const poner = async (ph, v) => {
+      const c = p.getByPlaceholder(ph).first();
+      if (!(await c.inputValue().catch(() => "")).trim()) await c.fill(v);
+    };
+    await poner("Tu nombre", "Luis");
+    await poner("Tu apellido", "Pérez");
+    await p.getByPlaceholder("Ej: PlayStation 5 con dos mandos").fill("PS4 Pro 1 TB");
+    await poner("Ej: Zaragoza", "Zaragoza");
+    await p.getByPlaceholder("Ej: 150€").fill("120€");
+    const ELEGIR = ["Masculino", "Sí", "Gmail", "Me desplazo a entregarlo", "Mañana"];
+    for (let i = 0; i < 8; i++) {
+      const boton = p.getByText("Elegir", { exact: true }).first();
+      if (!(await boton.isVisible().catch(() => false))) break;
+      await boton.click();
+      await p.waitForTimeout(300);
+      for (const op of [...ELEGIR]) {
+        const o = p.getByText(op, { exact: true }).last();
+        if (await o.isVisible().catch(() => false)) {
+          await o.click();
+          ELEGIR.splice(ELEGIR.indexOf(op), 1);
+          break;
+        }
+      }
+      await p.waitForTimeout(300);
+    }
+    await p.getByPlaceholder("Ej: ya no lo uso, cambio de consola...").fill("Ya no lo uso").catch(() => {});
+    if (await p.getByPlaceholder("tunombre@gmail.com").isVisible().catch(() => false)) await poner("tunombre@gmail.com", "luis.prueba@gmail.com");
+    await p.getByText("Confirmo que soy mayor de 18 años").click();
+    await p.waitForTimeout(300);
+  };
+  // El botón desactivado no se puede pulsar: se intenta igual (force) y se mira que no se guarde nada.
+  const pulsarEnviar = async (p) => {
+    await p.locator("#vender-enviar").click({ force: true, timeout: 3000 }).catch(() => {});
+    await p.waitForTimeout(700);
+  };
+
+  // VENFOT1) 390 con sesión: autorrelleno (sin la casilla de edad), sin fotos / con 6 / sin vídeo no envía, vídeos de 15 s,
+  // 35 s y sin duración rechazados con su aviso, y con 7 fotos y 25 s se envía y se suben 8 archivos.
+  {
+    const estado = nuevoEstado();
+    const guardadas = [];
+    const media = {};
+    const ctx = await contexto(navegador, GMAIL, "user", estado);
+    await preparar(ctx, guardadas);
+    await rutasMediaVender(ctx, media);
+    const p = await pagina(ctx, "/vender");
+    const relleno = await p.locator("#vender-autorrelleno").waitFor({ timeout: 40000 }).then(() => true, () => false);
+    ok(relleno && (await texto(p, "#vender-autorrelleno")) === "Hemos rellenado tus datos de tu cuenta. Revísalos antes de enviar.", `VENFOT: con sesión sale «Hemos rellenado tus datos…» (${await texto(p, "#vender-autorrelleno")})`);
+    const datos = [await valor(p, "Tu nombre"), await valor(p, "Tu apellido"), await valor(p, "Ej: Zaragoza"), await valor(p, "tunombre@gmail.com")];
+    ok(JSON.stringify(datos) === '["Ana","García López","Cuarte de Huerva","ana.prueba@gmail.com"]', `VENFOT: se rellenan nombre, apellido, ciudad y el Gmail de la cuenta (${datos.join(" · ")})`);
+    // 5 de 15 pasos (nombre, apellido, ciudad, contacto y su correo): con la casilla de edad marcada serían 6 (40 %).
+    ok(/33% completado/.test(await texto(p, "#vender-enviar")), `VENFOT: la casilla de mayor de 18 no se marca sola (${await texto(p, "#vender-enviar")})`);
+    await esperar(p, async () => evento(estado, "vender_autorrelleno").length > 0);
+    ok(JSON.stringify(evento(estado, "vender_autorrelleno").map((e) => e.metadata)) === '[{"campos":4}]', `VENFOT: se mide vender_autorrelleno una vez con cuántos campos (${JSON.stringify(evento(estado, "vender_autorrelleno").map((e) => e.metadata))})`);
+    const t0 = await cuerpo(p);
+    ok(/Fotos del artículo \(mínimo 7, máximo 10\)/.test(t0) && /Vídeo del artículo \(de 20 a 30 segundos\)/.test(t0) && !/\(opcional\)/.test(t0), "VENFOT: los títulos «Fotos del artículo (mínimo 7, máximo 10)» y «Vídeo del artículo (de 20 a 30 segundos)», sin «(opcional)»");
+    ok((await texto(p, "#vender-fotos-boton")) === "Añadir fotos (0/10)" && (await texto(p, "#vender-video-boton")) === "Añadir vídeo (20-30 s)", `VENFOT: los botones (${await texto(p, "#vender-fotos-boton")} · ${await texto(p, "#vender-video-boton")})`);
+    await capturar(p, "VENFOT1-autorrelleno-390");
+
+    await rellenarResto(p);
+    await p.waitForTimeout(4200);
+    ok(/87% completado/.test(await texto(p, "#vender-enviar")), `VENFOT: sin fotos ni vídeo el formulario no llega al 100 % (${await texto(p, "#vender-enviar")})`);
+    await pulsarEnviar(p);
+    ok(guardadas.length === 0 && /Para enviarlo añade al menos 7 fotos y un vídeo de 20 a 30 segundos/.test(await cuerpo(p)), `VENFOT: sin fotos ni vídeo no envía y dice qué falta (${guardadas.length})`);
+    await capturar(p, "VENFOT1-sin-media-390");
+
+    await adjuntarFotosVender(p, 6);
+    ok((await texto(p, "#vender-fotos-boton")) === "Añadir fotos (6/10)" && (await texto(p, "#vender-fotos-faltan")) === "Te falta 1 foto para llegar al mínimo de 7.", `VENFOT: con 6 fotos lo cuenta y dice cuántas faltan (${await texto(p, "#vender-fotos-boton")} · ${await texto(p, "#vender-fotos-faltan")})`);
+    await adjuntarVideoVender(p, 25);
+    ok((await texto(p, "#vender-video-boton")) === "Vídeo añadido (25 s)", `VENFOT: el vídeo de 25 s se añade (${await texto(p, "#vender-video-boton")})`);
+    await pulsarEnviar(p);
+    ok(guardadas.length === 0 && /Para enviarlo falta 1 foto \(mínimo 7\)/.test(await cuerpo(p)), `VENFOT: con 6 fotos no envía (${guardadas.length})`);
+
+    await p.locator('#vender-video [aria-label="Quitar"]').first().click();
+    await p.waitForTimeout(300);
+    await adjuntarFotosVender(p, 1, 6);
+    ok((await texto(p, "#vender-fotos-boton")) === "Añadir fotos (7/10)" && (await p.locator("#vender-fotos-faltan").count()) === 0, `VENFOT: con 7 fotos ya no falta ninguna (${await texto(p, "#vender-fotos-boton")})`);
+    await pulsarEnviar(p);
+    ok(guardadas.length === 0 && /Para enviarlo añade un vídeo de 20 a 30 segundos/.test(await cuerpo(p)), `VENFOT: sin vídeo no envía (${guardadas.length})`);
+
+    for (const [s, aviso] of [[15, "El vídeo debe durar entre 20 y 30 segundos. El que has elegido dura 15 s."], [35, "El vídeo debe durar entre 20 y 30 segundos. El que has elegido dura 35 s."], [0, "No hemos podido comprobar cuánto dura este vídeo."]]) {
+      await adjuntarVideoVender(p, s, `video-${s}.mp4`);
+      const a = await texto(p, "#vender-video-aviso");
+      ok(a.startsWith(aviso) && (await texto(p, "#vender-video-boton")) === "Añadir vídeo (20-30 s)", `VENFOT: un vídeo de ${s || "duración desconocida"} s se rechaza con su aviso (${a})`);
+      if (s === 15) await capturar(p, "VENFOT1-video-corto-390");
+    }
+    await adjuntarVideoVender(p, 25);
+    ok((await texto(p, "#vender-video-boton")) === "Vídeo añadido (25 s)" && !/completado/.test(await texto(p, "#vender-enviar")), `VENFOT: con 7 fotos y 25 s el formulario llega al 100 % (${await texto(p, "#vender-enviar")})`);
+    await esperar(p, async () => evento(estado, "vender_sin_media").length >= 3);
+    ok(JSON.stringify(evento(estado, "vender_sin_media").map((e) => e.metadata)) === '[{"fotos":0,"video":false},{"fotos":6,"video":true},{"fotos":7,"video":false}]', `VENFOT: cada intento sin fotos o vídeo se mide (${JSON.stringify(evento(estado, "vender_sin_media").map((e) => e.metadata))})`);
+    ok(sinDatos(estado), "VENFOT: la analítica no lleva datos de la persona");
+
+    await p.locator("#vender-enviar").click();
+    await esperar(p, async () => guardadas.length > 0, 40);
+    await esperar(p, async () => media.filas.length >= 8, 40);
+    const g = guardadas[0] ?? {};
+    ok(guardadas.length === 1 && g.nombre === "Ana" && g.apellido === "García López" && g.ciudad === "Cuarte de Huerva" && g.contacto === "ana.prueba@gmail.com" && g.mayor_edad === true, `VENFOT: con 7 fotos y un vídeo de 25 s se envía (${JSON.stringify({ n: guardadas.length, nombre: g.nombre, ciudad: g.ciudad })})`);
+    const fotos = media.filas.filter((f) => f.kind === "image");
+    const videos = media.filas.filter((f) => f.kind === "video");
+    ok(media.subidas.length === 8 && fotos.length === 7 && videos.length === 1 && videos[0]?.duration_seconds === 25, `VENFOT: se suben 8 archivos (7 fotos y el vídeo de 25 s) (${media.subidas.length} subidas · ${fotos.length}+${videos.length} filas)`);
+    ok(media.filas.every((f) => f.sell_request_id === g.id) && media.subidas.every((r) => r.startsWith(`${g.id}/`)) && JSON.stringify(media.filas.map((f) => f.sort_order).sort((a, b) => a - b)) === "[0,1,2,3,4,5,6,7]", "VENFOT: enlazados a su solicitud y en orden (fotos primero, el vídeo al final)");
+    await p.getByText("¡Formulario enviado!").first().waitFor({ timeout: 20000 }).catch(() => {});
+    ok((await p.getByText("¡Formulario enviado!").count()) > 0 && (await p.locator("#vender-media-fallo").count()) === 0, "VENFOT: la confirmación sale sin avisos de subida");
+    await capturar(p, "VENFOT1-enviado-390");
+    ok(p.errores.length === 0, `VENFOT1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VENFOT2) La subida falla en 2 de los 8 archivos: la confirmación lo dice y «Reintentar la subida» sube solo esos 2.
+  {
+    const estado = nuevoEstado();
+    const guardadas = [];
+    const media = { fallar: 2 };
+    const ctx = await contexto(navegador, GMAIL, "user", estado);
+    await preparar(ctx, guardadas);
+    await rutasMediaVender(ctx, media);
+    const p = await pagina(ctx, "/vender");
+    await p.locator("#vender-autorrelleno").waitFor({ timeout: 40000 }).catch(() => {});
+    await rellenarResto(p);
+    await adjuntarFotosVender(p, 7);
+    await adjuntarVideoVender(p, 25);
+    await p.waitForTimeout(4200);
+    await p.locator("#vender-enviar").click();
+    const fallo = await p.locator("#vender-media-fallo").waitFor({ timeout: 40000 }).then(() => true, () => false);
+    const tf = await texto(p, "#vender-media-fallo");
+    ok(fallo && guardadas.length === 1 && /No hemos podido subir 2 de tus 8 archivos\./.test(tf) && /Tu solicitud está guardada/.test(tf) && /Reintentar la subida \(2\)/.test(tf), `VENFOT: si la subida falla se dice claro y se ofrece reintentar (${tf})`);
+    ok(media.filas.length === 6, `VENFOT: los que sí subieron se guardan (${media.filas.length})`);
+    // La zona táctil es el Pressable que envuelve el texto (el primer antepasado que se puede enfocar).
+    const alto = await p.locator("#vender-media-reintentar").evaluate((e) => {
+      let n = e;
+      while (n && n.getAttribute("tabindex") !== "0" && n.getAttribute("role") !== "button") n = n.parentElement;
+      return Math.round((n ?? e).getBoundingClientRect().height);
+    }).catch(() => 0);
+    ok(alto >= 44, `VENFOT: «Reintentar la subida» mide 44 px (${alto})`);
+    await capturar(p, "VENFOT2-fallo-390");
+    await p.getByText("Reintentar la subida (2)").click();
+    const listo = await p.locator("#vender-media-ok").waitFor({ timeout: 30000 }).then(() => true, () => false);
+    ok(listo && media.filas.length === 8 && media.subidas.length === 8 && media.fallidas === 2, `VENFOT: el reintento sube solo los 2 que faltaban (${media.filas.length} filas · ${media.subidas.length} subidas)`);
+    ok((await p.locator("#vender-media-fallo").count()) === 0 && (await texto(p, "#vender-media-ok")) === "Listo: ya tenemos todas tus fotos y tu vídeo.", "VENFOT: y lo confirma");
+    await capturar(p, "VENFOT2-reintento-390");
+    ok(p.errores.filter((e) => !/fotos\/vídeo|archivo\(s\)/.test(e)).length === 0, `VENFOT2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VENFOT3) Sin sesión: no se rellena nada ni sale la línea, y no se mide el autorrelleno.
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, GMAIL, "user", estado);
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await pagina(ctx, "/vender");
+    await p.locator("#vender-fotos-boton").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(3000);
+    const datos = [await valor(p, "Tu nombre"), await valor(p, "Tu apellido"), await valor(p, "Ej: Zaragoza")];
+    ok((await p.locator("#vender-autorrelleno").count()) === 0 && datos.every((d) => d === "") && /0% completado/.test(await texto(p, "#vender-enviar")), `VENFOT: sin sesión no se rellena nada (${datos.join(" · ")} · ${await texto(p, "#vender-enviar")})`);
+    ok(evento(estado, "vender_autorrelleno").length === 0, "VENFOT: y no se mide el autorrelleno");
+    ok(p.errores.length === 0, `VENFOT3: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VENFOT4) Administración → Cotizaciones (390 y 1280): «Faltan fotos o vídeo» en la fila de las que tienen menos de 7
+  // fotos o no tienen vídeo, y su filtro con el recuento.
+  const SOLICITUD = (id, articulo) => ({
+    id, created_at: "2026-11-16T10:00:00Z", updated_at: "2026-11-16T10:00:00Z", nombre: "Ana", apellido: "García", articulo, funciona_bien: true, motivo_venta: "Ya no la uso",
+    descripcion_problema: null, ciudad: "Zaragoza", precio_estimado: "120€", metodo_contacto: "gmail", contacto: "ana.prueba@gmail.com", opcion_venta: "entrega", direccion: null,
+    disponibilidad: "manana", mayor_edad: true, genero: "femenino", status: "nuevo",
+  });
+  const S1 = "b0000000-0000-4000-8000-0000000009f1";
+  const S2 = "b0000000-0000-4000-8000-0000000009f2";
+  const S3 = "b0000000-0000-4000-8000-0000000009f3";
+  const fila = (sid, kind, i) => ({ id: `${sid.slice(-3)}-${kind}-${i}`, sell_request_id: sid, kind, storage_path: `${sid}/${i}.${kind === "video" ? "mp4" : "jpg"}`, file_name: `${i}.${kind === "video" ? "mp4" : "jpg"}`, mime_type: kind === "video" ? "video/mp4" : "image/jpeg", size_bytes: 1000, duration_seconds: kind === "video" ? 25 : null, sort_order: i, created_at: "2026-11-16T10:00:00Z" });
+  const MEDIA = [...Array.from({ length: 7 }, (_, i) => fila(S1, "image", i)), fila(S1, "video", 7), ...Array.from({ length: 3 }, (_, i) => fila(S2, "image", i))];
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const estado = {
+      filas: [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }],
+      guardados: [],
+      tablas: { sell_requests: [SOLICITUD(S1, "PS5 Slim completa"), SOLICITUD(S2, "Xbox Series S con 3 fotos"), SOLICITUD(S3, "Switch Lite sin adjuntos")], sell_request_media: MEDIA },
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/cotizaciones");
+    await p.locator("#cotizaciones-filtro-faltan-media").waitFor({ timeout: 40000 }).catch(() => {});
+    const filtro = await texto(p, "#cotizaciones-filtro-faltan-media");
+    ok(filtro === "Faltan fotos o vídeo (2)", `VENFOT (${nombre}): Cotizaciones tiene el filtro con su recuento (${filtro})`);
+    const altoFiltro = await p.locator("#cotizaciones-filtro-faltan-media").evaluate((e) => e.getBoundingClientRect().height).catch(() => 0);
+    ok(altoFiltro >= 44, `VENFOT (${nombre}): el filtro mide 44 px (${altoFiltro})`);
+    const marcas = [S1, S2, S3].map((s) => p.locator(`#cotizacion-faltan-media-${s}`).count());
+    const [m1, m2, m3] = await Promise.all(marcas);
+    ok(m1 === 0 && m2 === 1 && m3 === 1 && (await texto(p, `#cotizacion-faltan-media-${S2}`)) === "Faltan fotos o vídeo", `VENFOT (${nombre}): la etiqueta sale en la de 3 fotos y en la que no tiene nada, no en la completa (${m1}/${m2}/${m3})`);
+    await p.locator("#cotizaciones-filtro-faltan-media").click();
+    await p.waitForTimeout(500);
+    ok((await p.getByText("PS5 Slim completa").count()) === 0 && (await p.getByText("Xbox Series S con 3 fotos").count()) > 0 && (await p.getByText("Switch Lite sin adjuntos").count()) > 0, `VENFOT (${nombre}): el filtro deja solo las que tienen fotos o vídeo pendientes`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `VENFOT (${nombre}): Cotizaciones no se ensancha (${d.a}/${d.v})`);
+    await capturar(p, `VENFOT4-cotizaciones-${nombre}`);
+    await p.locator("#cotizaciones-filtro-faltan-media").click();
+    await p.waitForTimeout(400);
+    ok((await p.getByText("PS5 Slim completa").count()) > 0, `VENFOT (${nombre}): al quitar el filtro vuelven todas`);
+    ok(p.errores.length === 0, `VENFOT4 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VENFOT5) Administración → Analítica (390 y 1280): «Vender ahora: autorrelleno y fotos (30 días)».
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    const ev = (n, metadata) => ({ event_name: n, metadata, created_at: new Date(Date.now() - 2 * 86400000).toISOString(), session_id: "x", step_label: n });
+    const estado = {
+      filas: [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }],
+      guardados: [],
+      embudo: [],
+      eventos: [ev("vender_autorrelleno", { campos: 4 }), ev("vender_autorrelleno", { campos: 4 }), ev("vender_autorrelleno", { campos: 2 }), ev("vender_sin_media", { fotos: 0, video: false }), ev("vender_sin_media", { fotos: 6, video: true })],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-vender-media").waitFor({ timeout: 40000 }).catch(() => {});
+    const a = await texto(p, "#analitica-vender-autorrelleno");
+    const b = await texto(p, "#analitica-vender-sin-media");
+    ok(a === "Autorrellenado 3 veces · 3,3 campos de media" && b === "Intentos sin fotos o vídeo 2", `VENFOT (${nombre}): Analítica cuenta el autorrelleno y los intentos sin fotos o vídeo (${a} · ${b})`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `VENFOT (${nombre}): Analítica no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#analitica-vender-media").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `VENFOT5-analitica-${nombre}`);
+    ok(p.errores.length === 0, `VENFOT5 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VENFOT6) 360, 390 y 1280: el formulario con 7 fotos y el vídeo no se sale por los lados; y su control (un desborde
+  // puesto a propósito se detecta y, al quitarlo, vuelve a caber).
+  for (const { nombre, vista } of VISTAS) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, GMAIL, "user", estado, vista);
+    await preparar(ctx, []);
+    const p = await pagina(ctx, "/vender");
+    await p.locator("#vender-autorrelleno").waitFor({ timeout: 40000 }).catch(() => {});
+    await adjuntarFotosVender(p, 7);
+    await adjuntarVideoVender(p, 25);
+    ok((await texto(p, "#vender-fotos-boton")) === "Añadir fotos (7/10)" && (await texto(p, "#vender-video-boton")) === "Vídeo añadido (25 s)", `VENFOT (${nombre}): 7 fotos y el vídeo añadidos`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `VENFOT (${nombre}): «Vender ahora» no se sale por los lados (${d.a}/${d.v})`);
+    await p.locator("#vender-video").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `VENFOT6-media-${nombre}`);
+    await p.evaluate(() => {
+      const x = document.createElement("div");
+      x.id = "control-venfot";
+      x.style.cssText = "width:2000px;height:10px;";
+      x.textContent = "Control VENFOT";
+      document.body.appendChild(x);
+    });
+    const mal = await sinDesborde(p);
+    await p.evaluate(() => document.getElementById("control-venfot")?.remove());
+    const bien = await sinDesborde(p);
+    ok(mal.a > mal.v + 1 && bien.a <= bien.v + 1, `VENFOT (${nombre}): el control falla cuando debe (desborde ${mal.a}/${mal.v} detectado; sin él, ${bien.a}/${bien.v})`);
+    ok(p.errores.length === 0, `VENFOT6 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
 }
@@ -20639,7 +21023,7 @@ async function seccionPANRED3() {
       const bb = await caja(p, "#cotizaciones-buscar-caja");
       ok(!!bb && bb.h >= 44 && (await letra(p, "#cotizaciones-buscar")) >= 16, `PANRED3 (${nombre}): Cotizaciones, el buscador de 16 px`);
       const pas = await pastillas(p, "#cotizaciones-filtros");
-      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Nuevas (1) · Revisadas (0) · Contactadas (1) · Descartadas (1) · Cambio desde la cesta (1)" && pas.every((x) => x.h >= 44), `PANRED3 (${nombre}): Cotizaciones, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Nuevas (1) · Revisadas (0) · Contactadas (1) · Descartadas (1) · Cambio desde la cesta (1) · Faltan fotos o vídeo (3)" && pas.every((x) => x.h >= 44), `PANRED3 (${nombre}): Cotizaciones, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
       const f1 = await texto(p, `#cotizacion-${S(1)}`);
       const alto = (await caja(p, `#cotizacion-fila-${S(1)}`))?.h ?? 0;
       ok(/PS4 Pro 1 TB Nueva/.test(f1) && /Ana García · Zaragoza · 120,00 ?€/.test(f1) && /1 adjunto/.test(f1) && alto >= 44 && alto <= 170, `PANRED3 (${nombre}): Cotizaciones, la fila compacta con artículo, estado, cliente, ciudad, precio y adjuntos (${f1} · ${alto} px)`);
@@ -22008,6 +22392,7 @@ try {
   if (SOLO === "PANRED2") await seccionPANRED2();
   if (SOLO === "PANRED3") await seccionPANRED3();
   if (SOLO === "PANRED4") await seccionPANRED4();
+  if (SOLO === "VENFOT") await seccionVENFOT();
   if (SOLO === "PANRED5") await seccionPANRED5();
   if (SOLO === "USUFOT") await seccionUSUFOT();
   if (SOLO === "PEDRED") await seccionPEDRED();
@@ -23141,6 +23526,7 @@ try {
   await seccionPANRED5();
   await seccionUSUFOT();
   await seccionCANCAV();
+  await seccionVENFOT();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

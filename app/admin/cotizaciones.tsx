@@ -19,6 +19,9 @@
  *   se desplaza, con su disponibilidad horaria).
  * - «Cambio desde la cesta» (mejora 13, 2026-11-15): las solicitudes que llegan de la línea de la cesta salen con su
  *   etiqueta («· para comprar: …») y tienen su filtro (#cotizaciones-filtro-cesta).
+ * - «Faltan fotos o vídeo» (2026-11-16, fotos y vídeo obligatorios en «Vender ahora»): las solicitudes con menos de 7
+ *   fotos o sin vídeo (antiguas o con una subida que falló) salen con esa etiqueta (#cotizacion-faltan-media-<id>) y
+ *   tienen su pastilla con recuento (#cotizaciones-filtro-faltan-media); solo si los adjuntos se han podido cargar.
  * - Filtro rápido por estado + buscador por nombre, artículo, ciudad o
  *   contacto.
  * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Categorías y
@@ -51,7 +54,7 @@
  *
  * Rendimiento: load() limita "sell_requests" a 200 filas y pide los
  * adjuntos de "sell_request_media" solo de esas solicitudes (.in) con su
- * propio límite de 200, para no crecer sin control con el tiempo.
+ * propio límite de 2200 (hasta 11 por solicitud), para no crecer sin control con el tiempo.
  *
  * Scroll: cabecera fija y compacta (volver + título centrado) y, debajo, todo en un único ScrollView (flex 1, margen
  * final 48 px + zona segura). El precio esperado, si el cliente escribió solo un número, se muestra como el resto de
@@ -60,12 +63,12 @@
  * Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
  * desde COLORES_TEXTO.secundario, botones y filtros de 44 px y el buscador de 16 px y 48 de alto.
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Linking, Modal, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { downloadSellRequestMedia, enlacesSellRequestMedia, type SellRequestMediaRow } from "../../components/SellRequestMedia";
+import { MIN_SELL_IMAGES, downloadSellRequestMedia, enlacesSellRequestMedia, type SellRequestMediaRow } from "../../components/SellRequestMedia";
 import {
   AdminHeader,
   AdminLoading,
@@ -315,6 +318,19 @@ export default function AdminCotizaciones() {
   const [mediaByRequest, setMediaByRequest] = useState<Record<string, SellRequestMediaRow[]>>({});
   const [downloadingMediaId, setDownloadingMediaId] = useState<string | null>(null);
   const [mediaErr, setMediaErr] = useState<string | null>(null);
+  // «Faltan fotos o vídeo» (2026-11-16, fotos y vídeo obligatorios en «Vender ahora»): menos de 7 fotos o sin vídeo
+  // (solicitudes antiguas o una subida que falló). Solo se marca si los adjuntos se han podido cargar.
+  const [mediaCargada, setMediaCargada] = useState(false);
+  const [soloFaltaMedia, setSoloFaltaMedia] = useState(false);
+  const faltaMedia = useCallback(
+    (r: SellRequestRow) => {
+      if (!mediaCargada) return false;
+      const lista = mediaByRequest[r.id] ?? [];
+      return lista.filter((m) => m.kind === "image").length < MIN_SELL_IMAGES || !lista.some((m) => m.kind === "video");
+    },
+    [mediaByRequest, mediaCargada]
+  );
+  const cuantasFaltaMedia = useMemo(() => items.filter(faltaMedia).length, [items, faltaMedia]);
 
   const cuenta = (f: FiltroEstado) => (f === "todas" ? items.length : items.filter((x) => x.status === f).length);
 
@@ -323,6 +339,7 @@ export default function AdminCotizaciones() {
     return items.filter((r) => {
       if (statusFilter !== "todas" && r.status !== statusFilter) return false;
       if (soloCesta && !marcaDe(r).desdeCesta) return false;
+      if (soloFaltaMedia && !faltaMedia(r)) return false;
       if (!q) return true;
 
       return (
@@ -333,7 +350,7 @@ export default function AdminCotizaciones() {
         String(r.contacto ?? "").toLowerCase().includes(q)
       );
     });
-  }, [items, q, statusFilter, soloCesta]);
+  }, [items, q, statusFilter, soloCesta, soloFaltaMedia, faltaMedia]);
 
   async function load() {
     setLoading(true);
@@ -360,6 +377,7 @@ export default function AdminCotizaciones() {
         const requestIds = rows.map((r) => r.id);
         if (!requestIds.length) {
           setMediaByRequest({});
+          setMediaCargada(true);
           return;
         }
 
@@ -369,7 +387,8 @@ export default function AdminCotizaciones() {
           .in("sell_request_id", requestIds)
           .order("sell_request_id", { ascending: true })
           .order("sort_order", { ascending: true })
-          .limit(200);
+          // Hasta 11 archivos por solicitud (10 fotos + 1 vídeo) de las 200 cargadas.
+          .limit(2200);
 
         if (mediaRes.error) throw mediaRes.error;
 
@@ -379,7 +398,9 @@ export default function AdminCotizaciones() {
           list.push(row);
         }
         setMediaByRequest(grouped);
+        setMediaCargada(true);
       } catch {
+        setMediaCargada(false);
         // La tabla puede no existir todavía (falta ejecutar la migración) o
         // el usuario puede no tener permisos; en cualquier caso, se listan
         // las solicitudes igualmente, solo sin sus archivos.
@@ -470,7 +491,7 @@ export default function AdminCotizaciones() {
     }
   }
 
-  const hayFiltro = statusFilter !== "todas" || soloCesta || !!q;
+  const hayFiltro = statusFilter !== "todas" || soloCesta || soloFaltaMedia || !!q;
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -533,6 +554,9 @@ export default function AdminCotizaciones() {
                 <Chip key={f} nativeID={`cotizaciones-filtro-${f}`} label={`${t} (${cuenta(f)})`} activo={statusFilter === f} onPress={() => setStatusFilter(f)} />
               ))}
               <Chip nativeID="cotizaciones-filtro-cesta" label={`Cambio desde la cesta (${cuantasCesta})`} activo={soloCesta} onPress={() => setSoloCesta((v) => !v)} />
+              {mediaCargada ? (
+                <Chip nativeID="cotizaciones-filtro-faltan-media" label={`Faltan fotos o vídeo (${cuantasFaltaMedia})`} activo={soloFaltaMedia} onPress={() => setSoloFaltaMedia((v) => !v)} />
+              ) : null}
             </FilaPastillas>
           </View>
 
@@ -566,6 +590,7 @@ export default function AdminCotizaciones() {
                   const marca = marcaDe(r);
                   const media = mediaByRequest[r.id] ?? [];
                   const abierta = desplegables.estaAbierta(r.id);
+                  const sinMedia = faltaMedia(r);
                   let imgCount = 0;
                   return (
                     <FilaLista
@@ -583,11 +608,12 @@ export default function AdminCotizaciones() {
                       subtitulo={`${r.nombre} ${r.apellido} · ${r.ciudad} · ${formatPrecioEstimado(r.precio_estimado)} · ${fecha(r.created_at)}`}
                       idSubtitulo={`cotizacion-datos-${r.id}`}
                       etiquetas={
-                        marca.desdeCesta || !r.funciona_bien || media.length || !r.mayor_edad ? (
+                        marca.desdeCesta || !r.funciona_bien || media.length || !r.mayor_edad || sinMedia ? (
                           <>
                             {marca.desdeCesta ? <Etiqueta nativeID={`cotizacion-cesta-${r.id}`} icon="swap-horizontal-outline" color={colorTextoAzul(13)} texto={textoCesta(marca.para)} /> : null}
                             {!r.funciona_bien ? <Etiqueta nativeID={`cotizacion-averia-${r.id}`} icon="construct-outline" color={COLORS.warning} texto="Presenta una avería" /> : null}
                             {media.length ? <Etiqueta nativeID={`cotizacion-adjuntos-${r.id}`} icon="images-outline" color={COLORS.text} texto={`${media.length} ${media.length === 1 ? "adjunto" : "adjuntos"}`} /> : null}
+                            {sinMedia ? <Etiqueta nativeID={`cotizacion-faltan-media-${r.id}`} icon="camera-outline" color={COLORS.warning} texto="Faltan fotos o vídeo" /> : null}
                             {!r.mayor_edad ? <Etiqueta icon="alert-circle-outline" color={COLORS.warning} texto="Mayoría de edad sin confirmar" /> : null}
                           </>
                         ) : undefined

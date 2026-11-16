@@ -100,6 +100,8 @@
  *   consejos_desactivados de components/Campanita.tsx; por momento, mostrados, seguidos y cerrados, y cuántos los apagaron.
  * - «Cambio de consola desde la cesta (30 días)» (#analitica-cambio-cesta, mejora 13 del 2026-11-15): cambio_cesta_mostrado
  *   y cambio_cesta_tocado (app/(tabs)/cesta.tsx) y cambio_cesta_enviado (components/VenderAhoraModal.tsx); solo recuentos.
+ * - «Vender ahora: autorrelleno y fotos (30 días)» (#analitica-vender-media, 2026-11-16): vender_autorrelleno (metadata
+ *   campos) y vender_sin_media de components/VenderAhoraModal.tsx; solo recuentos y la media de campos rellenados.
  * - «Vistos recientemente (30 días)» (#analitica-vistos, mejora 9 del 2026-11-14): eventos vistos_mostrado (n),
  *   visto_tocado (id y posición), visto_quitado y vistos_borrados de Inicio (components/CategoryProductsShelf.tsx →
  *   VistosRecientemente; solo ids); veces mostrado, toques, quitados/borrados y los 5 productos más revisitados.
@@ -1092,6 +1094,35 @@ export default function AdminAnalytics() {
       }
       const cuenta = (n: string) => (data as { event_name: string }[]).filter((f) => f.event_name === n).length;
       setCambioCesta({ mostrado: cuenta("cambio_cesta_mostrado"), tocado: cuenta("cambio_cesta_tocado"), enviados: cuenta("cambio_cesta_enviado") });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // «Vender ahora» con fotos y vídeo obligatorios (2026-11-16): en 30 días, veces que el formulario se rellenó solo con
+  // los datos de la cuenta (vender_autorrelleno, con cuántos campos) e intentos de enviarlo sin las fotos o el vídeo
+  // (vender_sin_media). Solo recuentos.
+  const [venderMedia, setVenderMedia] = useState<{ autorrelleno: number; mediaCampos: string; sinMedia: number } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const NOMBRES = ["vender_autorrelleno", "vender_sin_media"];
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data, error } = await supabase.from("analytics_events").select("event_name, metadata").in("event_name", NOMBRES).gte("created_at", desde).limit(5000);
+      if (!vivo) return;
+      if (error || !Array.isArray(data)) {
+        setVenderMedia(null);
+        return;
+      }
+      const filas = data as { event_name: string; metadata: Record<string, unknown> | null }[];
+      const auto = filas.filter((f) => f.event_name === "vender_autorrelleno");
+      const suma = auto.reduce((t, f) => t + (Number(f.metadata?.campos) || 0), 0);
+      setVenderMedia({
+        autorrelleno: auto.length,
+        mediaCampos: auto.length ? (suma / auto.length).toFixed(1).replace(".", ",") : "0",
+        sinMedia: filas.filter((f) => f.event_name === "vender_sin_media").length,
+      });
     })();
     return () => {
       vivo = false;
@@ -2531,6 +2562,25 @@ export default function AdminAnalytics() {
                 <View nativeID="analitica-cambio-cesta" style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10 }}>
                   <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                     Mostrado {cambioCesta.mostrado} · tocado {cambioCesta.tocado} · enviados {cambioCesta.enviados}
+                  </Text>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Vender ahora: autorrelleno y fotos (30 días)"
+              subtitle="Veces que el formulario «Vender ahora» se rellenó solo con los datos de la cuenta y de Mi perfil (y cuántos campos de media), e intentos de enviarlo sin las 7 fotos o sin un vídeo válido. Solo recuentos, sin datos de nadie; solo visitantes que aceptaron la analítica."
+            >
+              {!venderMedia ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se ha podido cargar el uso de «Vender ahora».</Text>
+              ) : (
+                <View nativeID="analitica-vender-media" style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, gap: 4 }}>
+                  <Text nativeID="analitica-vender-autorrelleno" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                    Autorrellenado {venderMedia.autorrelleno} {venderMedia.autorrelleno === 1 ? "vez" : "veces"}
+                    {venderMedia.autorrelleno > 0 ? ` · ${venderMedia.mediaCampos} campos de media` : ""}
+                  </Text>
+                  <Text nativeID="analitica-vender-sin-media" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                    Intentos sin fotos o vídeo {venderMedia.sinMedia}
                   </Text>
                 </View>
               )}
