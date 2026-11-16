@@ -1247,6 +1247,9 @@ async function esAdministrador(supabase: SupabaseClient, uid: string | null): Pr
   return data?.role === "admin";
 }
 
+// Referencia de una devolución de Stripe: «re_…» (tarjeta) o «pyr_…» (Klarna y otros métodos de pago).
+const REFERENCIA_DEVOLUCION = /^(re|pyr)_[A-Za-z0-9]+$/;
+
 // Devolver el pago entero de un pedido (botón de Administración → Pedidos). Solo el administrador; una sola vez.
 async function devolverPago(supabase: SupabaseClient, clave: string, modo: Modo, req: any, b: Record<string, unknown>) {
   if (!(await esAdministrador(supabase, await usuarioDeLaPeticion(supabase, req)))) throw new Rechazo(403, "solo para administradores");
@@ -1270,7 +1273,9 @@ async function devolverPago(supabase: SupabaseClient, clave: string, modo: Modo,
     `vz-devolver-${p.id}`
   );
   const estado = String(r.datos?.status ?? "");
-  if (r.http !== 200 || !/^re_/.test(String(r.datos?.id ?? "")) || !["succeeded", "pending"].includes(estado)) {
+  // Stripe numera «re_…» las devoluciones de tarjeta y «pyr_…» las de Klarna y otros métodos (fallo del pedido 5,
+  // 2026-11-16: Klarna devolvió el dinero y la tienda dijo que no).
+  if (r.http !== 200 || !REFERENCIA_DEVOLUCION.test(String(r.datos?.id ?? "")) || !["succeeded", "pending"].includes(estado)) {
     console.error("pago: Stripe no hizo la devolución", r.http, r.datos?.error?.code ?? "", estado);
     throw new Rechazo(502, r.datos?.error?.code === "charge_already_refunded" ? "Stripe dice que ese pago ya estaba devuelto" : "Stripe no ha podido hacer la devolución");
   }
@@ -1298,7 +1303,7 @@ async function apuntarDevolucionDeAviso(supabase: SupabaseClient, cargo: any) {
     .update({
       devuelto_eur: devuelto / 100,
       devuelto_en: new Date().toISOString(),
-      devolucion_referencia: typeof referencia === "string" && /^re_/.test(referencia) ? referencia : null,
+      devolucion_referencia: typeof referencia === "string" && REFERENCIA_DEVOLUCION.test(referencia) ? referencia : null,
     })
     .eq("pago_referencia", intento)
     .is("devuelto_en", null);
