@@ -29,11 +29,11 @@
  *   abajo (Marcar revisada, Marcar contactada, Descartar y borrar).
  * - El fondo oscuro semitransparente detrás del modal de confirmación de
  *   borrado se mantiene oscuro a propósito.
- * - Si el cliente adjuntó fotos/vídeo, el detalle muestra un botón
- *   "Descargar" por archivo (foto 1, foto 2..., vídeo). El bucket de
- *   Storage es privado a propósito: no hay galería ni previsualización
- *   embebida, cada archivo se descarga al dispositivo del admin uno a uno
- *   (ver components/SellRequestMedia.tsx → downloadSellRequestMedia()).
+ * - Si el cliente adjuntó fotos/vídeo, el detalle los ENSEÑA (dueño, 2026-11-16: «no me deja visualizar los archivos
+ *   multimedia»): miniaturas que abren la foto en grande y «Ver vídeo» en otra pestaña, con enlaces firmados de 10
+ *   minutos (GaleriaAdjuntos y components/SellRequestMedia.tsx → enlacesSellRequestMedia()); el almacén sigue privado.
+ *   Debajo sigue el botón «Descargar» por archivo (downloadSellRequestMedia()). Si no adjuntó nada, el bloque lo dice
+ *   («El cliente no adjuntó fotos ni vídeo», #cotizacion-sin-fotos-<id>), para no confundirlo con un fallo.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para leer/escribir solicitudes.
@@ -61,10 +61,11 @@
  * desde COLORES_TEXTO.secundario, botones y filtros de 44 px y el buscador de 16 px y 48 de alto.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Modal, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
+import { Image, Linking, Modal, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { downloadSellRequestMedia, type SellRequestMediaRow } from "../../components/SellRequestMedia";
+import { downloadSellRequestMedia, enlacesSellRequestMedia, type SellRequestMediaRow } from "../../components/SellRequestMedia";
 import {
   AdminHeader,
   AdminLoading,
@@ -107,6 +108,78 @@ const COLORS = {
   warning: "#92660B",
   danger: "#B91C1C",
 };
+
+// Las fotos y el vídeo de una solicitud, para VERLOS en el panel (dueño, 2026-11-16): miniaturas de 96 px que abren la
+// foto en grande; el vídeo se abre en otra pestaña. Los enlaces se firman al abrir el detalle (10 minutos).
+function GaleriaAdjuntos({ idSolicitud, media }: { idSolicitud: string; media: SellRequestMediaRow[] }) {
+  const [enlaces, setEnlaces] = useState<Record<string, string> | null>(null);
+  const [fallo, setFallo] = useState(false);
+  const [grande, setGrande] = useState<string | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    enlacesSellRequestMedia(media)
+      .then((e) => vivo && setEnlaces(e))
+      .catch(() => vivo && setFallo(true));
+    return () => {
+      vivo = false;
+    };
+  }, [media]);
+  if (fallo) return <Detalle color={COLORS.danger}>No se han podido cargar las fotos. Usa «Descargar» o vuelve a abrir la solicitud.</Detalle>;
+  if (!enlaces) return <Detalle>Cargando las fotos…</Detalle>;
+  let foto = 0;
+  return (
+    <View nativeID={`cotizacion-galeria-${idSolicitud}`} style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      {media.map((m) => {
+        const url = enlaces[m.storage_path];
+        if (!url) return null;
+        if (m.kind === "video") {
+          return (
+            <Pressable
+              key={m.id}
+              nativeID={`cotizacion-ver-video-${m.id}`}
+              accessibilityRole="button"
+              accessibilityLabel="Ver el vídeo"
+              onPress={() => Linking.openURL(url)}
+              style={{ width: 96, height: 96, borderRadius: 12, backgroundColor: "#0B2138", alignItems: "center", justifyContent: "center", gap: 4 }}
+            >
+              <Ionicons name="play-circle-outline" size={32} color="#FFFFFF" />
+              <Text style={{ color: "#FFFFFF", fontSize: TAMANOS.minimo, fontWeight: "800" }}>Ver vídeo</Text>
+            </Pressable>
+          );
+        }
+        foto += 1;
+        const n = foto;
+        return (
+          <Pressable
+            key={m.id}
+            nativeID={`cotizacion-ver-foto-${m.id}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Ver la foto ${n} en grande`}
+            onPress={() => setGrande(url)}
+            style={{ width: 96, height: 96, borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: COLORS.border, backgroundColor: "#F8FBFE" }}
+          >
+            <Image source={{ uri: url }} style={{ width: 96, height: 96 }} resizeMode="cover" />
+          </Pressable>
+        );
+      })}
+      <Modal visible={!!grande} transparent animationType="fade" onRequestClose={() => setGrande(null)}>
+        <Pressable
+          nativeID="cotizacion-foto-grande"
+          accessibilityRole="button"
+          accessibilityLabel="Cerrar la foto"
+          onPress={() => setGrande(null)}
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.85)", alignItems: "center", justifyContent: "center", padding: 16 }}
+        >
+          {grande ? <Image source={{ uri: grande }} style={{ width: "100%", height: "85%" }} resizeMode="contain" /> : null}
+          <View style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12 }}>
+            <Ionicons name="close-circle-outline" size={22} color="#FFFFFF" />
+            <Text style={{ color: "#FFFFFF", fontSize: TAMANOS.cuerpo, fontWeight: "800" }}>Cerrar</Text>
+          </View>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
 
 // Ancho máximo centrado para pantallas grandes (web/tablet); en móvil ocupa el 100%.
 const columnStyle = { width: "100%", maxWidth: 1160, alignSelf: "center" } as const;
@@ -580,7 +653,8 @@ export default function AdminCotizaciones() {
                         </Bloque>
                         {media.length ? (
                           <Bloque nativeID={`cotizacion-fotos-${r.id}`} icono="images-outline" titulo={`Fotos y vídeo adjuntos (${media.length})`} ancho="100%">
-                            <Detalle>Se descargan una a una al dispositivo (el almacén es privado).</Detalle>
+                            {abierta ? <GaleriaAdjuntos idSolicitud={r.id} media={media} /> : null}
+                            <Detalle>Toca una foto para verla en grande. También puedes descargarlas una a una.</Detalle>
                             <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 18, rowGap: 8 }}>
                               {media.map((m) => {
                                 const label = m.kind === "video" ? "Descargar vídeo" : `Descargar foto ${++imgCount}`;
@@ -596,7 +670,11 @@ export default function AdminCotizaciones() {
                               })}
                             </View>
                           </Bloque>
-                        ) : null}
+                        ) : (
+                          <Bloque nativeID={`cotizacion-fotos-${r.id}`} icono="images-outline" titulo="Fotos y vídeo" ancho="100%">
+                            <Detalle nativeID={`cotizacion-sin-fotos-${r.id}`}>El cliente no adjuntó fotos ni vídeo. Si las necesitas, pídeselas al contactar.</Detalle>
+                          </Bloque>
+                        )}
                       </DetalleFila>
                     </FilaLista>
                   );

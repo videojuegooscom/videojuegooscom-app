@@ -11,9 +11,9 @@
  * - El bucket de Storage "sell-request-media" es PRIVADO (no público como
  *   "product-media"): las fotos de un cliente no deben quedar accesibles
  *   por URL directa. Solo un admin autenticado puede leerlas, generando una
- *   URL firmada de 60 segundos en el momento de pulsar "Descargar" — por
- *   diseño no hay galería ni previsualización embebida en el panel admin,
- *   cada archivo se descarga al dispositivo uno a uno.
+ *   URL firmada de 60 segundos en el momento de pulsar "Descargar". Desde el
+ *   2026-11-16 el panel también los enseña (miniaturas y foto en grande) con
+ *   enlaces firmados de 10 minutos (enlacesSellRequestMedia), que caducan solos.
  * - Cada archivo sube a Storage y además crea una fila en la tabla
  *   "sell_request_media" (ver sql/sell_request_media.sql), enlazada a su
  *   "sell_requests" por sell_request_id — igual que "product_media" está
@@ -357,6 +357,23 @@ export async function uploadSellRequestMedia(
   if (failedCount > 0) {
     throw new Error(`${failedCount} de ${items.length} archivo(s) no se pudieron subir.`);
   }
+}
+
+/**
+ * Enlaces firmados (10 minutos) para VER los adjuntos en el panel sin descargarlos (dueño, 2026-11-16: «no me deja
+ * visualizar los archivos multimedia»). El almacén sigue siendo privado: solo un administrador puede firmarlos y el
+ * enlace caduca solo. Devuelve { storage_path: url } (los que no se puedan firmar, sin entrada).
+ */
+export async function enlacesSellRequestMedia(rows: SellRequestMediaRow[], segundos = 600): Promise<Record<string, string>> {
+  if (!rows.length) return {};
+  const { data, error } = await supabase.storage.from(SELL_MEDIA_BUCKET).createSignedUrls(
+    rows.map((r) => r.storage_path),
+    segundos
+  );
+  if (error || !data) throw error ?? new Error("No se pudieron preparar los adjuntos.");
+  const enlaces: Record<string, string> = {};
+  for (const d of data) if (d.path && d.signedUrl) enlaces[d.path] = d.signedUrl;
+  return enlaces;
 }
 
 /**
