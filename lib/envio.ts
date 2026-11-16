@@ -29,9 +29,12 @@
  * Preparando → Enviado → Entregado, o Cancelado / Pago devuelto) con la fecha REAL de cada uno o sin fecha, nunca inventada,
  * y enlaceSeguimientoEnvio convierte el número de Correos (o el enlace del transportista) en la dirección de «Seguir el envío».
  *
+ * Dinero de verdad de un pedido (2026-11-16): cobradoDeVerdad e importeCobrado, la regla de Ingresos de Pedidos, que
+ * también usa Usuarios para lo gastado por cada cliente.
+ *
  * Conectado con: app/(tabs)/cesta.tsx, app/checkout.tsx, app/admin/envios.tsx, app/admin/pedidos.tsx,
- * components/ContratarServicioModal.tsx, app/(tabs)/perfil.tsx, app/admin/services.tsx, app/producto/[id].tsx y
- * app/admin/cliente/[userId].tsx.
+ * components/ContratarServicioModal.tsx, app/(tabs)/perfil.tsx, app/admin/services.tsx, app/producto/[id].tsx,
+ * app/admin/cliente/[userId].tsx y app/admin/users.tsx.
  */
 import { supabase } from "./supabase";
 
@@ -801,4 +804,35 @@ export function enlaceSeguimientoEnvio(texto: string | null | undefined): string
   const n = t.replace(/[\s-]/g, "").toUpperCase();
   if (/^[A-Z0-9]{8,30}$/.test(n)) return `https://www.correos.es/es/es/herramientas/localizador/envios/detalle?tracking-number=${encodeURIComponent(n)}`;
   return null;
+}
+
+/** Lo que hace falta de un pedido para saber si es dinero de verdad (columnas de la tabla pedidos; las nuevas, opcionales). */
+export type PedidoDinero = {
+  estado?: string | null;
+  total_eur?: number | string | null;
+  pago_estado?: string | null;
+  pago_modo?: string | null;
+  pagado_eur?: number | string | null;
+  devuelto_en?: string | null;
+  origen?: string | null;
+  doble_venta_en?: string | null;
+};
+
+/**
+ * Dinero de verdad (Ingresos de app/admin/pedidos.tsx y «gastado» de cada cliente en app/admin/users.tsx): pagado online de
+ * verdad, venta en tienda o entregado (cobrado en la entrega); sin pruebas, cancelados, dobles ventas ni devueltos.
+ */
+export function cobradoDeVerdad(p: PedidoDinero): boolean {
+  const online = p.pago_estado === "pagado";
+  return (
+    !p.devuelto_en &&
+    p.estado !== "cancelado" &&
+    !p.doble_venta_en &&
+    ((online && p.pago_modo !== "prueba") || p.origen === "tienda_fisica" || (p.estado === "entregado" && !online))
+  );
+}
+
+/** Cuánto se cobró de un pedido: lo pagado online (o el total) o, si no se pagó online, el total. */
+export function importeCobrado(p: PedidoDinero): number {
+  return p.pago_estado === "pagado" ? Number(p.pagado_eur ?? p.total_eur ?? 0) : Number(p.total_eur ?? 0);
 }

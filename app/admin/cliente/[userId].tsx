@@ -675,6 +675,8 @@ export default function ClienteFicha() {
     // Hasta 3 direcciones (Casa, Trabajo, Familiar); null = sin la columna todavía (migración 20261114120000).
     direcciones: { id: string; etiqueta: string; linea: string; predeterminada: boolean }[] | null;
   } | null>(null);
+  // Dirección de la foto de perfil que no se ha podido cargar (entonces salen las iniciales).
+  const [fotoFallida, setFotoFallida] = useState<string | null>(null);
 
   // Dispositivos desde los que entra y su última conexión (tabla cliente_dispositivos). null = la tabla aún no existe.
   const [dispositivos, setDispositivos] = useState<DispositivoFicha[] | null>(null);
@@ -1156,9 +1158,13 @@ export default function ClienteFicha() {
                 {/* 1) Cabecera tipo tarjeta: quién es, desde cuándo y cuándo entró por última vez; y sus 4 cifras. */}
                 <View nativeID="ficha-cabecera" style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: 16, gap: 14 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
-                    <View style={{ width: 72, height: 72, borderRadius: 36, overflow: "hidden", backgroundColor: COLORS.accent2, alignItems: "center", justifyContent: "center" }}>
-                      {perfil?.foto ? (
-                        <SmartImage uri={perfil.foto} alt="Foto de perfil del cliente" contentFit="cover" style={{ width: "100%", height: "100%" }} />
+                    <View
+                      nativeID="ficha-foto"
+                      style={{ width: 72, height: 72, borderRadius: 36, overflow: "hidden", backgroundColor: COLORS.accent2, alignItems: "center", justifyContent: "center" }}
+                    >
+                      {/* La foto de «Mi perfil»; sin foto o si no se puede cargar, las iniciales. */}
+                      {perfil?.foto && fotoFallida !== perfil.foto ? (
+                        <SmartImage uri={perfil.foto} alt="Foto de perfil del cliente" contentFit="cover" onFallo={() => setFotoFallida(perfil.foto)} style={{ width: 72, height: 72 }} />
                       ) : (
                         <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 24 }}>{iniciales(nombre, email)}</Text>
                       )}

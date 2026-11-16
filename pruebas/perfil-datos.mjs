@@ -236,6 +236,11 @@
  *    Marca y SEO y Redes sociales (cifras de estado y bloques con su título) y Visitas y métricas (cifras arriba y bloques
  *    limpios); 360/390/1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px, sin errores y con su
  *    control. Datos FICTICIOS. Se lanza con SOLO = PANRED5 y en la pasada completa.
+ *  - USUFOT) Administración → Usuarios, pestaña Clientes: la foto de «Mi perfil» en el círculo de cada fila (sin foto o si
+ *    no carga, las iniciales) y «N pedidos · X €» junto al Foro, los chats y las reseñas con la regla de Ingresos (sin
+ *    pruebas, cancelados, dobles ventas ni devueltos); la pastilla «Con pedidos (N)», el orden «Más gastado» y, si falla la
+ *    consulta de pedidos, la fila como antes; 360/390/1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, con su
+ *    control. Datos FICTICIOS. Se lanza con SOLO = USUFOT y en la pasada completa.
  *  - RESEN) Reservar con señal (mejora 14): apagada, ni la ficha ni Mis seguimientos enseñan nada; Administración no deja
  *    activar sin reglas ni sin «Revisado por mi gestor» (borrador marcado, escala 1-70 %); activa, la ficha calcula el % y
  *    los € según los días, la casilla es obligatoria y «Pagar señal» solo manda artículo y días; sin cuenta invita; «Mis
@@ -12763,7 +12768,7 @@ async function seccionUP() {
     // UP3) Filas: foto o iniciales, nombre, resumen, correo, alta, «Última conexión hace…», etiquetas y participación.
     const dani = await fila(1);
     ok(
-      /^Dani @dani · Zaragoza \(España\) · \d+ años · CP 50410 Cuarte de Huerva dani@example\.com Alta 01\/10\/2026 · Perfil actualizado 30\/10\/2026 · Última conexión hace 2 h Perfil completo App Con dirección 3 en el Foro 0 chats 0 reseñas$/.test(dani) &&
+      /^Dani @dani · Zaragoza \(España\) · \d+ años · CP 50410 Cuarte de Huerva dani@example\.com Alta 01\/10\/2026 · Perfil actualizado 30\/10\/2026 · Última conexión hace 2 h Perfil completo App Con dirección 3 en el Foro 0 chats 0 reseñas 0 pedidos$/.test(dani) &&
         (await p.locator(`#usuario-${ID(1)} img[alt="Foto de Dani"]`).count()) === 1,
       `UP (${nombre}): la fila de Dani con su foto, resumen, correo, alta, última conexión, etiquetas y participación (${dani})`
     );
@@ -12777,7 +12782,7 @@ async function seccionUP() {
 
     // UP4) Filtros de la fila deslizable: «Activos 7 días» y los desplegables (que se repliegan al elegir y al volver a tocarlos).
     const filtros = p.locator("#usuarios-filtros");
-    ok(limpio(await filtros.innerText()) === "Activos 7 días (1) Perfil completo (2) Faltan datos (2) Con foto (1) Con dirección (1) Provincia Edad País", `UP (${nombre}): la fila de filtros (${limpio(await filtros.innerText())})`);
+    ok(limpio(await filtros.innerText()) === "Activos 7 días (1) Con pedidos (0) Perfil completo (2) Faltan datos (2) Con foto (1) Con dirección (1) Provincia Edad País", `UP (${nombre}): la fila de filtros (${limpio(await filtros.innerText())})`);
     await filtros.getByText("Activos 7 días (1)", { exact: true }).click();
     await p.waitForTimeout(250);
     ok((await filas()).join(",") === ID(1) && /^1 de 5 clientes/.test(limpio(await p.locator("#usuarios-total").innerText())), `UP (${nombre}): «Activos 7 días» deja solo a Dani y lo dice («1 de 5 clientes»)`);
@@ -21493,6 +21498,199 @@ async function seccionPANRED4() {
   }
 }
 
+// ===== USUFOT) Administración → Usuarios y participación, pestaña Clientes (dueño, 2026-11-16): en cada fila, la foto de
+// «Mi perfil» en el círculo (sin foto o si no carga, las iniciales) y «N pedidos · X €» junto al Foro, los chats y las
+// reseñas, con la regla de Ingresos de Pedidos (pagado online real, venta en tienda o entregado; sin pruebas, cancelados,
+// dobles ventas ni devueltos); la pastilla «Con pedidos (N)» que filtra y el orden «Más gastado»; si la consulta de pedidos
+// falla, la fila se ve como antes. 360, 390 y 1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, con su control
+// (un desborde y una letra de 10 px puestos a propósito se detectan). Datos FICTICIOS (nada llega a la base de datos real;
+// las fotos con /storage/v1/object/ las sustituye pruebas/sin-fotos-reales.mjs y la otra no carga a propósito). ===========
+async function seccionUSUFOT() {
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const ID = (n) => `0f000000-0000-4000-8000-00000000000${n}`;
+  const [ANA, BEA, CARLOS, DIEGO] = [ID(1), ID(2), ID(3), ID(4)];
+  const FOTO_ANA = `https://fotos.ejemplo.invalid/storage/v1/object/public/avatares/${ANA}/1.jpg`;
+  // Sin /storage/v1/object/: no la sustituye nadie y no carga (para ver que vuelven las iniciales).
+  const FOTO_ROTA = "https://fotos.ejemplo.invalid/sin-permiso/carlos.jpg";
+  const usuario = (id, email, dias, extra) => ({ user_id: id, email, role: "user", created_at: new Date(Date.now() - dias * 86_400_000).toISOString(), chat_messages_count: 0, product_chats_count: 1, store_reviews_count: 0, ...extra });
+  const USUARIOS = [
+    usuario(ANA, "ana.usufot@example.com", 1),
+    usuario(BEA, "bea.usufot@example.com", 2),
+    usuario(CARLOS, "carlos.usufot@example.com", 3),
+    usuario(DIEGO, "diego.usufot@example.com", 4),
+  ];
+  const perfil = (id, nombre, usuario, foto) => ({ user_id: id, nombre, usuario, pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1995-03-10", foto_url: foto, updated_at: "2026-11-10T10:00:00Z" });
+  const PERFILES = [
+    { user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" },
+    perfil(ANA, "Ana Foto", "ana_f", FOTO_ANA),
+    perfil(BEA, "Bea Soler", "bea_s", null),
+    perfil(CARLOS, "Carlos Díaz", "carlos_d", FOTO_ROTA),
+    perfil(DIEGO, "Diego Ruiz", "diego_r", null),
+  ];
+  const pedido = (user_id, extra) => ({ user_id, estado: "pendiente", total_eur: 0, pago_estado: null, pago_modo: null, pagado_eur: null, devuelto_en: null, origen: "web", doble_venta_en: null, ...extra });
+  const PEDIDOS = [
+    // Ana: uno pagado de verdad (cuenta), uno cancelado y uno de prueba (no cuentan) → «1 pedido · 1.465,00 €».
+    pedido(ANA, { estado: "confirmado", total_eur: 1465, pago_estado: "pagado", pago_modo: "real", pagado_eur: 1465 }),
+    pedido(ANA, { estado: "cancelado", total_eur: 200, pago_estado: "pagado", pago_modo: "real", pagado_eur: 200 }),
+    pedido(ANA, { estado: "confirmado", total_eur: 99, pago_estado: "pagado", pago_modo: "prueba", pagado_eur: 99 }),
+    // Carlos: uno entregado y cobrado en la entrega (50) y uno pagado y devuelto (300, no suma) → «2 pedidos · 50,00 €».
+    pedido(CARLOS, { estado: "entregado", total_eur: 50 }),
+    pedido(CARLOS, { estado: "confirmado", total_eur: 300, pago_estado: "pagado", pago_modo: "real", pagado_eur: 300, devuelto_en: "2026-11-12T10:00:00Z" }),
+    // Diego: una venta en tienda (80) y una doble venta (500, no suma) → «2 pedidos · 80,00 €».
+    pedido(DIEGO, { estado: "entregado", total_eur: 80, origen: "tienda_fisica" }),
+    pedido(DIEGO, { estado: "confirmado", total_eur: 500, pago_estado: "pagado", pago_modo: "real", pagado_eur: 500, doble_venta_en: "2026-11-13T10:00:00Z" }),
+  ];
+
+  // Los iconos (letra de iconos, rango privado de Unicode) fuera del texto.
+  const limpio = (t) => String(t ?? "").replace(/\p{Co}/gu, "").replace(/\s+/g, " ").trim();
+  const texto = async (p, sel) => limpio(await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => ""));
+  // Las filas de clientes en el orden en que salen (sin el círculo ni la línea de pedidos, que llevan el mismo prefijo).
+  const filas = (p) =>
+    p.evaluate(() => [...document.querySelectorAll('#usuarios-lista [id^="usuario-"]')].map((e) => e.id).filter((id) => !/^usuario-(foto|pedidos)-/.test(id)).map((id) => id.replace(/^usuario-/, "")));
+  const fotoDe = (p, id) => p.evaluate((s) => { const i = document.querySelector(`#cliente-foto-${s} img`); return i ? i.getAttribute("src") || i.getAttribute("data-src") || "" : ""; }, id);
+  const circulo = (p, id) => p.evaluate((s) => { const r = document.querySelector(`#cliente-foto-${s}`)?.getBoundingClientRect(); const cs = document.querySelector(`#cliente-foto-${s}`) ? getComputedStyle(document.querySelector(`#cliente-foto-${s}`)) : null; return r ? { w: Math.round(r.width), h: Math.round(r.height), radio: cs?.borderTopLeftRadius ?? "" } : null; }, id);
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily)) continue;
+        if (parseFloat(cs.fontSize) < 13) pequenos.push(`${t.slice(0, 30)} ${cs.fontSize}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[tabindex="0"]';
+      const deBlue = (el) => !!el.closest("#blue-flotante, #blue-mensaje") || /Blue/.test(el.getAttribute("aria-label") ?? "");
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && !deBlue(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      // La línea de pedidos de cada fila no se sale de su fila.
+      const fuera = [...document.querySelectorAll('[id^="cliente-pedidos-"]')]
+        .filter((el) => { const r = el.getBoundingClientRect(); const fila = el.closest('[role="button"]')?.getBoundingClientRect(); return !!fila && (r.right > fila.right + 1 || r.left < fila.left - 1); })
+        .map((el) => el.id);
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, fuera, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    });
+  const comprobarDiseno = async (p, nombre, momento) => {
+    const m = await medir(p);
+    ok(m.ancho <= m.v + 1 && !m.fuera.length, `USUFOT (${nombre}): ${momento}, la página no se sale por los lados y la línea de pedidos cabe en su fila (${m.ancho}/${m.v}; ${m.fuera.join(" | ") || "todas caben"})`);
+    ok(m.n >= 5 && !m.chicos.length, `USUFOT (${nombre}): ${momento}, todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+    ok(!m.pequenos.length, `USUFOT (${nombre}): ${momento}, ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+  };
+  // El control: con un recuadro de 2000 px y una letra de 10 px puestos a propósito, la medida TIENE que fallar.
+  const control = async (p, nombre) => {
+    await p.evaluate(() => {
+      const d = document.createElement("div");
+      d.id = "usufot-control";
+      d.style.cssText = "width:2000px;height:24px;font-size:10px;position:relative";
+      d.textContent = "Control USUFOT";
+      document.body.appendChild(d);
+    });
+    const m = await medir(p);
+    await p.evaluate(() => document.getElementById("usufot-control")?.remove());
+    const despues = await medir(p);
+    ok(m.ancho > m.v + 1 && m.pequenos.some((t) => /Control USUFOT/.test(t)) && despues.ancho <= despues.v + 1, `USUFOT (${nombre}): el control falla cuando debe (desborde ${m.ancho}/${m.v} y letra de 10 px detectados; sin ellos, ${despues.ancho}/${despues.v})`);
+  };
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `USUFOT: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`Clientes ${nombre}`, async () => {
+      const ctx = await contexto(navegador, ADMIN, "admin", { usuarios: USUARIOS, filas: PERFILES, guardados: [], tablas: { pedidos: PEDIDOS } }, vista);
+      const p = await pagina(ctx, "/admin/users");
+      await p.locator(`#usuario-${ANA}`).waitFor({ timeout: 40000 }).catch(() => {});
+      await p.locator(`#cliente-foto-${ANA} img`).waitFor({ timeout: 10000 }).catch(() => {});
+      await p.waitForTimeout(1200);
+
+      // 1) La foto en el círculo (con su dirección), redonda y de 44 px; sin foto o si no carga, las iniciales.
+      const c = await circulo(p, ANA);
+      ok((await fotoDe(p, ANA)) === FOTO_ANA && !!c && c.w === 44 && c.h === 44 && parseFloat(c.radio) >= 22, `USUFOT (${nombre}): Ana ve su foto en el círculo, recortada y de 44 px (${await fotoDe(p, ANA)} · ${JSON.stringify(c)})`);
+      ok((await texto(p, `#cliente-foto-${ANA}`)) === "", `USUFOT (${nombre}): con foto no salen las iniciales (${await texto(p, `#cliente-foto-${ANA}`) || "nada"})`);
+      ok((await texto(p, `#cliente-foto-${BEA}`)) === "BS" && (await p.locator(`#cliente-foto-${BEA} img`).count()) === 0, `USUFOT (${nombre}): Bea, sin foto, ve sus iniciales (${await texto(p, `#cliente-foto-${BEA}`)})`);
+      ok((await texto(p, `#cliente-foto-${CARLOS}`)) === "CD" && (await p.locator(`#cliente-foto-${CARLOS} img`).count()) === 0, `USUFOT (${nombre}): a Carlos no le carga la foto y vuelven sus iniciales (${await texto(p, `#cliente-foto-${CARLOS}`)})`);
+
+      // 2) Pedidos y dinero de verdad en la línea de participación.
+      const lineas = {
+        ana: await texto(p, `#cliente-pedidos-${ANA}`),
+        bea: await texto(p, `#cliente-pedidos-${BEA}`),
+        carlos: await texto(p, `#cliente-pedidos-${CARLOS}`),
+        diego: await texto(p, `#cliente-pedidos-${DIEGO}`),
+      };
+      ok(lineas.ana === "1 pedido · 1.465,00 €", `USUFOT (${nombre}): Ana, con uno pagado de verdad, uno cancelado y uno de prueba, «1 pedido · 1.465,00 €» (${lineas.ana})`);
+      ok(lineas.bea === "0 pedidos", `USUFOT (${nombre}): Bea, sin pedidos, «0 pedidos» como los demás en 0 (${lineas.bea})`);
+      ok(lineas.carlos === "2 pedidos · 50,00 €", `USUFOT (${nombre}): Carlos, el devuelto no suma: «2 pedidos · 50,00 €» y no 350 (${lineas.carlos})`);
+      ok(lineas.diego === "2 pedidos · 80,00 €", `USUFOT (${nombre}): Diego, la venta en tienda suma y la doble venta no: «2 pedidos · 80,00 €» (${lineas.diego})`);
+      const filaAna = await texto(p, `#usuario-${ANA}`);
+      ok(/0 en el Foro/.test(filaAna) && /1 chat/.test(filaAna) && /0 reseñas/.test(filaAna) && /1 pedido · 1\.465,00 €/.test(filaAna), `USUFOT (${nombre}): la línea de pedidos va junto al Foro, los chats y las reseñas (${filaAna.slice(-90)})`);
+      ok((await p.locator(`#cliente-pedidos-${ANA}`).first().evaluate((el) => !!el.querySelector("*") && [...el.querySelectorAll("*")].some((x) => /ionicons/i.test(getComputedStyle(x).fontFamily)))), `USUFOT (${nombre}): con su icono, como los demás`);
+      await comprobarDiseno(p, nombre, "la lista");
+      await control(p, nombre);
+      await capturar(p, `USUFOT-${nombre}-lista`);
+
+      // 3) La pastilla «Con pedidos (3)» filtra y el orden «Más gastado».
+      ok((await texto(p, "#usuarios-filtro-pedidos")) === "Con pedidos (3)", `USUFOT (${nombre}): la pastilla «Con pedidos (3)» (${await texto(p, "#usuarios-filtro-pedidos")})`);
+      await p.locator("#usuarios-filtro-pedidos").click();
+      await p.waitForTimeout(300);
+      const conPedidos = await filas(p);
+      ok(conPedidos.length === 3 && !conPedidos.includes(BEA) && (await p.locator("#usuarios-quitar-filtros").count()) === 1, `USUFOT (${nombre}): «Con pedidos» deja solo a los 3 con pedidos (${conPedidos.length})`);
+      await p.locator("#usuarios-filtro-pedidos").click();
+      await p.waitForTimeout(300);
+      ok((await filas(p)).length === 4, `USUFOT (${nombre}): otro toque lo quita (${(await filas(p)).length})`);
+      ok(JSON.stringify(await filas(p)) === JSON.stringify([ANA, BEA, CARLOS, DIEGO]), `USUFOT (${nombre}): por defecto, el alta más reciente primero`);
+      await p.locator("#usuarios-orden").click();
+      await p.locator("#usuarios-orden-gastado").waitFor({ timeout: 5000 });
+      await comprobarDiseno(p, nombre, "el orden desplegado");
+      await p.locator("#usuarios-orden-gastado").click();
+      await p.waitForTimeout(300);
+      const orden = await filas(p);
+      ok(JSON.stringify(orden) === JSON.stringify([ANA, DIEGO, CARLOS, BEA]) && /Más gastado/.test(await texto(p, "#usuarios-orden")), `USUFOT (${nombre}): «Más gastado» ordena 1.465 € · 80 € · 50 € · 0 € (${orden.map((id) => id.slice(-1)).join(",")})`);
+      await capturar(p, `USUFOT-${nombre}-mas-gastado`);
+      ok(p.errores.length === 0, `USUFOT (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
+  // 4) Si la consulta de pedidos falla, la fila se ve como antes (sin línea de pedidos, ni pastilla, ni orden) y sin romperse.
+  await bloque("pedidos con error", async () => {
+    const ctx = await contexto(navegador, ADMIN, "admin", { usuarios: USUARIOS, filas: PERFILES, guardados: [] });
+    let consultas = 0;
+    await ctx.route("**/rest/v1/pedidos*", (r) => {
+      if (r.request().method() !== "GET") return r.fallback();
+      consultas += 1;
+      return r.fulfill({ status: 400, contentType: "application/json", headers: CORS, body: JSON.stringify({ code: "42703", message: "column pedidos.doble_venta_en does not exist" }) });
+    });
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator(`#usuario-${ANA}`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1000);
+    ok(consultas >= 1 && (await p.locator('[id^="cliente-pedidos-"]').count()) === 0 && (await p.locator("#usuarios-filtro-pedidos").count()) === 0, `USUFOT: con la consulta de pedidos fallando, no sale la línea ni la pastilla (${consultas} consultas)`);
+    ok(/0 en el Foro/.test(await texto(p, `#usuario-${ANA}`)) && (await filas(p)).length === 4 && (await fotoDe(p, ANA)) === FOTO_ANA, `USUFOT: y la lista se ve como antes, con su foto (${(await texto(p, `#usuario-${ANA}`)).slice(-60)})`);
+    await p.locator("#usuarios-orden").click();
+    await p.waitForTimeout(300);
+    ok((await p.locator("#usuarios-orden-gastado").count()) === 0 && (await p.locator("#usuarios-orden-recent").count()) === 1, "USUFOT: y sin pedidos no se ofrece «Más gastado»");
+    ok(p.errores.length === 0, `USUFOT: con el error, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+}
+
 // ===== PANRED5) Tanda 5 y última del rediseño (2026-11-16): Administración → inicio del panel, Centro De Aprendizajes,
 // «Lo que Blue sabe», Revisiones, Marca y SEO, Redes sociales y Visitas y métricas con el estilo de las tandas 1 a 4
 // (components/admin/PanelUI.tsx). Listas: cifras que filtran, buscador de 16 px, pastillas con su recuento, filas compactas
@@ -22196,6 +22394,7 @@ try {
   if (SOLO === "PANRED4") await seccionPANRED4();
   if (SOLO === "VENFOT") await seccionVENFOT();
   if (SOLO === "PANRED5") await seccionPANRED5();
+  if (SOLO === "USUFOT") await seccionUSUFOT();
   if (SOLO === "PEDRED") await seccionPEDRED();
   if (SOLO === "VENDP") await seccionVENDP();
   if (SOLO === "FRANJ") await seccionFRANJ();
@@ -23325,6 +23524,7 @@ try {
   await seccionPANRED3();
   await seccionPANRED4();
   await seccionPANRED5();
+  await seccionUSUFOT();
   await seccionCANCAV();
   await seccionVENFOT();
   }
