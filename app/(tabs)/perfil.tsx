@@ -167,6 +167,7 @@ import {
   misAvisosReposicion,
   misMeGustaServidor,
   MOTIVO_NO_DISPONIBLE,
+  motivoParaCliente,
   textoReposicion,
   type AvisoReposicion,
   type CanalReposicion,
@@ -1793,9 +1794,9 @@ function FacturaDelPedido({ p, facturasOk }: { p: PedidoSeg; facturasOk: boolean
         void trackEvent("factura_descargada", "Pedidos: factura descargada");
         abrirDescarga(d.url);
       } else if (r.status === 409) {
-        setAviso("La factura está llegando, prueba en unos minutos.");
+        setAviso("La factura se está generando. Inténtalo de nuevo en unos minutos.");
       } else {
-        setAviso("No hemos podido descargar la factura. Inténtalo de nuevo en un rato.");
+        setAviso("No hemos podido descargar la factura. Inténtalo de nuevo más tarde.");
       }
     } catch {
       setAviso("No hemos podido descargar la factura: revisa tu conexión.");
@@ -1857,28 +1858,29 @@ function fechaLargaSeg(iso: string | null | undefined) {
 }
 
 // El reembolso de un pedido cancelado, con las columnas que ya lee «Mis pedidos» (pago_estado, pago_metodo, pagado_eur,
-// devuelto_eur y devuelto_en; las escribe solo el servidor con Stripe): emitido, en curso o «No se te ha cobrado nada».
+// devuelto_eur y devuelto_en; las escribe solo el servidor con Stripe): emitido, en curso o «No se ha realizado ningún
+// cargo». Textos de gran tienda (dueño, 2026-11-16): frases completas, sin coloquialismos ni repetir la etiqueta de encima.
 const REEMBOLSO_A: Record<string, string> = { card: "a tu tarjeta", klarna: "a tu cuenta de Klarna", bizum: "a tu Bizum" };
 function reembolsoDelCancelado(p: PedidoSeg): { estado: "emitido" | "en_curso" | "sin_cobro"; titulo: string; detalle: string | null } {
-  if (p.pago_estado !== "pagado") return { estado: "sin_cobro", titulo: "No se te ha cobrado nada", detalle: null };
+  if (p.pago_estado !== "pagado") return { estado: "sin_cobro", titulo: "No se ha realizado ningún cargo", detalle: null };
   const pagado = Number(p.pagado_eur ?? p.total_eur ?? 0);
   if (p.devuelto_en) {
     const devuelto = Number(p.devuelto_eur ?? 0) > 0 ? Number(p.devuelto_eur) : pagado;
     const a = REEMBOLSO_A[p.pago_metodo ?? ""] ?? "por el mismo medio de pago";
     return {
       estado: "emitido",
-      // Sin repetir la etiqueta «Reembolso» que ya va encima.
-      titulo: `${segEuros(devuelto)} devueltos el ${fechaLargaSeg(p.devuelto_en)} ${a}${p.pago_modo === "prueba" ? " (de prueba)" : ""}`,
-      detalle: p.pago_metodo === "klarna" ? "Klarna actualizará tus plazos." : "Puede tardar de 5 a 10 días hábiles en verse en tu cuenta.",
+      titulo: `Hemos reembolsado ${segEuros(devuelto)} ${a} el ${fechaLargaSeg(p.devuelto_en)}${p.pago_modo === "prueba" ? " (de prueba)" : ""}`,
+      detalle: p.pago_metodo === "klarna" ? "Klarna actualizará tus plazos de pago." : "El importe puede tardar entre 5 y 10 días hábiles en aparecer en tu cuenta.",
     };
   }
-  return { estado: "en_curso", titulo: `En curso: te devolveremos ${segEuros(pagado)} por el mismo medio de pago`, detalle: null };
+  return { estado: "en_curso", titulo: `Estamos tramitando la devolución de ${segEuros(pagado)} por el mismo medio de pago`, detalle: null };
 }
 
 // Pedido cancelado (dueño, 2026-11-16: «que se vea profesional, estilo Amazon»; adaptado a móvil y ordenador el mismo día):
 // un solo título con su icono rojo («Cancelado el 15 de noviembre») y debajo, en gris, la referencia, el día y el total
 // (sin tachar), el artículo con su foto, dos pasos discretos («Pedido recibido» y «Cancelado» con su hora), el motivo (solo
-// si lo hay; nunca notas internas), «Pago · No se te ha cobrado nada» o el reembolso, «Volver a comprar» (solo si sigue a
+// si lo hay, en su versión para el cliente: motivoParaCliente; nunca notas internas), «Pago · No se ha realizado ningún
+// cargo» o el reembolso, «Volver a comprar» (solo si sigue a
 // la venta) y «Ver artículos parecidos» (48 px), el interruptor «Avisarme cuando haya otro» si el artículo ya no está
 // disponible (avisos_reposicion, lib/interaccion.ts; Blue avisa en la app cuando entra otro) y «¿Necesitas ayuda?». En el
 // ordenador (tarjeta de 760 px o más): franja gris con «Pedido realizado · Total · Pedido nº» y las acciones en una
@@ -1933,7 +1935,7 @@ function CancelacionDelPedido({
     const r = await fijarAvisoReposicion({ pedidoId: p.id, productId: p.primerProducto ?? null, titulo: p.primerTitulo ?? p.items[0] ?? "" }, cambios, aviso);
     setOcupado(false);
     if (r === "sin_sesion" || r === "error") {
-      setMensaje({ ok: false, texto: r === "sin_sesion" ? "Inicia sesión para activar el aviso." : "No hemos podido guardarlo. Inténtalo de nuevo." });
+      setMensaje({ ok: false, texto: r === "sin_sesion" ? "Inicia sesión para activar el aviso." : "No hemos podido guardar el aviso. Inténtalo de nuevo." });
       return;
     }
     onGuardado(r);
@@ -1944,7 +1946,7 @@ function CancelacionDelPedido({
     }
     setMensaje({
       ok: true,
-      texto: cambios.activo ? `Listo: te avisaremos ${nombreCanal(cambios.canal)} cuando tengamos otro «${r.texto}».` : "Aviso apagado. Puedes volver a encenderlo cuando quieras.",
+      texto: cambios.activo ? `Aviso activado: te avisaremos ${nombreCanal(cambios.canal)} cuando tengamos otro «${r.texto}».` : "Aviso desactivado. Puedes volver a activarlo cuando quieras.",
     });
   }
 
@@ -2067,17 +2069,19 @@ function CancelacionDelPedido({
     </View>
   );
 
-  // El motivo (solo si lo hay: en los antiguos no se rellena con un texto genérico; la ayuda ya va al final) y el pago:
-  // «Pago · No se te ha cobrado nada» si no hubo cobro; «Reembolso» solo cuando lo hubo.
+  // El motivo (solo si lo hay: en los antiguos no se rellena con un texto genérico; la ayuda ya va al final), tal como lo
+  // lee el cliente («A petición tuya»…), y el pago: «Pago · No se ha realizado ningún cargo» si no hubo cobro;
+  // «Reembolso» solo cuando lo hubo.
+  const motivoCliente = motivoParaCliente(p.cancelacion_motivo);
   const infoUI = (
     <View style={{ gap: 14, borderTopWidth: 1, borderTopColor: SEG.line, paddingTop: 14 }}>
-      {p.cancelacion_motivo
+      {motivoCliente
         ? bloque(
             `cancelacion-motivo-${ref}`,
             "information-circle-outline",
             SEG.muted,
-            "Motivo",
-            <Text style={{ color: SEG.text, fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>{p.cancelacion_motivo}</Text>
+            "Motivo de la cancelación",
+            <Text style={{ color: SEG.text, fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>{motivoCliente}</Text>
           )
         : null}
       {bloque(
@@ -2366,13 +2370,14 @@ const MOTIVOS_SEGUIMIENTO: Record<string, string> = {
   formato: "Ese número no tiene el formato de la tienda: «VZ-» y 8 letras o números (por ejemplo, VZ-7K3M-9QPD).",
   no_existe: "No encontramos ese número. Revisa que esté bien escrito.",
   otra_cuenta: "Ese número ya está añadido a otra cuenta. Si es tuyo, escríbenos desde Blue IA.",
-  demasiados_intentos: "Has hecho muchos intentos seguidos. Vuelve a probar dentro de una hora.",
-  sin_sesion: "Inicia sesión para añadirlo.",
+  demasiados_intentos: "Has realizado demasiados intentos seguidos. Vuelve a intentarlo dentro de una hora.",
+  sin_sesion: "Inicia sesión para añadir el número.",
 };
 
 // Uno solo para pedidos y reparaciones (el número dice qué es) y PLEGADO: en el móvil ya no ocupa la pantalla dos veces
-// (dueño, 2026-11-10: «mejorar esta pestaña para la versión móvil»). Se abre tocando «¿Te hemos dado un número de
-// seguimiento?» (icono y texto, sin burbuja).
+// (dueño, 2026-11-10: «mejorar esta pestaña para la versión móvil»). Desde 2026-11-16 va AL FINAL de la pestaña, debajo de
+// pedidos y reparaciones (arriba estorbaba), como una línea discreta: «¿Tienes un número de seguimiento de un pedido o una
+// reparación? Añádelo aquí» (44 px); abierto, «Añadir un número de seguimiento» lo vuelve a plegar.
 function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
   const [abierto, setAbierto] = useState(false);
   const [codigo, setCodigo] = useState("");
@@ -2404,11 +2409,11 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
         onAnadido();
       } else {
         trackEvent("seguimiento_numero_fallido", "Perfil: número de seguimiento no válido", { metadata: { motivo: r.motivo ?? "desconocido" } });
-        setAviso({ ok: false, texto: MOTIVOS_SEGUIMIENTO[r.motivo ?? ""] ?? "No se ha podido añadir. Inténtalo de nuevo." });
+        setAviso({ ok: false, texto: MOTIVOS_SEGUIMIENTO[r.motivo ?? ""] ?? "No hemos podido añadir el número. Inténtalo de nuevo." });
       }
     } catch (e) {
       console.error("Error añadiendo el número de seguimiento:", e);
-      setAviso({ ok: false, texto: "No se ha podido añadir. Inténtalo de nuevo." });
+      setAviso({ ok: false, texto: "No hemos podido añadir el número. Inténtalo de nuevo." });
     } finally {
       setEnviando(false);
     }
@@ -2424,13 +2429,15 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
           trackEvent("seguimiento_numero_abierto", "Perfil: abre «añadir número de seguimiento»");
         }}
         accessibilityRole="button"
-        accessibilityLabel="¿Te hemos dado un número de seguimiento? Añádelo"
+        accessibilityLabel="¿Tienes un número de seguimiento de un pedido o una reparación? Añádelo aquí"
         hitSlop={6}
-        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+        style={({ pressed }) => ({ minHeight: 44, maxWidth: 460, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
       >
-        {/* El icono va DENTRO del texto: si a 360 px no cabe en una línea, sigue pegado a la primera palabra. */}
-        <Text style={{ color: SEG.accentTexto, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 20, textAlign: "center", flexShrink: 1 }}>
-          <Ionicons name="add-circle-outline" size={18} color={SEG.accentDark} style={{ verticalAlign: "middle" }} /> ¿Te hemos dado un número de seguimiento?
+        {/* Una línea discreta al final de la pestaña (dueño, 2026-11-16: arriba estorbaba): la pregunta en gris y «Añádelo
+            aquí» en el azul de los enlaces. */}
+        <Text style={{ color: SEG.muted, fontWeight: "600", fontSize: TAMANOS.minimo, lineHeight: 20, textAlign: "center", flexShrink: 1 }}>
+          ¿Tienes un número de seguimiento de un pedido o una reparación?{" "}
+          <Text style={{ color: SEG.accentTexto, fontWeight: "800", textDecorationLine: "underline" }}>Añádelo aquí</Text>
         </Text>
       </Pressable>
     );
@@ -2451,10 +2458,10 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
         style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
       >
         <Text style={{ color: SEG.accentTexto, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 20, textAlign: "center", flexShrink: 1 }}>
-          <Ionicons name="close-circle-outline" size={18} color={SEG.accentDark} style={{ verticalAlign: "middle" }} /> ¿Te hemos dado un número de seguimiento?
+          Añadir un número de seguimiento <Ionicons name="chevron-up" size={16} color={SEG.accentDark} style={{ verticalAlign: "middle" }} />
         </Text>
       </Pressable>
-      <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>Escríbelo aquí: vale para un pedido o una reparación.</Text>
+      <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>Introduce el número que te hemos facilitado para un pedido o una reparación.</Text>
       <View style={{ flexDirection: "row", gap: 8, width: "100%" }}>
         <TextInput
           value={codigo}
@@ -2529,7 +2536,7 @@ const TEXTO_FILTRO_VACIO: Record<FiltroPedidos, string> = {
   curso: "No tienes pedidos en curso ahora mismo.",
   completados: "Todavía no tienes pedidos completados.",
   cancelados: "No tienes pedidos cancelados.",
-  facturas: "Todavía no tienes facturas. Saldrán aquí en cuanto se emitan.",
+  facturas: "Todavía no tienes facturas. Aparecerán aquí en cuanto se emitan.",
 };
 function FiltrosPedidos({
   pedidos,
@@ -4410,15 +4417,14 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
   if (!conSesion) return null;
 
   return (
-    // Móvil (dueño, 2026-11-10): un solo «¿Te hemos dado un número de seguimiento?» arriba y plegado; en cada pedido,
-    // primero lo que compraste y su estado, luego pago y factura, y entrega y número de seguimiento en una línea.
+    // Móvil (dueño, 2026-11-10): en cada pedido, primero lo que compraste y su estado, luego pago y factura, y entrega y
+    // número de seguimiento en una línea. «Añadir un número de seguimiento», plegado y AL FINAL (dueño, 2026-11-16).
     <View style={{ gap: 32, alignItems: "center" }}>
       {avisoPago ? (
         <LineaIcono id="seguimiento-pago-vuelta" icono={avisoPago.ok ? "checkmark-circle" : "information-circle-outline"} color={avisoPago.ok ? SEG.ok : SEG.muted}>
           {avisoPago.texto}
         </LineaIcono>
       ) : null}
-      {numerosOk ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
       {/* Reservar con señal (mejora 14): sin reservas, no sale nada. */}
       <MisReservasSenal />
       {pedidos !== null ? (
@@ -4427,7 +4433,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
           {pedidos.length === 0 ? (
             <SegVacio
               cual="tienda"
-              texto="Aún no tienes pedidos. Cuando compres algo, podrás seguirlo aquí paso a paso."
+              texto="Todavía no tienes pedidos. Cuando realices una compra, podrás seguirla aquí paso a paso."
               boton="Ver catálogo"
               destino="/catalogo"
             />
@@ -4524,7 +4530,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
         {reparaciones.length === 0 ? (
           <SegVacio
             cual="taller"
-            texto="No tienes ninguna Reparación o Mantenimiento en curso. Solicita un servicio con tu sesión iniciada y verás aquí el estado actual."
+            texto="No tienes ninguna reparación ni mantenimiento en curso. Solicita un servicio con tu sesión iniciada y podrás seguir aquí su estado."
             boton="Ver servicios"
             destino="/servicios"
           />
@@ -4612,6 +4618,9 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
           ))
         )}
       </View>
+
+      {/* Al final, debajo de pedidos y reparaciones (también con la pestaña vacía): una línea discreta, plegada. */}
+      {numerosOk ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
 
       <ReviewModal
         visible={!!valorando}

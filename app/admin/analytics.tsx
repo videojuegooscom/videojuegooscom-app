@@ -2177,7 +2177,7 @@ export default function AdminAnalytics() {
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Facturas descargadas desde «Mis pedidos»: {coreFunnel.facturaDescargada} {coreFunnel.facturaDescargada === 1 ? "sesión" : "sesiones"} ·
                       desde Blue IA: «Ver mis facturas» {coreFunnel.blueVerFacturas} · «Descargar factura» {coreFunnel.blueFacturaDescargada} (sesiones) ·
-                      «¿Te hemos dado un número de seguimiento?»: lo abren {coreFunnel.numeroAbierto} → lo añaden {coreFunnel.numeroAnadido} ·
+                      «Añadir un número de seguimiento» (al final de Mis seguimientos): lo abren {coreFunnel.numeroAbierto} → lo añaden {coreFunnel.numeroAnadido} ·
                       filtros de «Mis pedidos»: {coreFunnel.filtrosPedidos || "aún sin usar"}
                     </Text>
                   </View>

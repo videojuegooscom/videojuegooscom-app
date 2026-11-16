@@ -94,11 +94,15 @@
  *   cliente (#pedido-franja-N) y el filtro «Reparto de hoy» (los de hoy sin entregar ni cancelar), agrupado por franja
  *   (mañana / tarde) para planificar la ruta. Sin la migración, nada.
  * - Motivo de la cancelación y «Avisarme cuando haya otro» (dueño, 2026-11-16; migración 20261116100000): al primer toque
- *   de «Cancelar pedido» salen los motivos en pastillas (por defecto «El artículo ya no se encuentra disponible»; «No hemos
- *   podido confirmar el pago», «Lo has pedido tú» y «Otro motivo» con texto opcional de hasta 200 letras); el segundo toque
- *   cancela y guarda el motivo (pedidos.cancelacion_motivo; cancelado_en lo pone la base de datos). El bloque
- *   «Cancelación» del detalle enseña el motivo y si el cliente pidió aviso y por qué canal (avisos_reposicion; con correo,
- *   «Correo pendiente de activar en la tienda»: aún no hay envío de correos propio). Recuento abajo
+ *   de «Cancelar pedido» (o de la pastilla de estado «Cancelado») salen los motivos en pastillas («El artículo ya no se
+ *   encuentra disponible», «No hemos podido confirmar el pago», «Lo has pedido tú» y «Otro motivo» con texto de hasta 200
+ *   letras). El motivo es OBLIGATORIO (dueño, 2026-11-16): sin elegir ninguno (o con «Otro motivo» sin texto) el botón de
+ *   confirmar no se puede pulsar; el segundo toque cancela y guarda el motivo (pedidos.cancelacion_motivo; cancelado_en lo
+ *   pone la base de datos). El bloque «Cancelación» del detalle enseña el motivo y si el cliente pidió aviso y por qué canal
+ *   (avisos_reposicion; con correo, «Correo pendiente de activar en la tienda»: aún no hay envío de correos propio). En un
+ *   pedido ya cancelado, «Añadir motivo» / «Cambiar motivo» guarda SOLO cancelacion_motivo (mismo update de pedidos que al
+ *   cancelar, regla pedidos_admin_update; no toca el estado, el pago ni cancelado_en). Los cancelados sin motivo llevan la
+ *   etiqueta «Sin motivo» en la lista y la pastilla «Cancelados sin motivo (N)» para completarlos. Recuento abajo
  *   (#pedidos-avisos-reposicion). Sin la migración, se cancela como antes.
  * - pruebas/perfil-datos.mjs → sección PEDRED (este diseño) y P, Q, VA, TE, PT, FA, VT, FCH, TM4, SEGP, VALOR, AVISOM,
  *   FRANJ, VENDP y CANCAV.
@@ -110,7 +114,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
-import { MOTIVO_MAX, MOTIVO_NO_DISPONIBLE, MOTIVOS_CANCELACION, type CanalReposicion } from "../../lib/interaccion";
+import { MOTIVO_MAX, MOTIVO_NO_DISPONIBLE, MOTIVOS_CANCELACION, motivoParaCliente, type CanalReposicion } from "../../lib/interaccion";
 import {
   cargarAjustesFranjas,
   cargarSeguimientoPedidos,
@@ -212,6 +216,7 @@ type Filtro =
   | "reparto_hoy"
   | "enviados"
   | "cancelados"
+  | "cancelados_sin_motivo"
   | "doble_venta"
   | "activos"
   | "hoy"
@@ -323,6 +328,8 @@ const porPreparar = (p: Pedido) =>
   !enTienda(p) && (p.estado === "pendiente" || p.estado === "confirmado") && (pagadoOnline(p) || p.estado === "confirmado") && !p.doble_venta_en;
 // Hay que devolver el pago: pagado online, sin devolver y cancelado o con un artículo que ya estaba vendido.
 const faltaDevolver = (p: Pedido) => pagadoOnline(p) && !p.devuelto_en && (p.estado === "cancelado" || !!p.doble_venta_en);
+// Cancelado desde la web sin motivo guardado (los de antes del motivo o cancelados sin elegirlo): el cliente no ve por qué.
+const sinMotivo = (p: Pedido) => p.estado === "cancelado" && !enTienda(p) && !(p.cancelacion_motivo ?? "").trim();
 // En gris: cancelados y devueltos.
 const apagado = (p: Pedido) => p.estado === "cancelado" || !!p.devuelto_en;
 // Dinero de verdad (Ingresos): cobradoDeVerdad e importeCobrado de lib/envio.ts (pagado online de verdad, venta en tienda
@@ -623,9 +630,13 @@ export default function PedidosAdmin() {
   const [dobleOk, setDobleOk] = useState(false);
   // false = aún no existe el motivo de cancelación (migración 20261116100000 sin aplicar): se cancela como antes.
   const [cancelacionOk, setCancelacionOk] = useState(false);
-  // Motivo elegido al cancelar cada pedido (por defecto, el artículo ya no está disponible) y el texto de «Otro motivo».
+  // Motivo elegido al cancelar cada pedido (sin elegir, no se puede confirmar) y el texto de «Otro motivo». Clave: el id
+  // del pedido al cancelar y `editar:<id>` al añadir o cambiar el motivo de uno ya cancelado.
   const [motivoElegido, setMotivoElegido] = useState<Record<string, string>>({});
   const [motivoOtro, setMotivoOtro] = useState<Record<string, string>>({});
+  // Pedido cancelado con el editor de «Añadir motivo» / «Cambiar motivo» abierto.
+  const [editandoMotivo, setEditandoMotivo] = useState<string | null>(null);
+  const [motivoMsg, setMotivoMsg] = useState<{ id: string; tipo: "ok" | "error"; texto: string } | null>(null);
   // Avisos de reposición que pidieron los clientes (null sin la tabla).
   const [avisosRepo, setAvisosRepo] = useState<AvisoRepoAdmin[] | null>(null);
   // Artículos de los pedidos cargados (para «Volver a poner a la venta» tras cancelar uno pagado).
@@ -847,6 +858,7 @@ export default function PedidosAdmin() {
       porPreparar: pedidos.filter(porPreparar).length,
       enviados: pedidos.filter((p) => p.estado === "enviado").length,
       cancelados: pedidos.filter((p) => p.estado === "cancelado").length,
+      sinMotivo: pedidos.filter(sinMotivo).length,
       doble: pedidos.filter((p) => !!p.doble_venta_en).length,
       dobleSinDevolver: pedidos.filter((p) => !!p.doble_venta_en && !p.devuelto_en).length,
       devueltos: pedidos.filter((p) => !!p.devuelto_en).length,
@@ -874,6 +886,10 @@ export default function PedidosAdmin() {
         return pedidos.filter((p) => p.estado === "enviado");
       case "cancelados":
         return pedidos.filter((p) => p.estado === "cancelado");
+      // Cancelados sin motivo: para que el dueño los complete (el cliente no ve por qué se canceló). El que se acaba de
+      // completar se queda a la vista con su «Motivo guardado» hasta cambiar de filtro.
+      case "cancelados_sin_motivo":
+        return pedidos.filter((p) => sinMotivo(p) || motivoMsg?.id === p.id);
       case "devueltos":
         return pedidos.filter((p) => !!p.devuelto_en);
       case "sin_vincular":
@@ -895,7 +911,7 @@ export default function PedidosAdmin() {
       default:
         return pedidos.filter((p) => p.estado === filtro);
     }
-  }, [pedidos, filtro, repartoDeHoy, hoy]);
+  }, [pedidos, filtro, repartoDeHoy, hoy, motivoMsg]);
 
   // Ventas en mano (VeoAura): cuántas, cuántas ya están en la cuenta del cliente, cuántas esperan a que se registre y su
   // importe.
@@ -1116,23 +1132,28 @@ export default function PedidosAdmin() {
     setGuardando(null);
   }
 
-  // El motivo que verá el cliente: el elegido en las pastillas (por defecto, el artículo ya no está disponible) o el texto
-  // de «Otro motivo» (sin texto, sin motivo).
-  function motivoDe(p: Pedido): string | null {
-    const elegido = motivoElegido[p.id] ?? MOTIVO_NO_DISPONIBLE;
+  // El motivo que verá el cliente: el elegido en las pastillas o el texto de «Otro motivo» (2 letras como mínimo, como
+  // pide la base de datos). Sin elegir, o «Otro motivo» sin texto: null (y no se puede confirmar).
+  function motivoDe(clave: string): string | null {
+    const elegido = motivoElegido[clave];
+    if (!elegido) return null;
     if (elegido !== OTRO_MOTIVO) return elegido;
-    const t = (motivoOtro[p.id] ?? "").replace(/\s+/g, " ").trim().slice(0, MOTIVO_MAX);
+    const t = (motivoOtro[clave] ?? "").replace(/\s+/g, " ").trim().slice(0, MOTIVO_MAX);
     return t.length >= 2 ? t : null;
   }
 
   async function cancelarPedido(p: Pedido) {
+    if (p.estado === "cancelado") return;
     if (confirmando !== `cancelar:${p.id}`) {
       setConfirmando(`cancelar:${p.id}`);
       setAccionMsg(null);
       return;
     }
+    // Con la migración, el motivo es obligatorio (el botón ya sale apagado sin él).
+    const motivo = cancelacionOk ? motivoDe(p.id) : null;
+    if (cancelacionOk && !motivo) return;
     setConfirmando(null);
-    const ok = await cambiarEstado(p, "cancelado", cancelacionOk ? { cancelacion_motivo: motivoDe(p) } : undefined);
+    const ok = await cambiarEstado(p, "cancelado", cancelacionOk ? { cancelacion_motivo: motivo } : undefined);
     if (!ok) {
       setAccionMsg({ id: p.id, tipo: "error", texto: "No se pudo cancelar el pedido. Vuelve a intentarlo." });
       return;
@@ -1145,6 +1166,35 @@ export default function PedidosAdmin() {
         quedanVendidos ? " Sus artículos siguen fuera de la venta: si quieres venderlos otra vez, toca «Volver a poner a la venta»." : ""
       }`,
     });
+  }
+
+  // «Añadir motivo» / «Cambiar motivo» en un pedido YA cancelado: abre el editor con el motivo actual marcado (si es uno de
+  // los fijos) o en «Otro motivo» con su texto.
+  function abrirEditorMotivo(p: Pedido) {
+    const actual = (p.cancelacion_motivo ?? "").trim();
+    const fijo = (MOTIVOS_CANCELACION as readonly string[]).includes(actual);
+    setMotivoElegido((x) => ({ ...x, [`editar:${p.id}`]: actual ? (fijo ? actual : OTRO_MOTIVO) : "" }));
+    setMotivoOtro((x) => ({ ...x, [`editar:${p.id}`]: actual && !fijo ? actual : "" }));
+    setEditandoMotivo(p.id);
+    setMotivoMsg(null);
+  }
+
+  // Guarda SOLO pedidos.cancelacion_motivo (el mismo update de pedidos que al cancelar, con la regla
+  // pedidos_admin_update): el estado, el pago y cancelado_en no se tocan (el disparador de cancelado_en solo salta al
+  // cambiar el estado).
+  async function guardarMotivo(p: Pedido) {
+    const motivo = motivoDe(`editar:${p.id}`);
+    if (!motivo || p.estado !== "cancelado") return;
+    setGuardando(p.id);
+    const { error } = await supabase.from("pedidos").update({ cancelacion_motivo: motivo }).eq("id", p.id);
+    setGuardando(null);
+    if (error) {
+      setMotivoMsg({ id: p.id, tipo: "error", texto: "No se pudo guardar el motivo. Vuelve a intentarlo." });
+      return;
+    }
+    setPedidos((prev) => prev.map((x) => (x.id === p.id ? { ...x, cancelacion_motivo: motivo } : x)));
+    setEditandoMotivo(null);
+    setMotivoMsg({ id: p.id, tipo: "ok", texto: "Motivo guardado: el cliente ya lo ve en Mis pedidos." });
   }
 
   // Cancelado un pedido pagado, sus artículos NO vuelven solos a la venta (dueño, 2026-11-15): los vendidos POR ESTE
@@ -1214,6 +1264,10 @@ export default function PedidosAdmin() {
     ...(franjaOk ? [{ value: "reparto_hoy" as const, label: `Reparto de hoy (${repartoDeHoy.length})` }] : []),
     { value: "enviados", label: `Enviados (${cuentas.enviados})` },
     { value: "cancelados", label: `Cancelados (${cuentas.cancelados})` },
+    // Solo con la migración y si queda alguno por completar (o si es el filtro elegido).
+    ...(cancelacionOk && (cuentas.sinMotivo > 0 || filtro === "cancelados_sin_motivo")
+      ? [{ value: "cancelados_sin_motivo" as const, label: `Cancelados sin motivo (${cuentas.sinMotivo})` }]
+      : []),
     ...(dobleOk ? [{ value: "doble_venta" as const, label: `Doble venta (${cuentas.doble})` }] : []),
   ];
   const otrosFiltros: { value: Filtro; label: string }[] = [
@@ -1254,6 +1308,66 @@ export default function PedidosAdmin() {
   const anchoCifra: Ancho = isMobile ? "30%" : 0;
   const anchoBloque: Ancho = isMobile ? "100%" : "45%";
 
+  // Los motivos en pastillas (44 px) y, con «Otro motivo», su campo de 16 px con la ayuda «Lo verá el cliente…». Lo usan
+  // la cancelación (clave = id del pedido) y «Añadir / Cambiar motivo» (clave = `editar:<id>`).
+  function selectorMotivo(p: Pedido, clave: string, idBase: string, idOtro: string) {
+    const elegido = motivoElegido[clave] ?? "";
+    return (
+      <>
+        <View role="radiogroup" aria-label={`Motivo de la cancelación del pedido ${p.numero}`} style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+          {[...MOTIVOS_CANCELACION, OTRO_MOTIVO].map((m, i) => {
+            const activo = elegido === m;
+            return (
+              <Pressable
+                key={m}
+                nativeID={`${idBase}-${i}`}
+                onPress={() => setMotivoElegido((x) => ({ ...x, [clave]: m }))}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: activo }}
+                aria-checked={activo}
+                style={({ pressed }) => ({
+                  minHeight: TACTIL.minimo,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  paddingHorizontal: 14,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: activo ? COLORS.accent : COLORS.border,
+                  backgroundColor: activo ? COLORS.accent2 : COLORS.bg,
+                  opacity: pressed ? 0.85 : 1,
+                  maxWidth: "100%",
+                })}
+              >
+                <Ionicons name={activo ? "radio-button-on" : "radio-button-off"} size={16} color={activo ? COLORS.accent : COLORS.muted} />
+                <Text style={{ color: COLORS.text, fontWeight: activo ? "900" : "800", fontSize: TAMANOS.minimo, flexShrink: 1 }}>{m === OTRO_MOTIVO ? "Otro motivo" : m}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {elegido === OTRO_MOTIVO ? (
+          <View style={{ gap: 4 }}>
+            <TextInput
+              nativeID={idOtro}
+              value={motivoOtro[clave] ?? ""}
+              onChangeText={(t) => setMotivoOtro((x) => ({ ...x, [clave]: t.slice(0, MOTIVO_MAX) }))}
+              maxLength={MOTIVO_MAX}
+              placeholder="Escribe el motivo"
+              placeholderTextColor={COLORS.muted}
+              accessibilityLabel={`Otro motivo de cancelación del pedido ${p.numero}`}
+              style={{ ...estiloCampo, width: "100%" }}
+            />
+            <Detalle nativeID={`${idOtro}-ayuda`}>Lo verá el cliente: escríbelo de forma clara y profesional.</Detalle>
+          </View>
+        ) : null}
+        {/* Cómo lo leerá el cliente en Mis pedidos (los fijos, en su versión para el cliente). */}
+        {motivoDe(clave) && elegido !== OTRO_MOTIVO ? (
+          <Detalle nativeID={`${idBase}-cliente`}>El cliente leerá: «{motivoParaCliente(motivoDe(clave))}»</Detalle>
+        ) : null}
+      </>
+    );
+  }
+
   // ---------- Detalle de un pedido (bloques y acciones) ----------
   function detalle(p: Pedido) {
     const tienda = enTienda(p);
@@ -1262,6 +1376,9 @@ export default function PedidosAdmin() {
     const direccion = p.entrega === "envio" && (p.direccion || p.ciudad) ? [p.direccion, [p.codigo_postal, p.ciudad].filter(Boolean).join(" ")].filter(Boolean).join(", ") : null;
     const puedeDevolver = devolucionOk && p.pago_estado === "pagado" && !p.devuelto_en;
     const puedeCancelar = p.estado !== "cancelado" && p.estado !== "entregado";
+    // También tras tocar la pastilla de estado «Cancelado» (p. ej. en un entregado): pide el motivo igual.
+    const confirmandoCancelar = confirmando === `cancelar:${p.id}` && p.estado !== "cancelado";
+    const cancelable = puedeCancelar || confirmandoCancelar;
     const reponer = articulosParaReponer(p);
     return (
       <View nativeID={`pedido-detalle-${p.numero}`} style={{ gap: 12, paddingBottom: 16 }}>
@@ -1443,10 +1560,48 @@ export default function PedidosAdmin() {
               otro» con el canal (el correo aún no se manda: lo dice). */}
           {cancelacionOk && p.estado === "cancelado" && !tienda ? (
             <Bloque nativeID={`pedido-bloque-cancelacion-${p.numero}`} icono="close-circle-outline" titulo="Cancelación" ancho={anchoBloque}>
-              <Text nativeID={`pedido-cancelacion-motivo-${p.numero}`} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
-                {p.cancelacion_motivo ? `Motivo: ${p.cancelacion_motivo}` : "Sin motivo indicado"}
+              <Text
+                nativeID={`pedido-cancelacion-motivo-${p.numero}`}
+                style={{ color: p.cancelacion_motivo ? COLORS.text : "#92400E", fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}
+              >
+                {p.cancelacion_motivo ? `Motivo: ${p.cancelacion_motivo}` : "Sin motivo: el cliente no ve por qué se canceló."}
               </Text>
               {p.cancelado_en ? <Detalle>Cancelado el {fmtFecha(p.cancelado_en)}</Detalle> : null}
+              {/* Añadir o cambiar el motivo de un pedido ya cancelado: solo cancelacion_motivo (ni estado, ni pago, ni hora). */}
+              {editandoMotivo === p.id ? (
+                <View nativeID={`pedido-editar-motivos-${p.numero}`} style={{ gap: 8, borderRadius: 14, backgroundColor: COLORS.bg2, padding: 12 }}>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Motivo de la cancelación (lo verá el cliente)</Text>
+                  {selectorMotivo(p, `editar:${p.id}`, `pedido-editar-motivo-${p.numero}`, `pedido-editar-motivo-otro-${p.numero}`)}
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 18, rowGap: TACTIL.separacion }}>
+                    <AccionTexto
+                      nativeID={`pedido-motivo-guardar-${p.numero}`}
+                      icono="checkmark-circle-outline"
+                      texto="Guardar motivo"
+                      disabled={guardando === p.id || !motivoDe(`editar:${p.id}`) || motivoDe(`editar:${p.id}`) === (p.cancelacion_motivo ?? "").trim()}
+                      onPress={() => guardarMotivo(p)}
+                    />
+                    <AccionTexto
+                      nativeID={`pedido-motivo-descartar-${p.numero}`}
+                      icono="close-outline"
+                      color={COLORS.muted}
+                      texto="Descartar"
+                      onPress={() => setEditandoMotivo(null)}
+                    />
+                  </View>
+                </View>
+              ) : (
+                <AccionTexto
+                  nativeID={`pedido-motivo-editar-${p.numero}`}
+                  icono={p.cancelacion_motivo ? "create-outline" : "add-circle-outline"}
+                  texto={p.cancelacion_motivo ? "Cambiar motivo" : "Añadir motivo"}
+                  onPress={() => abrirEditorMotivo(p)}
+                />
+              )}
+              {motivoMsg?.id === p.id ? (
+                <Text nativeID={`pedido-motivo-mensaje-${p.numero}`} style={{ color: motivoMsg.tipo === "ok" ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                  {motivoMsg.texto}
+                </Text>
+              ) : null}
               {avisosRepo ? (
                 (() => {
                   const a = avisosRepo.find((x) => x.pedido_id === p.id);
@@ -1502,7 +1657,8 @@ export default function PedidosAdmin() {
                       key={e.value}
                       nativeID={`pedido-estado-${p.numero}-${e.value}`}
                       disabled={guardando === p.id}
-                      onPress={() => cambiarEstado(p, e.value)}
+                      // «Cancelado» pasa por el mismo paso que «Cancelar pedido» (con la migración, el motivo es obligatorio).
+                      onPress={() => (e.value === "cancelado" && cancelacionOk && !tienda ? cancelarPedido(p) : cambiarEstado(p, e.value))}
                       accessibilityRole="button"
                       accessibilityState={{ selected: activo }}
                       style={{
@@ -1565,14 +1721,21 @@ export default function PedidosAdmin() {
                   texto={confirmando === `devolver:${p.id}` ? `Toca otra vez para devolver ${fmtEUR(Number(p.pagado_eur ?? 0))}` : "Devolver el pago"}
                 />
               ) : null}
-              {!tienda && puedeCancelar ? (
+              {!tienda && cancelable ? (
                 <AccionTexto
                   nativeID={`pedido-cancelar-${p.numero}`}
                   icono="close-circle-outline"
                   color={COLORS.danger}
-                  disabled={guardando === p.id}
+                  // Con la migración, sin motivo elegido no se puede confirmar.
+                  disabled={guardando === p.id || (confirmandoCancelar && cancelacionOk && !motivoDe(p.id))}
                   onPress={() => cancelarPedido(p)}
-                  texto={confirmando === `cancelar:${p.id}` ? "Toca otra vez para cancelar el pedido" : "Cancelar pedido"}
+                  texto={
+                    !confirmandoCancelar
+                      ? "Cancelar pedido"
+                      : cancelacionOk && !motivoDe(p.id)
+                        ? "Elige el motivo para cancelar"
+                        : "Toca otra vez para cancelar el pedido"
+                  }
                 />
               ) : null}
               {/* Cancelado: sus artículos siguen fuera de la venta hasta que el dueño decida reponerlos (segundo toque). */}
@@ -1587,58 +1750,20 @@ export default function PedidosAdmin() {
               ) : null}
             </View>
           ) : null}
-          {/* Tras el primer toque de «Cancelar pedido»: el motivo que verá el cliente en Mis pedidos (por defecto, el
-              artículo ya no está disponible, que le ofrece «Avisarme cuando haya otro»). */}
-          {cancelacionOk && !tienda && puedeCancelar && confirmando === `cancelar:${p.id}` ? (
+          {/* Tras el primer toque de «Cancelar pedido»: el motivo que verá el cliente en Mis pedidos (obligatorio; el
+              primero le ofrece «Avisarme cuando haya otro»). */}
+          {cancelacionOk && !tienda && cancelable && confirmando === `cancelar:${p.id}` ? (
             <View nativeID={`pedido-cancelar-motivos-${p.numero}`} style={{ gap: 8, borderRadius: 14, backgroundColor: COLORS.bg2, padding: 12 }}>
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Motivo de la cancelación (lo verá el cliente)</Text>
-              <View role="radiogroup" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
-                {[...MOTIVOS_CANCELACION, OTRO_MOTIVO].map((m, i) => {
-                  const activo = (motivoElegido[p.id] ?? MOTIVO_NO_DISPONIBLE) === m;
-                  return (
-                    <Pressable
-                      key={m}
-                      nativeID={`pedido-motivo-${p.numero}-${i}`}
-                      onPress={() => setMotivoElegido((x) => ({ ...x, [p.id]: m }))}
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: activo }}
-                      aria-checked={activo}
-                      style={({ pressed }) => ({
-                        minHeight: TACTIL.minimo,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 6,
-                        paddingHorizontal: 14,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: activo ? COLORS.accent : COLORS.border,
-                        backgroundColor: activo ? COLORS.accent2 : COLORS.bg,
-                        opacity: pressed ? 0.85 : 1,
-                        maxWidth: "100%",
-                      })}
-                    >
-                      <Ionicons name={activo ? "radio-button-on" : "radio-button-off"} size={16} color={activo ? COLORS.accent : COLORS.muted} />
-                      <Text style={{ color: COLORS.text, fontWeight: activo ? "900" : "800", fontSize: TAMANOS.minimo, flexShrink: 1 }}>{m === OTRO_MOTIVO ? "Otro motivo" : m}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {(motivoElegido[p.id] ?? MOTIVO_NO_DISPONIBLE) === OTRO_MOTIVO ? (
-                <TextInput
-                  nativeID={`pedido-motivo-otro-${p.numero}`}
-                  value={motivoOtro[p.id] ?? ""}
-                  onChangeText={(t) => setMotivoOtro((x) => ({ ...x, [p.id]: t.slice(0, MOTIVO_MAX) }))}
-                  maxLength={MOTIVO_MAX}
-                  placeholder="Escribe el motivo (opcional, lo verá el cliente)"
-                  placeholderTextColor={COLORS.muted}
-                  accessibilityLabel={`Otro motivo de cancelación del pedido ${p.numero}`}
-                  style={{ ...estiloCampo, width: "100%" }}
-                />
-              ) : null}
-              <Detalle>
-                {(motivoElegido[p.id] ?? MOTIVO_NO_DISPONIBLE) === MOTIVO_NO_DISPONIBLE
-                  ? "El cliente podrá pedir que le avisemos cuando haya otro parecido."
-                  : "Toca otra vez «Cancelar pedido» para confirmar."}
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Motivo de la cancelación (obligatorio, lo verá el cliente)</Text>
+              {selectorMotivo(p, p.id, `pedido-motivo-${p.numero}`, `pedido-motivo-otro-${p.numero}`)}
+              <Detalle nativeID={`pedido-cancelar-ayuda-${p.numero}`}>
+                {!motivoDe(p.id)
+                  ? motivoElegido[p.id] === OTRO_MOTIVO
+                    ? "Escribe el motivo para poder cancelar."
+                    : "Elige un motivo para poder cancelar."
+                  : motivoElegido[p.id] === MOTIVO_NO_DISPONIBLE
+                    ? "El cliente podrá pedir que le avisemos cuando haya otro parecido. Toca otra vez «Cancelar» para confirmar."
+                    : "Toca otra vez «Cancelar» para confirmar."}
               </Detalle>
             </View>
           ) : null}
@@ -1775,6 +1900,8 @@ export default function PedidosAdmin() {
                 <Etiqueta icon={p.entrega === "recogida" ? "hand-left-outline" : "cube-outline"} color={gris ? COLORS.muted : COLORS.text} texto={p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"} />
               ) : null}
               {faltaDevolver(p) ? <Etiqueta icon="alert-circle-outline" color={COLORS.danger} texto="Falta devolver el pago" /> : null}
+              {/* Cancelado sin motivo: el cliente no ve por qué (se completa con «Añadir motivo» en el detalle). */}
+              {cancelacionOk && sinMotivo(p) ? <Etiqueta nativeID={`pedido-sin-motivo-${p.numero}`} icon="help-circle-outline" color="#92400E" texto="Sin motivo" /> : null}
             </View>
           </View>
           <View style={{ alignItems: "flex-end", gap: 2 }}>
