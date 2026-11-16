@@ -13,7 +13,7 @@
  * - Estado de cada solicitud: nuevo → revisado → contactado, o descartado
  *   en cualquier momento. Son botones, no un desplegable, para poder
  *   avanzar el flujo con un solo toque.
- * - Cada tarjeta muestra los datos del cliente (nombre, apellido, género,
+ * - Cada solicitud muestra los datos del cliente (nombre, apellido, género,
  *   confirmación de mayoría de edad), el método/valor de contacto elegido y
  *   cómo entrega el artículo (recogida en su domicilio con dirección, o él
  *   se desplaza, con su disponibilidad horaria).
@@ -21,11 +21,15 @@
  *   etiqueta («· para comprar: …») y tienen su filtro (#cotizaciones-filtro-cesta).
  * - Filtro rápido por estado + buscador por nombre, artículo, ciudad o
  *   contacto.
- * - Tema claro (fondo blanco, texto azul marino, acentos azul claro) con
- *   contenido centrado en pantallas anchas (columnStyle, maxWidth 1160).
- *   El fondo oscuro semitransparente detrás del modal de confirmación de
+ * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Categorías y
+ *   Productos): cifras que filtran (Total, Nuevas, Revisadas, Contactadas), buscador de 16 px, pastillas de 44 px con su
+ *   recuento (los cuatro estados y «Cambio desde la cesta»), filas compactas (artículo, etiqueta de color del estado,
+ *   cliente, ciudad, precio esperado y fecha; etiquetas de la cesta, la avería, los adjuntos y la mayoría de edad sin
+ *   confirmar) y, al tocar una, el detalle por bloques (Artículo, Cliente, Entrega y Fotos y vídeo) con las acciones
+ *   abajo (Marcar revisada, Marcar contactada, Descartar y borrar).
+ * - El fondo oscuro semitransparente detrás del modal de confirmación de
  *   borrado se mantiene oscuro a propósito.
- * - Si el cliente adjuntó fotos/vídeo, cada tarjeta muestra un botón
+ * - Si el cliente adjuntó fotos/vídeo, el detalle muestra un botón
  *   "Descargar" por archivo (foto 1, foto 2..., vídeo). El bucket de
  *   Storage es privado a propósito: no hay galería ni previsualización
  *   embebida, cada archivo se descarga al dispositivo del admin uno a uno
@@ -39,36 +43,25 @@
  * - components/VenderAhoraModal.tsx → origen de cada fila (INSERT público)
  *   y de sus archivos adjuntos.
  * - components/SellRequestMedia.tsx → tipos y descarga de cada archivo.
+ * - components/admin/PanelUI.tsx → cifras, buscador, pastillas, filas y bloques.
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
  * - app/admin/_layout.tsx → registra esta ruta ("cotizaciones") dentro del
  *   Stack protegido del panel admin.
+ * - pruebas/perfil-datos.mjs → secciones CAMBC, TM5 y PANRED3.
  *
  * Rendimiento: load() limita "sell_requests" a 200 filas y pide los
  * adjuntos de "sell_request_media" solo de esas solicitudes (.in) con su
  * propio límite de 200, para no crecer sin control con el tiempo.
  *
- * Scroll y diseño: cabecera fija y compacta (volver + título centrado) y,
- * debajo, subtítulo, estadísticas, buscador, filtros y lista en un único
- * ScrollView (flex 1, margen final 48 px + zona segura); antes todo lo de
- * arriba era fijo y en el móvil dejaba la lista en una franja mínima. Los datos de cada solicitud
- * van en líneas de texto (no en "burbujas") y el precio esperado, si el
- * cliente escribió solo un número, se muestra como el resto de precios
- * (150,00€). Componentes comunes en app/admin/products/products.components.tsx.
+ * Scroll: cabecera fija y compacta (volver + título centrado) y, debajo, todo en un único ScrollView (flex 1, margen
+ * final 48 px + zona segura). El precio esperado, si el cliente escribió solo un número, se muestra como el resto de
+ * precios (150,00€).
  *
  * Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
  * desde COLORES_TEXTO.secundario, botones y filtros de 44 px y el buscador de 16 px y 48 de alto.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  Text,
-  TextInput,
-  View,
-  useWindowDimensions,
-} from "react-native";
+import { Modal, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { downloadSellRequestMedia, type SellRequestMediaRow } from "../../components/SellRequestMedia";
@@ -76,36 +69,43 @@ import {
   AdminHeader,
   AdminLoading,
   AdminNotice,
+  ChipButton,
   EmptyState,
   IconButton,
   PieVentana,
-  StatCard,
 } from "../../lib/admin/products.components";
 import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "../../lib/admin/products.utils";
-import { CAMPO, COLORES_TEXTO, colorTextoAzul, TACTIL, TAMANOS } from "../../constants/theme";
+import { COLORES_TEXTO, colorTextoAzul, TAMANOS } from "../../constants/theme";
 import { leerMarcaCambioCesta } from "../../components/VenderAhoraModal";
+import {
+  AccionTexto,
+  Bloque,
+  Buscador,
+  Chip,
+  Cifra,
+  Dato,
+  Detalle,
+  DetalleFila,
+  Etiqueta,
+  EtiquetaColor,
+  FilaCifras,
+  FilaLista,
+  FilaPastillas,
+  ListaVacia,
+  Miniatura,
+  RecuentoLista,
+  useDesplegables,
+  type Tono,
+} from "../../components/admin/PanelUI";
 
 const COLORS = {
   bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  card: "#F6FAFD",
-  cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
   muted: COLORES_TEXTO.secundario,
-  muted2: COLORES_TEXTO.secundario,
-  accent: "#1EA7E8",
-  accent2: "#EAF6FD",
-  accentBorder: "#BEE6FA",
   success: "#15803D",
-  successBg: "#DCFCE7",
-  successBorder: "#86EFAC",
   warning: "#92660B",
-  warningBg: "#FEF3C7",
-  warningBorder: "#FDE68A",
   danger: "#B91C1C",
-  dangerBg: "#FFE4E6",
-  dangerBorder: "#FDA4AF",
 };
 
 // Ancho máximo centrado para pantallas grandes (web/tablet); en móvil ocupa el 100%.
@@ -147,6 +147,14 @@ const STATUS_LABEL: Record<SellRequestStatus, string> = {
   descartado: "Descartada",
 };
 
+// Etiqueta de color de cada estado (texto oscuro sobre fondo claro, como en Pedidos).
+const STATUS_TONO: Record<SellRequestStatus, Tono> = {
+  nuevo: "amarillo",
+  revisado: "azul",
+  contactado: "verde",
+  descartado: "gris",
+};
+
 const METODO_LABEL: Record<MetodoContacto, string> = {
   whatsapp: "WhatsApp",
   gmail: "Gmail",
@@ -166,12 +174,14 @@ const GENERO_LABEL: Record<Genero, string> = {
   femenino: "Femenino",
 };
 
-const STATUS_COLORS: Record<SellRequestStatus, { bg: string; border: string }> = {
-  nuevo: { bg: COLORS.warningBg, border: COLORS.warningBorder },
-  revisado: { bg: COLORS.accent2, border: COLORS.accentBorder },
-  contactado: { bg: COLORS.successBg, border: COLORS.successBorder },
-  descartado: { bg: COLORS.dangerBg, border: COLORS.dangerBorder },
-};
+type FiltroEstado = SellRequestStatus | "todas";
+const PASTILLAS: [FiltroEstado, string][] = [
+  ["todas", "Todas"],
+  ["nuevo", "Nuevas"],
+  ["revisado", "Revisadas"],
+  ["contactado", "Contactadas"],
+  ["descartado", "Descartadas"],
+];
 
 // El precio esperado lo escribe el cliente a mano ("150€", "1.200",
 // "unos 100"...). Si es solo un número, se muestra con dos decimales y coma
@@ -183,108 +193,30 @@ function formatPrecioEstimado(raw: string | null | undefined) {
   return s;
 }
 
-function ChipButton({
-  label,
-  onPress,
-  variant,
-  disabled,
-  isMobile,
-  fullWidth,
-}: {
-  label: string;
-  onPress: () => void;
-  variant?: "primary" | "danger" | "ghost";
-  disabled?: boolean;
-  isMobile?: boolean;
-  fullWidth?: boolean;
-}) {
-  const isPrimary = variant === "primary";
-  const isDanger = variant === "danger";
-
-  const borderColor = isPrimary
-    ? COLORS.accentBorder
-    : isDanger
-      ? COLORS.dangerBorder
-      : COLORS.border;
-
-  const backgroundColor = isPrimary
-    ? COLORS.accent2
-    : isDanger
-      ? COLORS.dangerBg
-      : "#F6FAFD";
-
-  return (
-    <Pressable
-      disabled={!!disabled}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        borderRadius: 999,
-        minHeight: TACTIL.minimo,
-        justifyContent: "center",
-        paddingHorizontal: 12,
-        borderWidth: 1,
-        borderColor,
-        backgroundColor,
-        opacity: disabled ? 0.5 : pressed ? 0.88 : 1,
-        width: fullWidth ? "100%" : undefined,
-      })}
-    >
-      <Text
-        style={{
-          color: COLORS.text,
-          fontWeight: "900",
-          textAlign: "center",
-          fontSize: isMobile ? 13 : 14,
-        }}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
+function fecha(iso: string | null | undefined, conHora = false) {
+  if (!iso) return "-";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "-";
+  return new Date(t).toLocaleString("es-ES", {
+    day: "numeric",
+    month: "short",
+    ...(conHora ? { year: "numeric", hour: "2-digit", minute: "2-digit" } : {}),
+    timeZone: "Europe/Madrid",
+  });
 }
 
 // «Cambio de consola» desde la cesta (mejora 13, 2026-11-15): la marca que el formulario pone delante del motivo o del
 // problema (components/VenderAhoraModal.tsx → marcaCambioCesta). Se enseña como etiqueta y se quita del texto.
 const marcaDe = (r: SellRequestRow) => leerMarcaCambioCesta(r.funciona_bien ? r.motivo_venta : r.descripcion_problema);
-
-function FilterPill({
-  label,
-  active,
-  onPress,
-  nativeID,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-  nativeID?: string;
-}) {
-  return (
-    <Pressable
-      nativeID={nativeID}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        minHeight: TACTIL.minimo,
-        justifyContent: "center",
-        paddingHorizontal: 14,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: active ? COLORS.accentBorder : COLORS.border,
-        backgroundColor: active ? COLORS.accent2 : "#F6FAFD",
-        opacity: pressed ? 0.88 : 1,
-      })}
-    >
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>{label}</Text>
-    </Pressable>
-  );
-}
+const textoCesta = (para: string | null | undefined) => (para ? `Cambio desde la cesta · para comprar: ${para}` : "Cambio desde la cesta");
 
 export default function AdminCotizaciones() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const pagePadding = isMobile ? 12 : 16;
-  const sectionGap = isMobile ? 20 : 24;
+  const sectionGap = isMobile ? 18 : 22;
   const insets = useSafeAreaInsets();
+  const desplegables = useDesplegables();
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -296,7 +228,7 @@ export default function AdminCotizaciones() {
   }, [items]);
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<SellRequestStatus | "todas">("todas");
+  const [statusFilter, setStatusFilter] = useState<FiltroEstado>("todas");
   // «Cambio desde la cesta» (mejora 13): solo las solicitudes que llegan de la línea de la cesta.
   const [soloCesta, setSoloCesta] = useState(false);
   const cuantasCesta = useMemo(() => items.filter((r) => marcaDe(r).desdeCesta).length, [items]);
@@ -311,18 +243,10 @@ export default function AdminCotizaciones() {
   const [downloadingMediaId, setDownloadingMediaId] = useState<string | null>(null);
   const [mediaErr, setMediaErr] = useState<string | null>(null);
 
-  const stats = useMemo(() => {
-    const total = items.length;
-    const nuevo = items.filter((x) => x.status === "nuevo").length;
-    const revisado = items.filter((x) => x.status === "revisado").length;
-    const contactado = items.filter((x) => x.status === "contactado").length;
+  const cuenta = (f: FiltroEstado) => (f === "todas" ? items.length : items.filter((x) => x.status === f).length);
 
-    return { total, nuevo, revisado, contactado };
-  }, [items]);
-
+  const q = search.trim().toLowerCase();
   const filteredItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
-
     return items.filter((r) => {
       if (statusFilter !== "todas" && r.status !== statusFilter) return false;
       if (soloCesta && !marcaDe(r).desdeCesta) return false;
@@ -336,7 +260,7 @@ export default function AdminCotizaciones() {
         String(r.contacto ?? "").toLowerCase().includes(q)
       );
     });
-  }, [items, search, statusFilter, soloCesta]);
+  }, [items, q, statusFilter, soloCesta]);
 
   async function load() {
     setLoading(true);
@@ -405,6 +329,7 @@ export default function AdminCotizaciones() {
     if (busyId) return;
 
     setBusyId(row.id);
+    setScreenErr(null);
     const prev = itemsRef.current;
     const optimistic = prev.map((x) => (x.id === row.id ? { ...x, status: next } : x));
     setItems(optimistic);
@@ -472,6 +397,8 @@ export default function AdminCotizaciones() {
     }
   }
 
+  const hayFiltro = statusFilter !== "todas" || soloCesta || !!q;
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
@@ -486,7 +413,7 @@ export default function AdminCotizaciones() {
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
-          padding: pagePadding,
+          padding: 16,
           paddingBottom: 48 + insets.bottom,
           alignItems: "center",
         }}
@@ -494,249 +421,189 @@ export default function AdminCotizaciones() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={CIERRE_TECLADO}
       >
-        <View style={{ ...columnStyle, gap: sectionGap }}>
+        <View style={{ ...columnStyle, maxWidth: 1040, gap: sectionGap }}>
 
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            <StatCard label="Total" value={String(stats.total)} icon="document-text-outline" isMobile={isMobile} />
-            <StatCard label="Nuevas" value={String(stats.nuevo)} icon="sparkles-outline" isMobile={isMobile} />
-            <StatCard label="Revisadas" value={String(stats.revisado)} icon="eye-outline" isMobile={isMobile} />
-            <StatCard label="Contactadas" value={String(stats.contactado)} icon="chatbubbles-outline" isMobile={isMobile} />
-          </View>
-
-          <View style={{ gap: 12 }}>
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Buscar por nombre, artículo, ciudad o contacto"
-              placeholderTextColor="rgba(11,33,56,0.40)"
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                borderRadius: 14,
-                paddingHorizontal: 12,
-                paddingVertical: 12,
-                color: COLORS.text,
-                backgroundColor: "#F8FBFE",
-                // 16 px: Safari en iPhone no hace zoom de toda la pantalla al escribir.
-                fontSize: CAMPO.letra,
-                minHeight: CAMPO.alto,
-              }}
-            />
-
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: TACTIL.separacion }}>
-              <FilterPill label="Todas" active={statusFilter === "todas"} onPress={() => setStatusFilter("todas")} />
-              <FilterPill label="Nuevas" active={statusFilter === "nuevo"} onPress={() => setStatusFilter("nuevo")} />
-              <FilterPill label="Revisadas" active={statusFilter === "revisado"} onPress={() => setStatusFilter("revisado")} />
-              <FilterPill label="Contactadas" active={statusFilter === "contactado"} onPress={() => setStatusFilter("contactado")} />
-              <FilterPill label="Descartadas" active={statusFilter === "descartado"} onPress={() => setStatusFilter("descartado")} />
-              <FilterPill
-                nativeID="cotizaciones-filtro-cesta"
-                label={`Cambio desde la cesta (${cuantasCesta})`}
-                active={soloCesta}
-                onPress={() => setSoloCesta((v) => !v)}
+          {/* 1) Cifras que filtran la lista (otro toque en la misma, todas). */}
+          <FilaCifras nativeID="cotizaciones-cifras">
+            {(
+              [
+                ["todas", "Total", "document-text-outline"],
+                ["nuevo", "Nuevas", "sparkles-outline"],
+                ["revisado", "Revisadas", "eye-outline"],
+                ["contactado", "Contactadas", "chatbubbles-outline"],
+              ] as const
+            ).map(([f, etiqueta, icono]) => (
+              <Cifra
+                key={f}
+                nativeID={`cotizaciones-cifra-${f}`}
+                valor={String(cuenta(f))}
+                etiqueta={etiqueta}
+                icono={icono}
+                ancho={isMobile ? "45%" : 0}
+                activa={statusFilter === f && f !== "todas"}
+                onPress={() => setStatusFilter((x) => (x === f ? "todas" : f))}
               />
-            </View>
+            ))}
+          </FilaCifras>
+
+          {/* 2) Buscador y pastillas con su recuento (los estados y, aparte, «Cambio desde la cesta», que se suma). */}
+          <View style={{ gap: 12 }}>
+            <Buscador
+              nativeID="cotizaciones-buscar"
+              valor={search}
+              onCambiar={setSearch}
+              placeholder="Nombre, artículo, ciudad o contacto"
+              etiqueta="Buscar solicitudes por nombre, artículo, ciudad o contacto"
+            />
+            <FilaPastillas isMobile={isMobile} nativeID="cotizaciones-filtros">
+              {PASTILLAS.map(([f, t]) => (
+                <Chip key={f} nativeID={`cotizaciones-filtro-${f}`} label={`${t} (${cuenta(f)})`} activo={statusFilter === f} onPress={() => setStatusFilter(f)} />
+              ))}
+              <Chip nativeID="cotizaciones-filtro-cesta" label={`Cambio desde la cesta (${cuantasCesta})`} activo={soloCesta} onPress={() => setSoloCesta((v) => !v)} />
+            </FilaPastillas>
           </View>
 
           {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
           {!!mediaErr && <AdminNotice tone="danger" text={mediaErr} />}
 
-          {filteredItems.length === 0 ? (
-            <EmptyState
-              icon="document-text-outline"
-              title="No hay solicitudes para este filtro."
-              text="En cuanto un cliente envíe el formulario de «Vender ahora» aparecerá aquí."
+          {/* 3) Cuántas salen, «Abrir todas» y las filas compactas. */}
+          <View style={{ gap: 4 }}>
+            <RecuentoLista
+              nativeID="cotizaciones-recuento"
+              texto={q ? `${filteredItems.length} ${filteredItems.length === 1 ? "solicitud encontrada" : "solicitudes encontradas"}` : `${filteredItems.length} de ${items.length} solicitudes`}
+              abiertas={desplegables.todasAbiertas(filteredItems.map((r) => r.id))}
+              onAlternar={filteredItems.length ? () => desplegables.abrirOCerrarTodas(filteredItems.map((r) => r.id)) : undefined}
+              idBoton="cotizaciones-abrir-todas"
+              femenino
             />
-          ) : (
-            <View style={{ gap: 12 }}>
-            {filteredItems.map((r) => {
-                const st = STATUS_COLORS[r.status];
-                const isBusy = busyId === r.id;
-                const marca = marcaDe(r);
-
-                return (
-                  <View
-                    key={r.id}
-                    style={{
-                      borderRadius: 20,
-                      backgroundColor: COLORS.card,
-                      padding: isMobile ? 12 : 14,
-                      gap: 10,
-                    }}
-                  >
-                    <View
-                      style={{
-                        flexDirection: isMobile ? "column" : "row",
-                        justifyContent: "space-between",
-                        alignItems: isMobile ? "stretch" : "flex-start",
-                        gap: 10,
-                      }}
+            {filteredItems.length === 0 ? (
+              items.length && hayFiltro ? (
+                <ListaVacia nativeID="cotizaciones-vacio" icono="document-text-outline" titulo="No hay solicitudes para este filtro." texto="Prueba a borrar el buscador o a elegir «Todas»." />
+              ) : (
+                <EmptyState
+                  icon="document-text-outline"
+                  title="No hay solicitudes para este filtro."
+                  text="En cuanto un cliente envíe el formulario de «Vender ahora» aparecerá aquí."
+                />
+              )
+            ) : (
+              <View nativeID="cotizaciones-lista">
+                {filteredItems.map((r, n) => {
+                  const isBusy = busyId === r.id;
+                  const marca = marcaDe(r);
+                  const media = mediaByRequest[r.id] ?? [];
+                  const abierta = desplegables.estaAbierta(r.id);
+                  let imgCount = 0;
+                  return (
+                    <FilaLista
+                      key={r.id}
+                      nativeID={`cotizacion-${r.id}`}
+                      idFila={`cotizacion-fila-${r.id}`}
+                      primera={n === 0}
+                      abierta={abierta}
+                      onPress={() => desplegables.alternar(r.id)}
+                      etiquetaAccesible={`${r.articulo}, ${STATUS_LABEL[r.status]}, de ${r.nombre} ${r.apellido}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+                      miniatura={<Miniatura icono={media.length ? "images-outline" : marca.desdeCesta ? "swap-horizontal-outline" : "pricetag-outline"} ancho={48} alto={48} />}
+                      titulo={r.articulo}
+                      colorTitulo={r.status === "descartado" ? COLORS.muted : undefined}
+                      etiqueta={<EtiquetaColor nativeID={`cotizacion-estado-${r.id}`} texto={STATUS_LABEL[r.status]} tono={STATUS_TONO[r.status]} />}
+                      subtitulo={`${r.nombre} ${r.apellido} · ${r.ciudad} · ${formatPrecioEstimado(r.precio_estimado)} · ${fecha(r.created_at)}`}
+                      idSubtitulo={`cotizacion-datos-${r.id}`}
+                      etiquetas={
+                        marca.desdeCesta || !r.funciona_bien || media.length || !r.mayor_edad ? (
+                          <>
+                            {marca.desdeCesta ? <Etiqueta nativeID={`cotizacion-cesta-${r.id}`} icon="swap-horizontal-outline" color={colorTextoAzul(13)} texto={textoCesta(marca.para)} /> : null}
+                            {!r.funciona_bien ? <Etiqueta nativeID={`cotizacion-averia-${r.id}`} icon="construct-outline" color={COLORS.warning} texto="Presenta una avería" /> : null}
+                            {media.length ? <Etiqueta nativeID={`cotizacion-adjuntos-${r.id}`} icon="images-outline" color={COLORS.text} texto={`${media.length} ${media.length === 1 ? "adjunto" : "adjuntos"}`} /> : null}
+                            {!r.mayor_edad ? <Etiqueta icon="alert-circle-outline" color={COLORS.warning} texto="Mayoría de edad sin confirmar" /> : null}
+                          </>
+                        ) : undefined
+                      }
                     >
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{
-                            color: COLORS.text,
-                            fontWeight: "900",
-                            fontSize: isMobile ? 16 : 17,
-                            lineHeight: 22,
-                          }}
-                        >
-                          {r.articulo}
-                        </Text>
-                        <Text style={{ color: COLORS.muted, fontWeight: "800", marginTop: 2 }}>
-                          {r.nombre} {r.apellido}
-                        </Text>
-                        <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, marginTop: 4 }}>
-                          {r.created_at ? new Date(r.created_at).toLocaleString("es-ES") : "-"}
-                        </Text>
-                      </View>
-
-                      <View
-                        style={{
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: st.border,
-                          backgroundColor: st.bg,
-                          alignSelf: isMobile ? "flex-start" : "auto",
-                        }}
+                      <DetalleFila
+                        nativeID={`cotizacion-detalle-${r.id}`}
+                        idAcciones={`cotizacion-acciones-${r.id}`}
+                        acciones={
+                          <>
+                            {r.status !== "revisado" ? (
+                              <AccionTexto nativeID={`cotizacion-revisada-${r.id}`} icono="eye-outline" texto="Marcar revisada" disabled={isBusy} onPress={() => setStatus(r, "revisado")} />
+                            ) : null}
+                            {r.status !== "contactado" ? (
+                              <AccionTexto nativeID={`cotizacion-contactada-${r.id}`} icono="chatbubbles-outline" texto="Marcar contactada" disabled={isBusy} onPress={() => setStatus(r, "contactado")} />
+                            ) : null}
+                            {r.status !== "descartado" ? (
+                              <AccionTexto nativeID={`cotizacion-descartar-${r.id}`} icono="close-circle-outline" texto="Descartar" color={COLORS.text} disabled={isBusy} onPress={() => setStatus(r, "descartado")} />
+                            ) : null}
+                            <IconButton icon="trash-outline" label="Borrar la solicitud" variant="danger" disabled={isBusy} onPress={() => askRemove(r)} />
+                          </>
+                        }
                       >
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                          {STATUS_LABEL[r.status]}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Datos de la solicitud en líneas de texto (antes, cinco
-                        "burbujas"). Lo que conviene revisar (avería, mayoría
-                        de edad sin confirmar) va en color de aviso. */}
-                    <View style={{ gap: 4 }}>
-                      <Text
-                        style={{
-                          color: r.funciona_bien ? COLORS.success : COLORS.warning,
-                          fontWeight: "900",
-                          fontSize: 13,
-                          lineHeight: 19,
-                        }}
-                      >
-                        {r.funciona_bien ? "Funciona bien" : "Presenta una avería"}
-                      </Text>
-                      <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13, lineHeight: 19 }}>
-                        {r.ciudad} · Precio esperado: {formatPrecioEstimado(r.precio_estimado)} ·{" "}
-                        {GENERO_LABEL[r.genero]}
-                      </Text>
-                      <Text
-                        style={{
-                          color: r.mayor_edad ? COLORS.muted : COLORS.warning,
-                          fontWeight: "700",
-                          fontSize: 13,
-                          lineHeight: 19,
-                        }}
-                      >
-                        {r.mayor_edad ? "Mayoría de edad confirmada" : "Mayoría de edad sin confirmar"}
-                      </Text>
-                    </View>
-
-                    {marca.desdeCesta ? (
-                      <Text nativeID={`cotizacion-cesta-${r.id}`} style={{ color: colorTextoAzul(13), fontWeight: "900", fontSize: 13, lineHeight: 19 }}>
-                        {marca.para ? `Cambio desde la cesta · para comprar: ${marca.para}` : "Cambio desde la cesta"}
-                      </Text>
-                    ) : null}
-                    <Text style={{ color: COLORS.muted, lineHeight: 20 }}>{marca.resto}</Text>
-
-                    <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20 }}>
-                      {r.opcion_venta === "domicilio"
-                        ? `Recogida en domicilio: ${r.direccion ?? "-"}`
-                        : `El cliente se desplaza para entregar el artículo · Disponibilidad: ${
-                            r.disponibilidad ? DISPONIBILIDAD_LABEL[r.disponibilidad] : "-"
-                          }`}
-                    </Text>
-
-                    {!!r.contacto && (
-                      <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20 }}>
-                        Contacto{r.metodo_contacto ? ` (${METODO_LABEL[r.metodo_contacto]})` : ""}: {r.contacto}
-                      </Text>
-                    )}
-
-                    {(() => {
-                      const media = mediaByRequest[r.id];
-                      if (!media?.length) return null;
-                      let imgCount = 0;
-                      return (
-                        <View style={{ gap: 6 }}>
-                          <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
-                            Fotos y vídeo adjuntos ({media.length})
+                        <Bloque icono="cube-outline" titulo="Artículo" ancho={isMobile ? "100%" : "30%"}>
+                          <Dato etiqueta="Artículo">{r.articulo}</Dato>
+                          <Text style={{ color: r.funciona_bien ? COLORS.success : COLORS.warning, fontWeight: "900", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                            {r.funciona_bien ? "Funciona bien" : "Presenta una avería"}
                           </Text>
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              gap: 8,
-                              flexWrap: "wrap",
-                              justifyContent: isMobile ? "center" : "flex-start",
-                            }}
-                          >
-                            {media.map((m) => {
-                              const label =
-                                m.kind === "video" ? "Descargar vídeo" : `Descargar foto ${++imgCount}`;
-                              return (
-                                <ChipButton
-                                  key={m.id}
-                                  label={downloadingMediaId === m.id ? "Descargando…" : label}
-                                  variant="ghost"
-                                  disabled={!!downloadingMediaId}
-                                  onPress={() => handleDownloadMedia(m)}
-                                  isMobile={isMobile}
-                                />
-                              );
-                            })}
-                          </View>
-                        </View>
-                      );
-                    })()}
-
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        gap: 10,
-                        flexWrap: "wrap",
-                        justifyContent: isMobile ? "center" : "flex-start",
-                      }}
-                    >
-                      {r.status !== "revisado" && (
-                        <ChipButton
-                          label="Marcar revisada"
-                          variant="primary"
-                          disabled={isBusy}
-                          onPress={() => setStatus(r, "revisado")}
-                          isMobile={isMobile}
-                        />
-                      )}
-                      {r.status !== "contactado" && (
-                        <ChipButton
-                          label="Marcar contactada"
-                          variant="primary"
-                          disabled={isBusy}
-                          onPress={() => setStatus(r, "contactado")}
-                          isMobile={isMobile}
-                        />
-                      )}
-                      {r.status !== "descartado" && (
-                        <ChipButton
-                          label="Descartar"
-                          variant="ghost"
-                          disabled={isBusy}
-                          onPress={() => setStatus(r, "descartado")}
-                          isMobile={isMobile}
-                        />
-                      )}
-                      <IconButton icon="trash-outline" label="Borrar la solicitud" variant="danger" disabled={isBusy} onPress={() => askRemove(r)} />
-                    </View>
-                  </View>
-                );
-            })}
-            </View>
-          )}
+                          <Dato etiqueta="Precio esperado">{formatPrecioEstimado(r.precio_estimado)}</Dato>
+                          {marca.desdeCesta ? (
+                            <Text nativeID={`cotizacion-detalle-cesta-${r.id}`} style={{ color: colorTextoAzul(13), fontWeight: "900", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                              {textoCesta(marca.para)}
+                            </Text>
+                          ) : null}
+                          {marca.resto ? <Dato etiqueta={r.funciona_bien ? "Por qué lo vende" : "Qué le pasa"}>{marca.resto}</Dato> : null}
+                        </Bloque>
+                        <Bloque icono="person-outline" titulo="Cliente" ancho={isMobile ? "100%" : "30%"}>
+                          <Dato etiqueta="Nombre">{`${r.nombre} ${r.apellido}`}</Dato>
+                          <Dato etiqueta="Género">{GENERO_LABEL[r.genero] ?? "-"}</Dato>
+                          <Dato etiqueta="Ciudad">{r.ciudad}</Dato>
+                          <Text style={{ color: r.mayor_edad ? COLORS.muted : COLORS.warning, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                            {r.mayor_edad ? "Mayoría de edad confirmada" : "Mayoría de edad sin confirmar"}
+                          </Text>
+                          {r.contacto ? (
+                            <Dato nativeID={`cotizacion-contacto-${r.id}`} etiqueta={`Contacto${r.metodo_contacto ? ` (${METODO_LABEL[r.metodo_contacto]})` : ""}`}>
+                              {r.contacto}
+                            </Dato>
+                          ) : (
+                            <Detalle>Sin contacto</Detalle>
+                          )}
+                        </Bloque>
+                        <Bloque icono="car-outline" titulo="Entrega" ancho={isMobile ? "100%" : "30%"}>
+                          {r.opcion_venta === "domicilio" ? (
+                            <Dato etiqueta="Recogida en domicilio">{r.direccion ?? "-"}</Dato>
+                          ) : (
+                            <>
+                              <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>El cliente se desplaza para entregar el artículo</Text>
+                              <Dato etiqueta="Disponibilidad">{r.disponibilidad ? DISPONIBILIDAD_LABEL[r.disponibilidad] : "-"}</Dato>
+                            </>
+                          )}
+                          <Dato etiqueta="Recibida">{fecha(r.created_at, true)}</Dato>
+                          <Dato etiqueta="Estado">{STATUS_LABEL[r.status]}</Dato>
+                        </Bloque>
+                        {media.length ? (
+                          <Bloque nativeID={`cotizacion-fotos-${r.id}`} icono="images-outline" titulo={`Fotos y vídeo adjuntos (${media.length})`} ancho="100%">
+                            <Detalle>Se descargan una a una al dispositivo (el almacén es privado).</Detalle>
+                            <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 18, rowGap: 8 }}>
+                              {media.map((m) => {
+                                const label = m.kind === "video" ? "Descargar vídeo" : `Descargar foto ${++imgCount}`;
+                                return (
+                                  <AccionTexto
+                                    key={m.id}
+                                    icono={m.kind === "video" ? "videocam-outline" : "download-outline"}
+                                    texto={downloadingMediaId === m.id ? "Descargando…" : label}
+                                    disabled={!!downloadingMediaId}
+                                    onPress={() => handleDownloadMedia(m)}
+                                  />
+                                );
+                              })}
+                            </View>
+                          </Bloque>
+                        ) : null}
+                      </DetalleFila>
+                    </FilaLista>
+                  );
+                })}
+              </View>
+            )}
+          </View>
         </View>
       </ScrollView>
       )}

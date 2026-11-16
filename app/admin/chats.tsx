@@ -74,6 +74,14 @@
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario, todo lo que se toca (volver, borrar, confirmar, chips) de 44 px
  *   separado 8 y los campos de 16 px y 48 de alto.
+ * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Categorías y
+ *   Productos): la invitación a registrarse arriba, en un bloque; cifras que filtran (Conversaciones, Con producto,
+ *   Atención al cliente, Ventas de clientes), buscador de 16 px (cliente, mensaje, artículo o producto), pastillas de
+ *   44 px con su recuento (#chats-filtro) y la lista por grupos (Atención al cliente, Ventas de clientes y Preguntas por
+ *   artículos, cada producto con su tarjeta) en filas compactas: cliente, etiqueta de color («La empezó la tienda»,
+ *   «Vendido a este cliente»), último mensaje y fecha, con la papelera al lado. Al tocar una fila se abre su hilo (al
+ *   lado en el ordenador, a toda pantalla en el móvil), que es su detalle, con «Marcar como vendido» y «Asignar
+ *   seguimiento» como antes.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -93,6 +101,22 @@ import { supabase } from "../../lib/supabase";
 import ProductChatThread, { cargarArticulosChat, TarjetaArticuloChat, TITULO_ATENCION_CLIENTE, type ArticuloChat } from "../../components/ProductChatThread";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import {
+  AccionTexto,
+  Buscador,
+  Chip as ChipPanel,
+  Cifra,
+  Etiqueta,
+  EtiquetaColor,
+  EtiquetaFila,
+  FilaCifras,
+  FilaLista,
+  FilaPastillas,
+  ListaVacia,
+  Miniatura,
+  RecuentoLista,
+  Seccion,
+} from "../../components/admin/PanelUI";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -127,10 +151,8 @@ type ChatRow = {
   empezo: "tienda" | "cliente" | null;
 };
 
-// Marca junto al nombre cuando la conversación la empezó la tienda.
-function MarcaEmpezo({ chat }: { chat: ChatRow }) {
-  return chat.empezo === "tienda" ? <Text style={{ color: COLORS.muted, fontWeight: "600" }}> · la empezó la tienda</Text> : null;
-}
+// Filtro de la lista: todas, las de un producto (mejora 10), las consultas generales o las ventas de clientes.
+type FiltroChats = "todas" | "producto" | "atencion" | "ventas";
 
 type ProductGroup = {
   product_id: string;
@@ -440,60 +462,32 @@ function InvitarRegistro() {
       // sin portapapeles: queda el botón de WhatsApp
     }
   }
+  // Un bloque como los del detalle del panel (PANRED3): icono, título, una línea y las dos acciones de texto.
   return (
-    <View nativeID="chat-invitar-registro" style={{ borderRadius: 16, backgroundColor: COLORS.card, padding: 12, gap: 8 }}>
-      <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>¿Te escriben por WhatsApp o Instagram?</Text>
-      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+    <View nativeID="chat-invitar-registro" style={{ borderRadius: 16, backgroundColor: COLORS.card, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4, gap: 4 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Ionicons name="person-add-outline" size={18} color={COLORS.accent} />
+        <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>¿Te escriben por WhatsApp o Instagram?</Text>
+      </View>
+      <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
         Mándales esta invitación: cuando creen su cuenta y te escriban aquí, podrás asignarles su seguimiento.
       </Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
-        <Pressable
-          onPress={copiar}
-          accessibilityRole="button"
-          accessibilityLabel="Copiar la invitación a registrarse"
-          style={({ pressed }) => ({
-            minHeight: 44,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            paddingHorizontal: 14,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: "#FFFFFF",
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <Ionicons name={copiado ? "checkmark" : "copy-outline"} size={16} color={COLORS.text} />
-          <Text style={{ color: COLORS.text, fontWeight: "800" }}>{copiado ? "Copiada" : "Copiar invitación"}</Text>
-        </Pressable>
-        <Pressable
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 18 }}>
+        <AccionTexto nativeID="chat-invitar-copiar" icono={copiado ? "checkmark" : "copy-outline"} texto={copiado ? "Copiada" : "Copiar"} etiqueta="Copiar la invitación a registrarse" onPress={copiar} />
+        <AccionTexto
+          nativeID="chat-invitar-whatsapp"
+          icono="logo-whatsapp"
+          texto="Por WhatsApp"
+          etiqueta="Enviar la invitación por WhatsApp"
           onPress={() => openExternalLink(`https://wa.me/?text=${encodeURIComponent(INVITACION_REGISTRO)}`)}
-          accessibilityRole="button"
-          accessibilityLabel="Enviar la invitación por WhatsApp"
-          style={({ pressed }) => ({
-            minHeight: 44,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            paddingHorizontal: 14,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: "#FFFFFF",
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
-          <Text style={{ color: COLORS.text, fontWeight: "800" }}>Enviar por WhatsApp</Text>
-        </Pressable>
+        />
       </View>
     </View>
   );
 }
 
 // Papelera de cada fila de la lista: primer toque pide confirmación («Cancelar» / «Confirmar»), segundo toque borra. Cada
-// botón mide 44 px (se mete en el relleno de la fila para no alargarla) y deja 8 px con el de al lado.
+// botón mide 44 px, va junto a la fila (FilaLista → derecha) y deja 8 px con el de al lado.
 function BorrarFila({
   confirmando,
   borrando,
@@ -507,7 +501,7 @@ function BorrarFila({
   onCancelar: () => void;
   onConfirmar: () => void;
 }) {
-  const estiloBoton = { minHeight: TACTIL.minimo, minWidth: TACTIL.minimo, paddingHorizontal: 8, alignItems: "center", justifyContent: "center", marginBottom: -10, marginRight: -6 } as const;
+  const estiloBoton = { minHeight: TACTIL.minimo, minWidth: TACTIL.minimo, paddingHorizontal: 4, alignItems: "center", justifyContent: "center" } as const;
   if (confirmando) {
     return (
       <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion }}>
@@ -522,7 +516,7 @@ function BorrarFila({
   }
   return (
     <Pressable onPress={onPedir} accessibilityRole="button" accessibilityLabel="Borrar la conversación" style={estiloBoton}>
-      <Ionicons name="trash-outline" size={18} color={COLORS.muted} />
+      <Ionicons name="trash-outline" size={20} color={COLORS.muted} />
     </Pressable>
   );
 }
@@ -531,7 +525,8 @@ export default function AdminChats() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 900;
-  const pagePadding = isMobile ? 12 : 16;
+  // 16 px a los lados, como el resto del panel (las pastillas deslizables del móvil cuentan con ellos).
+  const pagePadding = 16;
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
@@ -728,17 +723,30 @@ export default function AdminChats() {
     load();
   }, [load, chatUrl]);
 
-  // Filtro de la lista (mejora 10): todas o solo las que tienen un producto adjunto.
-  const [filtro, setFiltro] = useState<"todas" | "producto">("todas");
+  // Filtro de la lista (mejora 10 y PANRED3): todas, las que tienen un producto adjunto, las consultas generales o las
+  // ventas de clientes; y el buscador (cliente, último mensaje, producto o artículo que vende).
+  const [filtro, setFiltro] = useState<FiltroChats>("todas");
+  const [buscar, setBuscar] = useState("");
   const chatsConProducto = useMemo(() => groups.reduce((sum, g) => sum + g.chats.length, 0), [groups]);
+  const chatsVentas = useMemo(() => sellGroups.reduce((sum, g) => sum + g.chats.length, 0), [sellGroups]);
 
-  const totalChats = useMemo(
-    () =>
-      groups.reduce((sum, g) => sum + g.chats.length, 0) +
-      sellGroups.reduce((sum, g) => sum + g.chats.length, 0) +
-      supportChats.length,
-    [groups, sellGroups, supportChats]
-  );
+  const totalChats = chatsConProducto + chatsVentas + supportChats.length;
+  const cuenta: Record<FiltroChats, number> = { todas: totalChats, producto: chatsConProducto, atencion: supportChats.length, ventas: chatsVentas };
+
+  const q = buscar.trim().toLowerCase();
+  const coincide = (chat: ChatRow, extra = "") =>
+    !q || `${chat.customer_name} ${chat.last_message_preview ?? ""} ${extra}`.toLowerCase().includes(q);
+  // (Listas pequeñas: como mucho unos cientos de conversaciones; se filtran en cada pintado.)
+  const soporteVisibles = supportChats.filter((c) => coincide(c, TITULO_ATENCION_CLIENTE));
+  const ventasVisibles = sellGroups.map((g) => ({ ...g, chats: g.chats.filter((c) => coincide(c, g.articulo)) })).filter((g) => g.chats.length > 0);
+  const gruposVisibles = groups.map((g) => ({ ...g, chats: g.chats.filter((c) => coincide(c, g.product_title)) })).filter((g) => g.chats.length > 0);
+  const verAtencion = filtro === "todas" || filtro === "atencion";
+  const verVentas = filtro === "todas" || filtro === "ventas";
+  const verProductos = filtro === "todas" || filtro === "producto";
+  const enLista =
+    (verAtencion ? soporteVisibles.length : 0) +
+    (verVentas ? ventasVisibles.reduce((s, g) => s + g.chats.length, 0) : 0) +
+    (verProductos ? gruposVisibles.reduce((s, g) => s + g.chats.length, 0) : 0);
 
   // Borra una conversación SOLO de mi bandeja (admin) — ver
   // delete_chat_for_me en la migración. Quita la fila de donde esté
@@ -793,272 +801,184 @@ export default function AdminChats() {
   const selectedKey = selectedChat ? `${selectedChat.product_id}:${selectedChat.customer_user_id}` : "";
   const alreadySold = selectedKey ? soldKeys.has(selectedKey) : false;
 
+  // Una conversación de la lista, en una fila compacta (PANRED3): el cliente, su etiqueta de color, el último mensaje y la
+  // fecha; al tocarla se abre su hilo (no se despliega: el hilo es su detalle). La papelera, al lado.
+  const fila = (chat: ChatRow, primera: boolean, group: ProductGroup | null) => {
+    const active = selectedChat?.id === chat.id;
+    const sold = !!chat.product_id && soldKeys.has(`${chat.product_id}:${chat.customer_user_id}`);
+    return (
+      <FilaLista
+        key={chat.id}
+        nativeID={`chat-${chat.id}`}
+        idFila={`chat-fila-${chat.id}`}
+        primera={primera}
+        desplegable={false}
+        activa={active}
+        onPress={() => {
+          setSelectedChat(chat);
+          setSelectedProduct(group);
+        }}
+        miniatura={<Miniatura icono="person-outline" ancho={40} alto={40} />}
+        titulo={chat.customer_name}
+        // Tres líneas como mucho: el cliente, su último mensaje (en una línea) y la fecha con su etiqueta de color.
+        subtitulo={chat.last_message_preview || "Sin mensajes"}
+        lineasSubtitulo={1}
+        etiquetas={
+          <>
+            <Etiqueta icon="time-outline" color={COLORS.muted} texto={formatDate(chat.last_message_at)} />
+            {sold ? (
+              <EtiquetaColor nativeID={`chat-vendido-${chat.id}`} texto="Vendido a este cliente" tono="verde" />
+            ) : chat.empezo === "tienda" ? (
+              <EtiquetaColor nativeID={`chat-empezo-${chat.id}`} texto="La empezó la tienda" tono="azul" />
+            ) : null}
+          </>
+        }
+        derecha={
+          <BorrarFila
+            confirmando={confirmDeleteId === chat.id}
+            borrando={deletingId === chat.id}
+            onPedir={() => setConfirmDeleteId(chat.id)}
+            onCancelar={() => setConfirmDeleteId(null)}
+            onConfirmar={() => handleDeleteChat(chat)}
+          />
+        }
+      />
+    );
+  };
+
   // Lista de conversaciones: llega hasta el final aunque haya muchas (margen inferior + zona
   // segura del iPhone) y el primer toque en una fila ya la abre aunque hubiera teclado.
   const list = (
     <ScrollView
       style={{ flex: 1 }}
-      contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, gap: 12 }}
+      contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, gap: 18 }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
       <InvitarRegistro />
-      {/* Filtro (mejora 10): todas o solo las conversaciones con un producto adjunto. */}
+      {/* Cifras que filtran, buscador y pastillas con su recuento (mejora 10 y PANRED3). */}
       {!loading && totalChats > 0 ? (
-        <View nativeID="chats-filtro" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
-          <Chip activo={filtro === "todas"} texto={`Todas (${totalChats})`} onPress={() => setFiltro("todas")} />
-          <Chip activo={filtro === "producto"} texto={`Con producto (${chatsConProducto})`} onPress={() => setFiltro("producto")} />
-        </View>
+        <>
+          <FilaCifras nativeID="chats-cifras">
+            {(
+              [
+                ["todas", "Conversaciones", "chatbubbles-outline"],
+                ["producto", "Con producto", "cube-outline"],
+                ["atencion", TITULO_ATENCION_CLIENTE, "chatbubble-ellipses-outline"],
+                ["ventas", "Ventas de clientes", "pricetag-outline"],
+              ] as const
+            ).map(([f, etiqueta, icono]) => (
+              <Cifra
+                key={f}
+                nativeID={`chats-cifra-${f}`}
+                valor={String(cuenta[f])}
+                etiqueta={etiqueta}
+                icono={icono}
+                ancho="45%"
+                activa={filtro === f && f !== "todas"}
+                onPress={() => setFiltro((x) => (x === f ? "todas" : f))}
+              />
+            ))}
+          </FilaCifras>
+          <View style={{ gap: 12 }}>
+            <Buscador nativeID="chats-buscar" valor={buscar} onCambiar={setBuscar} placeholder="Buscar cliente, mensaje o artículo" etiqueta="Buscar conversaciones por cliente, mensaje o artículo" />
+            <FilaPastillas isMobile={isMobile} nativeID="chats-filtro">
+              {(
+                [
+                  ["todas", "Todas"],
+                  ["producto", "Con producto"],
+                  ["atencion", "Atención"],
+                  ["ventas", "Ventas"],
+                ] as const
+              ).map(([f, t]) => (
+                <ChipPanel key={f} nativeID={`chats-filtro-${f}`} label={`${t} (${cuenta[f]})`} activo={filtro === f} onPress={() => setFiltro(f)} />
+              ))}
+            </FilaPastillas>
+          </View>
+        </>
       ) : null}
       {loading ? (
         <View style={{ alignItems: "center", paddingVertical: 24 }}>
           <CargaMarca texto="Cargando conversaciones…" />
         </View>
       ) : groups.length === 0 && supportChats.length === 0 && sellGroups.length === 0 ? (
-        <View style={{ paddingVertical: 24, paddingHorizontal: 12, alignItems: "center", gap: 6 }}>
-          <Ionicons name="chatbubble-ellipses-outline" size={24} color={COLORS.muted} />
-          <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>Sin conversaciones todavía</Text>
-          <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 19 }}>
-            Aquí aparecerán los clientes que escriban por «Hablar con el equipo» en Blue IA, o por
-            «Chatear con nosotros» en el catálogo.
-          </Text>
-        </View>
+        <ListaVacia
+          nativeID="chats-vacio"
+          icono="chatbubble-ellipses-outline"
+          titulo="Sin conversaciones todavía"
+          texto="Aquí aparecerán los clientes que escriban por «Hablar con el equipo» en Blue IA, o por «Chatear con nosotros» en el catálogo."
+        />
       ) : (
         <>
+          <RecuentoLista
+            nativeID="chats-recuento"
+            texto={q ? `${enLista} ${enLista === 1 ? "conversación encontrada" : "conversaciones encontradas"}` : `${enLista} de ${totalChats} ${totalChats === 1 ? "conversación" : "conversaciones"}`}
+            abiertas={false}
+            idBoton="chats-abrir-todas"
+            femenino
+          />
           {filtro === "producto" && groups.length === 0 ? (
             <Text nativeID="chats-sin-producto" style={{ color: COLORS.muted, textAlign: "center", lineHeight: 19, paddingVertical: 12 }}>
               Ninguna conversación con un producto todavía: salen cuando un cliente pulsa «Preguntar por este artículo» en una ficha.
             </Text>
+          ) : enLista === 0 ? (
+            <ListaVacia nativeID="chats-sin-resultados" icono="search-outline" titulo="Ninguna conversación en esta lista." texto="Prueba a borrar el buscador o a elegir «Todas»." />
           ) : null}
-          {supportChats.length > 0 && filtro === "todas" ? (
-            <View
-              style={{
-                borderRadius: 18,
-                backgroundColor: COLORS.card,
-                padding: 12,
-                gap: 8,
-              }}
+          {verAtencion && soporteVisibles.length > 0 ? (
+            <Seccion
+              nativeID="chats-grupo-atencion"
+              icon="chatbubble-ellipses-outline"
+              title={TITULO_ATENCION_CLIENTE}
+              extra={`${soporteVisibles.length} ${soporteVisibles.length === 1 ? "persona" : "personas"}`}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 10,
-                    backgroundColor: COLORS.cardSoft,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Ionicons name="chatbubble-ellipses-outline" size={18} color={COLORS.muted} />
-                </View>
-                <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
-                  {TITULO_ATENCION_CLIENTE}
-                </Text>
-                <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
-                  {supportChats.length} {supportChats.length === 1 ? "persona" : "personas"}
-                </Text>
-              </View>
-
-              <View style={{ gap: TACTIL.separacion }}>
-                {supportChats.map((chat) => {
-                  const active = selectedChat?.id === chat.id;
-                  return (
-                    <Pressable
-                      key={chat.id}
-                      onPress={() => {
-                        setSelectedChat(chat);
-                        setSelectedProduct(null);
-                      }}
-                      style={({ pressed }) => ({
-                        opacity: pressed ? 0.9 : 1,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 8,
-                        borderRadius: 12,
-                        backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
-                        padding: 10,
-                      })}
-                    >
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo }}>
-                          {chat.customer_name}
-                          <MarcaEmpezo chat={chat} />
-                        </Text>
-                        <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>
-                          {chat.last_message_preview || "Sin mensajes"}
-                        </Text>
-                      </View>
-                      <View style={{ alignItems: "flex-end", gap: 4 }}>
-                        <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>{formatDate(chat.last_message_at)}</Text>
-                        <BorrarFila
-                          confirmando={confirmDeleteId === chat.id}
-                          borrando={deletingId === chat.id}
-                          onPedir={() => setConfirmDeleteId(chat.id)}
-                          onCancelar={() => setConfirmDeleteId(null)}
-                          onConfirmar={() => handleDeleteChat(chat)}
-                        />
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
+              <View>{soporteVisibles.map((chat, i) => fila(chat, i === 0, null))}</View>
+            </Seccion>
           ) : null}
 
-          {sellGroups.length > 0 && filtro === "todas" ? (
-            <View
-              style={{
-                borderRadius: 18,
-                backgroundColor: COLORS.card,
-                padding: 12,
-                gap: 8,
-              }}
+          {verVentas && ventasVisibles.length > 0 ? (
+            <Seccion
+              nativeID="chats-grupo-ventas"
+              icon="pricetag-outline"
+              title="Ventas de clientes"
+              extra={`${ventasVisibles.length} ${ventasVisibles.length === 1 ? "solicitud" : "solicitudes"}`}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 10,
-                    backgroundColor: COLORS.cardSoft,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Ionicons name="pricetag-outline" size={18} color={COLORS.muted} />
-                </View>
-                <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
-                  Ventas de clientes
-                </Text>
-                <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
-                  {sellGroups.length} {sellGroups.length === 1 ? "solicitud" : "solicitudes"}
-                </Text>
-              </View>
-
-              <View style={{ gap: 10 }}>
-                {sellGroups.map((group) => (
-                  <View key={group.sell_request_id} style={{ gap: TACTIL.separacion }}>
-                    <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>
-                      {group.articulo}
-                    </Text>
-                    {group.chats.map((chat) => {
-                      const active = selectedChat?.id === chat.id;
-                      return (
-                        <Pressable
-                          key={chat.id}
-                          onPress={() => {
-                            setSelectedChat(chat);
-                            setSelectedProduct(null);
-                          }}
-                          style={({ pressed }) => ({
-                            opacity: pressed ? 0.9 : 1,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 8,
-                            borderRadius: 12,
-                            backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
-                            padding: 10,
-                          })}
-                        >
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo }}>
-                              {chat.customer_name}
-                          <MarcaEmpezo chat={chat} />
-                            </Text>
-                            <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>
-                              {chat.last_message_preview || "Sin mensajes"}
-                            </Text>
-                          </View>
-                          <View style={{ alignItems: "flex-end", gap: 4 }}>
-                            <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
-                              {formatDate(chat.last_message_at)}
-                            </Text>
-                            <BorrarFila
-                              confirmando={confirmDeleteId === chat.id}
-                              borrando={deletingId === chat.id}
-                              onPedir={() => setConfirmDeleteId(chat.id)}
-                              onCancelar={() => setConfirmDeleteId(null)}
-                              onConfirmar={() => handleDeleteChat(chat)}
-                            />
-                          </View>
-                        </Pressable>
-                      );
-                    })}
+              <View style={{ gap: 6 }}>
+                {ventasVisibles.map((group) => (
+                  <View key={group.sell_request_id} nativeID={`chats-venta-${group.sell_request_id}`}>
+                    {/* El artículo que nos vende, delante de sus conversaciones. */}
+                    <EtiquetaFila texto={`Vende: ${group.articulo}`} />
+                    {group.chats.map((chat, i) => fila(chat, i === 0, null))}
                   </View>
                 ))}
               </View>
-            </View>
+            </Seccion>
           ) : null}
 
-          {groups.map((group) => (
-          <View
-            key={group.product_id}
-            nativeID={`chats-producto-${group.product_id}`}
-            style={{
-              borderRadius: 18,
-              backgroundColor: COLORS.card,
-              padding: 12,
-              gap: 8,
-            }}
-          >
-            {/* Tarjeta del producto: foto, título, precio, estado y enlaces a la ficha y a editar en Productos. */}
-            <TarjetaArticuloChat articulo={group.articulo} modo="admin" nativeID={`chats-tarjeta-${group.product_id}`} />
-            <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, textAlign: "right" }}>
-              {group.chats.length} {group.chats.length === 1 ? "persona pregunta" : "personas preguntan"}
-            </Text>
-
-            <View style={{ gap: TACTIL.separacion }}>
-              {group.chats.map((chat) => {
-                const key = `${chat.product_id}:${chat.customer_user_id}`;
-                const sold = soldKeys.has(key);
-                const active = selectedChat?.id === chat.id;
-                return (
-                  <Pressable
-                    key={chat.id}
-                    onPress={() => {
-                      setSelectedChat(chat);
-                      setSelectedProduct(group);
-                    }}
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.9 : 1,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 8,
-                      borderRadius: 12,
-                      backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
-                      padding: 10,
-                    })}
+          {verProductos && gruposVisibles.length > 0 ? (
+            <Seccion
+              nativeID="chats-grupo-productos"
+              icon="cube-outline"
+              title="Preguntas por artículos"
+              extra={`${gruposVisibles.length} ${gruposVisibles.length === 1 ? "artículo" : "artículos"}`}
+            >
+              <View style={{ gap: 12 }}>
+                {gruposVisibles.map((group) => (
+                  <View
+                    key={group.product_id}
+                    nativeID={`chats-producto-${group.product_id}`}
+                    style={{ borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4, gap: 6 }}
                   >
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo }}>
-                        {chat.customer_name}
-                          <MarcaEmpezo chat={chat} />
-                      </Text>
-                      <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>
-                        {chat.last_message_preview || "Sin mensajes"}
-                      </Text>
-                    </View>
-                    <View style={{ alignItems: "flex-end", gap: 4 }}>
-                      {sold ? (
-                        <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
-                      ) : (
-                        <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>{formatDate(chat.last_message_at)}</Text>
-                      )}
-                      <BorrarFila
-                        confirmando={confirmDeleteId === chat.id}
-                        borrando={deletingId === chat.id}
-                        onPedir={() => setConfirmDeleteId(chat.id)}
-                        onCancelar={() => setConfirmDeleteId(null)}
-                        onConfirmar={() => handleDeleteChat(chat)}
-                      />
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-          ))}
+                    {/* Tarjeta del producto: foto, título, precio, estado y enlaces a la ficha y a editar en Productos. */}
+                    <TarjetaArticuloChat articulo={group.articulo} modo="admin" nativeID={`chats-tarjeta-${group.product_id}`} />
+                    <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+                      {group.chats.length} {group.chats.length === 1 ? "persona pregunta" : "personas preguntan"}
+                    </Text>
+                    <View>{group.chats.map((chat, i) => fila(chat, i === 0, groups.find((g) => g.product_id === group.product_id) ?? group))}</View>
+                  </View>
+                ))}
+              </View>
+            </Seccion>
+          ) : null}
         </>
       )}
     </ScrollView>
@@ -1137,9 +1057,7 @@ export default function AdminChats() {
     </View>
   ) : (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <Text style={{ color: COLORS.muted, textAlign: "center" }}>
-        Elige una conversación para ver los mensajes.
-      </Text>
+      <ListaVacia nativeID="chats-elige" icono="chatbubbles-outline" titulo="Elige una conversación" texto="Toca una conversación de la lista para ver sus mensajes y contestar." />
     </View>
   );
 
@@ -1205,7 +1123,7 @@ export default function AdminChats() {
           selectedChat ? detail : list
         ) : (
           <View style={{ ...columnStyle, flex: 1, minHeight: 0, flexDirection: "row" }}>
-            <View style={{ width: 360, borderRightWidth: 1, borderRightColor: COLORS.border }}>{list}</View>
+            <View style={{ width: 400, borderRightWidth: 1, borderRightColor: COLORS.border }}>{list}</View>
             {detail}
           </View>
         )}

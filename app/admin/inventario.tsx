@@ -27,14 +27,19 @@
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, los botones de estado
  *   de 44 px de alto y los campos de 16 px y 48 de alto.
+ * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Categorías y
+ *   Productos): cifras que filtran (Total, Por revisar, Listos, En reparación), buscador de 16 px (código, título o
+ *   notas), pastillas de 44 px con su recuento, filas compactas (código · título, etiqueta de color del estado, notas y
+ *   cuándo se actualizó) con el lápiz a mano y, al tocar una, el detalle por bloques (Artículo y Estado) con las acciones
+ *   abajo: pasar a cualquiera de los otros dos estados con un toque y borrar. «Nuevo artículo» es el «+» flotante.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
  * - sql/inventory_items.sql → crea la tabla y sus políticas (solo admin).
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
  *   "Inventario") y a la que se vuelve con el botón de la cabecera.
- * - app/admin/products/products.components.tsx → AdminHeader, StatCard,
- *   PrimaryButton, AdminNotice y EmptyState (mismo diseño en todo el panel).
+ * - lib/admin/products.components.tsx → AdminHeader, PrimaryButton, AdminNotice, EmptyState, BotonFlotante.
+ * - components/admin/PanelUI.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (TM5 y PANRED3).
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -55,14 +60,35 @@ import {
   AdminHeader,
   AdminLoading,
   AdminNotice,
+  BotonFlotante,
   EmptyState,
   IconButton,
   PieVentana,
   PrimaryButton,
-  StatCard,
 } from "../../lib/admin/products.components";
 import { CIERRE_TECLADO } from "../../lib/admin/products.utils";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import {
+  AccionTexto,
+  Bloque,
+  Buscador,
+  Chip,
+  Cifra,
+  Dato,
+  DetalleFila,
+  Detalle,
+  Etiqueta,
+  EtiquetaColor,
+  FilaCifras,
+  FilaLista,
+  FilaPastillas,
+  ListaVacia,
+  Miniatura,
+  RecuentoLista,
+  useDesplegables,
+  type IoniconName,
+  type Tono,
+} from "../../components/admin/PanelUI";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -121,9 +147,27 @@ function statusColors(status: InventoryStatus) {
   return { border: COLORS.warningBorder, bg: COLORS.warningBg };
 }
 
-function nextStatus(status: InventoryStatus): InventoryStatus {
-  const idx = STATUS_ORDER.indexOf(status);
-  return STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
+// La etiqueta de color y el icono de cada estado en la lista (PANRED3).
+const STATUS_TONO: Record<InventoryStatus, Tono> = { TO_REVIEW: "amarillo", READY_TO_LIST: "verde", IN_REPAIR: "rojo" };
+const STATUS_ICONO: Record<InventoryStatus, IoniconName> = { TO_REVIEW: "time-outline", READY_TO_LIST: "checkmark-circle-outline", IN_REPAIR: "build-outline" };
+const STATUS_ACCION: Record<InventoryStatus, string> = { TO_REVIEW: "Pasar a «Por revisar»", READY_TO_LIST: "Pasar a «Listo para publicar»", IN_REPAIR: "Pasar a «En reparación»" };
+type FiltroInventario = InventoryStatus | "todos";
+
+function fechaCorta(iso: string | null | undefined) {
+  if (!iso) return "-";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "-";
+  return new Date(t).toLocaleString("es-ES", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
+}
+
+// En la fila, solo el día (el año si no es el actual); la hora, en el detalle.
+function fechaFila(iso: string | null | undefined) {
+  if (!iso) return "-";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "-";
+  const d = new Date(t);
+  const otroAno = d.getFullYear() !== new Date().getFullYear();
+  return d.toLocaleDateString("es-ES", { day: "numeric", month: "short", ...(otroAno ? { year: "numeric" } : {}), timeZone: "Europe/Madrid" });
 }
 
 // Campo de texto del formulario: 16 px para que Safari en iPhone no haga
@@ -200,9 +244,10 @@ export default function Inventario() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const pagePadding = isMobile ? 12 : 16;
-  const sectionGap = isMobile ? 20 : 24;
+  const sectionGap = isMobile ? 18 : 22;
   const insets = useSafeAreaInsets();
+  const desplegables = useDesplegables();
+  const [filtro, setFiltro] = useState<FiltroInventario>("todos");
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -239,16 +284,19 @@ export default function Inventario() {
     return { total, toReview, ready, inRepair };
   }, [items]);
 
+  const q = search.trim().toLowerCase();
   const filteredItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items;
     return items.filter((i) => {
+      if (filtro !== "todos" && i.status !== filtro) return false;
+      if (!q) return true;
       return (
         String(i.code ?? "").toLowerCase().includes(q) ||
-        String(i.title ?? "").toLowerCase().includes(q)
+        String(i.title ?? "").toLowerCase().includes(q) ||
+        String(i.notes ?? "").toLowerCase().includes(q)
       );
     });
-  }, [items, search]);
+  }, [items, q, filtro]);
+  const cuenta = (f: FiltroInventario) => (f === "todos" ? items.length : items.filter((i) => i.status === f).length);
 
   function suggestNextCode(rows: InventoryRow[]) {
     let maxNum = 0;
@@ -370,9 +418,11 @@ export default function Inventario() {
     }
   }
 
-  async function toggleStatus(i: InventoryRow) {
+  // Cambia el estado con un toque desde el detalle de la fila, sin abrir el formulario (antes, la pastilla del estado
+  // pasaba al siguiente; ahora se elige directamente cualquiera de los otros dos).
+  async function cambiarEstado(i: InventoryRow, newStatus: InventoryStatus) {
+    setScreenErr(null);
     const prev = itemsRef.current;
-    const newStatus = nextStatus(i.status);
     const next = prev.map((x) => (x.id === i.id ? { ...x, status: newStatus } : x));
     setItems(next);
 
@@ -419,8 +469,9 @@ export default function Inventario() {
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
-          padding: pagePadding,
-          paddingBottom: 48 + insets.bottom,
+          padding: 16,
+          // Sitio para el «+» flotante (58 px) debajo de la última fila.
+          paddingBottom: 48 + 74 + insets.bottom,
           alignItems: "center",
         }}
         showsVerticalScrollIndicator={false}
@@ -429,23 +480,37 @@ export default function Inventario() {
       >
         <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
 
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} />
-            <StatCard label="Por revisar" value={String(stats.toReview)} icon="time-outline" isMobile={isMobile} />
-            <StatCard label="Listos" value={String(stats.ready)} icon="checkmark-circle-outline" isMobile={isMobile} />
-            <StatCard label="En reparación" value={String(stats.inRepair)} icon="build-outline" isMobile={isMobile} />
-          </View>
+          {/* 1) Cifras que filtran la lista (otro toque en la misma, todas). */}
+          <FilaCifras nativeID="inventario-cifras">
+            {(
+              [
+                ["todos", String(stats.total), "Total", "cube-outline"],
+                ["TO_REVIEW", String(stats.toReview), "Por revisar", "time-outline"],
+                ["READY_TO_LIST", String(stats.ready), "Listos", "checkmark-circle-outline"],
+                ["IN_REPAIR", String(stats.inRepair), "En reparación", "build-outline"],
+              ] as const
+            ).map(([f, valor, etiqueta, icono]) => (
+              <Cifra
+                key={f}
+                nativeID={`inventario-cifra-${f}`}
+                valor={valor}
+                etiqueta={etiqueta}
+                icono={icono}
+                ancho={isMobile ? "45%" : 0}
+                activa={filtro === f && f !== "todos"}
+                onPress={() => setFiltro((x) => (x === f ? "todos" : f))}
+              />
+            ))}
+          </FilaCifras>
 
-          <View style={{ gap: 14 }}>
-            <TextInput
-              value={search}
-              onChangeText={(v) => setSearch(v)}
-              placeholder="Buscar por código o título"
-              placeholderTextColor="rgba(11,33,56,0.40)"
-              style={inputStyle}
-            />
-
-            <PrimaryButton label="+ Nuevo artículo" onPress={openCreate} />
+          {/* 2) Buscador y pastillas con su recuento. */}
+          <View style={{ gap: 12 }}>
+            <Buscador nativeID="inventario-buscar" valor={search} onCambiar={setSearch} placeholder="Buscar por código, título o notas" etiqueta="Buscar en el inventario por código, título o notas" />
+            <FilaPastillas isMobile={isMobile} nativeID="inventario-filtros">
+              {(["todos", ...STATUS_ORDER] as FiltroInventario[]).map((f) => (
+                <Chip key={f} nativeID={`inventario-filtro-${f}`} label={`${f === "todos" ? "Todos" : statusLabel(f)} (${cuenta(f)})`} activo={filtro === f} onPress={() => setFiltro(f)} />
+              ))}
+            </FilaPastillas>
           </View>
 
           {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
@@ -458,88 +523,84 @@ export default function Inventario() {
             />
           )}
 
-          {!tableMissing && filteredItems.length === 0 ? (
-            <EmptyState
-              icon="cube-outline"
-              title="No hay artículos para este filtro."
-              text="Crea tu primer artículo de inventario para empezar a llevar el control."
-            />
-          ) : (
-            <View style={{ gap: 12 }}>
-            {filteredItems.map((i) => {
-                const sc = statusColors(i.status);
-                return (
-                  <View
-                    key={i.id}
-                    style={{
-                      borderRadius: 20,
-                      backgroundColor: COLORS.card,
-                      padding: isMobile ? 12 : 14,
-                      gap: 10,
-                    }}
-                  >
-                    <View
-                      style={{
-                        flexDirection: isMobile ? "column" : "row",
-                        justifyContent: "space-between",
-                        alignItems: isMobile ? "stretch" : "flex-start",
-                        gap: 10,
-                      }}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 16 : 17 }}>
-                          {i.code} · {i.title}
-                        </Text>
-
-                        {!!i.notes && (
-                          <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 19 }}>{i.notes}</Text>
-                        )}
-
-                        <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, marginTop: 8, lineHeight: 18 }}>
-                          Actualizado: {i.updated_at ? new Date(i.updated_at).toLocaleString("es-ES") : "-"}
-                        </Text>
-                      </View>
-
-                      <Pressable
-                        onPress={() => toggleStatus(i)}
-                        style={({ pressed }) => ({
-                          opacity: pressed ? 0.85 : 1,
-                          minHeight: TACTIL.minimo,
-                          justifyContent: "center",
-                          paddingHorizontal: 12,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: sc.border,
-                          backgroundColor: sc.bg,
-                          alignSelf: isMobile ? "flex-start" : "auto",
-                        })}
+          {/* 3) Cuántos salen, «Abrir todos» y las filas compactas. */}
+          {!tableMissing ? (
+            <View style={{ gap: 4 }}>
+              <RecuentoLista
+                nativeID="inventario-recuento"
+                texto={q ? `${filteredItems.length} ${filteredItems.length === 1 ? "artículo encontrado" : "artículos encontrados"}` : `${filteredItems.length} de ${items.length} artículos`}
+                abiertas={desplegables.todasAbiertas(filteredItems.map((i) => i.id))}
+                onAlternar={filteredItems.length ? () => desplegables.abrirOCerrarTodas(filteredItems.map((i) => i.id)) : undefined}
+                idBoton="inventario-abrir-todos"
+              />
+              {filteredItems.length === 0 ? (
+                items.length ? (
+                  <ListaVacia nativeID="inventario-vacio" icono="cube-outline" titulo="No hay artículos en esta lista." texto="Prueba a borrar el buscador o a elegir «Todos»." />
+                ) : (
+                  <EmptyState icon="cube-outline" title="No hay artículos para este filtro." text="Crea tu primer artículo de inventario con el «+» para empezar a llevar el control." />
+                )
+              ) : (
+                <View nativeID="inventario-lista">
+                  {filteredItems.map((i, n) => {
+                    const abierta = desplegables.estaAbierta(i.id);
+                    return (
+                      <FilaLista
+                        key={i.id}
+                        nativeID={`inventario-${i.id}`}
+                        idFila={`inventario-fila-${i.id}`}
+                        primera={n === 0}
+                        abierta={abierta}
+                        onPress={() => desplegables.alternar(i.id)}
+                        etiquetaAccesible={`${i.code} · ${i.title}, ${statusLabel(i.status)}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+                        miniatura={<Miniatura icono={STATUS_ICONO[i.status] ?? "cube-outline"} ancho={48} alto={48} />}
+                        titulo={`${i.code} · ${i.title}`}
+                        etiqueta={<EtiquetaColor nativeID={`inventario-estado-${i.id}`} texto={statusLabel(i.status)} tono={STATUS_TONO[i.status] ?? "gris"} />}
+                        subtitulo={i.notes ? i.notes : "Sin notas"}
+                        idSubtitulo={`inventario-notas-${i.id}`}
+                        // Las notas, en una línea (enteras en el detalle).
+                        lineasSubtitulo={1}
+                        etiquetas={<Etiqueta nativeID={`inventario-actualizado-${i.id}`} icon="time-outline" color={COLORS.muted} texto={`Actualizado: ${fechaFila(i.updated_at)}`} />}
+                        derecha={<IconButton icon="create-outline" label={`Editar ${i.code} ${i.title}`} variant="primary" onPress={() => openEdit(i)} />}
                       >
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
-                          {statusLabel(i.status)}
-                        </Text>
-                      </Pressable>
-                    </View>
-
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        gap: 10,
-                        flexWrap: "wrap",
-                        justifyContent: isMobile ? "center" : "flex-start",
-                      }}
-                    >
-                      {/* Acciones con iconos (su nombre, para el lector de pantalla y al pasar el ratón). */}
-                      <IconButton icon="create-outline" label={`Editar ${i.code} ${i.title}`} variant="primary" onPress={() => openEdit(i)} />
-                      <IconButton icon="trash-outline" label={`Borrar ${i.code} ${i.title}`} variant="danger" onPress={() => askRemove(i)} />
-                    </View>
-                  </View>
-                );
-            })}
+                        <DetalleFila
+                          nativeID={`inventario-detalle-${i.id}`}
+                          idAcciones={`inventario-acciones-${i.id}`}
+                          acciones={
+                            <>
+                              {STATUS_ORDER.filter((s) => s !== i.status).map((s) => (
+                                <AccionTexto key={s} nativeID={`inventario-pasar-${s}-${i.id}`} icono={STATUS_ICONO[s]} texto={STATUS_ACCION[s]} onPress={() => cambiarEstado(i, s)} />
+                              ))}
+                              <IconButton icon="trash-outline" label={`Borrar ${i.code} ${i.title}`} variant="danger" onPress={() => askRemove(i)} />
+                            </>
+                          }
+                        >
+                          <Bloque icono="cube-outline" titulo="Artículo" ancho={isMobile ? "100%" : "45%"}>
+                            <Dato etiqueta="Código">{i.code}</Dato>
+                            <Dato etiqueta="Título">{i.title}</Dato>
+                            <Dato etiqueta="Notas">{i.notes || "Sin notas"}</Dato>
+                          </Bloque>
+                          <Bloque icono="pulse-outline" titulo="Estado" ancho={isMobile ? "100%" : "45%"}>
+                            <View style={{ flexDirection: "row" }}>
+                              <EtiquetaColor texto={statusLabel(i.status)} tono={STATUS_TONO[i.status] ?? "gris"} />
+                            </View>
+                            <Dato etiqueta="Creado">{fechaCorta(i.created_at)}</Dato>
+                            <Dato etiqueta="Actualizado">{fechaCorta(i.updated_at)}</Dato>
+                            <Detalle>Lista interna: no sale en la tienda ni está enlazada con Productos.</Detalle>
+                          </Bloque>
+                        </DetalleFila>
+                      </FilaLista>
+                    );
+                  })}
+                </View>
+              )}
             </View>
-          )}
+          ) : null}
         </View>
       </ScrollView>
       )}
+
+      {/* «Nuevo artículo»: el «+» flotante abajo a la derecha (al alcance del pulgar). */}
+      {!loading && !tableMissing ? <BotonFlotante nativeID="inventario-nuevo" label="Nuevo artículo" onPress={openCreate} /> : null}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <KeyboardAvoidingView
