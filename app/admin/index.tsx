@@ -47,6 +47,12 @@
  * Avisos en este móvil (dueño, 2026-11-15): encima de la rejilla, la tarjeta corta de components/AvisosMovil.tsx (estado,
  * «Activar avisos en este móvil» y «Ver en Pedidos», donde está la completa con la prueba, desactivar y las cifras).
  *
+ * Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx): arriba, las cifras clave de lo que ha llegado
+ * desde la última visita (Pedidos nuevos, Chats sin leer, Solicitudes de servicio y Cotizaciones nuevas; las mismas cuentas de
+ * contarNovedades, sin consultas nuevas), que llevan a su apartado al tocarlas; debajo, los recuadros agrupados por
+ * apartados con su título (Ventas y clientes, Catálogo, Contenido y Blue, Tienda y marca): en el móvil, en 2 columnas;
+ * en el ordenador, en 3.
+ *
  * Conectado con:
  * - app/admin/categories.tsx, app/admin/products.tsx, app/admin/services.tsx,
  *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx, app/admin/chats.tsx,
@@ -77,6 +83,7 @@ import { leerPanelVistos, type SeccionConNovedades } from "../../lib/admin/produ
 import { supabase } from "../../lib/supabase";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import AvisosMovil from "../../components/AvisosMovil";
+import { Cifra, FilaCifras, Seccion } from "../../components/admin/PanelUI";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -187,6 +194,21 @@ async function contarNovedades(): Promise<Novedades> {
   };
 }
 
+// Las cifras clave de arriba (lo nuevo de cada apartado, de contarNovedades) y los grupos de recuadros.
+// [apartado, etiqueta, etiqueta con 1, icono]
+const CIFRAS_PANEL: [SeccionConNovedades, string, string, IoniconName][] = [
+  ["pedidos", "Pedidos nuevos", "Pedido nuevo", "receipt-outline"],
+  ["chats", "Chats sin leer", "Chat sin leer", "chatbubbles-outline"],
+  ["services", "Solicitudes de servicio", "Solicitud de servicio", "construct-outline"],
+  ["cotizaciones", "Cotizaciones nuevas", "Cotización nueva", "document-text-outline"],
+];
+const GRUPOS: { id: string; titulo: string; icono: IoniconName; claves: string[] }[] = [
+  { id: "ventas", titulo: "Ventas y clientes", icono: "cart-outline", claves: ["pedidos", "chats", "cotizaciones", "reservas", "users"] },
+  { id: "catalogo", titulo: "Catálogo", icono: "pricetags-outline", claves: ["categories", "products", "services", "inventario", "envios", "escaparate"] },
+  { id: "contenido", titulo: "Contenido y Blue", icono: "newspaper-outline", claves: ["blog", "flash-news", "policies", "conocimiento"] },
+  { id: "tienda", titulo: "Tienda y marca", icono: "storefront-outline", claves: ["analytics", "marca-seo", "redes-sociales", "auditorias", "aprendizajes"] },
+];
+
 // El número rojo de un recuadro (como el de Blue): aparece con un pequeño salto y vuelve a saltar si cambia.
 function InsigniaNovedades({ seccion, n, enLinea }: { seccion: string; n: number; enLinea?: boolean }) {
   const escala = useRef(new Animated.Value(0.4)).current;
@@ -247,7 +269,7 @@ function CardButton({
         ({ pressed }) =>
           ({
             width: "100%",
-            minHeight: isMobile ? 132 : undefined,
+            minHeight: isMobile ? 116 : undefined,
             borderRadius: 20,
             backgroundColor: COLORS.accent,
             padding: isMobile ? 14 : 18,
@@ -529,34 +551,55 @@ export default function AdminHome() {
           }}
           showsVerticalScrollIndicator={false}
         >
-        <View style={{ ...columnStyle, gap: isMobile ? 16 : 20 }}>
+        <View style={{ ...columnStyle, gap: isMobile ? 18 : 22 }}>
+          {/* 1) Cifras clave: lo que ha llegado desde la última visita; al tocar una, se abre su apartado. */}
+          <FilaCifras nativeID="panel-cifras">
+            {CIFRAS_PANEL.map(([key, etiqueta, etiquetaUna, icono]) => {
+              const accion = actions.find((a) => a.key === key);
+              const n = novedades[key]?.n ?? 0;
+              return (
+                <Cifra
+                  key={key}
+                  nativeID={`panel-cifra-${key}`}
+                  valor={String(n)}
+                  etiqueta={n === 1 ? etiquetaUna : etiqueta}
+                  icono={icono}
+                  ancho={isMobile ? "45%" : 0}
+                  alerta={n > 0}
+                  onPress={accion ? () => abrir(accion.key, accion.onPress) : undefined}
+                />
+              );
+            })}
+          </FilaCifras>
+
           {/* Avisos al móvil del dueño (2026-11-15), versión corta: el estado y «Activar avisos en este móvil». */}
           <AvisosMovil compacta />
+
+          {/* 2) Los apartados, por grupos. */}
+          {GRUPOS.map((g) => {
+            const del = g.claves.map((k) => actions.find((a) => a.key === k)).filter((a): a is (typeof actions)[number] => !!a);
+            return (
+              <Seccion key={g.id} nativeID={`panel-grupo-${g.id}`} icon={g.icono} title={g.titulo} extra={`${del.length} apartados`}>
+                {/* Rejilla: 2 columnas en el móvil y 3 en el ordenador (el último de un grupo impar no se estira). */}
+                <View style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr", gap: 12 } as any}>
+                  {del.map((a) => (
+                    <View key={a.key} style={{ minWidth: 0 }}>
+                      <CardButton
+                        seccion={a.key}
+                        title={a.title}
+                        subtitle={a.subtitle}
+                        icon={a.icon}
+                        onPress={() => abrir(a.key, a.onPress)}
+                        isMobile={isMobile}
+                        novedad={novedades[a.key as SeccionConNovedades]}
+                      />
+                    </View>
+                  ))}
+                </View>
+              </Seccion>
+            );
+          })}
           <View>
-            <View
-              style={
-                isMobile
-                  ? ({
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 12,
-                    } as any)
-                  : { flexDirection: "column", gap: 12 }
-              }
-            >
-              {actions.map((a) => (
-                <CardButton
-                  key={a.key}
-                  seccion={a.key}
-                  title={a.title}
-                  subtitle={a.subtitle}
-                  icon={a.icon}
-                  onPress={() => abrir(a.key, a.onPress)}
-                  isMobile={isMobile}
-                  novedad={novedades[a.key as SeccionConNovedades]}
-                />
-              ))}
-            </View>
 
             <Pressable
               onPress={() => router.replace("/")}

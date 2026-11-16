@@ -13,8 +13,10 @@
  * prueba PANRED1 de pruebas/perfil-datos.mjs) y app/admin/products.tsx, app/admin/reservas.tsx y app/admin/escaparate.tsx
  * (tanda 2, prueba PANRED2; de ella son EtiquetaFila y Miniatura) y app/admin/chats.tsx, app/admin/cotizaciones.tsx y
  * app/admin/inventario.tsx (tanda 3, prueba PANRED3; de ella son FilaCifras, FilaLista y DetalleFila) y app/admin/blog.tsx,
- * app/admin/flash-news.tsx y app/admin/policies.tsx (tanda 4, prueba PANRED4; de ella son BotonesFila y fechaPanel). app/admin/pedidos.tsx
- * tiene sus propias copias de las mismas piezas (mismo aspecto).
+ * app/admin/flash-news.tsx y app/admin/policies.tsx (tanda 4, prueba PANRED4; de ella son BotonesFila y fechaPanel) y
+ * app/admin/index.tsx, app/admin/aprendizajes.tsx, app/admin/conocimiento.tsx, app/admin/auditorias.tsx,
+ * app/admin/marca-seo.tsx, app/admin/redes-sociales.tsx y app/admin/analytics.tsx (tanda 5, prueba PANRED5, con las piezas
+ * de siempre). app/admin/pedidos.tsx tiene sus propias copias de las mismas piezas (mismo aspecto).
  */
 import React from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";

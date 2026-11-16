@@ -59,6 +59,11 @@
  * y una línea fina bajo la cabecera son suficientes para distinguir dónde
  * empieza cada bloque.
  *
+ * Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx): arriba, las cifras de estado (Activas, Sin
+ * enlace, Toques desde Inicio y Visitas distintas, 30 días) y debajo los bloques con su título: «Título del bloque»,
+ * «Reseñas en los canales de venta» y «Redes y enlaces» (cada red en su bloque con su etiqueta Activa / Desactivada /
+ * Falta el enlace, las flechas de orden y el interruptor; sus campos siempre a la vista). «Guardar cambios» al final.
+ *
  * Campos de texto que no dejaban escribir bien (Apple Maps, Wallapop...):
  * al enfocar un campo cerca del final de una lista larga, el teclado móvil a
  * veces lo tapa o el scroll no lo centra solo — cada campo de texto de esta
@@ -90,13 +95,13 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import CargaMarca from "../../components/marca/CargaMarca";
+import { AdminHeader, AdminLoading, AdminNotice } from "../../lib/admin/products.components";
 import { formatearSeguidores } from "../../components/SocialLinks";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { BloqueFormulario, Cifra, Detalle, EtiquetaColor, FilaCifras, Seccion } from "../../components/admin/PanelUI";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, incluido el que hace
 // scrollFieldIntoView (más abajo) al enfocar un campo: el campo se cerraba solo y "no dejaba
@@ -138,7 +143,8 @@ const COLORS = {
   bg: "#FFFFFF",
   bg2: "#F4F9FD",
   card: "#F6FAFD",
-  cardSoft: "#F8FBFE",
+  // Los campos, en blanco sobre el fondo del bloque.
+  cardSoft: "#FFFFFF",
   border: "#E3EAF2",
   text: "#0B2138",
   muted: COLORES_TEXTO.secundario,
@@ -219,22 +225,6 @@ const PLATFORM_META: Record<
   },
 };
 
-// En vez de borde+sombra (la "burbuja" que Daniel quería quitar de toda la
-// app), cada tarjeta de esta pantalla es solo un bloque con su propio fondo
-// y esquinas redondeadas — el espacio entre tarjetas (gap) ya basta para
-// distinguir dónde empieza cada una.
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
-
 // Al enfocar un campo de texto en web, lo desplaza suavemente al centro de
 // la pantalla — en listas largas como esta (9 tarjetas), el ajuste
 // automático del navegador al abrir el teclado no siempre centra bien el
@@ -254,7 +244,6 @@ export default function AdminRedesSociales() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const pagePadding = isMobile ? 12 : 16;
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
@@ -417,108 +406,62 @@ export default function AdminRedesSociales() {
     }
   }
 
+  // Cifras de estado de arriba.
+  const activas = rows.filter((r) => r.enabled).length;
+  const sinEnlace = rows.filter((r) => r.enabled && !r.url?.trim()).length;
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. */}
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border,
-          paddingHorizontal: pagePadding,
-          paddingTop: (isMobile ? 10 : 12) + insets.top,
-          paddingBottom: isMobile ? 10 : 12,
-        }}
-      >
-        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
-          <Pressable
-            onPress={smartBackAdminHome}
-            accessibilityRole="button"
-            accessibilityLabel="Volver al panel"
-            hitSlop={8}
-            style={({ pressed }) => ({
-              position: "absolute",
-              // Por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
-              zIndex: 1,
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: TACTIL.minimo,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-          </Pressable>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: isMobile ? 19 : 22,
-              fontWeight: "900",
-              textAlign: "center",
-              paddingHorizontal: 44,
-            }}
-          >
-            Redes sociales
-          </Text>
-        </View>
-      </View>
+      <AdminHeader title="Redes sociales" isMobile={isMobile} />
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <CargaMarca texto="Cargando…" />
-        </View>
+        <AdminLoading texto="Cargando…" />
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+            contentContainerStyle={{ padding: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={CIERRE_TECLADO}
           >
-          <View style={{ width: "100%", maxWidth: 860, gap: 16 }}>
-            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-              Los enlaces que se ven en el pie de página, Perfil y la Cesta (TikTok e Instagram,
-              también junto al logo de Inicio con sus seguidores, y debajo del logo, tus reseñas)
-              y que Blue IA recomienda seguir.
-            </Text>
-            {toquesInicio ? (
-              <Text nativeID="redes-toques-inicio" style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
-                Desde Inicio (30 días): {toquesInicio.tiktok} {toquesInicio.tiktok === 1 ? "toque" : "toques"} en TikTok y{" "}
-                {toquesInicio.instagram} en Instagram · {toquesInicio.personas}{" "}
-                {toquesInicio.personas === 1 ? "visita distinta" : "visitas distintas"}
-              </Text>
-            ) : null}
+          <View style={{ width: "100%", maxWidth: 1040, gap: isMobile ? 18 : 22 }}>
+            {/* 1) Cifras de estado: redes activas, activas sin enlace y toques desde Inicio (30 días, analítica propia). */}
+            <FilaCifras nativeID="redes-cifras">
+              <Cifra nativeID="redes-cifra-activas" valor={`${activas} / ${rows.length}`} etiqueta="Activas" icono="share-social-outline" ancho={isMobile ? "45%" : 0} />
+              <Cifra nativeID="redes-cifra-sin-enlace" valor={String(sinEnlace)} etiqueta="Activas sin enlace" icono="link-outline" ancho={isMobile ? "45%" : 0} alerta={sinEnlace > 0} />
+              <Cifra
+                nativeID="redes-cifra-toques"
+                valor={toquesInicio ? String(toquesInicio.tiktok + toquesInicio.instagram) : "-"}
+                etiqueta="Toques desde Inicio"
+                icono="hand-left-outline"
+                ancho={isMobile ? "45%" : 0}
+              />
+              <Cifra nativeID="redes-cifra-visitas" valor={toquesInicio ? String(toquesInicio.personas) : "-"} etiqueta="Visitas distintas" icono="people-outline" ancho={isMobile ? "45%" : 0} />
+            </FilaCifras>
 
-            {!!loadErr && (
-              <View
-                style={{
-                  borderRadius: 14,
-                  backgroundColor: COLORS.dangerBg,
-                  padding: 10,
-                }}
-              >
-                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
-                  {loadErr}
+            <View style={{ gap: 6 }}>
+              {toquesInicio ? (
+                <Text nativeID="redes-toques-inicio" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                  Desde Inicio (30 días): {toquesInicio.tiktok} {toquesInicio.tiktok === 1 ? "toque" : "toques"} en TikTok y{" "}
+                  {toquesInicio.instagram} en Instagram · {toquesInicio.personas}{" "}
+                  {toquesInicio.personas === 1 ? "visita distinta" : "visitas distintas"}
                 </Text>
-              </View>
-            )}
+              ) : null}
+              <Detalle>
+                Los enlaces que se ven en el pie de página, Perfil y la Cesta (TikTok e Instagram, también junto al logo de Inicio con
+                sus seguidores, y debajo del logo, tus reseñas) y que Blue IA recomienda seguir.
+              </Detalle>
+            </View>
 
-            <View
-              style={{
-                borderRadius: 20,
-                backgroundColor: COLORS.card,
-                padding: isMobile ? 14 : 18,
-                gap: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                Título del bloque
-              </Text>
+            {!!loadErr && <AdminNotice tone="danger" text={loadErr} />}
+
+            <View style={{ flexDirection: isMobile ? "column" : "row", alignItems: "flex-start", gap: isMobile ? 18 : 16 }}>
+            <View style={{ width: isMobile ? "100%" : undefined, flex: isMobile ? undefined : 1, minWidth: 0 }}>
+            <BloqueFormulario nativeID="redes-titulo" icono="text-outline" titulo="Título del bloque">
               <TextInput
                 value={followTitle}
                 onChangeText={setFollowTitle}
@@ -544,16 +487,12 @@ export default function AdminRedesSociales() {
               <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
                 El texto que aparece encima de los iconos en el pie de página, Perfil y la Cesta.
               </Text>
+            </BloqueFormulario>
             </View>
 
             {/* Reseñas en los canales de venta: salen con una estrella debajo del logo de Inicio (las escribe Daniel). */}
-            <View style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: isMobile ? 14 : 18, gap: 10 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <Ionicons name="star" size={18} color="#F5A623" />
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                  Reseñas en los canales de venta
-                </Text>
-              </View>
+            <View style={{ width: isMobile ? "100%" : undefined, flex: isMobile ? undefined : 1, minWidth: 0 }}>
+            <BloqueFormulario nativeID="redes-resenas" icono="star-outline" titulo="Reseñas en los canales de venta">
               <TextInput
                 accessibilityLabel="Reseñas en los canales de venta"
                 value={resenas != null ? String(resenas) : ""}
@@ -590,35 +529,43 @@ export default function AdminRedesSociales() {
                       }. Déjalo vacío para que no salga.`
                     : "Todas las reseñas que llevas en Wallapop, Vinted, Facebook Marketplace… Vacío: en Inicio no sale."}
               </Text>
+            </BloqueFormulario>
+            </View>
             </View>
 
-            <View
-              style={{
-                borderTopWidth: 1,
-                borderTopColor: COLORS.border,
-                paddingTop: 4,
-              }}
-            />
-
+            {/* 2) Cada red en su bloque, con sus campos siempre a la vista. */}
+            <Seccion nativeID="redes-lista" icon="share-social-outline" title="Redes y enlaces" extra={`${activas} de ${rows.length} activas`}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
             {rows.map((r, index) => {
               const meta = PLATFORM_META[r.platform];
               if (!meta) return null;
+              const faltaEnlace = r.enabled && !r.url?.trim();
               return (
                 <View
                   key={r.platform}
+                  nativeID={`red-${r.platform}`}
                   style={{
-                    borderRadius: 20,
+                    flexGrow: 1,
+                    flexShrink: 1,
+                    flexBasis: isMobile ? "100%" : "45%",
+                    minWidth: 0,
+                    borderRadius: 16,
                     backgroundColor: COLORS.card,
-                    padding: isMobile ? 14 : 18,
+                    padding: 12,
                     gap: 10,
                   }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                     {/* Solo el icono de la red, sin burbuja (dueño, 2026-11-04). */}
                     <View style={{ width: 28, alignItems: "center", justifyContent: "center" }}>{meta.icon(COLORS.accentDark, 22)}</View>
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, flex: 1 }}>
-                      {r.label}
-                    </Text>
+                    <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{r.label}</Text>
+                      <EtiquetaColor
+                        nativeID={`red-estado-${r.platform}`}
+                        texto={faltaEnlace ? "Falta el enlace" : r.enabled ? "Activa" : "Desactivada"}
+                        tono={faltaEnlace ? "rojo" : r.enabled ? "verde" : "gris"}
+                      />
+                    </View>
 
                     {/* Orden: sube o baja esta tarjeta respecto a las demás —
                         el número real se recalcula al guardar. */}
@@ -626,6 +573,8 @@ export default function AdminRedesSociales() {
                       <Pressable
                         onPress={() => moveRow(r.platform, -1)}
                         disabled={index === 0}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Subir ${r.label}`}
                         hitSlop={6}
                         style={({ pressed }) => ({
                           width: TACTIL.minimo,
@@ -640,6 +589,8 @@ export default function AdminRedesSociales() {
                       <Pressable
                         onPress={() => moveRow(r.platform, 1)}
                         disabled={index === rows.length - 1}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Bajar ${r.label}`}
                         hitSlop={6}
                         style={({ pressed }) => ({
                           width: TACTIL.minimo,
@@ -655,6 +606,7 @@ export default function AdminRedesSociales() {
 
                     <Switch
                       value={r.enabled}
+                      accessibilityLabel={r.enabled ? `Desactivar ${r.label}` : `Activar ${r.label}`}
                       onValueChange={(value) => updateRow(r.platform, { enabled: value })}
                       trackColor={{ false: "#D9E3EC", true: COLORS.accentBorder }}
                       thumbColor={r.enabled ? COLORS.accent : "#F4F4F5"}
@@ -730,27 +682,18 @@ export default function AdminRedesSociales() {
                     </View>
                   ) : null}
 
-                  {r.enabled && !r.url?.trim() ? (
+                  {faltaEnlace ? (
                     <Text style={{ color: COLORS.danger, fontSize: TAMANOS.minimo, fontWeight: "800" }}>
-                      Está activada pero no tiene enlace todavía — no aparecerá hasta que lo rellenes.
+                      Está activada pero no tiene enlace todavía: no aparecerá hasta que lo rellenes.
                     </Text>
                   ) : null}
                 </View>
               );
             })}
+            </View>
+            </Seccion>
 
-            {!!msg && (
-              <Text
-                style={{
-                  color: msg.type === "ok" ? COLORS.success : COLORS.danger,
-                  fontWeight: "800",
-                  fontSize: TAMANOS.minimo,
-                  textAlign: "center",
-                }}
-              >
-                {msg.text}
-              </Text>
-            )}
+            {!!msg && <AdminNotice tone={msg.type === "ok" ? "success" : "danger"} text={msg.text} />}
 
             <Pressable
               onPress={handleSave}
@@ -768,7 +711,7 @@ export default function AdminRedesSociales() {
                 gap: 8,
                 width: "100%",
                 maxWidth: 420,
-                alignSelf: "center",
+                alignSelf: isMobile ? "center" : "flex-start",
               })}
             >
               {saving ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
@@ -777,16 +720,11 @@ export default function AdminRedesSociales() {
               </Text>
             </Pressable>
 
-            {/* Nota final como texto suelto centrado, sin recuadro decorativo. */}
-            <View style={{ alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
-              <Ionicons name="information-circle-outline" size={16} color={COLORS.muted2} />
-              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                Los cambios se aplican al momento, sin esperar a un nuevo despliegue: en cuanto
-                guardes, el icono aparece o desaparece en el pie de página, Perfil y la Cesta, y
-                Blue IA ya lo sabe. Puedes activar las 9 redes a la vez sin problema — se reparten
-                solas en varias filas.
-              </Text>
-            </View>
+            <Detalle>
+              Los cambios se aplican al momento, sin esperar a un nuevo despliegue: en cuanto guardes, el icono aparece o desaparece en
+              el pie de página, Perfil y la Cesta, y Blue IA ya lo sabe. Puedes activar las 9 redes a la vez sin problema: se reparten
+              solas en varias filas.
+            </Detalle>
           </View>
           </ScrollView>
         </KeyboardAvoidingView>
