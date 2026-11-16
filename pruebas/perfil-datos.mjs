@@ -187,6 +187,12 @@
  *    vender» al guardar el pedido o al ir a pagar (sin Stripe, cesta intacta, medido sin datos personales); Pedidos con la
  *    doble venta avisada y filtrada y «Volver a poner a la venta» (44 px) solo donde toca; Productos «Vendido (pedido
  *    VZ-…)»; Analítica. 360/390/1280. Se lanza con SOLO = VENDP y en la pasada completa.
+ *  - PEDRED) Rediseño de Administración → Pedidos (dueño, 2026-11-15: «lo veo todo muy confuso»), con el estilo de
+ *    Usuarios: «Avisos en este móvil · …» plegado arriba; cifras (Hoy, Por pagar, Por preparar, Reparto de hoy, Doble venta,
+ *    Devueltos e Ingresos de 30 días) que filtran; pastillas con su recuento y «Más filtros»; filas compactas (referencia,
+ *    cliente, importe, cómo pagó, entrega o franja y la etiqueta de color); al tocar una fila, su detalle por bloques y las
+ *    acciones; cancelados y devueltos en gris con «Devuelto X €»; ?buscar=VZ-… lo abre ya desplegado; 360/390/1280 sin
+ *    desbordar, táctiles de 44 px, letra de 13 px o más y sin errores. Se lanza con SOLO = PEDRED y en la pasada completa.
  *  - RESEN) Reservar con señal (mejora 14): apagada, ni la ficha ni Mis seguimientos enseñan nada; Administración no deja
  *    activar sin reglas ni sin «Revisado por mi gestor» (borrador marcado, escala 1-70 %); activa, la ficha calcula el % y
  *    los € según los días, la casilla es obligatoria y «Pagar señal» solo manda artículo y días; sin cuenta invita; «Mis
@@ -1713,6 +1719,22 @@ async function pagina(ctx, ruta) {
   return p;
 }
 
+// Administración → Pedidos (rediseño PEDRED, 2026-11-15): las filas salen plegadas y «Abrir todos» (#pedidos-abrir-todos)
+// despliega el detalle de todas; los filtros de siempre que no van en la fila principal están en «Más filtros». Las secciones
+// que miran el detalle o esos filtros los abren primero (sin cambiar lo que comprueban).
+async function desplegarPedidos(p) {
+  const b = p.locator("#pedidos-abrir-todos");
+  await b.waitFor({ timeout: 40000 }).catch(() => {});
+  if ((await b.getAttribute("aria-expanded").catch(() => null)) !== "true") await b.click().catch(() => {});
+  await p.waitForTimeout(300);
+}
+async function masFiltrosPedidos(p) {
+  const b = p.locator("#pedidos-mas-filtros");
+  await b.waitFor({ timeout: 30000 }).catch(() => {});
+  if ((await b.getAttribute("aria-expanded").catch(() => null)) !== "true") await b.click().catch(() => {});
+  await p.waitForTimeout(250);
+}
+
 // ===== N) Visor de fotos de la ficha: Blue se esconde, zoom sin tirones y su uso en Administración ==================
 async function seccionN() {
   const ID = "b7c1d2e3-0000-4000-8000-0000000000aa";
@@ -2067,18 +2089,21 @@ async function seccionP() {
     const estado = { usuarios: [], filas: [], guardados: [], numeros: datos() };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/pedidos");
+    await desplegarPedidos(p);
     await p.locator("#pedidos-numeros").waitFor({ timeout: 30000 }).catch(() => {});
     const resumen = (await p.locator("#pedidos-numeros").innerText().catch(() => "")).replace(/\n/g, " ");
     ok(/de VeoAura: 1 \(en la cuenta del cliente: 0\) · añadidos con su número: 1 · sin cuenta: 1/.test(resumen), `P: Pedidos cuenta los números (de VeoAura, en la cuenta del cliente, añadidos con su número y sin cuenta) (${resumen})`);
-    await p.getByText("Todos", { exact: true }).click();
+    await p.locator("#pedidos-filtro-todos").click();
     await p.waitForTimeout(300);
     const tp = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
-    ok(tp.includes(`Pedido ${COD_PED} · 249,99€`) && /Nº interno 31/.test(tp) && /Ficha de VeoAura · Aún no está en ninguna cuenta: dale esta referencia al cliente/.test(tp), "P: cada pedido enseña su referencia de título (el número interno en pequeño), si es de VeoAura y si falta dársela al cliente");
-    ok(tp.includes(`Pedido ${COD_AJENO}`) && /El cliente lo añadió a su cuenta el/.test(tp), "P: y cuándo lo añadió el cliente a su cuenta");
+    const titulo31 = `${(await p.locator("#pedido-titulo-31").innerText().catch(() => "")).trim()} · ${(await p.locator("#pedido-importe-31").innerText().catch(() => "")).trim()}`;
+    ok(titulo31 === `${COD_PED} · 249,99€` && /Nº interno 31/.test(tp) && /Ficha de VeoAura · Aún no está en ninguna cuenta: dale esta referencia al cliente/.test(tp), `P: cada pedido enseña su referencia de título (el número interno en pequeño), si es de VeoAura y si falta dársela al cliente (${titulo31})`);
+    ok(tp.includes(COD_AJENO) && /El cliente lo añadió a su cuenta el/.test(tp), "P: y cuándo lo añadió el cliente a su cuenta");
+    await masFiltrosPedidos(p);
     await p.getByText("Sin cuenta (1)").click();
     await p.waitForTimeout(300);
     const sinCuenta = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
-    ok(sinCuenta.includes(`Pedido ${COD_PED}`) && !sinCuenta.includes(`Pedido ${COD_AJENO}`), "P: el filtro «Sin cuenta» deja los pedidos que aún no están en ninguna cuenta");
+    ok(sinCuenta.includes(COD_PED) && !sinCuenta.includes(COD_AJENO), "P: el filtro «Sin cuenta» deja los pedidos que aún no están en ninguna cuenta");
     // El buscador encuentra por la referencia (en minúsculas y sin guiones también), por el número interno y por el nombre.
     for (const [buscado, esperado] of [["vz ab2c d3ef", "31"], [COD_AJENO, "30"], ["31", "31"], ["luis", "31"]]) {
       await p.locator("#pedidos-buscar").fill(buscado);
@@ -8346,10 +8371,12 @@ async function seccionTE() {
     const estado = { guardados: [], tarifas: DE_PAGO, pedidosAdmin: [pedido], envioAutomatico: 6.9 };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/pedidos");
+    await desplegarPedidos(p);
     await p.locator("#pedido-envio-101").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(500);
     const linea = async () => (await texto(p, "#pedido-envio-101")).split(" Envío a mano")[0];
-    const todo = async () => (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
+    // (la fila compacta: referencia e importe)
+    const todo = async () => `Pedido ${await texto(p, "#pedido-titulo-101")} · ${await texto(p, "#pedido-importe-101")}`;
     ok(/^Artículos 100,00€ · Envío 6,90€ \(Resto de la España peninsular\) · automático/.test(await linea()) && /Pedido VZ-ABCD-EFGH · 106,90€/.test(await todo()), `TE: Pedidos enseña artículos, envío con su zona, «automático» y el total (${await linea()})`);
     await p.locator("#pedido-envio-campo-101").fill("tres");
     await p.locator("#pedido-envio-guardar-101").click();
@@ -8377,6 +8404,7 @@ async function seccionTE() {
     const ctx2 = await contexto(navegador, ADMIN, "admin", estado2);
     const p2 = await pagina(ctx2, "/admin/pedidos");
     await p2.locator("#pedido-titulo-101").first().waitFor({ timeout: 30000 }).catch(() => {});
+    await desplegarPedidos(p2);
     await p2.waitForTimeout(500);
     ok((await p2.locator("#pedido-titulo-101").count()) >= 1 && (await p2.locator("#pedido-envio-101").count()) === 0 && (estado2.pedidos400 ?? 0) === 1 && p2.errores.length === 0, `TE: sin la migración, Pedidos sale igual sin el envío (${estado2.pedidos400 ?? 0} intento fallido, sin errores)`);
     await ctx2.close();
@@ -9017,6 +9045,7 @@ async function seccionPT() {
     const estado = { guardados: [], tarifas: [], pedidosAdmin: pedidos };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/pedidos");
+    await desplegarPedidos(p);
     await p.locator("#pedidos-pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(500);
     ok(
@@ -9032,6 +9061,7 @@ async function seccionPT() {
     const enlace = estado.stripePanel?.[0] ?? "";
     ok(enlace === "https://dashboard.stripe.com/test/payments/pi_3Prueba201", `PT: «Ver el pago en Stripe» abre ese pago (en el apartado de prueba) (${enlace.slice(0, 70)})`);
     if (popup) await popup.close();
+    await masFiltrosPedidos(p);
     await p.getByText("Pagados online (3)", { exact: true }).click();
     await p.waitForTimeout(300);
     const visibles = await p.evaluate(() => [...document.querySelectorAll('[id^="pedido-pago-"]')].map((e) => e.id).filter((i) => /^pedido-pago-\d+$/.test(i)));
@@ -9048,6 +9078,7 @@ async function seccionPT() {
     const ctx2 = await contexto(navegador, ADMIN, "admin", estado2);
     const p2 = await pagina(ctx2, "/admin/pedidos");
     await p2.getByText(/Pedido nº 201/).first().waitFor({ timeout: 30000 }).catch(() => {});
+    await desplegarPedidos(p2);
     await p2.waitForTimeout(500);
     ok((await p2.getByText(/Pedido nº 201/).count()) >= 1 && (await p2.locator("#pedidos-pago-tarjeta").count()) === 0 && (await p2.locator("#pedido-pago-201").count()) === 0 && (await p2.locator("#pedido-envio-201").count()) === 1 && (estado2.pedidos400 ?? 0) === 1 && p2.errores.length === 0, `PT: sin la migración del pago, Pedidos sale igual (con su envío) y sin el pago (${estado2.pedidos400 ?? 0} intento fallido)`);
     await ctx2.close();
@@ -9068,6 +9099,7 @@ async function seccionPT() {
     const estado = { guardados: [], tarifas: [], pedidosAdmin: pedidos, pago: { disponible: true, modo: "prueba" } };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/pedidos");
+    await desplegarPedidos(p);
     await p.locator("#pedido-devolver-301").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(400);
     ok((await p.locator("#pedido-devolver-302").count()) === 0 && (await p.locator("#pedido-cancelar-302").count()) === 1, "PT: «Devolver el pago» solo en los pagados con tarjeta; «Cancelar pedido» en los que siguen en curso");
@@ -9109,6 +9141,7 @@ async function seccionPT() {
     };
     const ctx2 = await contexto(navegador, ADMIN, "admin", estado2);
     const p2 = await pagina(ctx2, "/admin/pedidos");
+    await desplegarPedidos(p2);
     await p2.locator("#pedido-devolver-303").waitFor({ timeout: 30000 }).catch(() => {});
     ok((await p2.locator("#pedido-devolver-303").count()) === 1 && (await p2.locator("#pedido-cancelar-303").count()) === 0, "PT: un pedido cancelado y pagado sigue en «En curso» con «Devolver el pago»");
     await p2.locator("#pedido-devolver-303").click();
@@ -9121,6 +9154,7 @@ async function seccionPT() {
     const estado3 = { guardados: [], tarifas: [], pedidosAdmin: [fila(304, { pago_estado: "pagado", pago_modo: "prueba", pago_referencia: "pi_3Prueba304", pagado_eur: 240, pagado_en: ahora })], pedidosSinDevolucion: true };
     const ctx3 = await contexto(navegador, ADMIN, "admin", estado3);
     const p3 = await pagina(ctx3, "/admin/pedidos");
+    await desplegarPedidos(p3);
     await p3.locator("#pedido-pago-304").waitFor({ timeout: 30000 }).catch(() => {});
     ok((await p3.locator("#pedido-pago-304").count()) === 1 && (await p3.locator("#pedido-devolver-304").count()) === 0 && (await p3.locator("#pedido-cancelar-304").count()) === 1 && (estado3.pedidos400 ?? 0) === 1 && p3.errores.length === 0, `PT: sin la migración de devoluciones, el pago se ve y no se ofrece devolver (${estado3.pedidos400 ?? 0} intento fallido)`);
     await ctx3.close();
@@ -9361,6 +9395,7 @@ async function seccionQ() {
   };
   const ctxN = await contexto(navegador, ADMIN, "admin", estadoN);
   const pp = await pagina(ctxN, "/admin/pedidos");
+  await desplegarPedidos(pp);
   await pp.locator("#pedidos-numeros").waitFor({ timeout: 30000 }).catch(() => {});
   const resumen = (await pp.locator("#pedidos-numeros").innerText().catch(() => "")).replace(/\n/g, " ");
   const tp = (await pp.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
@@ -9755,6 +9790,7 @@ async function seccionFA() {
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/pedidos");
+    await desplegarPedidos(p);
     await p.locator("#pedidos-facturas").waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(500);
     ok(/^Facturas de VeoAura · con factura: 2 \(PDF pendiente: 1\) · sin factura: 1/.test(await texto(p, "#pedidos-facturas")), `FA: Pedidos cuenta las facturas (${await texto(p, "#pedidos-facturas")})`);
@@ -9762,6 +9798,7 @@ async function seccionFA() {
     ok((await texto(p, "#pedido-factura-62")) === "Factura F-2026-0021 · PDF pendiente" && (await texto(p, "#pedido-factura-63")) === "Sin factura", `FA: «PDF pendiente» y «Sin factura» (${await texto(p, "#pedido-factura-62")} | ${await texto(p, "#pedido-factura-63")})`);
     await capturar(p, "FA4-admin-pedidos-facturas");
     const visibles = () => p.evaluate(() => [...document.querySelectorAll('[id^="pedido-factura-"]')].map((e) => e.id).filter((i) => /^pedido-factura-\d+$/.test(i)).join(","));
+    await masFiltrosPedidos(p);
     await p.locator("#pedidos-filtro-factura-con").click();
     await p.waitForTimeout(300);
     const con = await visibles();
@@ -9784,6 +9821,8 @@ async function seccionFA() {
     const ctx2 = await contexto(navegador, ADMIN, "admin", estado2);
     const p2 = await pagina(ctx2, "/admin/pedidos");
     await p2.getByText(/Pedido nº 61/).first().waitFor({ timeout: 30000 }).catch(() => {});
+    await desplegarPedidos(p2);
+    await masFiltrosPedidos(p2);
     await p2.waitForTimeout(500);
     ok((await p2.getByText(/Pedido nº 61/).count()) >= 1 && (await p2.locator('#pedidos-facturas, [id^="pedido-factura-"]').count()) === 0 && p2.errores.length === 0, "FA: sin la tabla, Pedidos sale igual, sin facturas y sin errores");
     await ctx2.close();
@@ -10186,12 +10225,14 @@ async function seccionVT() {
     const estado = { guardados: [], tarifas: [], pedidosAdmin: ADMIN_PEDIDOS.map((x) => ({ ...x })) };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/pedidos");
+    await desplegarPedidos(p);
     await p.locator("#pedidos-en-tienda").waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(500);
     ok(
       (await texto(p, "#pedidos-en-tienda")) === "Ventas en tienda (llegan de VeoAura) · 2 (154,50€) · en la cuenta del cliente: 1 · pendientes de que se registre: 1",
       `VT: Pedidos cuenta las ventas en tienda, su importe, las unidas y las pendientes (${await texto(p, "#pedidos-en-tienda")})`
     );
+    await masFiltrosPedidos(p);
     await p.getByText(/^En tienda \(2\)$/).first().click();
     await p.waitForTimeout(400);
     ok((await texto(p, "#pedido-tienda-81")) === "En tienda · pagado en efectivo · entregado Unida a la cuenta del cliente", `VT: la venta unida dice «En tienda · pagado en efectivo» y que está en la cuenta (${await texto(p, "#pedido-tienda-81")})`);
@@ -10211,6 +10252,7 @@ async function seccionVT() {
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/pedidos");
     await p.locator("#pedido-titulo-83").waitFor({ timeout: 40000 }).catch(() => {});
+    await masFiltrosPedidos(p);
     await p.waitForTimeout(500);
     ok(
       (await p.locator("#pedido-titulo-83").count()) === 1 && (await p.locator("#pedidos-en-tienda").count()) === 0 && (await p.getByText(/^En tienda \(/).count()) === 0 && (estado.pedidosVentas400 ?? 0) >= 1 && p.errores.length === 0,
@@ -13070,7 +13112,7 @@ async function seccionTM4() {
   });
   const PANTALLAS = [
     {
-      etiqueta: "Pedidos", ruta: "/admin/pedidos", espera: "#pedido-titulo-91",
+      etiqueta: "Pedidos", ruta: "/admin/pedidos", espera: "#pedido-titulo-91", abrir: desplegarPedidos,
       estado: () => ({ guardados: [], tarifas: [], pedidosAdmin: [pedido(91, {}), pedido(92, { estado: "enviado", pago_estado: null, pago_modo: null, pago_metodo: null })] }),
     },
     {
@@ -13146,13 +13188,15 @@ async function seccionTM4() {
       const ctx = await contexto(navegador, ADMIN, "admin", pant.estado(), vista);
       const p = await pagina(ctx, pant.ruta);
       await p.locator(pant.espera).first().waitFor({ timeout: 40000 }).catch(() => {});
+      if (pant.abrir) await pant.abrir(p);
       await p.waitForTimeout(900);
       const m = await medir(p);
       ok(m.n >= 3 && !m.pequenos.length, `TM4 (${nombre}): en ${pant.etiqueta} ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
       ok(!m.chicos.length, `TM4 (${nombre}): en ${pant.etiqueta} todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
       if (pant.etiqueta === "Pedidos") {
-        // Dos pedidos con sus 6 botones de estado, más la fila de filtros de arriba (mismos nombres): 3 filas.
-        ok(m.estados.length === 3 && m.estados.every((e) => e.gap >= 8 && e.alto >= 44), `TM4 (${nombre}): en Pedidos los 6 botones de estado de cada pedido miden 44 px de alto y están a 8 px o más unos de otros (${JSON.stringify(m.estados)})`);
+        // Dos pedidos desplegados con sus 6 botones de estado: 2 filas (desde el rediseño PEDRED, los filtros de un solo
+        // estado van plegados en «Más filtros»).
+        ok(m.estados.length === 2 && m.estados.every((e) => e.gap >= 8 && e.alto >= 44), `TM4 (${nombre}): en Pedidos los 6 botones de estado de cada pedido miden 44 px de alto y están a 8 px o más unos de otros (${JSON.stringify(m.estados)})`);
       }
       ok(m.ancho <= m.v + 1, `TM4 (${nombre}): ${pant.etiqueta} no se sale por los lados (${m.ancho}/${m.v})`);
       await capturar(p, `TM4-${nombre}-${pant.ruta.replace(/\W+/g, "-").replace(/^-|-$/g, "") || "admin"}`);
@@ -15360,8 +15404,9 @@ async function seccionSEGP() {
     const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
     await rutas(ctx, s, ADMIN, "admin");
     const p = await pagina(ctx, "/admin/pedidos");
+    await desplegarPedidos(p);
     await p.locator("#pedido-pasos-101").waitFor({ timeout: 40000 }).catch(() => {});
-    await p.getByText("Todos", { exact: true }).first().click().catch(() => {});
+    await p.locator("#pedidos-filtro-todos").click().catch(() => {});
     await p.waitForTimeout(800);
     ok((await texto(p, "#pedido-paso-101-enviado")) === `Enviado · ${hora(T.enviadoA)}` && (await texto(p, "#pedido-paso-101-pagado")) === `Pagado · ${hora(T.pagadoA)}`, `SEGP (${nombre}): Pedidos enseña cada paso con su hora (${await texto(p, "#pedido-pasos-101")})`);
     ok((await texto(p, "#pedido-paso-104-enviado")) === "Enviado · sin hora", `SEGP (${nombre}): y «sin hora» cuando no se guardó (${await texto(p, "#pedido-paso-104-enviado")})`);
@@ -15376,7 +15421,8 @@ async function seccionSEGP() {
     ok((s.cambios ?? []).length === 1 && /Escribe el número de Correos/.test(await texto(p, "#pedido-numero-envio-mensaje-104")), "SEGP: un número que no lo es no se guarda y lo explica");
     const letra = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById("pedido-numero-envio-campo-102")).fontSize));
     ok(letra >= 16 && (await alto(p, "#pedido-numero-envio-campo-102")) >= 44, `SEGP (${nombre}): el campo del número a 16 px y 44 de alto (${letra})`);
-    await p.locator("#pedido-pasos-101").locator("xpath=..").getByText("Entregado", { exact: true }).last().click();
+    // (el botón «Entregado» de ese pedido, en sus acciones)
+    await p.locator("#pedido-estado-101-entregado").click();
     for (let i = 0; i < 20 && !(s.cambios ?? []).some((c) => c.cuerpo.estado === "entregado"); i++) await p.waitForTimeout(250);
     await p.locator("#pedido-paso-101-entregado").waitFor({ timeout: 8000 }).catch(() => {});
     // La hora llega al releer el historial (un instante después del cambio).
@@ -16987,7 +17033,8 @@ async function seccionVALOR() {
     await rutas(ctx, s, ADMIN, "admin");
     const p = await pagina(ctx, "/admin/pedidos");
     await p.locator("#pedido-titulo-201").waitFor({ timeout: 40000 }).catch(() => {});
-    await p.getByText("Todos", { exact: true }).first().click().catch(() => {});
+    await p.locator("#pedidos-filtro-todos").click().catch(() => {});
+    await desplegarPedidos(p);
     await p.locator("#pedido-valoracion-205").waitFor({ timeout: 10000 }).catch(() => {});
     await p.waitForTimeout(500);
     ok(/★★★★☆ 4\/5/.test(await texto(p, "#pedido-valoracion-205")), `VALOR (${nombre}): Pedidos enseña la valoración (${await texto(p, "#pedido-valoracion-205")})`);
@@ -17515,6 +17562,13 @@ async function seccionAVISOM() {
     });
   const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/\s+/g, " ").trim()).catch(() => "");
   const alto = (p, sel) => p.locator(sel).first().boundingBox().then((b) => (b ? Math.round(b.height) : 0)).catch(() => 0);
+  // En Pedidos la tarjeta va plegada en una línea («Avisos en este móvil · …», rediseño PEDRED): se despliega primero.
+  const abrirAvisos = async (p) => {
+    const c = p.locator("#avisos-cabecera");
+    await c.waitFor({ timeout: 40000 }).catch(() => {});
+    if ((await c.getAttribute("aria-expanded").catch(() => null)) !== "true") await c.click().catch(() => {});
+    await p.waitForTimeout(250);
+  };
 
   // AVISOM1) Sin las claves en Vercel: «Avisos sin configurar», arriba en Pedidos, sin botón de activar y sin registrar nada.
   {
@@ -17523,6 +17577,9 @@ async function seccionAVISOM() {
     await simular(ctx, "ok");
     const p = await pagina(ctx, "/admin/pedidos");
     await p.locator("#avisos-movil").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#avisos-estado-corto").filter({ hasText: "sin configurar" }).waitFor({ timeout: 10000 }).catch(() => {});
+    ok(/Avisos en este móvil · sin configurar/.test(await texto(p, "#avisos-cabecera")) &&(await p.locator("#avisos-activar").count()) === 0, `AVISOM: en Pedidos, plegada en una línea: «Avisos en este móvil · sin configurar» (${await texto(p, "#avisos-cabecera")})`);
+    await abrirAvisos(p);
     await p.getByText("Avisos sin configurar").first().waitFor({ timeout: 10000 }).catch(() => {});
     const t = await texto(p, "#avisos-movil");
     ok(/Avisos en este móvil/.test(t) && /Avisos sin configurar/.test(t) && /VAPID_PUBLIC_KEY/.test(t), `AVISOM: sin las claves dice «Avisos sin configurar» y qué falta (${t.slice(0, 160)})`);
@@ -17541,6 +17598,7 @@ async function seccionAVISOM() {
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     await simular(ctx, "ok");
     const p = await pagina(ctx, "/admin/pedidos");
+    await abrirAvisos(p);
     await p.locator("#avisos-activar").waitFor({ timeout: 40000 }).catch(() => {});
     ok(/Desactivados en este móvil/.test(await texto(p, "#avisos-estado")) && (await alto(p, "#avisos-activar")) >= 44, `AVISOM: con las claves, «Desactivados en este móvil» y «Activar avisos en este móvil» de 44 px (${await alto(p, "#avisos-activar")})`);
     const regAntes = await p.evaluate(() => window.__avisom.registros);
@@ -17587,6 +17645,7 @@ async function seccionAVISOM() {
     const ctx = await contexto(navegador, ADMIN, "admin", estado, { userAgent: IPHONE });
     await simular(ctx, "iphone");
     const p = await pagina(ctx, "/admin/pedidos");
+    await abrirAvisos(p);
     await p.locator("#avisos-instalar").waitFor({ timeout: 40000 }).catch(() => {});
     const t = await texto(p, "#avisos-instalar");
     ok(/añade la tienda a la pantalla de inicio/.test(await texto(p, "#avisos-estado")) && /iOS 16\.4/.test(t) && /Compartir/.test(t) && /«Añadir a pantalla de inicio»/.test(t) && /Abre la tienda desde su icono/.test(t), `AVISOM: iPhone sin instalar explica cómo añadirla y abrirla desde el icono (${t})`);
@@ -17603,6 +17662,7 @@ async function seccionAVISOM() {
     await simular(ctx, "bloqueadas");
     const p = await pagina(ctx, "/admin/pedidos");
     await p.locator("#avisos-movil").waitFor({ timeout: 40000 }).catch(() => {});
+    await abrirAvisos(p);
     await p.locator("#avisos-bloqueadas").waitFor({ timeout: 10000 }).catch(() => {});
     ok(/bloqueados/.test(await texto(p, "#avisos-estado")) && /Ajustes → Notificaciones/.test(await texto(p, "#avisos-bloqueadas")) && !(estado.avisom.altas ?? []).length, "AVISOM: con los avisos bloqueados lo dice, explica cómo permitirlos y no guarda nada");
     ok(p.errores.length === 0, `AVISOM4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
@@ -17636,6 +17696,11 @@ async function seccionAVISOM() {
     const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
     await simular(ctx, "ok", true);
     const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#avisos-estado-corto").filter({ hasText: "· activos" }).waitFor({ timeout: 40000 }).catch(() => {});
+    ok(/Avisos en este móvil · activos/.test(await texto(p, "#avisos-cabecera")), `AVISOM (${nombre}): plegada dice «Avisos en este móvil · activos» (${await texto(p, "#avisos-cabecera")})`);
+    const plegada = await medir(p);
+    ok(!!plegada && !plegada.pequenos.length && plegada.chicos === 0 && (await alto(p, "#avisos-movil")) <= 64, `AVISOM (${nombre}): plegada es una línea discreta (${await alto(p, "#avisos-movil")} px, 44 px para tocarla)`);
+    await abrirAvisos(p);
     await p.locator("#avisos-prueba").waitFor({ timeout: 40000 }).catch(() => {});
     await p.locator("#avisos-resumen").waitFor({ timeout: 10000 }).catch(() => {});
     const m = await medir(p);
@@ -19145,7 +19210,8 @@ async function seccionVENDP() {
       await p.locator("#pedido-titulo-201").waitFor({ timeout: 30000 }).catch(() => {});
       await p.waitForTimeout(600);
       // «En curso» incluye el cancelado pagado sin devolver (203); el 202 ya está devuelto: se mira en «Todos».
-      await p.getByText(/^Todos$/).first().click();
+      await p.locator("#pedidos-filtro-todos").click();
+      await desplegarPedidos(p);
       await p.waitForTimeout(400);
       ok((await texto(p, "#pedido-doble-venta-202")) === "Artículo ya vendido: devuelve el pago (ya devuelto)" && (await p.locator("#pedido-doble-venta-201").count()) === 0, `VENDP3 (${nombre}): la doble venta se avisa solo en el segundo pedido (${await texto(p, "#pedido-doble-venta-202")})`);
       const chip = p.getByText(/^Doble venta \(\d+\)$/);
@@ -19160,7 +19226,7 @@ async function seccionVENDP() {
         await p.waitForTimeout(400);
         const visibles = await p.evaluate(() => [...document.querySelectorAll('[id^="pedido-titulo-"]')].map((e) => e.id));
         ok(JSON.stringify(visibles) === JSON.stringify(["pedido-titulo-202"]), `VENDP3: el filtro deja solo la doble venta (${visibles.join(", ")})`);
-        await p.getByText(/^Todos$/).first().click();
+        await p.locator("#pedidos-filtro-todos").click();
         await p.waitForTimeout(300);
         // Reponer: primer toque pide confirmar, el segundo lo hace (y solo ese artículo, sin borrar nada).
         await p.locator("#pedido-reponer-203").click();
@@ -19230,8 +19296,241 @@ async function seccionVENDP() {
   }
 }
 
+// ===== PEDRED) Rediseño de Administración → Pedidos (dueño, 2026-11-15: «lo veo todo muy confuso»), con el estilo de
+// Usuarios y participación: avisos plegados arriba, cifras que filtran, pastillas con su recuento y «Más filtros», filas
+// compactas con su etiqueta de estado de color, el detalle por bloques al tocar una fila, cancelados y devueltos en gris,
+// ?buscar=VZ-… ya desplegado; 360, 390 y 1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, sin errores. ========
+async function seccionPEDRED() {
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 }, timezoneId: "UTC" } },
+    { nombre: "390", vista: { timezoneId: "UTC" } },
+    { nombre: "1280", vista: { ...ESCRITORIO, timezoneId: "UTC" } },
+  ];
+  const AHORA = new Date("2026-11-16T09:00:00Z"); // lunes, 10:00 en Madrid
+  const hace = (dias, h = 0) => new Date(AHORA.getTime() - dias * 86_400_000 - h * 3_600_000).toISOString();
+  const ID = (n) => `0d000000-0000-4000-8000-000000000${n}`;
+  const ped = (n, extra) => ({
+    id: ID(n), numero: n, created_at: hace(0, 1), estado: "pendiente", entrega: "envio", nombre: `Cliente ${n}`, email: `c${n}@example.com`,
+    telefono: "600111222", direccion: "Calle Mayor 5", codigo_postal: "50001", ciudad: "Zaragoza", notas: null, total_eur: 129.9, productos_eur: 124.9, envio_eur: 5,
+    zona_envio: "local", envio_manual: false, user_id: null, codigo_seguimiento: `VZ-PRED-0${n}`, id_veoaura: null, vinculado_en: null, nota_admin: null,
+    pago_estado: null, pago_modo: null, pago_referencia: null, pagado_eur: null, pagado_en: null, pago_metodo: null, devuelto_eur: null, devuelto_en: null,
+    origen: "web", veoaura_venta_id: null, venta_forma_pago: null, entrega_franja: null, entrega_fecha: null, doble_venta_en: null,
+    pedido_items: [{ id: `0f000000-0000-4000-8000-000000000${n}`, product_id: null, titulo: "Mando DualSense Midnight Black", precio_eur: 124.9 }],
+    ...extra,
+  });
+  const pagado = (metodo, eur, cuando) => ({ pago_estado: "pagado", pago_modo: "real", pago_referencia: `pi_3Pedred${metodo}`, pago_metodo: metodo, pagado_eur: eur, pagado_en: cuando });
+  const pedidos = () => [
+    ped(501, { nombre: "Ana Gómez", user_id: CLIENTE.id, ...pagado("card", 129.9, hace(0, 1)), entrega_franja: "manana", entrega_fecha: "2026-11-16" }),
+    ped(502, { nombre: "Luis Pérez", entrega: "recogida", total_eur: 45, productos_eur: 45, envio_eur: 0, zona_envio: "mano" }),
+    ped(503, { created_at: hace(2), estado: "enviado", total_eur: 59.9, productos_eur: 54.9, ...pagado("bizum", 59.9, hace(2)) }),
+    ped(504, { created_at: hace(5), estado: "entregado", total_eur: 349, productos_eur: 344, ...pagado("klarna", 349, hace(5)) }),
+    ped(505, { created_at: hace(3), estado: "cancelado", total_eur: 50, productos_eur: 45, ...pagado("card", 50, hace(3)), devuelto_eur: 50, devuelto_en: hace(2) }),
+    ped(506, { total_eur: 289.9, productos_eur: 284.9, ...pagado("card", 289.9, hace(0, 1)), doble_venta_en: hace(0, 1) }),
+    ped(507, { created_at: hace(1), estado: "entregado", origen: "tienda_fisica", veoaura_venta_id: "v-507", venta_forma_pago: "efectivo", codigo_seguimiento: "VZ-PRED-0507", total_eur: 25, productos_eur: 25, envio_eur: 0, telefono: "", direccion: null, codigo_postal: null, ciudad: null }),
+    ped(508, { created_at: hace(1), estado: "confirmado", total_eur: 80, productos_eur: 75 }),
+  ];
+  // Textos visibles de un elemento, sin los iconos (Ionicons: caracteres de uso privado), separados por « | ».
+  const textos = (p, sel) =>
+    p.evaluate(
+      (s) => {
+        const e = document.querySelector(s);
+        if (!e) return "";
+        return [...e.querySelectorAll("*")]
+          .filter((x) => x.children.length === 0 && !/ionicons/i.test(getComputedStyle(x).fontFamily))
+          .map((x) => (x.textContent ?? "").replace(/[-]/g, "").trim())
+          .filter(Boolean)
+          .join(" | ");
+      },
+      sel
+    );
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+  const titulos = (p) => p.evaluate(() => [...document.querySelectorAll('[id^="pedido-titulo-"]')].map((e) => e.id.replace("pedido-titulo-", "")).join(","));
+  const color = (p, sel) => p.evaluate((s) => (document.querySelector(s) ? getComputedStyle(document.querySelector(s)).color : ""), sel);
+  // Letra < 13 px, táctiles < 44 × 44 (los más externos) y el ancho de la página (como TM4).
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily)) continue;
+        if (parseFloat(cs.fontSize) < 13) pequenos.push(`${t.slice(0, 30)} ${cs.fontSize}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[tabindex="0"]';
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    });
+  const comprobarDiseno = async (p, nombre, momento) => {
+    const m = await medir(p);
+    ok(m.ancho <= m.v + 1, `PEDRED (${nombre}): ${momento}, la página no se sale por los lados (${m.ancho}/${m.v})`);
+    ok(m.n >= 10 && !m.chicos.length, `PEDRED (${nombre}): ${momento}, todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+    ok(!m.pequenos.length, `PEDRED (${nombre}): ${momento}, ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+  };
+  const abrir = async (ctx, ruta = "/admin/pedidos") => {
+    const p = await pagina(ctx, ruta);
+    await p.locator("#pedido-titulo-501").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#pedidos-cifras").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    return p;
+  };
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `PEDRED: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`PEDRED ${nombre}`, async () => {
+      const estado = { guardados: [], tarifas: [], pedidosAdmin: pedidos(), pago: { disponible: true, modo: "real" } };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      await ctx.clock.install({ time: AHORA });
+      const p = await abrir(ctx);
+
+      // PEDRED1) Arriba: avisos plegados en una línea, el buscador de 16 px y luego las cifras.
+      const arriba = await p.evaluate(() => ["avisos-cabecera", "pedidos-buscar", "pedidos-cifras", "pedidos-filtros", "pedidos-lista"].map((id) => Math.round(document.getElementById(id)?.getBoundingClientRect().top ?? -1)));
+      ok(arriba.every((y, i) => y >= 0 && (i === 0 || y > arriba[i - 1])), `PEDRED (${nombre}): en orden: avisos, buscador, cifras, pastillas y lista (${arriba.join(" < ")})`);
+      ok(/Avisos en este móvil · /.test(await texto(p, "#avisos-cabecera")) && (await p.locator("#avisos-estado").count()) === 0 && (await p.locator("#avisos-cabecera").getAttribute("aria-expanded")) === "false", `PEDRED (${nombre}): «Avisos en este móvil · …» plegado (${await texto(p, "#avisos-cabecera")})`);
+      const letraBuscar = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById("pedidos-buscar")).fontSize));
+      ok(letraBuscar >= 16, `PEDRED (${nombre}): el buscador a 16 px (${letraBuscar})`);
+
+      // PEDRED2) Cifras: Hoy, Por pagar, Por preparar, Reparto de hoy, Doble venta, Devueltos e Ingresos (30 días).
+      const cifras = {};
+      for (const k of ["hoy", "por_pagar", "por_preparar", "reparto_hoy", "doble_venta", "devueltos", "ingresos"]) cifras[k] = await textos(p, `#pedidos-cifra-${k}`);
+      const esperadas = { hoy: "3 | Hoy", por_pagar: "2 | Por pagar", por_preparar: "2 | Por preparar", reparto_hoy: "1 | Reparto de hoy", doble_venta: "1 | Doble venta", devueltos: "1 | Devueltos", ingresos: "563,80€ | Ingresos 30 días" };
+      ok(Object.keys(esperadas).every((k) => cifras[k] === esperadas[k]), `PEDRED (${nombre}): las cifras (Ingresos: pagados de verdad y no devueltos) (${JSON.stringify(cifras)})`);
+
+      // PEDRED3) Pastillas con su recuento.
+      const pastillas = await p.evaluate(() => [...document.querySelectorAll('#pedidos-filtros [role="button"]')].map((e) => e.innerText.replace(/[-]/g, "").replace(/\s+/g, " ").trim()));
+      const esperado = ["Todos (8)", "Por pagar (2)", "Pagados (5)", "Por preparar (2)", "Reparto de hoy (1)", "Enviados (1)", "Cancelados (1)", "Doble venta (1)", "Más filtros"];
+      ok(JSON.stringify(pastillas) === JSON.stringify(esperado), `PEDRED (${nombre}): pastillas con su recuento (${pastillas.join(" · ")})`);
+      const altos = await p.evaluate(() => [...document.querySelectorAll('#pedidos-filtros [role="button"]')].map((e) => Math.round(e.getBoundingClientRect().height)));
+      ok(altos.every((h) => h >= 44), `PEDRED (${nombre}): las pastillas miden 44 px (${altos.join(", ")})`);
+
+      // PEDRED4) Filas compactas: referencia, cliente, importe, cómo pagó, entrega o franja y la etiqueta de color.
+      ok((await titulos(p)) === "501,502,503,504,505,506,507,508" && (await p.locator('[id^="pedido-detalle-"]').count()) === 0, `PEDRED (${nombre}): las 8 filas salen plegadas (${await titulos(p)})`);
+      const f501 = await texto(p, "#pedido-fila-501");
+      ok(/^VZ-PRED-0501 Pagado Ana Gómez · .+ Tarjeta Hoy · mañana \(\d{2}:\d{2}–\d{2}:\d{2}\) 129,90€$/.test(f501), `PEDRED (${nombre}): la fila dice referencia, estado, cliente, cómo pagó, la franja y el importe (${f501})`);
+      ok(/Sin pagar Entrega en mano 45,00€$/.test(await texto(p, "#pedido-fila-502")) && /Bizum Envío a domicilio 59,90€$/.test(await texto(p, "#pedido-fila-503")) && /En tienda · efectivo 25,00€$/.test(await texto(p, "#pedido-fila-507")), `PEDRED (${nombre}): sin pagar, Bizum y en tienda (${await texto(p, "#pedido-fila-502")} | ${await texto(p, "#pedido-fila-507")})`);
+      const etiquetas = [];
+      for (const n of [501, 502, 503, 504, 505, 506, 507, 508]) etiquetas.push(await texto(p, `#pedido-estado-etiqueta-${n}`));
+      ok(etiquetas.join(",") === "Pagado,Pendiente,Enviado,Entregado,Devuelto,Doble venta,Entregado,Preparando", `PEDRED (${nombre}): la etiqueta de estado de cada una (${etiquetas.join(", ")})`);
+      const fondos = await p.evaluate(() => [501, 502, 506].map((n) => getComputedStyle(document.getElementById(`pedido-estado-etiqueta-${n}`)).backgroundColor));
+      ok(new Set(fondos).size === 3, `PEDRED (${nombre}): cada estado con su color (${fondos.join(" · ")})`);
+      ok(/Falta devolver el pago/.test(await texto(p, "#pedido-fila-506")), `PEDRED (${nombre}): la doble venta sin devolver lo avisa en la fila (${await texto(p, "#pedido-fila-506")})`);
+      const altoFila = await p.evaluate(() => Math.round(document.getElementById("pedido-fila-501").getBoundingClientRect().height));
+      ok(altoFila >= 44 && altoFila <= (nombre === "1280" ? 90 : 120), `PEDRED (${nombre}): la fila es compacta (${altoFila} px)`);
+
+      // PEDRED5) Cancelado y devuelto, en gris con «Devuelto X €»; los demás, en el color del texto.
+      const gris = [await color(p, "#pedido-titulo-505"), await color(p, "#pedido-importe-505"), await color(p, "#pedido-titulo-501")];
+      ok(gris[0] === "rgba(11, 33, 56, 0.72)" && gris[1] === "rgba(11, 33, 56, 0.72)" && gris[2] === "rgb(11, 33, 56)" && (await texto(p, "#pedido-devuelto-fila-505")) === "Devuelto 50,00€", `PEDRED (${nombre}): el devuelto en gris con «${await texto(p, "#pedido-devuelto-fila-505")}» (${gris.join(" · ")})`);
+      await comprobarDiseno(p, nombre, "con las filas plegadas");
+      await capturar(p, `PEDRED-${nombre}-lista`);
+
+      // PEDRED6) Al tocar una fila: el detalle por bloques (Artículos · Pago · Entrega · Cliente · Pasos) y abajo las acciones.
+      await p.locator("#pedido-fila-501").click();
+      await p.locator("#pedido-detalle-501").waitFor({ timeout: 5000 }).catch(() => {});
+      await p.waitForTimeout(300);
+      const titulosBloque = await p.evaluate(() =>
+        ["articulos", "pago", "entrega", "cliente", "pasos"].map((b) => (document.getElementById(`pedido-bloque-${b}-501`)?.innerText ?? "").replace(/[-]/g, "").trim().split("\n")[0])
+      );
+      ok(JSON.stringify(titulosBloque) === JSON.stringify(["Artículos", "Pago", "Entrega", "Cliente", "Pasos"]) && (await p.locator("#pedido-fila-501").getAttribute("aria-expanded")) === "true", `PEDRED (${nombre}): al tocarla se despliega por bloques con su título (${titulosBloque.join(" · ")})`);
+      const d501 = await texto(p, "#pedido-detalle-501");
+      ok(/Mando DualSense Midnight Black 124,90€/.test(d501) && /Total 129,90€/.test(d501) && /Pagado online con tarjeta · 129,90€/.test(d501) && /Ver el pago en Stripe/.test(d501) && /Calle Mayor 5, 50001 Zaragoza/.test(d501) && /Ana Gómez/.test(d501) && /600111222 · c501@example\.com/.test(d501) && /Ver ficha del cliente/.test(d501) && /Nº interno 501/.test(d501), `PEDRED (${nombre}): artículos, pago con Stripe, dirección, cliente con su ficha y el nº interno (${d501.slice(0, 220)})`);
+      const acc = await texto(p, "#pedido-acciones-501");
+      const estadosBtn = await p.locator('[id^="pedido-estado-501-"]').count();
+      ok(estadosBtn === 6 && /Escribir al cliente/.test(acc) && /Devolver el pago/.test(acc) && /Cancelar pedido/.test(acc) && (await p.locator("#pedido-envio-campo-501").count()) === 1, `PEDRED (${nombre}): acciones: los 6 estados, Escribir al cliente, Devolver el pago, Cancelar y el envío a mano (${acc.slice(0, 160)})`);
+      const orden = await p.evaluate(() => ["pedido-bloque-cliente-501", "pedido-acciones-501"].map((id) => document.getElementById(id)?.getBoundingClientRect().top ?? -1));
+      ok(orden[0] >= 0 && orden[1] > orden[0], `PEDRED (${nombre}): las acciones van abajo (${orden.map(Math.round).join(" < ")})`);
+      await p.locator("#pedido-detalle-501").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `PEDRED-${nombre}-detalle`);
+      await comprobarDiseno(p, nombre, "con un pedido desplegado");
+      // La venta en tienda: sin estados ni WhatsApp (la gestiona VeoAura); el devuelto, «Devuelto · 50,00€».
+      await p.locator("#pedido-fila-507").click();
+      await p.locator("#pedido-fila-505").click();
+      await p.waitForTimeout(300);
+      ok((await p.locator('[id^="pedido-estado-507-"]').count()) === 0 && !/Escribir al cliente/.test(await texto(p, "#pedido-detalle-507")) && /En tienda · pagado en efectivo · entregado/.test(await texto(p, "#pedido-detalle-507")), `PEDRED (${nombre}): la venta en tienda sin estados ni WhatsApp`);
+      ok(/^Devuelto · 50,00€ · /.test(await texto(p, "#pedido-devuelto-505")) && (await p.locator("#pedido-devolver-505").count()) === 0, `PEDRED (${nombre}): el devuelto lo dice en su pago y ya no ofrece devolver (${await texto(p, "#pedido-devuelto-505")})`);
+      // Otro toque lo pliega.
+      await p.locator("#pedido-fila-501").click();
+      await p.waitForTimeout(200);
+      ok((await p.locator("#pedido-detalle-501").count()) === 0 && (await p.locator("#pedido-fila-501").getAttribute("aria-expanded")) === "false", `PEDRED (${nombre}): otro toque lo pliega`);
+
+      // PEDRED7) «Abrir todos» / «Cerrar todos».
+      await desplegarPedidos(p);
+      ok((await p.locator('[id^="pedido-detalle-"]').count()) === 8 && /Cerrar todos/.test(await texto(p, "#pedidos-abrir-todos")), `PEDRED (${nombre}): «Abrir todos» despliega los 8 (${await p.locator('[id^="pedido-detalle-"]').count()})`);
+      await comprobarDiseno(p, nombre, "con todos desplegados");
+      await capturar(p, `PEDRED-${nombre}-todos-abiertos`);
+      await p.locator("#pedidos-abrir-todos").click();
+      await p.waitForTimeout(200);
+      ok((await p.locator('[id^="pedido-detalle-"]').count()) === 0, `PEDRED (${nombre}): «Cerrar todos» los pliega`);
+
+      // PEDRED8) Los filtros (pastillas y cifras) dejan lo suyo; «Más filtros» trae los de siempre.
+      if (nombre === "390") {
+        const casos = [["por_pagar", "502,508"], ["pagados", "501,503,504,506,507"], ["por_preparar", "501,508"], ["reparto_hoy", "501"], ["enviados", "503"], ["cancelados", "505"], ["doble_venta", "506"]];
+        const malos = [];
+        for (const [f, esp] of casos) {
+          await p.locator(`#pedidos-filtro-${f}`).click();
+          await p.waitForTimeout(200);
+          const t = await titulos(p);
+          if (t !== esp) malos.push(`${f}: ${t}`);
+        }
+        ok(!malos.length, `PEDRED: cada pastilla deja sus pedidos (${malos.join(" | ") || "todas bien"})`);
+        await p.locator("#pedidos-cifra-hoy").click();
+        await p.waitForTimeout(200);
+        const fondoHoy = await p.evaluate(() => getComputedStyle(document.getElementById("pedidos-cifra-hoy")).backgroundColor);
+        ok((await titulos(p)) === "501,502,506" && fondoHoy === "rgb(234, 246, 253)", `PEDRED: tocar la cifra «Hoy» deja los de hoy y la marca (${await titulos(p)} · ${fondoHoy})`);
+        await p.locator("#pedidos-cifra-devueltos").click();
+        await p.waitForTimeout(200);
+        ok((await titulos(p)) === "505", `PEDRED: la cifra «Devueltos» deja el devuelto (${await titulos(p)})`);
+        await masFiltrosPedidos(p);
+        const mas = await texto(p, "#pedidos-filtros-mas");
+        ok(/En curso/.test(mas) && /Hoy \(3\)/.test(mas) && /Pendiente/.test(mas) && /Entregado/.test(mas) && /Sin cuenta \(7\)/.test(mas) && /Pagados online \(5\)/.test(mas) && /Pago sin terminar \(0\)/.test(mas) && /En tienda \(1\)/.test(mas), `PEDRED: «Más filtros» trae los de siempre (${mas})`);
+        await p.locator("#pedidos-filtro-en_tienda").click();
+        await p.waitForTimeout(200);
+        ok((await titulos(p)) === "507" && /Más filtros · En tienda/.test(await texto(p, "#pedidos-mas-filtros")), `PEDRED: «En tienda» deja la venta en tienda y lo dice en «Más filtros» (${await titulos(p)} · ${await texto(p, "#pedidos-mas-filtros")})`);
+        await capturar(p, "PEDRED-390-mas-filtros");
+        await p.locator("#pedidos-filtro-todos").click();
+        await p.waitForTimeout(200);
+        ok((await titulos(p)).split(",").length === 8, "PEDRED: «Todos» vuelve a enseñarlos todos");
+        // El resumen de abajo con los recuentos de siempre.
+        ok(/Ingresos de 30 días: 563,80€ en 4 pedidos/.test(await texto(p, "#pedidos-ingresos")) && /Pago online \(Stripe/.test(await texto(p, "#pedidos-pago-tarjeta")) && /Al marcar «Entregado»/.test(await texto(p, "#pedidos-veoaura-cliente")), `PEDRED: abajo, «Más datos de los pedidos» (${await texto(p, "#pedidos-ingresos")})`);
+      }
+      ok(p.errores.length === 0, `PEDRED (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+
+      // PEDRED9) ?buscar=VZ-… (lo que abre un aviso al móvil): buscador relleno, un solo pedido y ya desplegado.
+      const q = await pagina(ctx, "/admin/pedidos?buscar=VZ-PRED-0503");
+      await q.locator("#pedido-detalle-503").waitFor({ timeout: 40000 }).catch(() => {});
+      await q.waitForTimeout(300);
+      ok((await q.locator("#pedidos-buscar").inputValue()) === "VZ-PRED-0503" && (await texto(q, "#pedidos-recuento")) === "1 pedido encontrado" && (await titulos(q)) === "503" && (await q.locator("#pedido-detalle-503").count()) === 1, `PEDRED (${nombre}): ?buscar=VZ-PRED-0503 abre ese pedido ya desplegado (${await texto(q, "#pedidos-recuento")} · ${await titulos(q)})`);
+      await capturar(q, `PEDRED-${nombre}-buscar`);
+      await q.getByRole("button", { name: "Borrar la búsqueda" }).click();
+      await q.waitForTimeout(300);
+      ok((await titulos(q)).split(",").length === 8 && (await texto(q, "#pedidos-recuento")) === "8 de 8 pedidos", `PEDRED (${nombre}): al borrar la búsqueda vuelven todos (${await texto(q, "#pedidos-recuento")})`);
+      ok(q.errores.length === 0, `PEDRED (${nombre}): ?buscar= sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "PEDRED") await seccionPEDRED();
   if (SOLO === "VENDP") await seccionVENDP();
   if (SOLO === "FRANJ") await seccionFRANJ();
   if (SOLO === "RESEN") await seccionRESEN();
@@ -20354,6 +20653,7 @@ try {
   await seccionCAMPOS16();
   await seccionFRANJ();
   await seccionVENDP();
+  await seccionPEDRED();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

@@ -5,6 +5,23 @@
  * contacto, y permite cambiar el estado (pendiente → confirmado → preparado → enviado →
  * entregado, o cancelado).
  *
+ * DISEÑO (dueño, 2026-11-15: «lo veo todo muy confuso»; el mismo de Usuarios y participación, app/admin/users.tsx, con
+ * los tamaños de constants/theme.ts: letra mínima 13, táctiles de 44 px, campos de 16 px):
+ * 1) Arriba, «Avisos en este móvil · activos / no activos», plegable y discreto (components/AvisosMovil.tsx).
+ * 2) El buscador (16 px; referencia VZ-…, número interno, nombre, correo o teléfono; ?buscar= en la URL).
+ * 3) Cifras en tarjetas que filtran al tocarlas: Hoy, Por pagar, Por preparar, Reparto de hoy, Doble venta, Devueltos e
+ *    Ingresos (30 días: pagados de verdad y no devueltos, de los 200 últimos pedidos).
+ * 4) Pastillas de filtro (44 px) con su recuento: Todos, Por pagar, Pagados, Por preparar, Reparto de hoy (agrupado por
+ *    mañana / tarde), Enviados, Cancelados, Doble venta y «Más filtros» (En curso, Hoy, cada estado, Devueltos, Sin cuenta,
+ *    De VeoAura, Pagados online, Pago sin terminar, En tienda y Factura: todas / con / sin).
+ * 5) Lista de filas compactas: referencia VZ-…, cliente y hora, importe, cómo pagó, entrega o franja y una etiqueta de
+ *    estado de color (Pendiente, Pagado, Preparando, Enviado, Entregado, Cancelado, Devuelto, Doble venta); cancelados y
+ *    devueltos en gris con «Devuelto X €». Al tocar una fila se despliega su detalle por bloques: Artículos · Pago ·
+ *    Entrega · Cliente · Pasos · Valoración y, abajo, las acciones. «Abrir todos» los despliega a la vez; un aviso que abre
+ *    ?buscar=VZ-… con un solo pedido lo enseña ya abierto.
+ * 6) Abajo, «Más datos de los pedidos»: los recuentos de siempre (números de seguimiento, pago online, ventas en tienda,
+ *    seguimiento, valoraciones, facturas, ingresos) y qué se manda a VeoAura al marcar «Entregado».
+ *
  * Cómo funciona:
  * - Lee "pedidos" y "pedido_items" (supabase/migrations/20261013120000_pedidos.sql).
  *   Solo el administrador puede verlos todos y cambiar el estado (RLS con is_admin()).
@@ -17,65 +34,70 @@
  * el estado de un pedido sin querer (constants/theme.ts; prueba TM4 de pruebas/perfil-datos.mjs).
  *
  * Desde la ficha del cliente (dueño, 2026-11-13): «Ver en Pedidos» abre esta pantalla con ?buscar=<correo> y el
- * buscador sale ya relleno con ese correo (solo sus pedidos); el botón de borrar lo vacía.
+ * buscador sale ya relleno con ese correo (solo sus pedidos); el botón de borrar lo vacía. Cada pedido con cuenta lleva
+ * «Ver ficha del cliente» en su bloque «Cliente».
  *
  * Conectado con:
  * - app/admin/index.tsx → tarjeta "Pedidos" que lleva aquí.
- * - app/admin/cliente/[userId].tsx → «Ver en Pedidos» (parámetro ?buscar=).
+ * - app/admin/cliente/[userId].tsx → «Ver en Pedidos» (parámetro ?buscar=) y «Ver ficha del cliente».
  * - app/admin/_layout.tsx → registra esta ruta ("pedidos") en el Stack.
  * - app/checkout.tsx → crea los pedidos con la función crear_pedido.
  * - api/escaparate-retorno.ts → al cambiar el estado se le avisa, por si el pedido lleva
  *   artículos de VeoAura (al cancelarlo, VeoAura los vuelve a poner a la venta).
  * - Números de seguimiento (migración 20261031170000): cada pedido enseña el suyo, si es una ficha
  *   creada en VeoAura (api/escaparate-veoaura.ts, evento «seguimiento») y si el cliente ya lo tiene
- *   en su cuenta; recuento arriba y filtros «Sin cuenta» y «De VeoAura».
+ *   en su cuenta; recuento abajo y filtros «Sin cuenta» y «De VeoAura».
  * - Envío (migración 20261104210000, dueño 2026-11-04): cada pedido enseña artículos, envío (con su
  *   zona) y total. El envío lo calcula la base de datos con las tarifas (Administración → Tarifas de
  *   envío); aquí se puede poner A MANO para ese pedido (queda «a mano» y ya no se recalcula) o
  *   devolverlo al automático. Sin la migración, no se enseña.
  * - Pago con tarjeta (Stripe, migración 20261105120000, dueño 2026-11-05; api/pago.ts): cada pedido enseña si se pagó
  *   con tarjeta (cuánto y cuándo, con su enlace a Stripe y si fue de prueba) o si el pago se empezó sin terminar;
- *   recuento arriba y filtros «Pagados con tarjeta» y «Pago sin terminar». Lo apunta solo el servidor tras
+ *   recuento abajo y filtros «Pagados online» y «Pago sin terminar». Lo apunta solo el servidor tras
  *   preguntárselo a Stripe. Si un pedido pagado se cancela o cambia de total, lo avisa (devolver desde Stripe). Sin la
  *   migración, no se enseña. Desde el 2026-11-11 (Bizum de Stripe, migración 20261111150000) cada pagado dice con qué se
- *   pagó («Pagado online con tarjeta / Bizum / Klarna», lo dice Stripe) y el recuento de arriba los cuenta por forma de
+ *   pagó («Pagado online con tarjeta / Bizum / Klarna», lo dice Stripe) y el recuento los cuenta por forma de
  *   pago; sin esa columna, todo sale como antes.
  * - Botones «Devolver el pago» y «Cancelar pedido» (dueño, 2026-11-06), con un segundo toque para confirmar. Devolver
  *   llama a api/pago.ts (solo el administrador; Stripe devuelve el pago entero una sola vez) y se ve «Devuelto · importe
  *   · fecha» (migración 20261106100000; sin ella no se ofrece). Un cancelado pagado sin devolver sigue en «En curso».
  * - Facturas (dueño, 2026-11-10; las emite VeoAura y llegan por api/escaparate-veoaura.ts, evento «factura»; migración
  *   20261110100000, tabla pedido_facturas): cada pedido enseña su número de factura y «Descargar» (api/factura.ts, la
- *   misma que usa el cliente en «Mis pedidos»), «PDF pendiente» o «Sin factura»; recuento arriba y filtro «Factura:
- *   todas / con factura / sin factura». Sin la migración, no se enseña.
+ *   misma que usa el cliente en «Mis pedidos»), «PDF pendiente» o «Sin factura»; recuento abajo y filtro «Factura:
+ *   todas / con factura / sin factura» (en «Más filtros»). Sin la migración, no se enseña.
  * - Referencia del pedido (dueño, 2026-11-11: «como una empresa profesional»): el título de cada pedido es su referencia
- *   «Pedido VZ-XXXX-XXXX» (codigo_seguimiento, la que ve el cliente) y el número interno va debajo, en pequeño («Nº
- *   interno 101»; sin referencia, «Pedido nº 101» como antes). Buscador arriba: referencia (con o sin guiones), número
- *   interno, nombre, correo o teléfono. El mensaje de WhatsApp que manda el administrador también nombra la referencia.
+ *   «VZ-XXXX-XXXX» (codigo_seguimiento, la que ve el cliente) y el número interno va en su bloque «Cliente» («Nº
+ *   interno 101»; sin referencia, «Pedido nº 101» como antes). El mensaje de WhatsApp que manda el administrador también
+ *   nombra la referencia.
  * - Ventas en tienda (dueño, 2026-11-11; migración 20261111170000, pedidos.origen = 'tienda_fisica'): las ventas en mano
  *   que VeoAura manda con el evento «venta_tienda» (api/escaparate-veoaura.ts) salen como un pedido más con «En tienda ·
  *   pagado <forma> · entregado» y «Unida a la cuenta del cliente» o «Pendiente de que se registre <correo>»; recuento
- *   arriba (cuántas, importe, unidas y pendientes) y filtro «En tienda». Sin envío, teléfono, cambio de estado, cancelar ni
+ *   abajo (cuántas, importe, unidas y pendientes) y filtro «En tienda». Sin envío, teléfono, cambio de estado, cancelar ni
  *   WhatsApp (las gestiona VeoAura). Sin la migración, no se enseña nada de esto.
  * - Seguimiento paso a paso (mejora 5, 2026-11-14; migración 20261114160000): cada pedido enseña sus pasos con la fecha y
  *   la hora que guarda la base de datos (pedido_estados, la apunta un disparador al cambiar el estado; lo anterior, «sin
  *   hora») —lo mismo que ve el cliente en «Mis pedidos»— y, si va a domicilio, el campo «Nº de Correos o enlace» que le da
- *   al cliente «Seguir el envío». Recuento arriba (#pedidos-seguimiento). Sin la migración, pasos sin hora y sin el campo.
+ *   al cliente «Seguir el envío». Recuento abajo (#pedidos-seguimiento). Sin la migración, pasos sin hora y sin el campo.
  * - Artículos únicos (dueño, 2026-11-15; migración 20261115200000_vendido_al_pagar): al pagar, api/pago.ts saca sus
  *   artículos de la venta. Un pedido cobrado con un artículo que ya estaba vendido dice «Artículo ya vendido: devuelve el
- *   pago» (#pedido-doble-venta-N) y sale en el filtro «Doble venta (n)». Cancelado, sus artículos NO vuelven solos a la
- *   venta: «Volver a poner a la venta» (44 px, segundo toque para confirmar). Analítica cuenta las dobles ventas.
- * - Avisos en este móvil (dueño, 2026-11-15; migración 20261115110000_avisos_movil): tarjeta arriba
+ *   pago» (#pedido-doble-venta-N), lleva la etiqueta «Doble venta» y sale en la cifra y el filtro «Doble venta (n)».
+ *   Cancelado, sus artículos NO vuelven solos a la venta: «Volver a poner a la venta» (44 px, segundo toque para
+ *   confirmar). Analítica cuenta las dobles ventas.
+ * - Avisos en este móvil (dueño, 2026-11-15; migración 20261115110000_avisos_movil): línea plegable arriba
  *   (components/AvisosMovil.tsx) para activar en el móvil los avisos de cada pedido pagado o nuevo y de cada servicio
- *   pagado (api/pago.ts los manda); al tocar un aviso se abre esta pantalla con ?buscar=VZ-… (buscador relleno).
+ *   pagado (api/pago.ts los manda); al tocar un aviso se abre esta pantalla con ?buscar=VZ-… (buscador relleno y el
+ *   pedido ya desplegado).
  * - Valoración tras la entrega (mejora 11, 2026-11-15; migración 20261115100000): en cada pedido entregado, la nota del
  *   cliente con sus estrellas y su comentario (las bajas, 1-2, en rojo) o «Sin valorar» con cuándo se le pide (3 días
- *   tras «entregado»); recuento y media arriba (#pedidos-valoraciones). Sin la migración, nada.
- * - Franjas de entrega (dueño, 2026-11-15; migración 20261115180000): en cada pedido, el día y la franja que eligió el
+ *   tras «entregado»); recuento y media abajo (#pedidos-valoraciones). Sin la migración, nada.
+ * - Franjas de entrega (dueño, 2026-11-15; migración 20261115180000): en cada fila, el día y la franja que eligió el
  *   cliente (#pedido-franja-N) y el filtro «Reparto de hoy» (los de hoy sin entregar ni cancelar), agrupado por franja
  *   (mañana / tarde) para planificar la ruta. Sin la migración, nada.
+ * - pruebas/perfil-datos.mjs → sección PEDRED (este diseño) y P, Q, VA, TE, PT, FA, VT, FCH, TM4, SEGP, VALOR, AVISOM,
+ *   FRANJ y VENDP.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -98,7 +120,10 @@ import {
 import CargaMarca from "../../components/marca/CargaMarca";
 import AvisosMovil from "../../components/AvisosMovil";
 import { ValoracionPedidoAdmin, cargarValoracionesPedidos, entregadoEnDe, type ValoracionPedido } from "../../components/ReviewModal";
-import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+type Ancho = number | `${number}%`;
 
 type Estado = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
 
@@ -160,12 +185,34 @@ type Pedido = {
 // con la migración 20261115200000 (sin ella, no viene).
 type ArticuloEstado = { id: string; is_active: boolean | null; vendido_en: string | null; vendido_pedido_id?: string | null };
 
+// Filtros: los de la fila principal y los de «Más filtros».
+type Filtro =
+  | "todos"
+  | "por_pagar"
+  | "pagados"
+  | "por_preparar"
+  | "reparto_hoy"
+  | "enviados"
+  | "cancelados"
+  | "doble_venta"
+  | "activos"
+  | "hoy"
+  | Exclude<Estado, "enviado" | "cancelado">
+  | "devueltos"
+  | "sin_vincular"
+  | "veoaura"
+  | "pagados_tarjeta"
+  | "pago_sin_terminar"
+  | "en_tienda";
+
 // Cómo se pagó una venta en mano (lo dice VeoAura).
 const FORMA_PAGO_TIENDA: Record<string, string> = { efectivo: "en efectivo", tarjeta: "con tarjeta", bizum: "con Bizum", transferencia: "por transferencia", otro: "" };
+const FORMA_CORTA_TIENDA: Record<string, string> = { efectivo: "efectivo", tarjeta: "tarjeta", bizum: "Bizum", transferencia: "transferencia", otro: "" };
 const enTienda = (p: Pedido) => p.origen === "tienda_fisica";
 
 // Nombre de la forma de pago online (tarjeta, Bizum o Klarna), si Stripe la dijo.
 const METODO_PAGO: Record<string, string> = { card: "tarjeta", bizum: "Bizum", klarna: "Klarna" };
+const METODO_CORTO: Record<string, string> = { card: "Tarjeta", bizum: "Bizum", klarna: "Klarna" };
 
 // Enlace al pago en el panel de Stripe (los de prueba van a su apartado de prueba).
 function enlaceStripe(p: Pedido): string | null {
@@ -191,18 +238,36 @@ const ESTADOS: { value: Estado; label: string }[] = [
   { value: "cancelado", label: "Cancelado" },
 ];
 
+// Mismos colores que Usuarios y la ficha del cliente; grises nunca más claros que 0,72 y el azul de texto (#0A78B4) en la
+// letra azul de menos de 17 px (el de marca, en iconos, bordes y fondos).
 const COLORS = {
   bg: "#FFFFFF",
   bg2: "#F4F9FD",
+  card: "#F6FAFD",
   border: "#E3EAF2",
-  text: "#0B2138",
+  text: COLORES_TEXTO.texto,
   muted: COLORES_TEXTO.secundario,
   accent: COLORES_TEXTO.azulMarca,
   // Texto azul de menos de 17 px (enlaces, precios, filtros): azul oscuro; el de marca queda para iconos y bordes.
   accentDark: COLORES_TEXTO.azulTexto,
   accent2: "#EAF6FD",
+  accentBorder: "#BEE6FA",
+  success: "#15803D",
   danger: "#B91C1C",
+  dangerBg: "#FFE4E6",
   gold: "#B8860B",
+};
+
+// Etiqueta de estado de cada fila: texto y colores (texto oscuro sobre fondo claro, 4,5:1 o más).
+const ETIQUETAS: Record<string, { texto: string; color: string; fondo: string }> = {
+  pendiente: { texto: "Pendiente", color: "#92400E", fondo: "#FEF3C7" },
+  pagado: { texto: "Pagado", color: "#166534", fondo: "#DCFCE7" },
+  preparando: { texto: "Preparando", color: COLORES_TEXTO.azulTexto, fondo: "#E0F2FE" },
+  enviado: { texto: "Enviado", color: "#3730A3", fondo: "#E0E7FF" },
+  entregado: { texto: "Entregado", color: "#115E59", fondo: "#CCFBF1" },
+  cancelado: { texto: "Cancelado", color: COLORES_TEXTO.secundario, fondo: "#EEF2F6" },
+  devuelto: { texto: "Devuelto", color: COLORES_TEXTO.secundario, fondo: "#EEF2F6" },
+  doble: { texto: "Doble venta", color: "#B91C1C", fondo: "#FFE4E6" },
 };
 
 // Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
@@ -227,6 +292,263 @@ function fmtFecha(iso: string) {
   }
 }
 
+const TREINTA_DIAS = 30 * 86_400_000;
+
+// Pagado online (Stripe).
+const pagadoOnline = (p: Pedido) => p.pago_estado === "pagado";
+// Pagado: online o en tienda, y sin devolver.
+const estaPagado = (p: Pedido) => (pagadoOnline(p) || enTienda(p)) && !p.devuelto_en;
+// Por pagar: web, sin cancelar ni entregar y sin pago online (se acuerda por el chat o se paga en la entrega).
+const porPagar = (p: Pedido) => !enTienda(p) && p.estado !== "cancelado" && p.estado !== "entregado" && !pagadoOnline(p);
+// Por preparar: pagado online (o confirmado tras acordar el pago) y aún pendiente o confirmado; sin las dobles ventas.
+const porPreparar = (p: Pedido) =>
+  !enTienda(p) && (p.estado === "pendiente" || p.estado === "confirmado") && (pagadoOnline(p) || p.estado === "confirmado") && !p.doble_venta_en;
+// Hay que devolver el pago: pagado online, sin devolver y cancelado o con un artículo que ya estaba vendido.
+const faltaDevolver = (p: Pedido) => pagadoOnline(p) && !p.devuelto_en && (p.estado === "cancelado" || !!p.doble_venta_en);
+// En gris: cancelados y devueltos.
+const apagado = (p: Pedido) => p.estado === "cancelado" || !!p.devuelto_en;
+// Dinero de verdad (Ingresos): pagado online de verdad, venta en tienda o entregado (cobrado en la entrega); sin pruebas,
+// cancelados, dobles ventas ni devueltos.
+const cobradoDeVerdad = (p: Pedido) =>
+  !p.devuelto_en &&
+  p.estado !== "cancelado" &&
+  !p.doble_venta_en &&
+  ((pagadoOnline(p) && p.pago_modo !== "prueba") || enTienda(p) || (p.estado === "entregado" && !pagadoOnline(p)));
+const importeCobrado = (p: Pedido) => (pagadoOnline(p) ? Number(p.pagado_eur ?? p.total_eur ?? 0) : Number(p.total_eur ?? 0));
+
+function etiquetaEstado(p: Pedido) {
+  if (p.devuelto_en) return ETIQUETAS.devuelto;
+  if (p.doble_venta_en) return ETIQUETAS.doble;
+  if (p.estado === "cancelado") return ETIQUETAS.cancelado;
+  if (p.estado === "entregado") return ETIQUETAS.entregado;
+  if (p.estado === "enviado") return ETIQUETAS.enviado;
+  if (p.estado === "confirmado" || p.estado === "preparado") return ETIQUETAS.preparando;
+  return pagadoOnline(p) ? ETIQUETAS.pagado : ETIQUETAS.pendiente;
+}
+
+// Cómo pagó (fila compacta): forma de pago online, en tienda, sin terminar o sin pagar.
+function comoPago(p: Pedido): { texto: string; icono: IoniconName; color: string } {
+  if (enTienda(p)) {
+    const f = FORMA_CORTA_TIENDA[p.venta_forma_pago ?? ""];
+    return { texto: `En tienda${f ? ` · ${f}` : ""}`, icono: "storefront-outline", color: COLORS.text };
+  }
+  if (pagadoOnline(p)) {
+    return { texto: `${METODO_CORTO[p.pago_metodo ?? ""] ?? "Pago online"}${p.pago_modo === "prueba" ? " (prueba)" : ""}`, icono: "card-outline", color: COLORS.text };
+  }
+  if (p.pago_estado === "iniciado") return { texto: "Pago sin terminar", icono: "time-outline", color: COLORS.muted };
+  if (p.estado === "entregado") return { texto: "Pago en la entrega", icono: "cash-outline", color: COLORS.text };
+  return { texto: "Sin pagar", icono: "wallet-outline", color: COLORS.muted };
+}
+
+// Un filtro (o un desplegable, con su flecha). 44 px de alto. Igual que en Usuarios.
+function Chip({
+  label,
+  onPress,
+  activo,
+  abierto,
+  desplegable,
+  nativeID,
+}: {
+  label: string;
+  onPress: () => void;
+  activo?: boolean;
+  abierto?: boolean;
+  desplegable?: boolean;
+  nativeID?: string;
+}) {
+  return (
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!activo, expanded: desplegable ? !!abierto : undefined }}
+      style={({ pressed }) => ({
+        minHeight: TACTIL.minimo,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: 14,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: activo || abierto ? COLORS.accent : COLORS.border,
+        backgroundColor: activo ? COLORS.accent2 : COLORS.bg,
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <Text style={{ color: COLORS.text, fontWeight: activo ? "900" : "800", fontSize: TAMANOS.minimo }}>{label}</Text>
+      {desplegable ? <Ionicons name={abierto ? "chevron-up" : "chevron-down"} size={16} color={COLORS.text} /> : null}
+    </Pressable>
+  );
+}
+
+// Una cifra: el número grande y su etiqueta debajo (como en Usuarios). Al tocarla, filtra la lista.
+function Cifra({
+  valor,
+  etiqueta,
+  nativeID,
+  onPress,
+  activa,
+  icono,
+  ancho,
+  alerta,
+}: {
+  valor: string;
+  etiqueta: string;
+  nativeID?: string;
+  onPress?: () => void;
+  activa?: boolean;
+  icono?: IoniconName;
+  ancho: Ancho;
+  alerta?: boolean;
+}) {
+  const estilo = {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: ancho,
+    minWidth: 0,
+    minHeight: 72,
+    borderRadius: 16,
+    backgroundColor: activa ? COLORS.accent2 : alerta ? COLORS.dangerBg : COLORS.card,
+    borderWidth: 1,
+    borderColor: activa ? COLORS.accentBorder : alerta ? COLORS.dangerBg : COLORS.card,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 2,
+  };
+  const contenido = (
+    <>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+        {icono ? <Ionicons name={icono} size={18} color={alerta ? COLORS.danger : COLORS.accent} /> : null}
+        <Text numberOfLines={1} style={{ color: alerta ? COLORS.danger : COLORS.text, fontWeight: "900", fontSize: TAMANOS.titulo3, flexShrink: 1 }}>
+          {valor}
+        </Text>
+      </View>
+      <Text
+        numberOfLines={2}
+        style={{ color: activa ? COLORS.accentDark : alerta ? COLORS.danger : COLORS.muted, fontWeight: activa ? "900" : "700", fontSize: TAMANOS.minimo, lineHeight: 17, textAlign: "center" }}
+      >
+        {etiqueta}
+      </Text>
+    </>
+  );
+  if (!onPress) {
+    return (
+      <View nativeID={nativeID} style={estilo}>
+        {contenido}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!activa }}
+      accessibilityLabel={`${valor} ${etiqueta}`}
+      style={({ pressed }) => ({ ...estilo, opacity: pressed ? 0.8 : 1 })}
+    >
+      {contenido}
+    </Pressable>
+  );
+}
+
+// Una sección: icono y título (sin recuadro), como en Usuarios.
+function Seccion({ icon, title, extra, nativeID, children }: { icon: IoniconName; title: string; extra?: string; nativeID?: string; children: React.ReactNode }) {
+  return (
+    <View nativeID={nativeID} style={{ gap: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <Ionicons name={icon} size={20} color={COLORS.accent} />
+        <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.destacado }}>{title}</Text>
+        {extra ? <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "800" }}>{extra}</Text> : null}
+      </View>
+      {children}
+    </View>
+  );
+}
+
+// Línea de detalle (13 px, gris permitido).
+function Detalle({ children, nativeID, color }: { children: React.ReactNode; nativeID?: string; color?: string }) {
+  return (
+    <Text nativeID={nativeID} style={{ color: color ?? COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+      {children}
+    </Text>
+  );
+}
+
+// Una etiqueta pequeña de la fila: icono y texto con su color, sin cápsula (como en Usuarios).
+function Etiqueta({ icon, texto, color, nativeID }: { icon: IoniconName; texto: string; color: string; nativeID?: string }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+      <Ionicons name={icon} size={15} color={color === COLORS.text ? COLORS.accent : color} />
+      <Text nativeID={nativeID} style={{ color, fontWeight: "800", fontSize: TAMANOS.minimo, flexShrink: 1 }}>
+        {texto}
+      </Text>
+    </View>
+  );
+}
+
+// La etiqueta de estado de color (Pendiente, Pagado, Preparando, Enviado, Entregado, Cancelado, Devuelto, Doble venta).
+function EtiquetaEstado({ p }: { p: Pedido }) {
+  const e = etiquetaEstado(p);
+  return (
+    <View nativeID={`pedido-estado-etiqueta-${p.numero}`} style={{ borderRadius: 999, backgroundColor: e.fondo, paddingHorizontal: 9, paddingVertical: 2 }}>
+      <Text style={{ color: e.color, fontWeight: "900", fontSize: TAMANOS.minimo, lineHeight: 18 }}>{e.texto}</Text>
+    </View>
+  );
+}
+
+// Un bloque del detalle (Artículos, Pago, Entrega, Cliente, Pasos, Valoración): título con su icono y su contenido.
+function Bloque({ icono, titulo, nativeID, ancho, children }: { icono: IoniconName; titulo: string; nativeID?: string; ancho: Ancho; children: React.ReactNode }) {
+  return (
+    <View nativeID={nativeID} style={{ flexGrow: 1, flexShrink: 1, flexBasis: ancho, minWidth: 0, borderRadius: 16, backgroundColor: COLORS.card, padding: 12, gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Ionicons name={icono} size={18} color={COLORS.accent} />
+        <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{titulo}</Text>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+// Un enlace o acción de texto con su icono, sin burbuja (44 px de alto).
+function AccionTexto({
+  nativeID,
+  icono,
+  texto,
+  onPress,
+  color = COLORS.accentDark,
+  colorIcono,
+  disabled,
+  rol = "button",
+  etiqueta,
+}: {
+  nativeID?: string;
+  icono: IoniconName;
+  texto: string;
+  onPress: () => void;
+  color?: string;
+  colorIcono?: string;
+  disabled?: boolean;
+  rol?: "button" | "link";
+  etiqueta?: string;
+}) {
+  return (
+    <Pressable
+      nativeID={nativeID}
+      disabled={disabled}
+      onPress={onPress}
+      accessibilityRole={rol}
+      accessibilityLabel={etiqueta}
+      style={({ pressed }) => ({ minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || disabled ? 0.6 : 1 })}
+    >
+      <Ionicons name={icono} size={18} color={colorIcono ?? (color === COLORS.accentDark ? COLORS.accent : color)} />
+      <Text style={{ color, fontWeight: "800", fontSize: TAMANOS.cuerpo, flexShrink: 1 }}>{texto}</Text>
+    </Pressable>
+  );
+}
+
 // Número de seguimiento del pedido: de dónde viene (VeoAura) y si el cliente ya lo tiene en su cuenta. Si no, el número
 // es lo que hay que darle para que lo añada en Perfil → «Mis seguimientos».
 function EtiquetaNumero({
@@ -243,32 +565,48 @@ function EtiquetaNumero({
   desdeChat: boolean;
 }) {
   return (
-    // La referencia ya va en el título del pedido: aquí, de dónde viene y si el cliente ya la tiene.
-    <View accessibilityLabel={`Referencia ${codigo}`} style={{ alignItems: "center", gap: 2 }}>
-      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
-        {[
-          veoaura ? "Ficha de VeoAura" : null,
-          enCuenta
-            ? vinculadoEn
-              ? `El cliente lo añadió a su cuenta el ${fmtFecha(vinculadoEn)}`
-              : desdeChat
-                ? "Asignado desde el chat: ya está en la cuenta del cliente"
-                : "En la cuenta del cliente"
-            : "Aún no está en ninguna cuenta: dale esta referencia al cliente",
-        ]
-          .filter(Boolean)
-          .join(" · ")}
-      </Text>
-    </View>
+    <Text accessibilityLabel={`Referencia ${codigo}`} style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+      {[
+        veoaura ? "Ficha de VeoAura" : null,
+        enCuenta
+          ? vinculadoEn
+            ? `El cliente lo añadió a su cuenta el ${fmtFecha(vinculadoEn)}`
+            : desdeChat
+              ? "Asignado desde el chat: ya está en la cuenta del cliente"
+              : "En la cuenta del cliente"
+          : "Aún no está en ninguna cuenta: dale esta referencia al cliente",
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+    </Text>
   );
 }
 
+const estiloCampo = {
+  minHeight: TACTIL.minimo,
+  borderRadius: 12,
+  borderWidth: 1,
+  borderColor: COLORS.border,
+  backgroundColor: COLORS.bg,
+  paddingHorizontal: 12,
+  color: COLORS.text,
+  fontSize: CAMPO.letra,
+  fontWeight: "700" as const,
+};
+
 export default function PedidosAdmin() {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isMobile = (Number.isFinite(width) && width > 0 ? width : 390) < 700;
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [filtro, setFiltro] = useState<Estado | "activos" | "todos" | "sin_vincular" | "veoaura" | "pagados_tarjeta" | "pago_sin_terminar" | "en_tienda" | "reparto_hoy" | "doble_venta">("activos");
+  const [filtro, setFiltro] = useState<Filtro>("todos");
+  // «Más filtros» (los de siempre que no van en la fila principal) desplegado.
+  const [masFiltros, setMasFiltros] = useState(false);
+  // Pedidos desplegados (detalle por bloques) y «Abrir todos».
+  const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set());
+  const [todosAbiertos, setTodosAbiertos] = useState(false);
   // false = aún no existe doble_venta_en (migración 20261115200000 sin aplicar): ni aviso ni filtro.
   const [dobleOk, setDobleOk] = useState(false);
   // Artículos de los pedidos cargados (para «Volver a poner a la venta» tras cancelar uno pagado).
@@ -454,31 +792,76 @@ export default function PedidosAdmin() {
     }
   }
 
+  const hoy = fechaHoyMadrid();
+
   const repartoDeHoy = useMemo(() => {
-    const hoy = fechaHoyMadrid();
     const orden = (p: Pedido) => (p.entrega_franja === "manana" ? 0 : 1);
     return pedidos
       .filter((p) => p.entrega_fecha === hoy && !!p.entrega_franja && p.estado !== "cancelado" && p.estado !== "entregado")
       .sort((a, b) => orden(a) - orden(b) || a.numero - b.numero);
-  }, [pedidos]);
+  }, [pedidos, hoy]);
+
+  // Las cifras de arriba (y los recuentos de las pastillas).
+  const cuentas = useMemo(() => {
+    const desde = Date.now() - TREINTA_DIAS;
+    const cobrados30 = pedidos.filter((p) => cobradoDeVerdad(p) && Date.parse(p.pagado_en ?? p.created_at) >= desde);
+    return {
+      todos: pedidos.length,
+      hoy: pedidos.filter((p) => fechaHoyMadrid(new Date(p.created_at)) === hoy).length,
+      porPagar: pedidos.filter(porPagar).length,
+      pagados: pedidos.filter(estaPagado).length,
+      porPreparar: pedidos.filter(porPreparar).length,
+      enviados: pedidos.filter((p) => p.estado === "enviado").length,
+      cancelados: pedidos.filter((p) => p.estado === "cancelado").length,
+      doble: pedidos.filter((p) => !!p.doble_venta_en).length,
+      dobleSinDevolver: pedidos.filter((p) => !!p.doble_venta_en && !p.devuelto_en).length,
+      devueltos: pedidos.filter((p) => !!p.devuelto_en).length,
+      ingresos30: cobrados30.reduce((a, p) => a + importeCobrado(p), 0),
+      cobrados30: cobrados30.length,
+    };
+  }, [pedidos, hoy]);
 
   const visiblesPorEstado = useMemo(() => {
-    if (filtro === "todos") return pedidos;
-    // En curso: también los cancelados que siguen pagados con tarjeta sin devolver (falta devolver el pago).
-    if (filtro === "activos") {
-      return pedidos.filter((p) => p.estado !== "entregado" && (p.estado !== "cancelado" || (p.pago_estado === "pagado" && !p.devuelto_en)));
+    switch (filtro) {
+      case "todos":
+        return pedidos;
+      // En curso: también los cancelados que siguen pagados con tarjeta sin devolver (falta devolver el pago).
+      case "activos":
+        return pedidos.filter((p) => p.estado !== "entregado" && (p.estado !== "cancelado" || (p.pago_estado === "pagado" && !p.devuelto_en)));
+      case "hoy":
+        return pedidos.filter((p) => fechaHoyMadrid(new Date(p.created_at)) === hoy);
+      case "por_pagar":
+        return pedidos.filter(porPagar);
+      case "pagados":
+        return pedidos.filter(estaPagado);
+      case "por_preparar":
+        return pedidos.filter(porPreparar);
+      case "enviados":
+        return pedidos.filter((p) => p.estado === "enviado");
+      case "cancelados":
+        return pedidos.filter((p) => p.estado === "cancelado");
+      case "devueltos":
+        return pedidos.filter((p) => !!p.devuelto_en);
+      case "sin_vincular":
+        return pedidos.filter((p) => !p.user_id);
+      case "veoaura":
+        return pedidos.filter((p) => !!p.id_veoaura);
+      case "pagados_tarjeta":
+        return pedidos.filter((p) => p.pago_estado === "pagado");
+      case "pago_sin_terminar":
+        return pedidos.filter((p) => p.pago_estado === "iniciado");
+      case "en_tienda":
+        return pedidos.filter(enTienda);
+      // Reparto de hoy: los de hoy (fecha de Madrid) sin cancelar ni entregar, primero la mañana y luego la tarde.
+      case "reparto_hoy":
+        return repartoDeHoy;
+      // Doble venta: cobrados con un artículo que ya estaba vendido (hay que devolver el pago).
+      case "doble_venta":
+        return pedidos.filter((p) => !!p.doble_venta_en);
+      default:
+        return pedidos.filter((p) => p.estado === filtro);
     }
-    if (filtro === "sin_vincular") return pedidos.filter((p) => !p.user_id);
-    if (filtro === "veoaura") return pedidos.filter((p) => !!p.id_veoaura);
-    if (filtro === "pagados_tarjeta") return pedidos.filter((p) => p.pago_estado === "pagado");
-    if (filtro === "pago_sin_terminar") return pedidos.filter((p) => p.pago_estado === "iniciado");
-    if (filtro === "en_tienda") return pedidos.filter(enTienda);
-    // Reparto de hoy: los de hoy (fecha de Madrid) sin cancelar ni entregar, primero la mañana y luego la tarde.
-    if (filtro === "reparto_hoy") return repartoDeHoy;
-    // Doble venta: cobrados con un artículo que ya estaba vendido (hay que devolver el pago).
-    if (filtro === "doble_venta") return pedidos.filter((p) => !!p.doble_venta_en);
-    return pedidos.filter((p) => p.estado === filtro);
-  }, [pedidos, filtro, repartoDeHoy]);
+  }, [pedidos, filtro, repartoDeHoy, hoy]);
 
   // Ventas en mano (VeoAura): cuántas, cuántas ya están en la cuenta del cliente, cuántas esperan a que se registre y su
   // importe.
@@ -513,6 +896,42 @@ export default function PedidosAdmin() {
     if (!facturasOk || filtroFactura === "todas") return visiblesPorEstado;
     return visiblesPorEstado.filter((p) => (filtroFactura === "con" ? !!facturas[p.id] : !facturas[p.id]));
   }, [visiblesPorEstado, pedidos, busqueda, facturas, facturasOk, filtroFactura]);
+
+  // Un aviso al móvil abre ?buscar=VZ-…: si sale un solo pedido, se enseña ya desplegado (una vez).
+  const autoAbierto = useRef(false);
+  useEffect(() => {
+    if (loading || autoAbierto.current || !buscarUrl || busqueda !== buscarUrl || visibles.length !== 1) return;
+    autoAbierto.current = true;
+    const id = visibles[0].id;
+    setAbiertos((prev) => new Set(prev).add(id));
+  }, [loading, buscarUrl, busqueda, visibles]);
+
+  const estaAbierto = (id: string) => todosAbiertos || abiertos.has(id);
+  const todosVisiblesAbiertos = visibles.length > 0 && visibles.every((p) => estaAbierto(p.id));
+  function alternar(id: string) {
+    if (todosAbiertos) {
+      setTodosAbiertos(false);
+      setAbiertos(new Set(pedidos.map((p) => p.id).filter((x) => x !== id)));
+      return;
+    }
+    setAbiertos((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+  function abrirOCerrarTodos() {
+    if (todosVisiblesAbiertos) {
+      setTodosAbiertos(false);
+      setAbiertos(new Set());
+    } else setTodosAbiertos(true);
+  }
+  // Elegir un filtro (pastilla o cifra) vacía el buscador: con algo escrito se busca en todos y el filtro no se notaría.
+  function elegirFiltro(f: Filtro) {
+    setFiltro(f);
+    if (busqueda) setBusqueda("");
+  }
 
   // Pago con tarjeta: cuántos pedidos se han pagado (y cuánto), cuántos se empezaron sin terminar, cuántos fueron de
   // prueba y cuántos pagados están cancelados o con otro total (hay que devolver la diferencia desde Stripe).
@@ -729,10 +1148,30 @@ export default function PedidosAdmin() {
     openExternalLink(`https://wa.me/${conPrefijo}?text=${texto}`);
   }
 
-  const chips: { value: typeof filtro; label: string }[] = [
+  function irAFicha(p: Pedido) {
+    if (!p.user_id) return;
+    router.push({ pathname: "/admin/cliente/[userId]", params: { userId: p.user_id, email: p.email ?? "" } } as never);
+  }
+
+  // Pastillas principales (con su recuento) y las de «Más filtros».
+  const pastillas: { value: Filtro; label: string }[] = [
+    { value: "todos", label: `Todos (${cuentas.todos})` },
+    { value: "por_pagar", label: `Por pagar (${cuentas.porPagar})` },
+    { value: "pagados", label: `Pagados (${cuentas.pagados})` },
+    { value: "por_preparar", label: `Por preparar (${cuentas.porPreparar})` },
+    ...(franjaOk ? [{ value: "reparto_hoy" as const, label: `Reparto de hoy (${repartoDeHoy.length})` }] : []),
+    { value: "enviados", label: `Enviados (${cuentas.enviados})` },
+    { value: "cancelados", label: `Cancelados (${cuentas.cancelados})` },
+    ...(dobleOk ? [{ value: "doble_venta" as const, label: `Doble venta (${cuentas.doble})` }] : []),
+  ];
+  const otrosFiltros: { value: Filtro; label: string }[] = [
     { value: "activos", label: "En curso" },
-    ...ESTADOS,
-    { value: "todos", label: "Todos" },
+    { value: "hoy", label: `Hoy (${cuentas.hoy})` },
+    { value: "pendiente", label: "Pendiente" },
+    { value: "confirmado", label: "Confirmado" },
+    { value: "preparado", label: "Preparado" },
+    { value: "entregado", label: "Entregado" },
+    ...(devolucionOk ? [{ value: "devueltos" as const, label: `Devueltos (${cuentas.devueltos})` }] : []),
     ...(numerosOk
       ? [
           { value: "sin_vincular" as const, label: `Sin cuenta (${resumenNumeros.sinVincular})` },
@@ -746,9 +1185,472 @@ export default function PedidosAdmin() {
         ]
       : []),
     ...(ventasOk ? [{ value: "en_tienda" as const, label: `En tienda (${resumenTienda.total})` }] : []),
-    ...(franjaOk ? [{ value: "reparto_hoy" as const, label: `Reparto de hoy (${repartoDeHoy.length})` }] : []),
-    ...(dobleOk ? [{ value: "doble_venta" as const, label: `Doble venta (${pedidos.filter((p) => !!p.doble_venta_en).length})` }] : []),
   ];
+  const filtroExtra = otrosFiltros.some((f) => f.value === filtro);
+  const nombreFiltroExtra = otrosFiltros.find((f) => f.value === filtro)?.label.replace(/ \(\d+\)$/, "");
+
+  // Cifras de arriba: tocarlas filtra la lista.
+  const cifras: { key: Filtro | "ingresos"; valor: string; etiqueta: string; icono: IoniconName; alerta?: boolean }[] = [
+    { key: "hoy", valor: String(cuentas.hoy), etiqueta: "Hoy", icono: "today-outline" },
+    { key: "por_pagar", valor: String(cuentas.porPagar), etiqueta: "Por pagar", icono: "wallet-outline" },
+    { key: "por_preparar", valor: String(cuentas.porPreparar), etiqueta: "Por preparar", icono: "cube-outline" },
+    ...(franjaOk ? [{ key: "reparto_hoy" as const, valor: String(repartoDeHoy.length), etiqueta: "Reparto de hoy", icono: "bicycle-outline" as IoniconName }] : []),
+    ...(dobleOk ? [{ key: "doble_venta" as const, valor: String(cuentas.doble), etiqueta: "Doble venta", icono: "alert-circle-outline" as IoniconName, alerta: cuentas.dobleSinDevolver > 0 }] : []),
+    ...(devolucionOk ? [{ key: "devueltos" as const, valor: String(cuentas.devueltos), etiqueta: "Devueltos", icono: "return-down-back-outline" as IoniconName }] : []),
+    { key: "ingresos", valor: fmtEUR(cuentas.ingresos30), etiqueta: "Ingresos 30 días", icono: "trending-up-outline" },
+  ];
+  const anchoCifra: Ancho = isMobile ? "30%" : 0;
+  const anchoBloque: Ancho = isMobile ? "100%" : "45%";
+
+  // ---------- Detalle de un pedido (bloques y acciones) ----------
+  function detalle(p: Pedido) {
+    const tienda = enTienda(p);
+    const pasos = tienda ? [] : pasosDelPedido(p, historial?.[p.id]).filter((x) => x.hecho);
+    const tipoEntrega = tienda ? "Compra en tienda" : p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio";
+    const direccion = p.entrega === "envio" && (p.direccion || p.ciudad) ? [p.direccion, [p.codigo_postal, p.ciudad].filter(Boolean).join(" ")].filter(Boolean).join(", ") : null;
+    const puedeDevolver = devolucionOk && p.pago_estado === "pagado" && !p.devuelto_en;
+    const puedeCancelar = p.estado !== "cancelado" && p.estado !== "entregado";
+    const reponer = articulosParaReponer(p);
+    return (
+      <View nativeID={`pedido-detalle-${p.numero}`} style={{ gap: 12, paddingBottom: 16 }}>
+        {/* Doble venta: se cobró un artículo único que ya estaba vendido (lo marca api/pago.ts al apuntar el pago). */}
+        {dobleOk && p.doble_venta_en ? (
+          <View nativeID={`pedido-doble-venta-${p.numero}`} accessibilityRole="alert" style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: COLORS.dangerBg }}>
+            <Ionicons name="alert-circle" size={18} color={COLORS.danger} />
+            <Text style={{ color: COLORS.danger, fontWeight: "900", fontSize: TAMANOS.cuerpo, flexShrink: 1 }}>
+              Artículo ya vendido: devuelve el pago{p.devuelto_en ? " (ya devuelto)" : ""}
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          {/* Artículos: cada uno con su precio, el envío (con su zona) y el total. */}
+          <Bloque nativeID={`pedido-bloque-articulos-${p.numero}`} icono="cube-outline" titulo="Artículos" ancho={anchoBloque}>
+            {(p.pedido_items ?? []).map((it) => (
+              <View key={it.id} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+                <Text style={{ flex: 1, minWidth: 0, color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700", lineHeight: 19 }}>{it.titulo}</Text>
+                <Text style={{ color: COLORS.accentDark, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>{fmtEUR(it.precio_eur)}</Text>
+              </View>
+            ))}
+            {!(p.pedido_items ?? []).length ? <Detalle>Sin artículos apuntados.</Detalle> : null}
+            {envioOk && !tienda ? (
+              <Text nativeID={`pedido-envio-${p.numero}`} style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                Artículos {fmtEUR(Number(p.productos_eur ?? p.total_eur))} · Envío {Number(p.envio_eur ?? 0) === 0 ? "gratis" : fmtEUR(Number(p.envio_eur))}
+                {nombreZona(p.zona_envio) ? ` (${nombreZona(p.zona_envio)})` : ""}
+                {p.peso_kg ? ` · ${fmtKg(p.peso_kg)}` : ""} · {p.envio_manual ? "a mano" : "automático"}
+              </Text>
+            ) : null}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 6, borderTopWidth: 1, borderTopColor: COLORS.border }}>
+              <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Total</Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{fmtEUR(p.total_eur)}</Text>
+            </View>
+          </Bloque>
+
+          {/* Pago: online (Stripe), en tienda o sin pagar; devolución y factura. */}
+          <Bloque nativeID={`pedido-bloque-pago-${p.numero}`} icono="card-outline" titulo="Pago" ancho={anchoBloque}>
+            {tienda ? (
+              // Venta en mano de VeoAura: cómo se pagó y si ya está en la cuenta del cliente (o a quién espera).
+              <View nativeID={`pedido-tienda-${p.numero}`} style={{ gap: 2 }}>
+                <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                  <Ionicons name="storefront-outline" size={16} color={COLORS.success} style={{ marginTop: 1 }} />
+                  <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19, flex: 1, minWidth: 0 }}>
+                    En tienda · pagado{FORMA_PAGO_TIENDA[p.venta_forma_pago ?? ""] ? ` ${FORMA_PAGO_TIENDA[p.venta_forma_pago ?? ""]}` : ""} · entregado
+                  </Text>
+                </View>
+                <Text nativeID={`pedido-tienda-cuenta-${p.numero}`} selectable style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+                  {p.user_id ? "Unida a la cuenta del cliente" : `Pendiente de que se registre ${p.email}`}
+                </Text>
+              </View>
+            ) : null}
+            {/* Pago con tarjeta: lo apunta el servidor tras preguntárselo a Stripe. */}
+            {pagoOk && p.pago_estado ? (
+              <View nativeID={`pedido-pago-${p.numero}`} style={{ gap: 4 }}>
+                <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                  <Ionicons name={p.pago_estado === "pagado" ? "card" : "card-outline"} size={16} color={p.pago_estado === "pagado" ? COLORS.success : COLORS.muted} style={{ marginTop: 1 }} />
+                  <Text style={{ color: p.pago_estado === "pagado" ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19, flex: 1, minWidth: 0 }}>
+                    {p.pago_estado === "pagado"
+                      ? `Pagado online${p.pago_metodo && METODO_PAGO[p.pago_metodo] ? ` con ${METODO_PAGO[p.pago_metodo]}` : ""} · ${fmtEUR(Number(p.pagado_eur ?? 0))}${p.pagado_en ? ` · ${fmtFecha(p.pagado_en)}` : ""}${p.pago_modo === "prueba" ? " · de prueba (sin cobro real)" : ""}`
+                      : "Pago online empezado, sin terminar"}
+                  </Text>
+                </View>
+                {p.devuelto_en ? (
+                  <View nativeID={`pedido-devuelto-${p.numero}`} style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                    <Ionicons name="return-down-back-outline" size={16} color={COLORS.muted} style={{ marginTop: 1 }} />
+                    <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19, flex: 1, minWidth: 0 }}>
+                      Devuelto · {fmtEUR(Number(p.devuelto_eur ?? 0))} · {fmtFecha(p.devuelto_en)}
+                    </Text>
+                  </View>
+                ) : p.pago_estado === "pagado" && p.estado === "cancelado" ? (
+                  <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+                    Cancelado y pagado: devuelve el pago{devolucionOk ? " con el botón de abajo" : " desde Stripe"}.
+                  </Text>
+                ) : p.pago_estado === "pagado" && Math.round(Number(p.pagado_eur ?? 0) * 100) !== Math.round(Number(p.total_eur) * 100) ? (
+                  <Text style={{ color: COLORS.gold, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+                    El total ahora es {fmtEUR(p.total_eur)}: la diferencia se arregla desde Stripe o por el chat.
+                  </Text>
+                ) : null}
+                {enlaceStripe(p) ? (
+                  <AccionTexto nativeID={`pedido-pago-stripe-${p.numero}`} rol="link" icono="open-outline" texto="Ver el pago en Stripe" onPress={() => openExternalLink(enlaceStripe(p) as string)} />
+                ) : null}
+              </View>
+            ) : null}
+            {!tienda && !(pagoOk && p.pago_estado) ? (
+              <Detalle>{p.estado === "entregado" ? "Sin pago online: se cobró en la entrega." : "Sin pago online todavía (se acuerda por el chat o se paga en la entrega)."}</Detalle>
+            ) : null}
+            {/* Factura de VeoAura: número y «Descargar», «PDF pendiente» o «Sin factura». */}
+            {facturasOk ? (
+              <View nativeID={`pedido-factura-${p.numero}`} style={{ gap: 2 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <Ionicons name="document-text-outline" size={16} color={facturas[p.id] ? COLORS.text : COLORS.muted} />
+                  <Text style={{ color: facturas[p.id] ? COLORS.text : COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+                    {facturas[p.id] ? `Factura ${facturas[p.id].numero_factura ?? ""}${facturas[p.id].pdf ? "" : " · PDF pendiente"}` : "Sin factura"}
+                  </Text>
+                  {facturas[p.id]?.pdf ? (
+                    <AccionTexto
+                      nativeID={`pedido-factura-descargar-${p.numero}`}
+                      icono="download-outline"
+                      texto="Descargar"
+                      etiqueta={`Descargar la factura del pedido ${p.numero}`}
+                      onPress={() => descargarFactura(p)}
+                    />
+                  ) : null}
+                </View>
+                {facturaMsg?.id === p.id ? <Detalle color={COLORS.danger}>{facturaMsg.texto}</Detalle> : null}
+              </View>
+            ) : null}
+          </Bloque>
+
+          {/* Entrega: tipo, día y franja, dirección, notas y seguimiento de Correos. */}
+          <Bloque nativeID={`pedido-bloque-entrega-${p.numero}`} icono="location-outline" titulo="Entrega" ancho={anchoBloque}>
+            <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+              {tipoEntrega} · pedido el {fmtFecha(p.created_at)}
+            </Text>
+            {franjaOk && p.entrega_franja && p.entrega_fecha ? (
+              <Detalle color={COLORS.text}>
+                Franja: {p.entrega_fecha === hoy ? "hoy" : fechaCortaEntrega(p.entrega_fecha)} · {nombreFranja(p.entrega_franja)}
+              </Detalle>
+            ) : null}
+            {direccion ? (
+              <Text selectable style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                {direccion}
+              </Text>
+            ) : null}
+            {p.notas ? <Text style={{ color: COLORS.muted, fontStyle: "italic", fontSize: TAMANOS.minimo, lineHeight: 19 }}>“{p.notas}”</Text> : null}
+            {historial && p.entrega === "envio" && !tienda ? (
+              <Detalle color={numerosEnvio[p.id] ? COLORS.text : COLORS.muted}>
+                {numerosEnvio[p.id] ? `Seguimiento de Correos: ${numerosEnvio[p.id]}` : "Sin número de Correos todavía (se pone abajo)."}
+              </Detalle>
+            ) : null}
+          </Bloque>
+
+          {/* Cliente: nombre, contacto, referencia y su ficha. */}
+          <Bloque nativeID={`pedido-bloque-cliente-${p.numero}`} icono="person-outline" titulo="Cliente" ancho={anchoBloque}>
+            <Text selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+              {p.nombre}
+            </Text>
+            <Text selectable style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+              {/* Una venta en mano no guarda teléfono (solo el correo con el que se une a la cuenta). */}
+              {tienda ? p.email : `${p.telefono} · ${p.email}`}
+            </Text>
+            {p.codigo_seguimiento ? (
+              <Text nativeID={`pedido-interno-${p.numero}`} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700" }}>
+                Nº interno {p.numero}
+              </Text>
+            ) : null}
+            {!tienda && p.codigo_seguimiento ? (
+              <EtiquetaNumero
+                codigo={p.codigo_seguimiento}
+                veoaura={!!p.id_veoaura}
+                enCuenta={!!p.user_id}
+                vinculadoEn={p.vinculado_en ?? null}
+                desdeChat={p.nota_admin === NOTA_ASIGNADO_CHAT}
+              />
+            ) : null}
+            {p.user_id ? <AccionTexto nativeID={`pedido-ficha-${p.numero}`} icono="id-card-outline" texto="Ver ficha del cliente" onPress={() => irAFicha(p)} /> : null}
+          </Bloque>
+
+          {/* Los pasos con su fecha y hora (las que guarda la base de datos; sin hora conocida, «sin hora»). */}
+          {!tienda ? (
+            <Bloque nativeID={`pedido-bloque-pasos-${p.numero}`} icono="git-commit-outline" titulo="Pasos" ancho={anchoBloque}>
+              <View nativeID={`pedido-pasos-${p.numero}`} style={{ gap: 4 }}>
+                {pasos.map((x) => (
+                  <Text
+                    key={x.clave}
+                    nativeID={`pedido-paso-${p.numero}-${x.clave}`}
+                    style={{ color: x.tipo === "cancelado" ? COLORS.danger : x.actual ? COLORS.accentDark : COLORS.text, fontWeight: x.actual ? "900" : "700", fontSize: TAMANOS.minimo }}
+                  >
+                    {x.etiqueta}
+                    {fechaHoraPaso(x.fecha) ? ` · ${fechaHoraPaso(x.fecha)}` : " · sin hora"}
+                  </Text>
+                ))}
+              </View>
+            </Bloque>
+          ) : null}
+
+          {/* Valoración tras la entrega (mejora 11): la nota y el comentario del cliente, o cuándo se le pide. */}
+          {valoraciones && p.estado === "entregado" ? (
+            <Bloque nativeID={`pedido-bloque-valoracion-${p.numero}`} icono="star-outline" titulo="Valoración" ancho={anchoBloque}>
+              <ValoracionPedidoAdmin nativeID={`pedido-valoracion-${p.numero}`} valoracion={valoraciones[p.id]} entregadoEn={entregadoEnDe(historial?.[p.id])} izquierda />
+            </Bloque>
+          ) : null}
+        </View>
+
+        {/* Acciones (abajo): estado, escribir al cliente, devolver, cancelar, reponer, envío a mano y nº de Correos. Una venta
+            en mano ya está pagada y entregada (la gestiona VeoAura): sin cambiar estado ni WhatsApp. */}
+        <View nativeID={`pedido-acciones-${p.numero}`} style={{ gap: 10, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, padding: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Ionicons name="options-outline" size={18} color={COLORS.accent} />
+            <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Acciones</Text>
+          </View>
+          {!tienda ? (
+            <View style={{ gap: 6 }}>
+              <Detalle>Estado del pedido</Detalle>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+                {ESTADOS.map((e) => {
+                  const activo = p.estado === e.value;
+                  return (
+                    <Pressable
+                      key={e.value}
+                      nativeID={`pedido-estado-${p.numero}-${e.value}`}
+                      disabled={guardando === p.id}
+                      onPress={() => cambiarEstado(p, e.value)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: activo }}
+                      style={{
+                        minHeight: TACTIL.minimo,
+                        justifyContent: "center",
+                        paddingVertical: 6,
+                        paddingHorizontal: 12,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: activo ? (e.value === "cancelado" ? COLORS.danger : COLORS.accent) : COLORS.border,
+                        backgroundColor: activo ? (e.value === "cancelado" ? COLORS.dangerBg : COLORS.accent2) : COLORS.bg,
+                        opacity: guardando === p.id ? 0.5 : 1,
+                      }}
+                    >
+                      <Text style={{ color: activo ? (e.value === "cancelado" ? COLORS.danger : COLORS.accentDark) : COLORS.muted, fontWeight: activo ? "900" : "800", fontSize: TAMANOS.minimo }}>
+                        {e.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : (
+            <Detalle>Venta en tienda: ya está pagada y entregada (la gestiona VeoAura).</Detalle>
+          )}
+
+          {/* Escribir al cliente, devolver el pago, cancelar (texto con su icono; el primer toque pide confirmar) y reponer. */}
+          {!tienda || reponer.length > 0 ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 18, rowGap: TACTIL.separacion }}>
+              {!tienda ? (
+                <Pressable
+                  nativeID={`pedido-whatsapp-${p.numero}`}
+                  onPress={() => whatsapp(p)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.88 : 1,
+                    minHeight: TACTIL.minimo,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    paddingVertical: 8,
+                    paddingHorizontal: 14,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    backgroundColor: COLORS.bg,
+                  })}
+                >
+                  <Ionicons name="logo-whatsapp" size={16} color={COLORS.success} />
+                  <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.cuerpo }}>Escribir al cliente</Text>
+                </Pressable>
+              ) : null}
+              {!tienda && puedeDevolver ? (
+                <AccionTexto
+                  nativeID={`pedido-devolver-${p.numero}`}
+                  icono="return-down-back-outline"
+                  color={COLORS.danger}
+                  disabled={guardando === p.id}
+                  onPress={() => devolverPago(p)}
+                  texto={confirmando === `devolver:${p.id}` ? `Toca otra vez para devolver ${fmtEUR(Number(p.pagado_eur ?? 0))}` : "Devolver el pago"}
+                />
+              ) : null}
+              {!tienda && puedeCancelar ? (
+                <AccionTexto
+                  nativeID={`pedido-cancelar-${p.numero}`}
+                  icono="close-circle-outline"
+                  color={COLORS.danger}
+                  disabled={guardando === p.id}
+                  onPress={() => cancelarPedido(p)}
+                  texto={confirmando === `cancelar:${p.id}` ? "Toca otra vez para cancelar el pedido" : "Cancelar pedido"}
+                />
+              ) : null}
+              {/* Cancelado: sus artículos siguen fuera de la venta hasta que el dueño decida reponerlos (segundo toque). */}
+              {reponer.length > 0 ? (
+                <AccionTexto
+                  nativeID={`pedido-reponer-${p.numero}`}
+                  icono="storefront-outline"
+                  disabled={guardando === p.id}
+                  onPress={() => reponerALaVenta(p)}
+                  texto={confirmando === `reponer:${p.id}` ? "Toca otra vez para ponerlo a la venta" : "Volver a poner a la venta"}
+                />
+              ) : null}
+            </View>
+          ) : null}
+          {accionMsg?.id === p.id ? (
+            <Text nativeID={`pedido-accion-mensaje-${p.numero}`} style={{ color: accionMsg.tipo === "ok" ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+              {accionMsg.texto}
+            </Text>
+          ) : null}
+
+          {/* Envío del pedido: automático (con la tarifa) o a mano para este pedido. (Una venta en mano no tiene envío.) */}
+          {envioOk && !tienda ? (
+            <View style={{ gap: 6 }}>
+              <Detalle>Envío a mano para este pedido ({p.envio_manual ? "ahora a mano" : "ahora automático, con la tarifa"})</Detalle>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion, flexWrap: "wrap" }}>
+                <TextInput
+                  nativeID={`pedido-envio-campo-${p.numero}`}
+                  value={envioEscrito[p.id] ?? ""}
+                  onChangeText={(t) => setEnvioEscrito((e) => ({ ...e, [p.id]: t }))}
+                  placeholder="Envío a mano (€)"
+                  placeholderTextColor={COLORS.muted}
+                  keyboardType="decimal-pad"
+                  accessibilityLabel={`Envío a mano del pedido ${p.numero}`}
+                  style={{ ...estiloCampo, width: 160 }}
+                />
+                {/* Guardar: solo el icono, sin burbuja (44 × 44). */}
+                <Pressable
+                  nativeID={`pedido-envio-guardar-${p.numero}`}
+                  disabled={guardando === p.id}
+                  onPress={() => guardarEnvio(p, false)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Guardar el envío a mano del pedido ${p.numero}`}
+                  style={({ pressed }) => ({ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: pressed || guardando === p.id ? 0.6 : 1 })}
+                >
+                  <Ionicons name="checkmark-circle" size={28} color={COLORS.accent} />
+                </Pressable>
+                {p.envio_manual ? (
+                  <AccionTexto nativeID={`pedido-envio-automatico-${p.numero}`} icono="refresh-outline" texto="Volver al automático" disabled={guardando === p.id} onPress={() => guardarEnvio(p, true)} />
+                ) : null}
+              </View>
+              {envioMsg?.id === p.id ? (
+                <Text nativeID={`pedido-envio-mensaje-${p.numero}`} style={{ color: envioMsg.tipo === "ok" ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+                  {envioMsg.texto}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          {/* Número de envío (solo con la migración y si va a domicilio): el cliente ve «Seguir el envío». */}
+          {historial && p.entrega === "envio" && !tienda ? (
+            <View nativeID={`pedido-numero-envio-${p.numero}`} style={{ gap: 6 }}>
+              <Detalle>Nº de Correos o enlace del envío (el cliente ve «Seguir el envío»)</Detalle>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion, flexWrap: "wrap" }}>
+                <TextInput
+                  nativeID={`pedido-numero-envio-campo-${p.numero}`}
+                  value={numeroEscrito[p.id] ?? numerosEnvio[p.id] ?? ""}
+                  onChangeText={(t) => setNumeroEscrito((e) => ({ ...e, [p.id]: t.slice(0, 300) }))}
+                  placeholder="Nº de Correos o enlace"
+                  placeholderTextColor={COLORS.muted}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  accessibilityLabel={`Número de envío del pedido ${p.numero}`}
+                  style={{ ...estiloCampo, flexGrow: 1, flexShrink: 1, minWidth: 0, maxWidth: 320 }}
+                />
+                <Pressable
+                  nativeID={`pedido-numero-envio-guardar-${p.numero}`}
+                  disabled={guardando === p.id}
+                  onPress={() => guardarNumeroEnvio(p)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Guardar el número de envío del pedido ${p.numero}`}
+                  style={({ pressed }) => ({ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: pressed || guardando === p.id ? 0.6 : 1 })}
+                >
+                  <Ionicons name="checkmark-circle" size={28} color={COLORS.accent} />
+                </Pressable>
+              </View>
+              {numerosEnvio[p.id] && enlaceSeguimientoEnvio(numerosEnvio[p.id]) ? (
+                <AccionTexto
+                  nativeID={`pedido-numero-envio-ver-${p.numero}`}
+                  rol="link"
+                  icono="navigate-outline"
+                  texto="Ver el envío (lo que ve el cliente)"
+                  onPress={() => openExternalLink(enlaceSeguimientoEnvio(numerosEnvio[p.id]) as string)}
+                />
+              ) : null}
+              {numeroMsg?.id === p.id ? (
+                <Text nativeID={`pedido-numero-envio-mensaje-${p.numero}`} style={{ color: numeroMsg.tipo === "ok" ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+                  {numeroMsg.texto}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
+
+  // ---------- Fila compacta ----------
+  function fila(p: Pedido, i: number) {
+    const abierto = estaAbierto(p.id);
+    const gris = apagado(p);
+    const pago = comoPago(p);
+    const tienda = enTienda(p);
+    const titulo = p.codigo_seguimiento ? p.codigo_seguimiento : `Pedido nº ${p.numero}`;
+    return (
+      <View key={p.id} style={{ borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border }}>
+        <Pressable
+          nativeID={`pedido-fila-${p.numero}`}
+          onPress={() => alternar(p.id)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: abierto }}
+          aria-expanded={abierto}
+          accessibilityLabel={`${titulo}, ${p.nombre}, ${fmtEUR(p.total_eur)}, ${etiquetaEstado(p).texto}. ${abierto ? "Plegar" : "Ver el detalle"}`}
+          style={({ pressed }) => ({ flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 12, opacity: pressed ? 0.85 : 1 })}
+        >
+          <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 8, rowGap: 4 }}>
+              <Text nativeID={`pedido-titulo-${p.numero}`} style={{ color: gris ? COLORS.muted : COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21, letterSpacing: 0.3 }}>
+                {titulo}
+              </Text>
+              <EtiquetaEstado p={p} />
+            </View>
+            <Text numberOfLines={1} style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+              {p.nombre} · {fmtFecha(p.created_at)}
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 14, rowGap: 4, marginTop: 1 }}>
+              <Etiqueta icon={pago.icono} texto={pago.texto} color={gris ? COLORS.muted : pago.color} />
+              {franjaOk && p.entrega_franja && p.entrega_fecha ? (
+                <Etiqueta
+                  nativeID={`pedido-franja-${p.numero}`}
+                  icon="time-outline"
+                  color={gris ? COLORS.muted : COLORS.text}
+                  texto={`${p.entrega_fecha === hoy ? "Hoy" : fechaCortaEntrega(p.entrega_fecha)} · ${nombreFranja(p.entrega_franja)}`}
+                />
+              ) : !tienda ? (
+                <Etiqueta icon={p.entrega === "recogida" ? "hand-left-outline" : "cube-outline"} color={gris ? COLORS.muted : COLORS.text} texto={p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"} />
+              ) : null}
+              {faltaDevolver(p) ? <Etiqueta icon="alert-circle-outline" color={COLORS.danger} texto="Falta devolver el pago" /> : null}
+            </View>
+          </View>
+          <View style={{ alignItems: "flex-end", gap: 2 }}>
+            <Text nativeID={`pedido-importe-${p.numero}`} style={{ color: gris ? COLORS.muted : COLORS.text, fontWeight: "900", fontSize: TAMANOS.destacado, lineHeight: 22 }}>
+              {fmtEUR(p.total_eur)}
+            </Text>
+            {p.devuelto_en ? (
+              <Text nativeID={`pedido-devuelto-fila-${p.numero}`} style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+                Devuelto {fmtEUR(Number(p.devuelto_eur ?? 0))}
+              </Text>
+            ) : null}
+            <Ionicons name={abierto ? "chevron-up" : "chevron-down"} size={18} color={COLORS.muted} style={{ marginTop: 2 }} />
+          </View>
+        </Pressable>
+        {abierto ? detalle(p) : null}
+      </View>
+    );
+  }
+
+  const buscando = !!busqueda.trim();
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -761,11 +1663,11 @@ export default function PedidosAdmin() {
           borderBottomWidth: 1,
           borderBottomColor: COLORS.border,
           paddingHorizontal: 16,
-          paddingTop: 10 + insets.top,
-          paddingBottom: 10,
+          paddingTop: 8 + insets.top,
+          paddingBottom: 8,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 760, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 960, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={() => router.replace("/admin")}
             accessibilityRole="button"
@@ -786,7 +1688,7 @@ export default function PedidosAdmin() {
           >
             <Ionicons name="chevron-back" size={24} color={COLORS.text} />
           </Pressable>
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 20, textAlign: "center", paddingHorizontal: 44 }}>
+          <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.destacado, textAlign: "center", paddingHorizontal: 48 }}>
             Pedidos
           </Text>
         </View>
@@ -794,559 +1696,245 @@ export default function PedidosAdmin() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        <View style={{ width: "100%", maxWidth: 760, gap: 14 }}>
-          {/* Avisos al móvil del dueño (2026-11-15): cada pedido pagado o nuevo le llega al móvil con su resumen. */}
-          <AvisosMovil />
-          {/* Buscador arriba (como Productos y Servicios): con algo escrito busca en todos los pedidos, sin filtros. */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 12, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.bg2 }}>
-            <Ionicons name="search" size={18} color={COLORS.muted} />
+        <View style={{ width: "100%", maxWidth: 960, gap: 16 }}>
+          {/* 1) Avisos al móvil del dueño (2026-11-15), plegados en una línea discreta. */}
+          <AvisosMovil plegable />
+
+          {/* 2) Buscador (16 px: con menos, Safari del iPhone hace zoom al escribir). Con algo escrito busca en todos. */}
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              minHeight: CAMPO.alto,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              backgroundColor: COLORS.card,
+              paddingLeft: 14,
+            }}
+          >
+            <Ionicons name="search" size={20} color={COLORS.accent} />
             <TextInput
               nativeID="pedidos-buscar"
               value={busqueda}
               onChangeText={setBusqueda}
-              placeholder="Buscar por referencia (VZ-…), nombre, correo o teléfono"
-              placeholderTextColor="rgba(11,33,56,0.45)"
+              placeholder={isMobile ? "VZ-…, nombre, correo o teléfono" : "Buscar por referencia (VZ-…), nombre, correo o teléfono"}
+              placeholderTextColor={COLORS.muted}
               autoCapitalize="none"
               autoCorrect={false}
               accessibilityLabel="Buscar pedidos por referencia, nombre, correo o teléfono"
-              style={{ flex: 1, minWidth: 0, minHeight: 44, color: COLORS.text, fontSize: 16, fontWeight: "700" }}
+              style={{ flex: 1, minWidth: 0, minHeight: CAMPO.alto, paddingHorizontal: 10, color: COLORS.text, fontSize: CAMPO.letra }}
             />
             {busqueda ? (
-              <Pressable onPress={() => setBusqueda("")} accessibilityRole="button" accessibilityLabel="Borrar la búsqueda" hitSlop={8} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
-                <Ionicons name="close-circle" size={18} color={COLORS.muted} />
+              <Pressable
+                onPress={() => setBusqueda("")}
+                accessibilityRole="button"
+                accessibilityLabel="Borrar la búsqueda"
+                style={({ pressed }) => ({ width: TACTIL.minimo, height: TACTIL.minimo, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+              >
+                <Ionicons name="close-circle" size={20} color={COLORS.muted} />
               </Pressable>
             ) : null}
           </View>
-          <Text nativeID="pedidos-recuento" style={{ color: COLORS.muted, textAlign: "center" }}>
-            {loading ? "Cargando…" : busqueda.trim() ? `${visibles.length} ${visibles.length === 1 ? "pedido encontrado" : "pedidos encontrados"}` : `${visibles.length} de ${pedidos.length} pedidos`}
-          </Text>
-          {/* Dueño, 2026-11-03: «Entregado» cuenta como pagado; si el pedido lleva artículos de VeoAura, su ficha de cliente
-              (nombre, correo y teléfono) va a VeoAura (api/escaparate-retorno.ts). Se ve en Administración → Escaparate. */}
-          <Text nativeID="pedidos-veoaura-cliente" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
-            Al marcar «Entregado» un pedido con artículos de VeoAura, se envían a VeoAura el nombre, el correo y el teléfono del
-            cliente (nunca su dirección).
-          </Text>
-          {numerosOk && !loading ? (
-            <Text nativeID="pedidos-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
-              Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculados}) ·
-              añadidos con su número: {resumenNumeros.anadidosConNumero} · sin cuenta: {resumenNumeros.sinVincular} · asignados desde
-              el chat: {resumenNumeros.desdeChat}
-            </Text>
-          ) : null}
-          {pagoOk && !loading ? (
-            <Text nativeID="pedidos-pago-tarjeta" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
-              Pago online (Stripe: tarjeta, Bizum o Klarna) · pagados: {resumenPago.pagados} (cobrado de verdad: {fmtEUR(resumenPago.cobradoReal)}; de prueba:{" "}
-              {resumenPago.dePrueba})
-              {resumenPago.porMetodo.card + resumenPago.porMetodo.bizum + resumenPago.porMetodo.klarna
-                ? ` · con tarjeta: ${resumenPago.porMetodo.card}, Bizum: ${resumenPago.porMetodo.bizum}, Klarna: ${resumenPago.porMetodo.klarna}`
-                : ""}{" "}
-              · empezados sin terminar: {resumenPago.sinTerminar}
-              {resumenPago.devueltos ? ` · devueltos: ${resumenPago.devueltos} (de verdad: ${fmtEUR(resumenPago.devueltoReal)})` : ""}
-              {resumenPago.porDevolver ? ` · por devolver: ${resumenPago.porDevolver}` : ""}
-            </Text>
-          ) : null}
 
-          {ventasOk && !loading ? (
-            <Text nativeID="pedidos-en-tienda" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
-              Ventas en tienda (llegan de VeoAura) · {resumenTienda.total} ({fmtEUR(resumenTienda.importe)}) · en la cuenta del cliente:{" "}
-              {resumenTienda.unidas} · pendientes de que se registre: {resumenTienda.pendientes}
-            </Text>
-          ) : null}
-
-          {historial && !loading ? (
-            <Text nativeID="pedidos-seguimiento" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
-              Seguimiento paso a paso · con la hora de algún cambio: {pedidos.filter((p) => (historial[p.id] ?? []).length > 0).length} · con número de
-              envío: {pedidos.filter((p) => !!numerosEnvio[p.id]).length}
-            </Text>
-          ) : null}
-          {valoraciones && Object.keys(valoraciones).length > 0 && !loading ? (
-            <Text nativeID="pedidos-valoraciones" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
-              Valoraciones: {Object.keys(valoraciones).length} · media{" "}
-              {(Object.values(valoraciones).reduce((s, v) => s + v.nota, 0) / Object.keys(valoraciones).length).toFixed(1).replace(".", ",")} de 5 · bajas
-              (1-2): {Object.values(valoraciones).filter((v) => v.nota <= 2).length}
-            </Text>
-          ) : null}
-
-          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
-            {chips.map((c) => {
-              const activo = filtro === c.value;
-              return (
-                <Pressable
-                  key={c.value}
-                  onPress={() => setFiltro(c.value)}
-                  style={{
-                    minHeight: TACTIL.minimo,
-                    justifyContent: "center",
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: activo ? COLORS.accent : COLORS.border,
-                    backgroundColor: activo ? COLORS.accent2 : "#FFFFFF",
-                  }}
-                >
-                  <Text style={{ color: activo ? COLORS.accentDark : COLORS.text, fontWeight: "800", fontSize: 13 }}>
-                    {c.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/* Facturas (las emite VeoAura): recuento y filtro, que se suma al de arriba. */}
-          {facturasOk && !loading ? (
-            <View nativeID="pedidos-facturas" style={{ alignItems: "center", gap: 8 }}>
-              <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
-                Facturas de VeoAura · con factura: {resumenFacturas.con}
-                {resumenFacturas.pdfPendiente ? ` (PDF pendiente: ${resumenFacturas.pdfPendiente})` : ""} · sin factura: {resumenFacturas.sin}
-              </Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: 8 }}>
-                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>Factura:</Text>
-                {(
-                  [
-                    { value: "todas", label: "Todas" },
-                    { value: "con", label: `Con factura (${resumenFacturas.con})` },
-                    { value: "sin", label: `Sin factura (${resumenFacturas.sin})` },
-                  ] as const
-                ).map((c) => {
-                  const activo = filtroFactura === c.value;
-                  return (
-                    <Pressable
-                      key={c.value}
-                      nativeID={`pedidos-filtro-factura-${c.value}`}
-                      onPress={() => setFiltroFactura(c.value)}
-                      style={{
-                        minHeight: TACTIL.minimo,
-                        justifyContent: "center",
-                        paddingVertical: 8,
-                        paddingHorizontal: 12,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: activo ? COLORS.accent : COLORS.border,
-                        backgroundColor: activo ? COLORS.accent2 : "#FFFFFF",
-                      }}
-                    >
-                      <Text style={{ color: activo ? COLORS.accentDark : COLORS.text, fontWeight: "800", fontSize: 13 }}>{c.label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+          {/* 3) Cifras clave en tarjetas (número grande, etiqueta debajo); tocarlas filtra la lista. */}
+          {!loading && !err ? (
+            <View nativeID="pedidos-cifras" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+              {cifras.map((c) => (
+                <Cifra
+                  key={c.key}
+                  nativeID={`pedidos-cifra-${c.key}`}
+                  valor={c.valor}
+                  etiqueta={c.etiqueta}
+                  icono={c.icono}
+                  alerta={c.alerta}
+                  ancho={c.key === "ingresos" && isMobile ? "100%" : anchoCifra}
+                  activa={!buscando && (c.key === "ingresos" ? filtro === "pagados" : filtro === c.key)}
+                  onPress={() => elegirFiltro(c.key === "ingresos" ? "pagados" : c.key)}
+                />
+              ))}
             </View>
           ) : null}
 
           {err ? (
-            <Text style={{ color: COLORS.danger, fontWeight: "800", textAlign: "center" }}>{err}</Text>
+            <View style={{ borderRadius: 14, backgroundColor: COLORS.dangerBg, padding: 12 }}>
+              <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: TAMANOS.cuerpo, lineHeight: 21, textAlign: "center" }}>{err}</Text>
+            </View>
           ) : null}
 
-          {loading ? (
-            <View style={{ alignItems: "center", paddingVertical: 24 }}>
-              <CargaMarca texto="Cargando pedidos…" />
-            </View>
-          ) : visibles.length === 0 && !err ? (
-            <Text style={{ color: COLORS.muted, textAlign: "center", marginTop: 20 }}>
-              No hay pedidos en esta lista.
-            </Text>
-          ) : (
-            visibles.map((p, i) => (
-              <React.Fragment key={p.id}>
-              {/* Reparto de hoy: un encabezado por franja (mañana / tarde) con cuántos lleva, para planificar la ruta. */}
-              {filtro === "reparto_hoy" && !busqueda.trim() && (i === 0 || visibles[i - 1].entrega_franja !== p.entrega_franja) ? (
-                <View nativeID={`pedidos-reparto-${p.entrega_franja}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingTop: 8 }}>
-                  <Ionicons name={p.entrega_franja === "manana" ? "sunny-outline" : "partly-sunny-outline"} size={18} color={COLORS.text} />
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                    {(nombreFranja(p.entrega_franja) ?? "").replace(/^./, (c) => c.toUpperCase())} · {visibles.filter((x) => x.entrega_franja === p.entrega_franja).length}{" "}
-                    {visibles.filter((x) => x.entrega_franja === p.entrega_franja).length === 1 ? "pedido" : "pedidos"}
-                  </Text>
+          {/* 4) Pastillas de filtro con su recuento (en el móvil, en una fila deslizable) y «Más filtros». */}
+          {!loading && !err ? (
+            <View style={{ gap: 10 }}>
+              <View style={isMobile ? { marginHorizontal: -16 } : undefined}>
+                {(() => {
+                  const filaPastillas = (
+                    <View nativeID="pedidos-filtros" style={{ flexDirection: "row", flexWrap: isMobile ? "nowrap" : "wrap", gap: TACTIL.separacion }}>
+                      {pastillas.map((c) => (
+                        <Chip key={c.value} nativeID={`pedidos-filtro-${c.value}`} label={c.label} activo={!buscando && filtro === c.value} onPress={() => elegirFiltro(c.value)} />
+                      ))}
+                      <Chip
+                        nativeID="pedidos-mas-filtros"
+                        label={filtroExtra && nombreFiltroExtra ? `Más filtros · ${nombreFiltroExtra}` : filtroFactura !== "todas" ? "Más filtros · Factura" : "Más filtros"}
+                        activo={!buscando && (filtroExtra || filtroFactura !== "todas")}
+                        desplegable
+                        abierto={masFiltros}
+                        onPress={() => setMasFiltros((v) => !v)}
+                      />
+                    </View>
+                  );
+                  return isMobile ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16 }}>
+                      {filaPastillas}
+                    </ScrollView>
+                  ) : (
+                    filaPastillas
+                  );
+                })()}
+              </View>
+              {masFiltros ? (
+                <View nativeID="pedidos-filtros-mas" style={{ gap: 10, borderRadius: 16, backgroundColor: COLORS.card, padding: 12 }}>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+                    {otrosFiltros.map((c) => (
+                      <Chip key={c.value} nativeID={`pedidos-filtro-${c.value}`} label={c.label} activo={!buscando && filtro === c.value} onPress={() => elegirFiltro(c.value)} />
+                    ))}
+                  </View>
+                  {/* Facturas (las emite VeoAura): filtro que se suma al de arriba. */}
+                  {facturasOk ? (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: TACTIL.separacion }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>Factura:</Text>
+                      {(
+                        [
+                          { value: "todas", label: "Todas" },
+                          { value: "con", label: `Con factura (${resumenFacturas.con})` },
+                          { value: "sin", label: `Sin factura (${resumenFacturas.sin})` },
+                        ] as const
+                      ).map((c) => (
+                        <Chip key={c.value} nativeID={`pedidos-filtro-factura-${c.value}`} label={c.label} activo={filtroFactura === c.value} onPress={() => setFiltroFactura(c.value)} />
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
-              <View
-                style={{ gap: 8, alignItems: "center", paddingVertical: 16, borderTopWidth: 1, borderTopColor: COLORS.border }}
-              >
-                {/* La referencia (lo que ve el cliente) es el dato principal; el número interno, en pequeño. */}
-                <Text nativeID={`pedido-titulo-${p.numero}`} selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
-                  {p.codigo_seguimiento ? `Pedido ${p.codigo_seguimiento}` : `Pedido nº ${p.numero}`} · {fmtEUR(p.total_eur)}
-                </Text>
-                {/* Doble venta: se cobró un artículo único que ya estaba vendido (lo marca api/pago.ts al apuntar el pago). */}
-                {dobleOk && p.doble_venta_en ? (
-                  <View nativeID={`pedido-doble-venta-${p.numero}`} accessibilityRole="alert" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: "#FFE4E6" }}>
-                    <Ionicons name="alert-circle" size={18} color={COLORS.danger} />
-                    <Text style={{ color: COLORS.danger, fontWeight: "900", textAlign: "center", flexShrink: 1 }}>
-                      Artículo ya vendido: devuelve el pago{p.devuelto_en ? " (ya devuelto)" : ""}
-                    </Text>
-                  </View>
-                ) : null}
-                <Text style={{ color: COLORS.muted, textAlign: "center" }}>
-                  {fmtFecha(p.created_at)} · {enTienda(p) ? "Compra en tienda" : p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
-                </Text>
-                {franjaOk && p.entrega_franja && p.entrega_fecha ? (
-                  <View nativeID={`pedido-franja-${p.numero}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-                    <Ionicons name="time-outline" size={16} color={COLORS.text} />
-                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                      {p.entrega_fecha === fechaHoyMadrid() ? "Hoy" : fechaCortaEntrega(p.entrega_fecha)} · {nombreFranja(p.entrega_franja)}
-                    </Text>
-                  </View>
-                ) : null}
-                {p.codigo_seguimiento ? (
-                  <Text nativeID={`pedido-interno-${p.numero}`} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
-                    Nº interno {p.numero}
-                  </Text>
-                ) : null}
-                {enTienda(p) ? (
-                  // Venta en mano de VeoAura: cómo se pagó y si ya está en la cuenta del cliente (o a quién espera).
-                  <View nativeID={`pedido-tienda-${p.numero}`} style={{ alignItems: "center", gap: 2 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-                      <Ionicons name="storefront-outline" size={16} color="#15803D" />
-                      <Text style={{ color: "#15803D", fontWeight: "800", textAlign: "center" }}>
-                        En tienda · pagado{FORMA_PAGO_TIENDA[p.venta_forma_pago ?? ""] ? ` ${FORMA_PAGO_TIENDA[p.venta_forma_pago ?? ""]}` : ""} · entregado
-                      </Text>
-                    </View>
-                    <Text nativeID={`pedido-tienda-cuenta-${p.numero}`} selectable style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                      {p.user_id ? "Unida a la cuenta del cliente" : `Pendiente de que se registre ${p.email}`}
-                    </Text>
-                  </View>
-                ) : p.codigo_seguimiento ? (
-                  <EtiquetaNumero
-                    codigo={p.codigo_seguimiento}
-                    veoaura={!!p.id_veoaura}
-                    enCuenta={!!p.user_id}
-                    vinculadoEn={p.vinculado_en ?? null}
-                    desdeChat={p.nota_admin === NOTA_ASIGNADO_CHAT}
-                  />
-                ) : null}
+            </View>
+          ) : null}
 
-                {(p.pedido_items ?? []).map((it) => (
-                  <Text key={it.id} style={{ color: COLORS.text, textAlign: "center" }}>
-                    {it.titulo} · <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>{fmtEUR(it.precio_eur)}</Text>
-                  </Text>
-                ))}
+          {/* 5) Cuántos salen, «Abrir todos» y la lista de filas compactas. */}
+          <View style={{ gap: 4 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 12 }}>
+              <Text nativeID="pedidos-recuento" style={{ flex: 1, minWidth: 140, color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+                {loading ? "Cargando…" : buscando ? `${visibles.length} ${visibles.length === 1 ? "pedido encontrado" : "pedidos encontrados"}` : `${visibles.length} de ${pedidos.length} pedidos`}
+              </Text>
+              {!loading && visibles.length > 0 ? (
+                <Pressable
+                  nativeID="pedidos-abrir-todos"
+                  onPress={abrirOCerrarTodos}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: todosVisiblesAbiertos }}
+                  aria-expanded={todosVisiblesAbiertos}
+                  style={({ pressed }) => ({ minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.7 : 1 })}
+                >
+                  <Ionicons name={todosVisiblesAbiertos ? "contract-outline" : "expand-outline"} size={16} color={COLORS.accent} />
+                  <Text style={{ color: COLORS.accentDark, fontWeight: "800", fontSize: TAMANOS.minimo }}>{todosVisiblesAbiertos ? "Cerrar todos" : "Abrir todos"}</Text>
+                </Pressable>
+              ) : null}
+            </View>
 
-                {/* Pago con tarjeta: lo apunta el servidor tras preguntárselo a Stripe. Solo texto con su icono, sin burbuja. */}
-                {pagoOk && p.pago_estado ? (
-                  <View nativeID={`pedido-pago-${p.numero}`} style={{ alignItems: "center", gap: 4 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-                      <Ionicons name={p.pago_estado === "pagado" ? "card" : "card-outline"} size={16} color={p.pago_estado === "pagado" ? "#15803D" : COLORS.muted} />
-                      <Text style={{ color: p.pago_estado === "pagado" ? "#15803D" : COLORS.muted, fontWeight: "800", textAlign: "center" }}>
-                        {p.pago_estado === "pagado"
-                          ? `Pagado online${p.pago_metodo && METODO_PAGO[p.pago_metodo] ? ` con ${METODO_PAGO[p.pago_metodo]}` : ""} · ${fmtEUR(Number(p.pagado_eur ?? 0))}${p.pagado_en ? ` · ${fmtFecha(p.pagado_en)}` : ""}${p.pago_modo === "prueba" ? " · de prueba (sin cobro real)" : ""}`
-                          : "Pago online empezado, sin terminar"}
-                      </Text>
-                    </View>
-                    {p.devuelto_en ? (
-                      <View nativeID={`pedido-devuelto-${p.numero}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-                        <Ionicons name="return-down-back-outline" size={16} color={COLORS.muted} />
-                        <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>
-                          Devuelto · {fmtEUR(Number(p.devuelto_eur ?? 0))} · {fmtFecha(p.devuelto_en)}
+            {loading ? (
+              <View style={{ alignItems: "center", paddingVertical: 24 }}>
+                <CargaMarca texto="Cargando pedidos…" />
+              </View>
+            ) : visibles.length === 0 && !err ? (
+              <View nativeID="pedidos-vacio" style={{ alignItems: "center", gap: 6, paddingVertical: 28 }}>
+                <Ionicons name="receipt-outline" size={24} color={COLORS.muted} />
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, textAlign: "center" }}>No hay pedidos en esta lista.</Text>
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.cuerpo, lineHeight: 21, textAlign: "center" }}>Prueba a borrar el buscador o a elegir «Todos».</Text>
+              </View>
+            ) : (
+              <View nativeID="pedidos-lista">
+                {visibles.map((p, i) => (
+                  <React.Fragment key={p.id}>
+                    {/* Reparto de hoy: un encabezado por franja (mañana / tarde) con cuántos lleva, para planificar la ruta. */}
+                    {filtro === "reparto_hoy" && !buscando && (i === 0 || visibles[i - 1].entrega_franja !== p.entrega_franja) ? (
+                      <View nativeID={`pedidos-reparto-${p.entrega_franja}`} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingTop: i ? 14 : 4, paddingBottom: 4 }}>
+                        <Ionicons name={p.entrega_franja === "manana" ? "sunny-outline" : "partly-sunny-outline"} size={18} color={COLORS.accent} />
+                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>
+                          {(nombreFranja(p.entrega_franja) ?? "").replace(/^./, (c) => c.toUpperCase())} · {visibles.filter((x) => x.entrega_franja === p.entrega_franja).length}{" "}
+                          {visibles.filter((x) => x.entrega_franja === p.entrega_franja).length === 1 ? "pedido" : "pedidos"}
                         </Text>
                       </View>
-                    ) : p.pago_estado === "pagado" && p.estado === "cancelado" ? (
-                      <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                        Cancelado y pagado: devuelve el pago{devolucionOk ? " con el botón de abajo" : " desde Stripe"}.
-                      </Text>
-                    ) : p.pago_estado === "pagado" && Math.round(Number(p.pagado_eur ?? 0) * 100) !== Math.round(Number(p.total_eur) * 100) ? (
-                      <Text style={{ color: COLORS.gold, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                        El total ahora es {fmtEUR(p.total_eur)}: la diferencia se arregla desde Stripe o por el chat.
-                      </Text>
                     ) : null}
-                    {enlaceStripe(p) ? (
-                      <Pressable
-                        nativeID={`pedido-pago-stripe-${p.numero}`}
-                        onPress={() => openExternalLink(enlaceStripe(p) as string)}
-                        accessibilityRole="link"
-                        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
-                      >
-                        <Ionicons name="open-outline" size={16} color={COLORS.accent} />
-                        <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>Ver el pago en Stripe</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ) : null}
-
-                {/* Factura de VeoAura: número y «Descargar», «PDF pendiente» o «Sin factura». Texto con su icono, sin burbuja. */}
-                {facturasOk ? (
-                  <View nativeID={`pedido-factura-${p.numero}`} style={{ alignItems: "center", gap: 2 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-                      <Ionicons name="document-text-outline" size={16} color={facturas[p.id] ? COLORS.text : COLORS.muted} />
-                      <Text style={{ color: facturas[p.id] ? COLORS.text : COLORS.muted, fontWeight: "800", textAlign: "center" }}>
-                        {facturas[p.id] ? `Factura ${facturas[p.id].numero_factura ?? ""}${facturas[p.id].pdf ? "" : " · PDF pendiente"}` : "Sin factura"}
-                      </Text>
-                      {facturas[p.id]?.pdf ? (
-                        <Pressable
-                          nativeID={`pedido-factura-descargar-${p.numero}`}
-                          onPress={() => descargarFactura(p)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Descargar la factura del pedido ${p.numero}`}
-                          style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
-                        >
-                          <Ionicons name="download-outline" size={16} color={COLORS.accent} />
-                          <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>Descargar</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                    {facturaMsg?.id === p.id ? (
-                      <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>{facturaMsg.texto}</Text>
-                    ) : null}
-                  </View>
-                ) : null}
-
-                {/* Envío del pedido: automático (con la tarifa) o a mano para este pedido. (Una venta en mano no tiene envío.) */}
-                {envioOk && !enTienda(p) ? (
-                  <View nativeID={`pedido-envio-${p.numero}`} style={{ alignItems: "center", gap: 6 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>
-                      Artículos {fmtEUR(Number(p.productos_eur ?? p.total_eur))} · Envío {Number(p.envio_eur ?? 0) === 0 ? "gratis" : fmtEUR(Number(p.envio_eur))}
-                      {nombreZona(p.zona_envio) ? ` (${nombreZona(p.zona_envio)})` : ""}
-                      {p.peso_kg ? ` · ${fmtKg(p.peso_kg)}` : ""} · {p.envio_manual ? "a mano" : "automático"}
-                    </Text>
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-                      <TextInput
-                        nativeID={`pedido-envio-campo-${p.numero}`}
-                        value={envioEscrito[p.id] ?? ""}
-                        onChangeText={(t) => setEnvioEscrito((e) => ({ ...e, [p.id]: t }))}
-                        placeholder="Envío a mano (€)"
-                        placeholderTextColor="rgba(11,33,56,0.35)"
-                        keyboardType="decimal-pad"
-                        accessibilityLabel={`Envío a mano del pedido ${p.numero}`}
-                        style={{
-                          width: 150,
-                          minHeight: 44,
-                          borderRadius: 12,
-                          borderWidth: 1,
-                          borderColor: COLORS.border,
-                          paddingHorizontal: 10,
-                          color: COLORS.text,
-                          fontSize: 16,
-                          fontWeight: "700",
-                          textAlign: "center",
-                        }}
-                      />
-                      {/* Guardar: solo el icono, sin burbuja (44 × 44). */}
-                      <Pressable
-                        nativeID={`pedido-envio-guardar-${p.numero}`}
-                        disabled={guardando === p.id}
-                        onPress={() => guardarEnvio(p, false)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Guardar el envío a mano del pedido ${p.numero}`}
-                        style={({ pressed }) => ({ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: pressed || guardando === p.id ? 0.6 : 1 })}
-                      >
-                        <Ionicons name="checkmark-circle" size={28} color={COLORS.accent} />
-                      </Pressable>
-                      {p.envio_manual ? (
-                        <Pressable
-                          nativeID={`pedido-envio-automatico-${p.numero}`}
-                          disabled={guardando === p.id}
-                          onPress={() => guardarEnvio(p, true)}
-                          accessibilityRole="button"
-                          style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
-                        >
-                          <Ionicons name="refresh-outline" size={18} color={COLORS.accent} />
-                          <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>Volver al automático</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                    {envioMsg?.id === p.id ? (
-                      <Text nativeID={`pedido-envio-mensaje-${p.numero}`} style={{ color: envioMsg.tipo === "ok" ? "#15803D" : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                        {envioMsg.texto}
-                      </Text>
-                    ) : null}
-                  </View>
-                ) : null}
-
-                <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>{p.nombre}</Text>
-                <Text style={{ color: COLORS.muted, textAlign: "center" }}>
-                  {/* Una venta en mano no guarda teléfono (solo el correo con el que se une a la cuenta). */}
-                  {enTienda(p) ? p.email : `${p.telefono} · ${p.email}`}
-                </Text>
-                {p.entrega === "envio" && (p.direccion || p.ciudad) ? (
-                  <Text style={{ color: COLORS.muted, textAlign: "center" }}>
-                    {[p.direccion, [p.codigo_postal, p.ciudad].filter(Boolean).join(" ")].filter(Boolean).join(", ")}
-                  </Text>
-                ) : null}
-                {p.notas ? (
-                  <Text style={{ color: COLORS.muted, fontStyle: "italic", textAlign: "center" }}>“{p.notas}”</Text>
-                ) : null}
-
-                {/* Devolver el pago y cancelar el pedido (dueño, 2026-11-06): texto con su icono, sin burbuja; el primer
-                    toque pide confirmar y el segundo lo hace. */}
-                {!enTienda(p) && ((devolucionOk && p.pago_estado === "pagado" && !p.devuelto_en) || (p.estado !== "cancelado" && p.estado !== "entregado")) ? (
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 18, rowGap: TACTIL.separacion }}>
-                    {devolucionOk && p.pago_estado === "pagado" && !p.devuelto_en ? (
-                      <Pressable
-                        nativeID={`pedido-devolver-${p.numero}`}
-                        disabled={guardando === p.id}
-                        onPress={() => devolverPago(p)}
-                        accessibilityRole="button"
-                        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || guardando === p.id ? 0.6 : 1 })}
-                      >
-                        <Ionicons name="return-down-back-outline" size={18} color={COLORS.danger} />
-                        <Text style={{ color: COLORS.danger, fontWeight: "800" }}>
-                          {confirmando === `devolver:${p.id}` ? `Toca otra vez para devolver ${fmtEUR(Number(p.pagado_eur ?? 0))}` : "Devolver el pago"}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                    {p.estado !== "cancelado" && p.estado !== "entregado" ? (
-                      <Pressable
-                        nativeID={`pedido-cancelar-${p.numero}`}
-                        disabled={guardando === p.id}
-                        onPress={() => cancelarPedido(p)}
-                        accessibilityRole="button"
-                        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || guardando === p.id ? 0.6 : 1 })}
-                      >
-                        <Ionicons name="close-circle-outline" size={18} color={COLORS.danger} />
-                        <Text style={{ color: COLORS.danger, fontWeight: "800" }}>
-                          {confirmando === `cancelar:${p.id}` ? "Toca otra vez para cancelar el pedido" : "Cancelar pedido"}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ) : null}
-                {/* Cancelado: sus artículos siguen fuera de la venta hasta que el dueño decida reponerlos (segundo toque). */}
-                {articulosParaReponer(p).length > 0 ? (
-                  <Pressable
-                    nativeID={`pedido-reponer-${p.numero}`}
-                    disabled={guardando === p.id}
-                    onPress={() => reponerALaVenta(p)}
-                    accessibilityRole="button"
-                    style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || guardando === p.id ? 0.6 : 1 })}
-                  >
-                    <Ionicons name="storefront-outline" size={18} color={COLORS.accent} />
-                    <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>
-                      {confirmando === `reponer:${p.id}` ? "Toca otra vez para ponerlo a la venta" : "Volver a poner a la venta"}
-                    </Text>
-                  </Pressable>
-                ) : null}
-                {accionMsg?.id === p.id ? (
-                  <Text nativeID={`pedido-accion-mensaje-${p.numero}`} style={{ color: accionMsg.tipo === "ok" ? "#15803D" : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                    {accionMsg.texto}
-                  </Text>
-                ) : null}
-
-                {/* Una venta en mano ya está pagada y entregada (la gestiona VeoAura): sin cambiar estado ni WhatsApp. */}
-                {enTienda(p) ? null : (
-                <>
-                {/* Los pasos con su fecha y hora (las que guarda la base de datos; sin hora conocida, sin fecha). */}
-                <View nativeID={`pedido-pasos-${p.numero}`} style={{ alignItems: "center", gap: 2 }}>
-                  {pasosDelPedido(p, historial?.[p.id])
-                    .filter((x) => x.hecho)
-                    .map((x) => (
-                      <Text
-                        key={x.clave}
-                        nativeID={`pedido-paso-${p.numero}-${x.clave}`}
-                        style={{ color: x.tipo === "cancelado" ? COLORS.danger : x.actual ? COLORS.accentDark : COLORS.text, fontWeight: x.actual ? "900" : "700", fontSize: TAMANOS.minimo, textAlign: "center" }}
-                      >
-                        {x.etiqueta}
-                        {fechaHoraPaso(x.fecha) ? ` · ${fechaHoraPaso(x.fecha)}` : " · sin hora"}
-                      </Text>
-                    ))}
-                </View>
-                {/* Valoración tras la entrega (mejora 11): la nota y el comentario del cliente, o cuándo se le pide. */}
-                {valoraciones && p.estado === "entregado" ? (
-                  <ValoracionPedidoAdmin nativeID={`pedido-valoracion-${p.numero}`} valoracion={valoraciones[p.id]} entregadoEn={entregadoEnDe(historial?.[p.id])} />
-                ) : null}
-                {/* Número de envío (solo con la migración y si va a domicilio): el cliente ve «Seguir el envío». */}
-                {historial && p.entrega === "envio" ? (
-                  <View nativeID={`pedido-numero-envio-${p.numero}`} style={{ alignItems: "center", gap: 6 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-                      <TextInput
-                        nativeID={`pedido-numero-envio-campo-${p.numero}`}
-                        value={numeroEscrito[p.id] ?? numerosEnvio[p.id] ?? ""}
-                        onChangeText={(t) => setNumeroEscrito((e) => ({ ...e, [p.id]: t.slice(0, 300) }))}
-                        placeholder="Nº de Correos o enlace"
-                        placeholderTextColor="rgba(11,33,56,0.45)"
-                        autoCapitalize="characters"
-                        autoCorrect={false}
-                        accessibilityLabel={`Número de envío del pedido ${p.numero}`}
-                        style={{ width: 220, minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 10, color: COLORS.text, fontSize: 16, fontWeight: "700", textAlign: "center" }}
-                      />
-                      <Pressable
-                        nativeID={`pedido-numero-envio-guardar-${p.numero}`}
-                        disabled={guardando === p.id}
-                        onPress={() => guardarNumeroEnvio(p)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Guardar el número de envío del pedido ${p.numero}`}
-                        style={({ pressed }) => ({ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: pressed || guardando === p.id ? 0.6 : 1 })}
-                      >
-                        <Ionicons name="checkmark-circle" size={28} color={COLORS.accent} />
-                      </Pressable>
-                    </View>
-                    {numerosEnvio[p.id] && enlaceSeguimientoEnvio(numerosEnvio[p.id]) ? (
-                      <Pressable
-                        nativeID={`pedido-numero-envio-ver-${p.numero}`}
-                        onPress={() => openExternalLink(enlaceSeguimientoEnvio(numerosEnvio[p.id]) as string)}
-                        accessibilityRole="link"
-                        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
-                      >
-                        <Ionicons name="navigate-outline" size={16} color={COLORS.accent} />
-                        <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>Ver el envío (lo que ve el cliente)</Text>
-                      </Pressable>
-                    ) : null}
-                    {numeroMsg?.id === p.id ? (
-                      <Text nativeID={`pedido-numero-envio-mensaje-${p.numero}`} style={{ color: numeroMsg.tipo === "ok" ? "#15803D" : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                        {numeroMsg.texto}
-                      </Text>
-                    ) : null}
-                  </View>
-                ) : null}
-                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: TACTIL.separacion, marginTop: 4 }}>
-                  {ESTADOS.map((e) => {
-                    const activo = p.estado === e.value;
-                    return (
-                      <Pressable
-                        key={e.value}
-                        disabled={guardando === p.id}
-                        onPress={() => cambiarEstado(p, e.value)}
-                        style={{
-                          minHeight: TACTIL.minimo,
-                          justifyContent: "center",
-                          paddingVertical: 6,
-                          paddingHorizontal: 12,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: activo ? (e.value === "cancelado" ? COLORS.danger : COLORS.accent) : COLORS.border,
-                          backgroundColor: activo ? (e.value === "cancelado" ? "#FFE4E6" : COLORS.accent2) : "#FFFFFF",
-                          opacity: guardando === p.id ? 0.5 : 1,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: activo ? (e.value === "cancelado" ? COLORS.danger : COLORS.accentDark) : COLORS.muted,
-                            fontWeight: "800",
-                            fontSize: TAMANOS.minimo,
-                          }}
-                        >
-                          {e.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                <Pressable
-                  onPress={() => whatsapp(p)}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.88 : 1,
-                    marginTop: 4,
-                    minHeight: TACTIL.minimo,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    paddingVertical: 8,
-                    paddingHorizontal: 14,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                  })}
-                >
-                  <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
-                  <Text style={{ color: COLORS.text, fontWeight: "800" }}>Escribir al cliente</Text>
-                </Pressable>
-                </>
-                )}
+                    {fila(p, filtro === "reparto_hoy" && !buscando && (i === 0 || visibles[i - 1].entrega_franja !== p.entrega_franja) ? 0 : i)}
+                  </React.Fragment>
+                ))}
               </View>
-              </React.Fragment>
-            ))
-          )}
+            )}
+          </View>
+
+          {/* 6) Más datos de los pedidos: los recuentos de siempre, en líneas de detalle. */}
+          {!loading ? (
+            <Seccion nativeID="pedidos-resumen" icon="stats-chart-outline" title="Más datos de los pedidos" extra={`${pedidos.length} últimos`}>
+              <View style={{ gap: 8, borderRadius: 16, backgroundColor: COLORS.card, padding: 14 }}>
+                <Detalle nativeID="pedidos-ingresos" color={COLORS.text}>
+                  Ingresos de 30 días: {fmtEUR(cuentas.ingresos30)} en {cuentas.cobrados30} {cuentas.cobrados30 === 1 ? "pedido" : "pedidos"} (pagados online de verdad, ventas en tienda y
+                  entregados; sin pruebas, cancelados, dobles ventas ni devueltos)
+                </Detalle>
+                {numerosOk ? (
+                  <Detalle nativeID="pedidos-numeros">
+                    Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculados}) ·
+                    añadidos con su número: {resumenNumeros.anadidosConNumero} · sin cuenta: {resumenNumeros.sinVincular} · asignados desde
+                    el chat: {resumenNumeros.desdeChat}
+                  </Detalle>
+                ) : null}
+                {pagoOk ? (
+                  <Detalle nativeID="pedidos-pago-tarjeta">
+                    Pago online (Stripe: tarjeta, Bizum o Klarna) · pagados: {resumenPago.pagados} (cobrado de verdad: {fmtEUR(resumenPago.cobradoReal)}; de prueba:{" "}
+                    {resumenPago.dePrueba})
+                    {resumenPago.porMetodo.card + resumenPago.porMetodo.bizum + resumenPago.porMetodo.klarna
+                      ? ` · con tarjeta: ${resumenPago.porMetodo.card}, Bizum: ${resumenPago.porMetodo.bizum}, Klarna: ${resumenPago.porMetodo.klarna}`
+                      : ""}{" "}
+                    · empezados sin terminar: {resumenPago.sinTerminar}
+                    {resumenPago.devueltos ? ` · devueltos: ${resumenPago.devueltos} (de verdad: ${fmtEUR(resumenPago.devueltoReal)})` : ""}
+                    {resumenPago.porDevolver ? ` · por devolver: ${resumenPago.porDevolver}` : ""}
+                  </Detalle>
+                ) : null}
+                {ventasOk ? (
+                  <Detalle nativeID="pedidos-en-tienda">
+                    Ventas en tienda (llegan de VeoAura) · {resumenTienda.total} ({fmtEUR(resumenTienda.importe)}) · en la cuenta del cliente:{" "}
+                    {resumenTienda.unidas} · pendientes de que se registre: {resumenTienda.pendientes}
+                  </Detalle>
+                ) : null}
+                {historial ? (
+                  <Detalle nativeID="pedidos-seguimiento">
+                    Seguimiento paso a paso · con la hora de algún cambio: {pedidos.filter((p) => (historial[p.id] ?? []).length > 0).length} · con número de
+                    envío: {pedidos.filter((p) => !!numerosEnvio[p.id]).length}
+                  </Detalle>
+                ) : null}
+                {valoraciones && Object.keys(valoraciones).length > 0 ? (
+                  <Detalle nativeID="pedidos-valoraciones">
+                    Valoraciones: {Object.keys(valoraciones).length} · media{" "}
+                    {(Object.values(valoraciones).reduce((s, v) => s + v.nota, 0) / Object.keys(valoraciones).length).toFixed(1).replace(".", ",")} de 5 · bajas
+                    (1-2): {Object.values(valoraciones).filter((v) => v.nota <= 2).length}
+                  </Detalle>
+                ) : null}
+                {facturasOk ? (
+                  <Detalle nativeID="pedidos-facturas">
+                    Facturas de VeoAura · con factura: {resumenFacturas.con}
+                    {resumenFacturas.pdfPendiente ? ` (PDF pendiente: ${resumenFacturas.pdfPendiente})` : ""} · sin factura: {resumenFacturas.sin}
+                  </Detalle>
+                ) : null}
+                {/* Dueño, 2026-11-03: «Entregado» cuenta como pagado; si el pedido lleva artículos de VeoAura, su ficha de cliente
+                    (nombre, correo y teléfono) va a VeoAura (api/escaparate-retorno.ts). Se ve en Administración → Escaparate. */}
+                <Detalle nativeID="pedidos-veoaura-cliente">
+                  Al marcar «Entregado» un pedido con artículos de VeoAura, se envían a VeoAura el nombre, el correo y el teléfono del
+                  cliente (nunca su dirección).
+                </Detalle>
+              </View>
+            </Seccion>
+          ) : null}
         </View>
       </ScrollView>
     </View>

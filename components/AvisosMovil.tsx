@@ -13,6 +13,8 @@
  * Estados: «Avisos sin configurar» (faltan las 3 claves en Vercel), iPhone sin instalar (cómo «Añadir a pantalla de
  * inicio» y abrir desde ahí), avisos bloqueados (cómo quitarlo) y navegador sin avisos. Sin la migración, lo dice.
  * `compacta` (inicio del panel): solo el estado y el botón principal, con «Ver en Pedidos».
+ * `plegable` (Administración → Pedidos, rediseño del 2026-11-15): una línea discreta «Avisos en este móvil · activos / no
+ * activos / sin configurar / bloqueados» (#avisos-cabecera, 44 px) que despliega la tarjeta entera al tocarla.
  * Tamaños: botones de 44 px (TACTIL), textos de 13 px o más, azul de texto pequeño en azulTexto (constants/theme.ts).
  * Conectado con: app/admin/pedidos.tsx (arriba), app/admin/index.tsx (compacta), lib/notificaciones.ts, lib/supabase.ts
  * (nombreDispositivo, haceCuanto), api/pago.ts (?avisos=clave y «avisos_prueba»), migración
@@ -81,7 +83,10 @@ function Boton({ id, texto, icono, principal, onPress, ocupado, peligro }: { id:
   );
 }
 
-export default function AvisosMovil({ compacta = false }: { compacta?: boolean }) {
+export default function AvisosMovil({ compacta = false, plegable = false }: { compacta?: boolean; plegable?: boolean }) {
+  // `plegable` (Administración → Pedidos, rediseño 2026-11-15): una línea discreta «Avisos en este móvil · activos / no
+  // activos» que se despliega al tocarla (#avisos-cabecera); plegada de entrada para no empujar los pedidos.
+  const [abierta, setAbierta] = useState(!plegable);
   const [clave, setClave] = useState<string | null | undefined>(undefined);
   const [soporte, setSoporte] = useState<SoporteAvisosPush>("no-disponible");
   const [endpoint, setEndpoint] = useState<string | null>(null);
@@ -266,21 +271,49 @@ export default function AvisosMovil({ compacta = false }: { compacta?: boolean }
   const colorEstado = activoAqui ? C.verde : clave === null || soporte === "bloqueadas" ? C.rojo : C.suave;
   const puedeActivar = !!clave && soporte === "ok" && !activoAqui;
   const nOtros = (dispositivos ?? []).filter((d) => d.endpoint !== endpoint).length;
+  // Estado corto de la cabecera plegable.
+  const estadoCorto =
+    clave === undefined
+      ? "comprobando…"
+      : clave === null
+        ? "sin configurar"
+        : activoAqui
+          ? "activos"
+          : soporte === "bloqueadas"
+            ? "bloqueados"
+            : "no activos";
+
+  if (plegable && !abierta) {
+    return (
+      <View nativeID="avisos-movil" style={{ width: "100%", backgroundColor: C.fondo, borderWidth: 1, borderColor: C.borde, borderRadius: 14 }}>
+        <CabeceraPlegable abierta={false} onPress={() => setAbierta(true)} activoAqui={activoAqui} corto={estadoCorto} color={colorEstado} />
+      </View>
+    );
+  }
 
   return (
     <View
       nativeID="avisos-movil"
-      style={{ width: "100%", backgroundColor: C.fondo, borderWidth: 1, borderColor: C.borde, borderRadius: 16, padding: 14, gap: 10 }}
+      style={{ width: "100%", backgroundColor: C.fondo, borderWidth: 1, borderColor: C.borde, borderRadius: plegable ? 14 : 16, padding: plegable ? 0 : 14, paddingBottom: plegable ? 14 : 14, gap: 10 }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <Ionicons name={activoAqui ? "notifications" : "notifications-outline"} size={22} color={activoAqui ? C.verde : C.azul} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ color: C.texto, fontWeight: "900", fontSize: TAMANOS.destacado }}>Avisos en este móvil</Text>
-          <Text nativeID="avisos-estado" style={{ color: colorEstado, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
-            {estado}
-          </Text>
+      {plegable ? <CabeceraPlegable abierta onPress={() => setAbierta(false)} activoAqui={activoAqui} corto={estadoCorto} color={colorEstado} /> : null}
+      <View style={{ gap: 10, paddingHorizontal: plegable ? 14 : 0 }}>
+      {plegable ? (
+        // Desplegada: el título ya está en la cabecera; aquí, el estado entero.
+        <Text nativeID="avisos-estado" style={{ color: colorEstado, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+          {estado}
+        </Text>
+      ) : (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Ionicons name={activoAqui ? "notifications" : "notifications-outline"} size={22} color={activoAqui ? C.verde : C.azul} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ color: C.texto, fontWeight: "900", fontSize: TAMANOS.destacado }}>Avisos en este móvil</Text>
+            <Text nativeID="avisos-estado" style={{ color: colorEstado, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+              {estado}
+            </Text>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* La explicación, solo mientras no están activos aquí (después sobra y empuja los pedidos hacia abajo). */}
       {!compacta && !activoAqui ? (
@@ -370,6 +403,30 @@ export default function AvisosMovil({ compacta = false }: { compacta?: boolean }
           ) : null}
         </>
       )}
+      </View>
     </View>
+  );
+}
+
+// Cabecera de la tarjeta plegable: «Avisos en este móvil · activos» (o «no activos», «sin configurar», «bloqueados»), con
+// su flecha; toda la línea se toca (44 px).
+function CabeceraPlegable({ abierta, onPress, activoAqui, corto, color }: { abierta: boolean; onPress: () => void; activoAqui: boolean; corto: string; color: string }) {
+  return (
+    <Pressable
+      nativeID="avisos-cabecera"
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: abierta }}
+      aria-expanded={abierta}
+      accessibilityLabel={`Avisos en este móvil: ${corto}. ${abierta ? "Plegar" : "Desplegar"}`}
+      style={({ pressed }) => ({ minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 6, opacity: pressed ? 0.8 : 1 })}
+    >
+      <Ionicons name={activoAqui ? "notifications" : "notifications-outline"} size={18} color={activoAqui ? C.verde : C.azul} />
+      <Text style={{ flex: 1, minWidth: 0, color: C.texto, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+        Avisos en este móvil
+        <Text nativeID="avisos-estado-corto" style={{ color, fontWeight: "900" }}>{` · ${corto}`}</Text>
+      </Text>
+      <Ionicons name={abierta ? "chevron-up" : "chevron-down"} size={18} color={C.suave} />
+    </Pressable>
   );
 }
