@@ -62,18 +62,26 @@
  * - "Opción de venta" (recogida en domicilio / el cliente se desplaza a
  *   entregarlo). Si es domicilio pide la dirección completa; si es entrega
  *   pide la disponibilidad horaria (Mañana/Medio día/Tarde noche).
- * - Fotos y vídeo del artículo (opcional): hasta 10 imágenes + 1 vídeo de
- *   hasta 20 segundos, con SellMediaPicker (ver components/
- *   SellRequestMedia.tsx). No cuentan para el progreso/obligatoriedad del
- *   formulario — un cliente puede enviar la solicitud sin adjuntar nada.
- *   Se suben a Storage DESPUÉS de guardar la solicitud (hace falta su id
- *   para enlazarlos); si la subida falla, la solicitud ya guardada no se
- *   pierde, solo se avisa en la pantalla de confirmación.
- * - El botón final es un progreso animado: se calculan 13 pasos
+ * - Fotos y vídeo del artículo (OBLIGATORIOS, dueño 2026-11-16): de 7 a 10
+ *   fotos y 1 vídeo de 20 a 30 segundos (hasta 60 MB), en dos apartados con
+ *   SellMediaPicker (ver components/SellRequestMedia.tsx); un vídeo fuera de
+ *   ese rango o cuya duración no se puede medir se rechaza con su aviso.
+ *   Cuentan para el progreso como los demás campos. Se suben a Storage
+ *   DESPUÉS de guardar la solicitud (hace falta su id para enlazarlos); si
+ *   alguno falla, la confirmación dice cuántos faltan y ofrece «Reintentar la
+ *   subida» solo con esos, en la misma solicitud.
+ * - Autorrelleno (2026-11-16): con sesión, al abrir se rellenan los campos
+ *   vacíos con la cuenta y «Mi perfil» (perfiles_cliente): nombre y apellido,
+ *   ciudad (localidad o provincia) y el contacto por Gmail si el correo de la
+ *   cuenta es de Gmail; nunca la casilla de mayor de 18. Sale la línea «Hemos
+ *   rellenado tus datos…» y se cuenta vender_autorrelleno (solo cuántos
+ *   campos). Tocar el botón con todo listo menos las fotos o el vídeo dice qué
+ *   falta, no envía y cuenta vender_sin_media (app/admin/analytics.tsx).
+ * - El botón final es un progreso animado: se calculan 15 pasos
  *   obligatorios (nombre, apellido, género, artículo, funciona/no,
  *   motivo-o-problema según corresponda, ciudad, precio, método de
  *   contacto y su dato, opción de venta, dirección-o-disponibilidad según
- *   corresponda, y confirmar mayoría de edad). El botón se rellena de
+ *   corresponda, confirmar mayoría de edad, las fotos y el vídeo). El botón se rellena de
  *   color (con transición animada) según el % completado, se ve
  *   apagado/desactivado por debajo del 100% y solo se puede pulsar
  *   exactamente al llegar al 100%; mientras tanto muestra debajo del texto
@@ -139,10 +147,18 @@ import { leerOrigenVender, marcarOrigenVender, trackEvent } from "../lib/analyti
 import CabeceraMarca from "./CabeceraMarca";
 import { activarNotificaciones, estadoNotificaciones, type EstadoNotificaciones } from "../lib/notificaciones";
 import {
+  MAX_SELL_IMAGES,
+  MAX_SELL_VIDEO_SECONDS,
+  MIN_SELL_IMAGES,
+  MIN_SELL_VIDEO_SECONDS,
   SellMediaPicker,
+  listaParaSubir,
   uploadSellRequestMedia,
+  videoEsValido,
   type LocalSellMedia,
+  type SellMediaPendiente,
 } from "./SellRequestMedia";
+import { datosDeFila } from "./PerfilPublico";
 
 const COLORS = {
   bg2: "#F4F9FD",
@@ -818,7 +834,81 @@ export default function VenderAhoraModal({
 
   const [mediaImages, setMediaImages] = useState<LocalSellMedia[]>([]);
   const [mediaVideo, setMediaVideo] = useState<LocalSellMedia | null>(null);
-  const [mediaUploadFailed, setMediaUploadFailed] = useState(false);
+  // Subida tras guardar la solicitud: los archivos que no se pudieron subir (se ofrece reintentar solo esos), cuántos
+  // había en total, el id de la solicitud ya guardada y si el reintento acabó bien.
+  const [mediaPendientes, setMediaPendientes] = useState<SellMediaPendiente[]>([]);
+  const [mediaTotal, setMediaTotal] = useState(0);
+  const [sentRequestId, setSentRequestId] = useState<string | null>(null);
+  const [reintentando, setReintentando] = useState(false);
+  const [reintentoOk, setReintentoOk] = useState(false);
+  const fotosOk = mediaImages.length >= MIN_SELL_IMAGES && mediaImages.length <= MAX_SELL_IMAGES;
+  const videoOk = videoEsValido(mediaVideo);
+
+  // Autorrelleno (2026-11-16): con sesión iniciada, al abrir se rellenan solos los campos VACÍOS que ya conocemos de la
+  // cuenta y de «Mi perfil» (perfiles_cliente, como el pago de app/checkout.tsx): nombre y apellido (de «Nombre y
+  // apellidos», o del nombre de la cuenta), ciudad (localidad o, si no, provincia) y, si el correo de la cuenta es de
+  // Gmail, el contacto por Gmail. Nunca la casilla de mayor de 18 años. El cliente puede cambiarlo todo.
+  const [autoRellenado, setAutoRellenado] = useState(false);
+  const autoHechoRef = useRef(false);
+  const correoGmailRef = useRef("");
+  const actualRef = useRef({ nombre: "", apellido: "", ciudad: "", metodoContacto: null as MetodoContacto | null });
+  // Lo que hay escrito ahora (el autorrelleno llega tras leer la cuenta: solo rellena lo que siga vacío).
+  useEffect(() => {
+    actualRef.current = { nombre, apellido, ciudad, metodoContacto };
+  }, [nombre, apellido, ciudad, metodoContacto]);
+  useEffect(() => {
+    if (!visible || autoHechoRef.current) return;
+    let vivo = true;
+    (async () => {
+      try {
+        const { data: s } = await supabase.auth.getSession();
+        const user = s.session?.user;
+        if (!user || !vivo) return;
+        const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+        // «*»: funciona antes y después de cada migración del perfil (sin pedir columnas que aún no existen).
+        const { data } = await supabase.from("perfiles_cliente").select("*").eq("user_id", user.id).maybeSingle();
+        if (!vivo || autoHechoRef.current) return;
+        // Una sola vez por apertura (se vuelve a permitir al cerrar, en resetForm).
+        autoHechoRef.current = true;
+        const p = datosDeFila((data ?? {}) as Record<string, unknown>);
+        const completo = (p.nombre || (typeof meta.full_name === "string" ? meta.full_name : "")).replace(/\s+/g, " ").trim();
+        const [primero = "", ...resto] = completo ? completo.split(" ") : [];
+        const ciudadPerfil = (p.localidad || p.provincia).trim();
+        const correo = String(user.email ?? "").trim().toLowerCase();
+        const esGmail = /@(gmail|googlemail)\.com$/.test(correo);
+        if (esGmail) correoGmailRef.current = correo;
+        const ahora = actualRef.current;
+        let campos = 0;
+        if (primero.length >= 2 && !ahora.nombre.trim()) {
+          setNombre(primero.slice(0, 80));
+          campos++;
+        }
+        if (resto.length && !ahora.apellido.trim()) {
+          setApellido(resto.join(" ").slice(0, 80));
+          campos++;
+        }
+        if (ciudadPerfil && !ahora.ciudad.trim()) {
+          setCiudad(ciudadPerfil.slice(0, 100));
+          campos++;
+        }
+        if (esGmail && !ahora.metodoContacto) {
+          setMetodoContacto("gmail");
+          setContactoValor(correo.slice(0, 150));
+          campos++;
+        }
+        if (campos > 0) {
+          setAutoRellenado(true);
+          // Analítica propia (Administración → Analítica): solo que ocurrió y cuántos campos, sin datos de la persona.
+          void trackEvent("vender_autorrelleno", "Vender: formulario autorrellenado", { metadata: { campos } });
+        }
+      } catch {
+        // sin datos: se escriben a mano, como siempre
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [visible]);
 
   const [sending, setSending] = useState(false);
   const [formErr, setFormErr] = useState<string | null>(null);
@@ -887,7 +977,7 @@ export default function VenderAhoraModal({
     }
   }, [visible, scaleAnim, fadeAnim]);
 
-  // Progreso del formulario: 13 pasos obligatorios con el mismo peso cada
+  // Progreso del formulario: 15 pasos obligatorios (los 13 de siempre + fotos + vídeo) con el mismo peso cada
   // uno (el método de contacto y su dato cuentan como obligatorios: sin
   // forma de contactar al cliente el formulario no sirve). El botón de
   // enviar solo se activa al llegar exactamente al 100%.
@@ -915,13 +1005,20 @@ export default function VenderAhoraModal({
           : false,
       mayorEdad,
     ];
+    const restoCompleto = steps.every(Boolean);
+    // Fotos (de 7 a 10) y vídeo (de 20 a 30 s): obligatorios y con el mismo peso que los demás pasos.
+    steps.push(fotosOk, videoOk);
 
     const total = steps.length;
     const completed = steps.filter(Boolean).length;
     const percent = Math.round((completed / total) * 100);
 
-    return { percent, canSubmit: completed === total };
+    // soloFaltaMedia: todo lo demás está listo y solo faltan las fotos o el vídeo. El botón sigue sin enviar, pero
+    // al tocarlo dice qué falta (y se cuenta en la analítica como intento sin fotos o vídeo).
+    return { percent, canSubmit: completed === total, soloFaltaMedia: restoCompleto && !(fotosOk && videoOk) };
   }, [
+    fotosOk,
+    videoOk,
     nombreValido,
     apellidoValido,
     genero,
@@ -999,7 +1096,13 @@ export default function VenderAhoraModal({
     }
     setMediaImages([]);
     setMediaVideo(null);
-    setMediaUploadFailed(false);
+    setMediaPendientes([]);
+    setMediaTotal(0);
+    setSentRequestId(null);
+    setReintentando(false);
+    setReintentoOk(false);
+    setAutoRellenado(false);
+    autoHechoRef.current = false;
 
     setFormErr(null);
     setSent(false);
@@ -1007,7 +1110,7 @@ export default function VenderAhoraModal({
   }
 
   function handleClose() {
-    if (sending) return;
+    if (sending || reintentando) return;
     onClose();
     // Pequeño margen para que no se vea el formulario "vaciándose" antes
     // de que termine la animación de cierre del Modal.
@@ -1022,8 +1125,38 @@ export default function VenderAhoraModal({
     return raw.includes("@") ? raw : `${raw}@gmail.com`;
   }
 
+  // Reintento de la subida tras un fallo: solo los archivos que faltan, en la solicitud ya guardada.
+  async function reintentarSubida() {
+    if (!sentRequestId || reintentando || mediaPendientes.length === 0) return;
+    setReintentando(true);
+    try {
+      const fallidos = await uploadSellRequestMedia(sentRequestId, mediaPendientes);
+      setMediaPendientes(fallidos);
+      setReintentoOk(fallidos.length === 0);
+    } finally {
+      setReintentando(false);
+    }
+  }
+
   async function handleSubmit() {
-    if (sending || !progress.canSubmit) return;
+    if (sending) return;
+    if (!progress.canSubmit) {
+      // Todo listo menos las fotos o el vídeo: se dice qué falta y se cuenta (sin datos de la persona).
+      if (progress.soloFaltaMedia) {
+        const faltan = Math.max(0, MIN_SELL_IMAGES - mediaImages.length);
+        setFormErr(
+          !fotosOk && !videoOk
+            ? `Para enviarlo añade al menos ${MIN_SELL_IMAGES} fotos y un vídeo de ${MIN_SELL_VIDEO_SECONDS} a ${MAX_SELL_VIDEO_SECONDS} segundos.`
+            : !fotosOk
+              ? `Para enviarlo ${faltan === 1 ? "falta 1 foto" : `faltan ${faltan} fotos`} (mínimo ${MIN_SELL_IMAGES}).`
+              : `Para enviarlo añade un vídeo de ${MIN_SELL_VIDEO_SECONDS} a ${MAX_SELL_VIDEO_SECONDS} segundos en el que se vea funcionando.`
+        );
+        void trackEvent("vender_sin_media", "Vender: intento sin fotos o vídeo", {
+          metadata: { fotos: mediaImages.length, video: videoOk },
+        });
+      }
+      return;
+    }
 
     const cleanNombre = nombre.trim();
     const cleanApellido = apellido.trim();
@@ -1175,16 +1308,19 @@ export default function VenderAhoraModal({
       // Analítica propia (Administración → Analítica, «Cambio de consola desde la cesta»): sin datos de la persona.
       if (cambioDesdeCesta) void trackEvent("cambio_cesta_enviado", "Cesta: cambio de consola enviado", { metadata: { con_referencia: !!paraComprar } });
 
-      // La solicitud ya está guardada. Si hay fotos/vídeo, se suben aparte:
-      // un fallo aquí no debe hacer parecer que se perdió toda la solicitud.
-      if (insertedRow?.id && (mediaImages.length > 0 || mediaVideo)) {
-        try {
-          await uploadSellRequestMedia(insertedRow.id, mediaImages, mediaVideo);
-        } catch (mediaErr) {
-          console.error("Error subiendo fotos/vídeo de la solicitud:", mediaErr);
-          setMediaUploadFailed(true);
-        }
+      // La solicitud ya está guardada. Las fotos y el vídeo se suben aparte: si alguno falla, la confirmación lo
+      // dice claro (cuántos faltan) y deja «Reintentar la subida» solo con esos, en esta misma solicitud.
+      setSentRequestId(insertedRow.id);
+      const lista = listaParaSubir(mediaImages, mediaVideo);
+      setMediaTotal(lista.length);
+      let fallidos: SellMediaPendiente[] = [];
+      try {
+        fallidos = await uploadSellRequestMedia(insertedRow.id, lista);
+      } catch (mediaErr) {
+        console.error("Error subiendo fotos/vídeo de la solicitud:", mediaErr);
+        fallidos = lista;
       }
+      setMediaPendientes(fallidos);
 
       // Chat automático: con sesión iniciada, se abre (o reutiliza) ya la
       // conversación centrada en este artículo y se manda un primer mensaje
@@ -1452,20 +1588,63 @@ export default function VenderAhoraModal({
                         : "Hemos recibido los datos de tu artículo. Nuestro equipo lo revisará y se pondrá en contacto contigo."}
                     </Text>
 
-                    {mediaUploadFailed && (
-                      <Text
+                    {/* Subida con fallos: se dice cuántos faltan y se puede reintentar solo esos. */}
+                    {mediaPendientes.length > 0 ? (
+                      <View
+                        nativeID="vender-media-fallo"
+                        accessibilityLiveRegion="polite"
                         style={{
-                          color: COLORS.danger,
-                          textAlign: "center",
-                          lineHeight: 19,
-                          fontSize: 13,
-                          fontWeight: "700",
+                          maxWidth: 520,
+                          width: "100%",
+                          borderRadius: 14,
+                          borderWidth: 1,
+                          borderColor: COLORS.dangerBorder,
+                          backgroundColor: COLORS.dangerBg,
+                          padding: 12,
+                          gap: 10,
+                          alignItems: "center",
                         }}
                       >
-                        Tu solicitud se guardó correctamente, pero no pudimos subir tus fotos o tu
-                        vídeo. Puedes enviarlos directamente por el método de contacto que elegiste.
+                        <Text style={{ color: COLORS.danger, textAlign: "center", lineHeight: 20, fontSize: 14, fontWeight: "900" }}>
+                          {mediaPendientes.length === mediaTotal
+                            ? "No hemos podido subir tus fotos ni tu vídeo."
+                            : `No hemos podido subir ${mediaPendientes.length} de tus ${mediaTotal} archivos.`}
+                        </Text>
+                        <Text style={{ color: COLORS.text, textAlign: "center", lineHeight: 19, fontSize: 13, fontWeight: "700" }}>
+                          Tu solicitud está guardada, pero los necesitamos para valorar el artículo. Revisa tu conexión y pulsa
+                          «Reintentar la subida». Si cierras sin hacerlo, te los pediremos cuando te contactemos.
+                        </Text>
+                        <AnimatedPressable
+                          onPress={reintentarSubida}
+                          disabled={reintentando}
+                          containerStyle={{ alignSelf: "center" }}
+                          style={({ pressed }) => ({
+                            opacity: reintentando ? 0.7 : pressed ? 0.9 : 1,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 8,
+                            minHeight: TACTIL.minimo,
+                            borderRadius: 999,
+                            paddingVertical: 10,
+                            paddingHorizontal: 18,
+                            backgroundColor: COLORS.accent,
+                          })}
+                        >
+                          {reintentando ? (
+                            <ActivityIndicator color="#FFFFFF" />
+                          ) : (
+                            <Ionicons name="refresh-outline" size={16} color="#FFFFFF" />
+                          )}
+                          <Text nativeID="vender-media-reintentar" style={{ color: "#FFFFFF", fontWeight: "900" }}>
+                            {reintentando ? "Subiendo…" : `Reintentar la subida (${mediaPendientes.length})`}
+                          </Text>
+                        </AnimatedPressable>
+                      </View>
+                    ) : reintentoOk ? (
+                      <Text nativeID="vender-media-ok" style={{ color: COLORS.success, textAlign: "center", lineHeight: 19, fontSize: 13, fontWeight: "800" }}>
+                        Listo: ya tenemos todas tus fotos y tu vídeo.
                       </Text>
-                    )}
+                    ) : null}
 
                     {!sentChatId && (
                       <Text
@@ -1616,6 +1795,14 @@ export default function VenderAhoraModal({
                           </Text>
                         </View>
                       ) : null}
+                      {autoRellenado ? (
+                        <Text
+                          nativeID="vender-autorrelleno"
+                          style={{ color: COLORS.muted, marginTop: 8, fontSize: TAMANOS.minimo, lineHeight: 18, fontWeight: "700", textAlign: "center" }}
+                        >
+                          Hemos rellenado tus datos de tu cuenta. Revísalos antes de enviar.
+                        </Text>
+                      ) : null}
                     </View>
 
                     {/* Nombre + Apellido (+ Género cuando caben 3 columnas) */}
@@ -1706,7 +1893,8 @@ export default function VenderAhoraModal({
                           value={metodoContacto}
                           onChange={(v) => {
                             setMetodoContacto(v);
-                            setContactoValor("");
+                            // Con sesión y correo de Gmail en la cuenta, el correo sale ya escrito (se puede cambiar).
+                            setContactoValor(v === "gmail" ? correoGmailRef.current : "");
                             setFormErr(null);
                           }}
                           compact={twoCol && !metodoContacto}
@@ -1851,16 +2039,36 @@ export default function VenderAhoraModal({
                     </View>
                     </View>
 
-                    {/* Fotos y vídeo: opcional, no cuenta para el progreso del formulario */}
-                    <View style={{ gap: 6 }}>
-                      <FieldLabel dim={mediaImages.length > 0 || !!mediaVideo}>
-                        Fotos y vídeo del artículo (opcional)
+                    {/* Fotos (de 7 a 10) y vídeo (de 20 a 30 s): obligatorios, cuentan para el progreso. */}
+                    <View nativeID="vender-fotos" style={{ gap: 6 }}>
+                      <FieldLabel dim={fotosOk}>
+                        Fotos del artículo (mínimo {MIN_SELL_IMAGES}, máximo {MAX_SELL_IMAGES})
                       </FieldLabel>
                       <SellMediaPicker
+                        solo="fotos"
+                        images={mediaImages}
+                        video={mediaVideo}
+                        onImagesChange={(v) => {
+                          setMediaImages(v);
+                          setFormErr(null);
+                        }}
+                        onVideoChange={setMediaVideo}
+                        disabled={sending}
+                      />
+                    </View>
+                    <View nativeID="vender-video" style={{ gap: 6 }}>
+                      <FieldLabel dim={videoOk}>
+                        Vídeo del artículo (de {MIN_SELL_VIDEO_SECONDS} a {MAX_SELL_VIDEO_SECONDS} segundos)
+                      </FieldLabel>
+                      <SellMediaPicker
+                        solo="video"
                         images={mediaImages}
                         video={mediaVideo}
                         onImagesChange={setMediaImages}
-                        onVideoChange={setMediaVideo}
+                        onVideoChange={(v) => {
+                          setMediaVideo(v);
+                          setFormErr(null);
+                        }}
                         disabled={sending}
                       />
                     </View>
@@ -1946,10 +2154,12 @@ export default function VenderAhoraModal({
                       />
 
                       <Pressable
+                        nativeID="vender-enviar"
                         onPress={handleSubmit}
                         onPressIn={submitPressIn}
                         onPressOut={submitPressOut}
-                        disabled={sending || !progress.canSubmit}
+                        // Sin las fotos o el vídeo no envía: si es lo único que falta, al tocarlo dice qué falta.
+                        disabled={sending || !(progress.canSubmit || progress.soloFaltaMedia)}
                         style={({ pressed }) => ({
                           minHeight: CAMPO.alto,
                           justifyContent: "center",
