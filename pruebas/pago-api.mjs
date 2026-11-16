@@ -111,6 +111,7 @@ let vend = null;
 const stripeSesiones = new Map();
 const idempotencia = new Map();
 const devoluciones = new Map();
+let prefijoDevolucion = "re";
 const registro = { stripePost: 0, crearSesion: [], expiradas: [], patch: 0, devoluciones: [], rechazosBizum: 0 };
 
 function reiniciar() {
@@ -265,7 +266,8 @@ function stripeFalso(url, metodo, cabeceras, cuerpoTexto) {
     const c = Object.fromEntries(new URLSearchParams(cuerpoTexto));
     const s = [...stripeSesiones.values()].find((x) => x.payment_intent === c.payment_intent && x.livemode === real);
     if (!s) return json({ error: { type: "invalid_request_error", code: "resource_missing" } }, 404);
-    const d = { id: `re_${randomBytes(8).toString("hex")}`, status: "succeeded", amount: s.amount_total, payment_intent: c.payment_intent };
+    // Stripe numera «re_…» las de tarjeta y «pyr_…» las de Klarna (pedido 5, 2026-11-16).
+    const d = { id: `${prefijoDevolucion}_${randomBytes(8).toString("hex")}`, status: "succeeded", amount: s.amount_total, payment_intent: c.payment_intent };
     if (k) devoluciones.set(k, d);
     registro.devoluciones.push({ campos: c, clave: k });
     return json(d);
@@ -461,7 +463,10 @@ async function bateria(manejador) {
   r.devolverSinSesion = await pedir(manejador, "POST", { cuerpo: { accion: "devolver", numero: 101 } });
   r.devolucionesTrasCliente = registro.devoluciones.length;
   r.devolverSinPagar = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "devolver", numero: 102 } });
+  // Como el pedido 5 (2026-11-16): pagado con Klarna, Stripe devuelve el dinero con una referencia «pyr_…».
+  prefijoDevolucion = "pyr";
   r.devolver = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "devolver", numero: 101 } });
+  prefijoDevolucion = "re";
   r.fila101Devuelta = { ...pedido(101) };
   r.devolucion = registro.devoluciones[0];
   r.devolverOtraVez = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "devolver", numero: 101 } });
@@ -945,7 +950,7 @@ try {
   ok(r.devolverCliente.codigo === 403 && r.devolverSinSesion.codigo === 403 && r.devolucionesTrasCliente === 0, `P10: un cliente o un visitante no pueden devolver nada (${r.devolverCliente.codigo}, ${r.devolverSinSesion.codigo})`);
   ok(r.devolverSinPagar.codigo === 409, `P10: un pedido sin pago con tarjeta no se devuelve (${r.devolverSinPagar.codigo})`);
   ok(r.devolver.codigo === 200 && r.devolver.cuerpo?.devuelto_eur === 112.4 && r.devolucion?.campos.payment_intent === "pi_3Prueba123" && /^vz-devolver-/.test(r.devolucion?.clave ?? ""), `P10: el administrador devuelve el pago entero en Stripe (${JSON.stringify(r.devolver.cuerpo)})`);
-  ok(r.fila101Devuelta.devuelto_eur === 112.4 && !!r.fila101Devuelta.devuelto_en && /^re_/.test(r.fila101Devuelta.devolucion_referencia ?? "") && r.fila101Devuelta.estado === "pendiente", "P10: queda apuntado (cuánto, cuándo y su referencia) y el pedido no se cancela solo");
+  ok(r.fila101Devuelta.devuelto_eur === 112.4 && !!r.fila101Devuelta.devuelto_en && /^pyr_/.test(r.fila101Devuelta.devolucion_referencia ?? "") && r.fila101Devuelta.estado === "pendiente", "P10: una devolución de Klarna («pyr_…») queda apuntada (cuánto, cuándo y su referencia) y el pedido no se cancela solo");
   ok(r.devolverOtraVez.cuerpo?.ya === true && r.devolucionesTotal === 1, `P10: pulsarlo otra vez no devuelve dos veces (${r.devolucionesTotal})`);
   ok(r.avisoDevolucion.codigo === 200 && r.fila107Devuelta.devuelto_eur === 20 && r.fila107Devuelta.devolucion_referencia === "re_desdeStripe1" && r.devueltoIgual, "P10: una devolución hecha desde Stripe se apunta por su aviso firmado, una sola vez");
 
@@ -987,6 +992,7 @@ try {
     ["firma", "if (!(await firmaDeStripeValida(secreto, crudo, firma))) throw", "if (false) throw", (m) => m.avisoFirmaMala.codigo === 200, "un aviso mal firmado se acepta (P8)"],
     ["dueño", "if (!p || !suyo) throw", "if (!p) throw", (m) => m.ajeno.codigo === 200, "se abre el pago del pedido de otra persona (P3)"],
     ["devolver", 'if (!(await esAdministrador(supabase, await usuarioDeLaPeticion(supabase, req)))) throw', "if (false) throw", (m) => m.devolverCliente.codigo === 200, "un cliente devuelve un pago (P10)"],
+    ["devolución de Klarna", "const REFERENCIA_DEVOLUCION = /^(re|pyr)_[A-Za-z0-9]+$/;", "const REFERENCIA_DEVOLUCION = /^re_/;", (m) => m.devolver.codigo !== 200, "la devolución de Klarna («pyr_…») vuelve a darse por fallida (P10)"],
     ["klarna", '.includes("Klarna");', ".includes(\"\");", (m) => m.getSinKlarna.cuerpo?.klarna === true, "Klarna sale sin estar en la privacidad (P11)"],
     ["bizum", '.includes("Bizum")', '.includes("")', (m) => m.getSinBizum.cuerpo?.bizum === true, "Bizum sale sin estar en la privacidad (P12)"],
     ["reintento sin Bizum", "if (r.http === 200 || !m.bizum || !rechazoPorBizum(r.datos)) return r;", "return r;", (m) => m.creaRechazo.codigo !== 200, "si Stripe rechaza Bizum, el pago no se abre (P12)"],
