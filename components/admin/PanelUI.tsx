@@ -10,8 +10,9 @@
  * menos de 17 px.
  *
  * Conectado con: app/admin/categories.tsx, app/admin/services.tsx y app/admin/envios.tsx (rediseño del 2026-11-16,
- * prueba PANRED1 de pruebas/perfil-datos.mjs). app/admin/pedidos.tsx tiene sus propias copias de las mismas piezas
- * (mismo aspecto).
+ * prueba PANRED1 de pruebas/perfil-datos.mjs) y app/admin/products.tsx, app/admin/reservas.tsx y app/admin/escaparate.tsx
+ * (tanda 2, prueba PANRED2; de ella son EtiquetaFila y Miniatura). app/admin/pedidos.tsx tiene sus propias copias de las
+ * mismas piezas (mismo aspecto).
  */
 import React from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -117,6 +118,25 @@ export function FilaPastillas({ isMobile, nativeID, children }: { isMobile: bool
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16 }}>
         {fila}
       </ScrollView>
+    </View>
+  );
+}
+
+// El nombre de una fila de pastillas («Fase», «En la tienda»…), delante de ellas y a su misma altura (44 px), para poder
+// tener varias filas sin títulos aparte (Productos, rediseño PANRED2).
+export function EtiquetaFila({ texto }: { texto: string }) {
+  return (
+    <View style={{ minHeight: TACTIL.minimo, justifyContent: "center", paddingRight: 2 }}>
+      <Text style={{ color: PANEL.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>{texto}</Text>
+    </View>
+  );
+}
+
+// Una miniatura de la fila (foto pequeña con borde; sin foto, un icono). La foto la pone quien la usa como `children`.
+export function Miniatura({ icono, ancho = 56, alto = 56, children }: { icono: IoniconName; ancho?: number; alto?: number; children?: React.ReactNode }) {
+  return (
+    <View style={{ width: ancho, height: alto, borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: PANEL.border, backgroundColor: "#F8FBFE", alignItems: "center", justifyContent: "center" }}>
+      {children ?? <Ionicons name={icono} size={22} color={PANEL.muted} />}
     </View>
   );
 }
@@ -248,6 +268,18 @@ export function Bloque({ icono, titulo, nativeID, ancho, children }: { icono: Io
         <Text style={{ flex: 1, color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{titulo}</Text>
       </View>
       {children}
+    </View>
+  );
+}
+
+// Un bloque de un formulario (a todo lo ancho, uno debajo de otro): el mismo Bloque dentro de una fila, para que su ancho
+// no se lea como alto en una columna.
+export function BloqueFormulario({ icono, titulo, nativeID, children }: { icono: IoniconName; titulo: string; nativeID?: string; children: React.ReactNode }) {
+  return (
+    <View style={{ flexDirection: "row" }}>
+      <Bloque icono={icono} titulo={titulo} nativeID={nativeID} ancho="100%">
+        <View style={{ gap: 10 }}>{children}</View>
+      </Bloque>
     </View>
   );
 }

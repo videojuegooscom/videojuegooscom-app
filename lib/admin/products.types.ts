@@ -79,6 +79,9 @@ export type ProductRow = {
   // Vendido (artículo único): cuándo y, si se vendió por la web, la referencia del pedido pagado (VZ-…; migración
   // 20261115200000_vendido_al_pagar). undefined = no está vendido.
   vendido?: { en: string; referencia: string | null };
+  // Reservado con señal hasta esta fecha (products.reservado_hasta, migración 20261115150000; lo pone api/pago.ts al
+  // cobrar la señal). undefined = sin reserva vigente o sin la columna.
+  reservado_hasta?: string;
   media: ProductMediaRow[];
 };
 

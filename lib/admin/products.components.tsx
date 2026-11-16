@@ -33,7 +33,7 @@
  *   panel se vean iguales.
  * - Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): la flecha de volver de AdminHeader, los
  *   filtros (FilterPill) y los chips (ChipButton) miden 44 px como mínimo; ningún texto baja de 13 px
- *   (12 solo en las insignias cortas IMAGEN/VÍDEO) y el texto azul pequeño usa COLORS.accentText.
+ *   (tampoco las insignias IMAGEN/VÍDEO, a 13 desde el rediseño PANRED2) y el texto azul pequeño usa COLORS.accentText.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Image, Modal, PanResponder, Platform, Pressable, ScrollView, Text, View } from "react-native";
@@ -826,7 +826,8 @@ export function MediaThumb({
             style={{
               color: COLORS.text,
               fontWeight: "900",
-              fontSize: TAMANOS.legal,
+              // 13 px (rediseño PANRED2: ninguna letra de menos de 13 px en el formulario de Productos; antes, 12).
+              fontSize: TAMANOS.minimo,
             }}
           >
             {kind === "image" ? "IMAGEN" : kind === "video" ? "VÍDEO" : "MULTIMEDIA"}

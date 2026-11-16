@@ -64,11 +64,13 @@
  * toda la tabla. normalizeMediaForProduct() reordena la multimedia con un
  * único .upsert() por id en lugar de un .update() por archivo.
  *
- * Móvil: las 4 tarjetas de estadísticas (Total/Publicados/Visibles/
- * Destacados portada) van en rejilla de 2 columnas también en pantallas
- * pequeñas (antes ocupaban el 100% del ancho cada una, es decir 4 filas
- * completas solo de estadísticas antes de llegar al buscador y a "+ Nuevo
- * producto"). Ver StatCard en products.components.tsx.
+ * Rediseño PANRED2 (dueño, 2026-11-16; piezas de components/admin/PanelUI.tsx, como Usuarios, Pedidos y Categorías):
+ * buscador de 16 px arriba (título, descripción, referencia o nº de pedido VZ-…), cifras que filtran (Total, Publicados,
+ * Visibles, Ocultos, Destacados portada, Vendidos), pastillas de 44 px con su recuento (fase, en la tienda, revisión y
+ * «Más»: destacados, vendidos, reservados, sin fotos, sin peso, peso estimado, solo en mano), filas compactas con la foto
+ * pequeña y su etiqueta de color (A la venta, Borrador, Por revisar, Oculto, Reservado, Vendido (pedido VZ-…)) y, al tocar
+ * una, el detalle por bloques (Venta, Ficha, Envío y VeoAura) con las acciones abajo. El formulario va por bloques.
+ * Antes eran fichas en rejilla (2 por fila en el móvil).
  *
  * Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px, grises desde
  * COLORS.muted (= COLORES_TEXTO.secundario) y filtros, chips y volver de 44 px (lib/admin/products.components.tsx).
@@ -101,8 +103,28 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { fmtKg, PESO_SIN_DATO_KG } from "../../lib/envio";
-import { TAMANOS } from "../../constants/theme";
+import { TACTIL, TAMANOS } from "../../constants/theme";
 import { esCategoriaServicios } from "../../components/PortadasCategoria";
+import {
+  AccionTexto,
+  Bloque,
+  BloqueFormulario,
+  Buscador,
+  Chip,
+  Cifra,
+  Dato,
+  Detalle,
+  EtiquetaColor,
+  EtiquetaFila,
+  FilaPastillas,
+  ListaVacia,
+  Miniatura,
+  RecuentoLista,
+  TONOS,
+  useDesplegables,
+  type IoniconName,
+  type Tono,
+} from "../../components/admin/PanelUI";
 import {
   AdminHeader,
   AdminLoading,
@@ -117,7 +139,6 @@ import {
   PieVentana,
   PrimaryButton,
   SelectorIOS,
-  StatCard,
   useSeleccionFotos,
 } from "../../lib/admin/products.components";
 import {
@@ -147,12 +168,8 @@ import {
   labelCond,
   labelStatus,
   pickMediaFilesWeb,
-  statusVisual,
   toPriceSafe,
 } from "../../lib/admin/products.utils";
-
-// Separación entre las fichas de la rejilla de productos.
-const GAP_REJILLA_PRODUCTOS = 10;
 
 // Texto de partida del campo "Descripción" al crear un producto nuevo — la
 // mayoría de artículos llevan siempre este mismo bloque, así que en vez de
@@ -407,21 +424,54 @@ async function fetchAdminProductsSafe(): Promise<{
 
 type ProductListItemData = ProductRow & { catName: string };
 
-// Una fila de la lista de productos, memoizada. Antes esta fila se
-// construía inline dentro del .map() del componente principal: cualquier
-// cambio de estado en TODO el panel (por ejemplo escribir en el formulario
-// de edición, o simplemente abrirlo) obligaba a React a volver a construir
-// y comparar la lista ENTERA (hasta 300 productos con su imagen, chips y
-// botones) antes de poder pintar nada más — eso es lo que hacía que el
-// "pop" de editar tardase tanto en abrirse en el móvil. Al extraer la fila
-// a su propio componente con React.memo(), React se salta por completo
-// esas ~300 filas cuando lo que cambia es el formulario, no la lista.
-// Ficha de la rejilla (petición del dueño, 2026-11-01): foto arriba, título, precio, estado y, abajo, el interruptor
-// de visible y las acciones con iconos (editar, publicar, destacar, vendido y borrar), cada una con su nombre para los
-// lectores de pantalla.
+// Filtros de la segunda fila de pastillas (además de la fase, la visibilidad y la revisión).
+type FiltroExtra = "ALL" | "DESTACADOS" | "VENDIDOS" | "RESERVADOS" | "SIN_FOTOS" | "SIN_PESO" | "ESTIMADO" | "SOLO_MANO";
+function cumpleExtra(p: ProductRow, f: FiltroExtra) {
+  if (f === "ALL") return true;
+  if (f === "DESTACADOS") return !!p.is_featured_home;
+  if (f === "VENDIDOS") return !!p.vendido;
+  if (f === "RESERVADOS") return !!p.reservado_hasta;
+  if (f === "SIN_FOTOS") return !p.media.some((m) => getRowKind(m) === "image");
+  if (f === "SIN_PESO") return p.peso_kg !== undefined && !p.peso_kg;
+  if (f === "ESTIMADO") return !!p.peso_kg && p.peso_estimado === true;
+  return p.solo_entrega_mano === true;
+}
+
+// Etiqueta de color del estado de un producto (rediseño PANRED2): vendido, reservado, oculto o, si se ve, su fase.
+function estadoProducto(p: ProductRow): { texto: string; tono: Tono; vendido?: boolean } {
+  if (p.vendido) return { texto: p.vendido.referencia ? `Vendido (pedido ${p.vendido.referencia})` : "Vendido", tono: "indigo", vendido: true };
+  if (p.reservado_hasta) return { texto: "Reservado", tono: "turquesa" };
+  if (!p.is_active) return { texto: "Oculto", tono: "gris" };
+  if (p.status === "PUBLISHED") return { texto: "A la venta", tono: "verde" };
+  if (p.status === "REVIEW") return { texto: "Por revisar", tono: "azul" };
+  return { texto: "Borrador", tono: "amarillo" };
+}
+
+// El nombre de un campo del formulario (encima de él; sin él, al rellenarlo no se sabe qué era «101»).
+function EtiquetaCampo({ texto }: { texto: string }) {
+  return <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, marginBottom: -4 }}>{texto}</Text>;
+}
+
+function fechaCorta(iso: string | null | undefined) {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  return new Date(t).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/Madrid" });
+}
+
+// Una fila de la lista de productos, memoizada: al escribir en el formulario de edición React se salta por completo
+// las hasta 300 filas (solo cambian si cambia su producto, su subida o si se abre o se pliega).
+// Rediseño PANRED2 (dueño, 2026-11-16: el estilo de Usuarios y Pedidos): fila compacta con la foto pequeña, título,
+// etiqueta de color (A la venta, Borrador, Por revisar, Oculto, Reservado, Vendido (pedido VZ-…)), precio, condición y
+// categoría, y debajo las etiquetas (fotos, peso, solo en mano, revisado y garantía, destacado, VeoAura). El lápiz abre el
+// formulario; al tocar la fila se despliega el detalle por bloques con las acciones abajo (visible, publicar, destacar,
+// vendido y borrar, iconos de 44 px con su nombre para el lector de pantalla).
 const ProductListItem = React.memo(function ProductListItem({
   item: p,
-  ancho,
+  primera,
+  abierta,
+  onAlternar,
+  isMobile,
   supportsFeaturedHome,
   onEdit,
   onPublish,
@@ -432,7 +482,10 @@ const ProductListItem = React.memo(function ProductListItem({
   uploadStatus,
 }: {
   item: ProductListItemData;
-  ancho: number;
+  primera: boolean;
+  abierta: boolean;
+  onAlternar: (id: string) => void;
+  isMobile: boolean;
   supportsFeaturedHome: boolean;
   onEdit: (p: ProductRow) => void;
   onPublish: (p: ProductRow) => void;
@@ -446,7 +499,7 @@ const ProductListItem = React.memo(function ProductListItem({
   // "en curso", pero se sigue avisando aquí hasta que el admin lo revise.
   uploadStatus?: { title: string; done: number; total: number; error: string | null };
 }) {
-  const statusUi = statusVisual(p.status, COLORS);
+  const estado = estadoProducto(p);
   const primaryMedia = getPrimaryMedia(p.media);
   const primaryKind = primaryMedia ? getRowKind(primaryMedia) : null;
   const primaryUrl = primaryMedia ? getRowPublicUrl(primaryMedia) : null;
@@ -457,107 +510,91 @@ const ProductListItem = React.memo(function ProductListItem({
   return (
     <View
       nativeID={`producto-ficha-${p.id}`}
-      style={{
-        width: ancho,
-        borderRadius: 18,
-        backgroundColor: COLORS.card,
-        padding: 8,
-        gap: 8,
-      }}
+      // 4 px arriba y abajo: entre una fila y la siguiente quedan 8 px o más de zona sin tocar (TM5).
+      style={{ borderTopWidth: primera ? 0 : 1, borderTopColor: COLORS.border, paddingVertical: 4 }}
     >
-        <View
-          style={{
-            width: "100%",
-            aspectRatio: 1,
-            borderRadius: 14,
-            overflow: "hidden",
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: "#F8FBFE",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion }}>
+        <Pressable
+          nativeID={`producto-fila-${p.id}`}
+          onPress={() => onAlternar(p.id)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: abierta }}
+          {...({ "aria-expanded": abierta } as object)}
+          accessibilityLabel={`${p.title}, ${estado.texto}, ${fmtEUR(Number(p.price_eur ?? 0))}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+          style={({ pressed }) => ({ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8, opacity: pressed ? 0.85 : 1 })}
         >
-          {primaryKind === "image" && primaryUrl ? (
-            <Image
-              source={{ uri: primaryUrl }}
-              resizeMode="cover"
-              style={{ width: "100%", height: "100%" }}
-            />
-          ) : primaryKind === "video" ? (
-            <View style={{ alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <Ionicons name="videocam-outline" size={30} color={COLORS.text} />
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Vídeo</Text>
+          {/* Foto pequeña (la portada), el icono del vídeo o, sin fotos, el mando. */}
+          <Miniatura icono={primaryKind === "video" ? "videocam-outline" : "game-controller-outline"}>
+            {primaryKind === "image" && primaryUrl ? (
+              <Image source={{ uri: primaryUrl }} resizeMode="cover" accessibilityLabel={`Foto de ${p.title}`} style={{ width: "100%", height: "100%" }} />
+            ) : undefined}
+          </Miniatura>
+          <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 8, rowGap: 4 }}>
+              <Text style={{ color: p.is_active || estado.vendido ? COLORS.text : COLORS.muted, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21, flexShrink: 1 }}>
+                {p.title}
+              </Text>
+              <EtiquetaColor nativeID={estado.vendido ? `producto-vendido-${p.id}` : `producto-estado-${p.id}`} texto={estado.texto} tono={estado.tono} />
             </View>
-          ) : (
-            <Ionicons name="game-controller-outline" size={28} color={COLORS.muted2} />
-          )}
-        </View>
-
-        <View style={{ gap: 6, paddingHorizontal: 2 }}>
-          {/* Título y datos enteros, en las líneas que hagan falta (dueño, 2026-11-04). */}
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 19 }}>{p.title}</Text>
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>{fmtEUR(Number(p.price_eur ?? 0))}</Text>
-          {/* Peso para el envío con Correos (por kilos). Sin peso, cuenta PESO_SIN_DATO_KG. */}
-          {p.peso_kg !== undefined ? (
-            <Text nativeID={`producto-peso-${p.id}`} style={{ color: p.peso_kg ? COLORS.muted : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo }}>
-              {p.peso_kg
-                ? p.peso_estimado
-                  ? `Peso estimado: ${fmtKg(p.peso_kg)} · revísalo al pesarlo`
-                  : `Peso con embalaje: ${fmtKg(p.peso_kg)}`
-                : `Sin peso: el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}`}
+            {/* Precio, condición y categoría en una línea (en el ordenador, también la referencia; en el móvil va en el detalle). */}
+            <Text numberOfLines={isMobile ? 1 : 2} style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+              <Text style={{ color: COLORS.text, fontWeight: "900" }}>{fmtEUR(Number(p.price_eur ?? 0))}</Text> · {labelCond(p.condition)} · {p.catName}
+              {p.reference && !isMobile ? ` · Ref. ${p.reference}` : ""}
             </Text>
-          ) : null}
-          {p.solo_entrega_mano ? (
-            <Text nativeID={`producto-solo-mano-${p.id}`} style={{ color: COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo }}>
-              Solo entrega en mano (no se envía)
-            </Text>
-          ) : null}
-          {/* Revisado y garantía que enseña la ficha (mejora 4). */}
-          {p.revisado || p.garantia_meses ? (
-            <Text nativeID={`producto-revisado-${p.id}`} style={{ color: COLORS.success, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 16 }}>
-              {[p.revisado ? "✓ Revisado" : null, p.garantia_meses ? `Garantía ${p.garantia_meses} ${p.garantia_meses === 1 ? "mes" : "meses"}` : null]
-                .filter(Boolean)
-                .join(" · ")}
-            </Text>
-          ) : null}
-
-          {/* Estado (con su color) + el resto de datos en una línea de texto. */}
-          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
-            <View
-              style={{
-                paddingVertical: 3,
-                paddingHorizontal: 8,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: statusUi.borderColor,
-                backgroundColor: statusUi.backgroundColor,
-              }}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>{statusUi.text}</Text>
-            </View>
-            <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 16, flexShrink: 1 }}>
-              {p.is_active ? "Visible" : "Oculto"} · {labelCond(p.condition)} · {p.catName} · {imageCount} foto{imageCount === 1 ? "" : "s"}
-              {hasVideo ? " + vídeo" : ""}
+            {/* Las etiquetas en una línea seguida (cada una con su color), para que la fila siga siendo compacta en el móvil:
+                fotos, peso, solo en mano, revisado y garantía, destacado y VeoAura. */}
+            <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+              {(
+                [
+                  {
+                    id: `producto-fotos-${p.id}`,
+                    color: imageCount ? COLORS.text : COLORS.danger,
+                    texto: imageCount ? `${imageCount} foto${imageCount === 1 ? "" : "s"}${hasVideo ? " + vídeo" : ""}` : hasVideo ? "Solo vídeo" : "Sin fotos",
+                  },
+                  // Peso para el envío con Correos (por kilos). Sin peso, cuenta PESO_SIN_DATO_KG.
+                  p.peso_kg !== undefined
+                    ? {
+                        id: `producto-peso-${p.id}`,
+                        color: !p.peso_kg ? COLORS.danger : p.peso_estimado ? TONOS.amarillo.color : COLORS.text,
+                        texto: p.peso_kg ? (p.peso_estimado ? `Peso estimado: ${fmtKg(p.peso_kg)}` : fmtKg(p.peso_kg)) : "Sin peso",
+                      }
+                    : null,
+                  p.solo_entrega_mano ? { id: `producto-solo-mano-${p.id}`, color: COLORS.danger, texto: "Solo en mano" } : null,
+                  // Revisado y garantía que enseña la ficha (mejora 4).
+                  p.revisado || p.garantia_meses
+                    ? {
+                        id: `producto-revisado-${p.id}`,
+                        color: COLORS.success,
+                        texto: [p.revisado ? "✓ Revisado" : null, p.garantia_meses ? `Garantía ${p.garantia_meses} ${p.garantia_meses === 1 ? "mes" : "meses"}` : null].filter(Boolean).join(" · "),
+                      }
+                    : null,
+                  supportsFeaturedHome && p.is_featured_home ? { id: `producto-destacado-${p.id}`, color: TONOS.amarillo.color, texto: "★ Destacado" } : null,
+                  // Producto creado a mano: aviso a VeoAura para que lo dé de alta en su Stock (api/escaparate-retorno.ts).
+                  p.veoaura
+                    ? {
+                        id: `producto-veoaura-${p.id}`,
+                        color: p.veoaura === "enviado" ? COLORS.success : COLORS.muted,
+                        texto: p.veoaura === "enviado" ? "Enviado a VeoAura · en VeoAura ✓" : "Enviado a VeoAura · pendiente",
+                      }
+                    : null,
+                ] as ({ id: string; color: string; texto: string } | null)[]
+              )
+                .filter((x): x is { id: string; color: string; texto: string } => !!x)
+                .map((e, i) => (
+                <React.Fragment key={e.id}>
+                  {i ? " · " : ""}
+                  <Text nativeID={e.id} style={{ color: e.color }}>
+                    {e.texto}
+                  </Text>
+                </React.Fragment>
+              ))}
             </Text>
           </View>
-
-          {/* Vendido (artículo único): ya no sale en la tienda ni se puede comprar; si fue por la web, con su pedido. */}
-          {p.vendido ? (
-            <Text nativeID={`producto-vendido-${p.id}`} style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, lineHeight: 16 }}>
-              {p.vendido.referencia ? `Vendido (pedido ${p.vendido.referencia})` : "Vendido"}
-            </Text>
-          ) : null}
-
-          {/* Producto creado a mano: aviso a VeoAura para que lo dé de alta en su Stock (api/escaparate-retorno.ts). */}
-          {p.veoaura ? (
-            <Text
-              nativeID={`producto-veoaura-${p.id}`}
-              style={{ color: p.veoaura === "enviado" ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 16 }}
-            >
-              {p.veoaura === "enviado" ? "Enviado a VeoAura · en VeoAura ✓" : "Enviado a VeoAura · pendiente"}
-            </Text>
-          ) : null}
+          <Ionicons name={abierta ? "chevron-up" : "chevron-down"} size={18} color={COLORS.muted} />
+        </Pressable>
+        {/* Editar: el lápiz, siempre a mano (icono de 44 px, con su nombre para el lector de pantalla). */}
+        <IconButton icon="create-outline" label={`Editar ${p.title}`} variant="primary" onPress={() => onEdit(p)} disabled={isUploading} />
+      </View>
 
           {!!uploadStatus && (
             <View
@@ -595,30 +632,86 @@ const ProductListItem = React.memo(function ProductListItem({
             </View>
           )}
 
-        </View>
+      {abierta ? (
+        <View nativeID={`producto-detalle-${p.id}`} style={{ gap: 12, paddingBottom: 16, paddingTop: 4 }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            {/* Venta: precio, fase, si se ve en la tienda y lo que le ha pasado (vendido o reservado). */}
+            <Bloque icono="pricetag-outline" titulo="Venta" ancho={isMobile ? "100%" : "30%"}>
+              <Dato etiqueta="Precio">{fmtEUR(Number(p.price_eur ?? 0))}</Dato>
+              <Dato etiqueta="Fase">{labelStatus(p.status)}</Dato>
+              <Dato etiqueta="En la tienda">{p.is_active ? "Visible" : "Oculto"}</Dato>
+              {supportsFeaturedHome ? <Dato etiqueta="Portada">{p.is_featured_home ? "Destacado en Inicio" : "No destacado"}</Dato> : null}
+              {p.vendido ? (
+                <Dato etiqueta="Vendido">
+                  {fechaCorta(p.vendido.en)}
+                  {p.vendido.referencia ? ` · pedido ${p.vendido.referencia}` : " · fuera de la web"}
+                </Dato>
+              ) : null}
+              {p.reservado_hasta ? <Dato etiqueta="Reservado con señal">hasta el {fechaCorta(p.reservado_hasta)}</Dato> : null}
+            </Bloque>
 
-        {/* Visible y las acciones con iconos (al pasar el ratón o con el lector de pantalla se dice cada una). */}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: "auto" }}>
-          <Switch
-            value={p.is_active}
-            onValueChange={() => onToggleActive(p)}
-            accessibilityLabel={p.is_active ? `Ocultar ${p.title}` : `Mostrar ${p.title}`}
-          />
-          <IconButton icon="create-outline" label={`Editar ${p.title}`} variant="primary" onPress={() => onEdit(p)} disabled={isUploading} />
-          {p.status !== "PUBLISHED" ? (
-            <IconButton icon="paper-plane-outline" label={`Publicar ${p.title}`} variant="success" onPress={() => onPublish(p)} />
-          ) : null}
-          {supportsFeaturedHome ? (
-            <IconButton
-              icon={p.is_featured_home ? "star" : "star-outline"}
-              label={p.is_featured_home ? `Quitar ${p.title} de destacados en portada` : `Destacar ${p.title} en portada`}
-              variant={p.is_featured_home ? "primary" : "ghost"}
-              onPress={() => onToggleFeatured(p)}
-            />
-          ) : null}
-          <IconButton icon="pricetag-outline" label={`Marcar ${p.title} como vendido`} onPress={() => onMarkSold(p)} />
-          <IconButton icon="trash-outline" label={`Borrar ${p.title}`} variant="danger" onPress={() => onDelete(p)} disabled={isUploading} />
+            {/* Ficha: condición, categoría, referencia, revisión, garantía y fotos. */}
+            <Bloque icono="document-text-outline" titulo="Ficha" ancho={isMobile ? "100%" : "30%"}>
+              <Dato etiqueta="Condición">{labelCond(p.condition)}</Dato>
+              <Dato etiqueta="Categoría">{p.catName}</Dato>
+              {p.reference ? <Dato etiqueta="Referencia">{p.reference}</Dato> : null}
+              {p.revisado !== undefined ? <Dato etiqueta="Revisado por el equipo">{p.revisado ? "Sí" : "No"}</Dato> : null}
+              {p.revisado !== undefined ? (
+                <Dato etiqueta="Garantía">{p.garantia_meses ? `${p.garantia_meses} ${p.garantia_meses === 1 ? "mes" : "meses"}` : "Sin indicar"}</Dato>
+              ) : null}
+              <Dato etiqueta="Fotos">
+                {imageCount} de {MAX_IMAGES}
+                {hasVideo ? " + 1 vídeo" : ""}
+              </Dato>
+              {p.description ? <Detalle>{clampText(p.description, 160)}</Detalle> : null}
+            </Bloque>
+
+            {/* Envío: peso con embalaje y si solo se entrega en mano; VeoAura y fechas. */}
+            <Bloque icono="cube-outline" titulo="Envío y VeoAura" ancho={isMobile ? "100%" : "30%"}>
+              {p.peso_kg !== undefined ? (
+                <Dato etiqueta="Peso con embalaje">
+                  {p.peso_kg
+                    ? p.peso_estimado
+                      ? `${fmtKg(p.peso_kg)} (estimado: revísalo al pesarlo)`
+                      : fmtKg(p.peso_kg)
+                    : `sin peso: el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}`}
+                </Dato>
+              ) : null}
+              {p.solo_entrega_mano !== undefined ? <Dato etiqueta="Envío">{p.solo_entrega_mano ? "Solo entrega en mano (no se envía)" : "Se puede enviar"}</Dato> : null}
+              <Dato etiqueta="VeoAura">
+                {p.veoaura === "enviado" ? "en VeoAura ✓" : p.veoaura === "pendiente" ? "enviado, pendiente de respuesta" : "sin aviso (vino de VeoAura o no hace falta)"}
+              </Dato>
+              {p.created_at ? <Detalle>Creado: {fechaCorta(p.created_at)}</Detalle> : null}
+              {p.updated_at ? <Detalle>Actualizado: {fechaCorta(p.updated_at)}</Detalle> : null}
+            </Bloque>
+          </View>
+
+          {/* Acciones abajo: visible, publicar, destacar, vendido y borrar (al pasar el ratón o con el lector se dice cada una). */}
+          <View nativeID={`producto-acciones-${p.id}`} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 12, rowGap: TACTIL.separacion }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion, minHeight: TACTIL.minimo }}>
+              <Switch
+                value={p.is_active}
+                onValueChange={() => onToggleActive(p)}
+                accessibilityLabel={p.is_active ? `Ocultar ${p.title}` : `Mostrar ${p.title}`}
+              />
+              <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.cuerpo }}>{p.is_active ? "Visible" : "Oculto"}</Text>
+            </View>
+            {p.status !== "PUBLISHED" ? (
+              <IconButton icon="paper-plane-outline" label={`Publicar ${p.title}`} variant="success" onPress={() => onPublish(p)} />
+            ) : null}
+            {supportsFeaturedHome ? (
+              <IconButton
+                icon={p.is_featured_home ? "star" : "star-outline"}
+                label={p.is_featured_home ? `Quitar ${p.title} de destacados en portada` : `Destacar ${p.title} en portada`}
+                variant={p.is_featured_home ? "primary" : "ghost"}
+                onPress={() => onToggleFeatured(p)}
+              />
+            ) : null}
+            <IconButton icon="pricetag-outline" label={`Marcar ${p.title} como vendido`} onPress={() => onMarkSold(p)} />
+            <IconButton icon="trash-outline" label={`Borrar ${p.title}`} variant="danger" onPress={() => onDelete(p)} disabled={isUploading} />
+          </View>
         </View>
+      ) : null}
     </View>
   );
 });
@@ -627,15 +720,10 @@ export default function AdminProducts() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const isDesktopish = widthSafe >= 1024;
-  const pagePadding = isMobile ? 12 : 16;
-  // Rejilla de fichas: 2 por fila en el móvil, 3 en tableta y 4 en el ordenador (el ancho, del que mide de verdad).
-  const columnasRejilla = isMobile ? 2 : isDesktopish ? 4 : 3;
-  const [anchoRejilla, setAnchoRejilla] = useState(0);
-  const anchoDisponible = anchoRejilla || Math.min(widthSafe - pagePadding * 2, 1160);
-  const anchoFicha = Math.floor((anchoDisponible - GAP_REJILLA_PRODUCTOS * (columnasRejilla - 1)) / columnasRejilla);
-  // Aire entre apartados (cabecera, estadísticas, filtros, lista).
-  const sectionGap = isMobile ? 20 : 24;
+  // 16 px de margen a los lados, como el resto del panel nuevo (Usuarios, Pedidos, Categorías).
+  const pagePadding = 16;
+  // Aire entre apartados (buscador, cifras, pastillas, lista).
+  const sectionGap = isMobile ? 16 : 20;
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
@@ -659,6 +747,11 @@ export default function AdminProducts() {
   const [supportsRevisado, setSupportsRevisado] = useState(false);
   // Filtro «Revisados» (mejora 4): todos, solo los revisados o los que aún no.
   const [revisadoFilter, setRevisadoFilter] = useState<"ALL" | "SI" | "NO">("ALL");
+  // Más filtros (rediseño PANRED2): destacados, vendidos, reservados, sin fotos y los del envío (peso, solo en mano).
+  const [extraFilter, setExtraFilter] = useState<FiltroExtra>("ALL");
+  // «Más filtros» (en la tienda, revisión y «Más»), plegados como en Pedidos.
+  const [verMasFiltros, setVerMasFiltros] = useState(false);
+  const desplegables = useDesplegables();
   const [supportsProductMedia, setSupportsProductMedia] = useState(true);
 
   const itemsRef = useRef<ProductRow[]>([]);
@@ -746,7 +839,9 @@ export default function AdminProducts() {
       const matchesSearch =
         !q ||
         String(p.title ?? "").toLowerCase().includes(q) ||
-        String(p.description ?? "").toLowerCase().includes(q);
+        String(p.description ?? "").toLowerCase().includes(q) ||
+        String(p.reference ?? "").toLowerCase().includes(q) ||
+        String(p.vendido?.referencia ?? "").toLowerCase().includes(q);
 
       const matchesStatus = statusFilter === "ALL" || p.status === statusFilter;
 
@@ -758,9 +853,9 @@ export default function AdminProducts() {
       const matchesRevisado =
         revisadoFilter === "ALL" || (revisadoFilter === "SI" && p.revisado === true) || (revisadoFilter === "NO" && p.revisado !== true);
 
-      return matchesSearch && matchesStatus && matchesVisibility && matchesRevisado;
+      return matchesSearch && matchesStatus && matchesVisibility && matchesRevisado && cumpleExtra(p, extraFilter);
     });
-  }, [items, search, statusFilter, visibilityFilter, revisadoFilter]);
+  }, [items, search, statusFilter, visibilityFilter, revisadoFilter, extraFilter]);
 
   // Se calcula aquí (con el nombre de categoría ya resuelto) para que
   // ProductListItem no necesite la lista completa de "categories" como
@@ -784,9 +879,38 @@ export default function AdminProducts() {
     const featured = items.filter((x) => !!x.is_featured_home).length;
     const revisados = items.filter((x) => x.revisado === true).length;
     const conGarantia = items.filter((x) => !!x.garantia_meses).length;
+    const porFase = (s: ProductStatus) => items.filter((x) => x.status === s).length;
+    const extra = (f: FiltroExtra) => items.filter((x) => cumpleExtra(x, f)).length;
 
-    return { total, published, visible, featured, revisados, conGarantia };
+    return {
+      total,
+      published,
+      visible,
+      hidden: total - visible,
+      featured,
+      revisados,
+      conGarantia,
+      borradores: porFase("DRAFT"),
+      porRevisar: porFase("REVIEW"),
+      vendidos: extra("VENDIDOS"),
+      reservados: extra("RESERVADOS"),
+      sinFotos: extra("SIN_FOTOS"),
+      sinPeso: extra("SIN_PESO"),
+      estimados: extra("ESTIMADO"),
+      soloMano: extra("SOLO_MANO"),
+    };
   }, [items]);
+
+  const buscando = search.trim().length > 0;
+  const hayFiltros = statusFilter !== "ALL" || visibilityFilter !== "ALL" || revisadoFilter !== "ALL" || extraFilter !== "ALL";
+  // Cuántos de los filtros plegados están puestos (se dice en «Más filtros (N)»).
+  const filtrosPlegados = [visibilityFilter, revisadoFilter, extraFilter].filter((f) => f !== "ALL").length;
+  const quitarFiltros = () => {
+    setStatusFilter("ALL");
+    setVisibilityFilter("ALL");
+    setRevisadoFilter("ALL");
+    setExtraFilter("ALL");
+  };
 
   const currentImageCount = useMemo(
     () =>
@@ -948,10 +1072,21 @@ export default function AdminProducts() {
       const muestra = await supabase.from("products").select("*").limit(1);
       const filaMuestra = !muestra.error && Array.isArray(muestra.data) ? (muestra.data[0] as Record<string, unknown> | undefined) : undefined;
       if (conPeso && filaMuestra && "peso_estimado" in filaMuestra) {
-        const estRes = await supabase.from("products").select("id").eq("peso_estimado", true);
+        const estRes = await supabase.from("products").select("id,peso_estimado").eq("peso_estimado", true);
         if (!estRes.error && Array.isArray(estRes.data)) {
           conEstimado = true;
-          for (const r of estRes.data as { id: string }[]) estimados.add(String(r.id));
+          for (const r of estRes.data as { id: string; peso_estimado?: unknown }[]) if (r.peso_estimado === true) estimados.add(String(r.id));
+        }
+      }
+      // Reservados con señal (products.reservado_hasta, migración 20261115150000): solo si la columna existe y la fecha no
+      // ha pasado. Consulta aparte; sin la columna, no se enseña nada.
+      const reservados = new Map<string, string>();
+      if (filaMuestra && "reservado_hasta" in filaMuestra) {
+        const resRes = await supabase.from("products").select("id,reservado_hasta").not("reservado_hasta", "is", null);
+        if (!resRes.error && Array.isArray(resRes.data)) {
+          for (const r of resRes.data as { id: string; reservado_hasta: string | null }[]) {
+            if (r.reservado_hasta && Date.parse(r.reservado_hasta) > Date.now()) reservados.set(String(r.id), r.reservado_hasta);
+          }
         }
       }
       if (filaMuestra && "revisado" in filaMuestra && "garantia_meses" in filaMuestra) {
@@ -986,6 +1121,7 @@ export default function AdminProducts() {
       const merged = productsData.map((item) => ({
         ...item,
         ...(vendidos.has(item.id) ? { vendido: vendidos.get(item.id) } : {}),
+        ...(reservados.has(item.id) ? { reservado_hasta: reservados.get(item.id) } : {}),
         ...(avisosVeoaura.has(item.id) ? { veoaura: avisosVeoaura.get(item.id) } : {}),
         ...(conPeso ? { peso_kg: pesos.get(item.id) ?? null } : {}),
         ...(conEstimado ? { peso_estimado: estimados.has(item.id) } : {}),
@@ -1771,34 +1907,119 @@ export default function AdminProducts() {
       >
         {/* Columna centrada: mismo ancho máximo en toda la pantalla */}
         <View style={{ width: "100%", maxWidth: 1160, gap: sectionGap }}>
-          {/* El buscador arriba de los contadores, como en Categorías; «Nuevo producto» es el «+» flotante. */}
-          <TextInput
+          {/* 1) El buscador arriba de las cifras (16 px: sin zoom de Safari al escribir); «Nuevo producto» es el «+» flotante. */}
+          <Buscador
             nativeID="productos-buscar"
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Buscar por título o descripción"
-            placeholderTextColor="rgba(11,33,56,0.40)"
-            style={{
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              borderRadius: 14,
-              paddingHorizontal: 12,
-              paddingVertical: 12,
-              color: COLORS.text,
-              backgroundColor: "#F8FBFE",
-              // 16px, no 14/15: por debajo de 16px, Safari en iPhone hace
-              // zoom automático de toda la pantalla al enfocar el campo —
-              // el "zoom insoportable" que reportó Daniel al escribir en
-              // el panel de administración.
-              fontSize: 16,
-            }}
+            valor={search}
+            onCambiar={setSearch}
+            placeholder="Buscar nombre, referencia o pedido"
+            etiqueta="Buscar productos por título, descripción, referencia o nº de pedido"
           />
 
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} />
-            <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} />
-            <StatCard label="Visibles" value={String(stats.visible)} icon="eye-outline" isMobile={isMobile} />
-            <StatCard label="Destacados portada" value={String(stats.featured)} icon="flame-outline" isMobile={isMobile} />
+          {/* 2) Cifras que filtran al tocarlas («Total» quita los filtros). */}
+          <View nativeID="productos-cifras" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+            {(
+              [
+                { key: "total", valor: stats.total, etiqueta: "Total", icono: "cube-outline", activa: false, accion: quitarFiltros },
+                { key: "publicados", valor: stats.published, etiqueta: "Publicados", icono: "checkmark-circle-outline", activa: statusFilter === "PUBLISHED", accion: () => setStatusFilter((f) => (f === "PUBLISHED" ? "ALL" : "PUBLISHED")) },
+                { key: "visibles", valor: stats.visible, etiqueta: "Visibles", icono: "eye-outline", activa: visibilityFilter === "VISIBLE", accion: () => setVisibilityFilter((f) => (f === "VISIBLE" ? "ALL" : "VISIBLE")) },
+                { key: "ocultos", valor: stats.hidden, etiqueta: "Ocultos", icono: "eye-off-outline", activa: visibilityFilter === "HIDDEN", accion: () => setVisibilityFilter((f) => (f === "HIDDEN" ? "ALL" : "HIDDEN")) },
+                { key: "destacados", valor: stats.featured, etiqueta: "Destacados portada", icono: "star-outline", activa: extraFilter === "DESTACADOS", accion: () => setExtraFilter((f) => (f === "DESTACADOS" ? "ALL" : "DESTACADOS")) },
+                { key: "vendidos", valor: stats.vendidos, etiqueta: "Vendidos", icono: "bag-check-outline", activa: extraFilter === "VENDIDOS", accion: () => setExtraFilter((f) => (f === "VENDIDOS" ? "ALL" : "VENDIDOS")) },
+              ] as { key: string; valor: number; etiqueta: string; icono: IoniconName; activa: boolean; accion: () => void }[]
+            ).map((c) => (
+              <Cifra
+                key={c.key}
+                nativeID={`productos-cifra-${c.key}`}
+                valor={String(c.valor)}
+                etiqueta={c.etiqueta}
+                icono={c.icono}
+                ancho={isMobile ? "30%" : 0}
+                activa={c.activa}
+                onPress={c.accion}
+              />
+            ))}
+          </View>
+
+          {/* 3) Pastillas con su recuento: fase, visibilidad, revisión (con la migración) y más filtros. */}
+          <View style={{ gap: TACTIL.separacion }}>
+            <FilaPastillas isMobile={isMobile} nativeID="productos-filtro-estado">
+              <EtiquetaFila texto="Fase" />
+              {(
+                [
+                  ["ALL", "Todos", stats.total],
+                  ["DRAFT", "Borrador", stats.borradores],
+                  ["REVIEW", "Por revisar", stats.porRevisar],
+                  ["PUBLISHED", "Publicado", stats.published],
+                ] as [StatusFilter, string, number][]
+              ).map(([v, t, n]) => (
+                <Chip key={v} nativeID={`productos-fase-${v.toLowerCase()}`} label={`${t} (${n})`} activo={statusFilter === v} onPress={() => setStatusFilter(v)} />
+              ))}
+              {/* Los demás filtros, plegados en «Más filtros» (como en Pedidos), con cuántos hay puestos. */}
+              <Chip
+                nativeID="productos-mas-filtros"
+                label={`Más filtros${filtrosPlegados ? ` (${filtrosPlegados})` : ""}`}
+                desplegable
+                abierto={verMasFiltros}
+                activo={filtrosPlegados > 0}
+                onPress={() => setVerMasFiltros((v) => !v)}
+              />
+            </FilaPastillas>
+            {verMasFiltros ? (
+            <>
+            <FilaPastillas isMobile={isMobile} nativeID="productos-filtro-visibilidad">
+              <EtiquetaFila texto="En la tienda" />
+              {(
+                [
+                  ["ALL", "Todos", stats.total],
+                  ["VISIBLE", "Visibles", stats.visible],
+                  ["HIDDEN", "Ocultos", stats.hidden],
+                ] as [VisibilityFilter, string, number][]
+              ).map(([v, t, n]) => (
+                <Chip key={v} nativeID={`productos-visibilidad-${v.toLowerCase()}`} label={`${t} (${n})`} activo={visibilityFilter === v} onPress={() => setVisibilityFilter(v)} />
+              ))}
+            </FilaPastillas>
+            {/* Revisados por el equipo (mejora 4): cuántos y filtrarlos. Sin la migración, no sale. */}
+            {supportsRevisado ? (
+              <View nativeID="productos-filtro-revisados" style={{ gap: 2 }}>
+              <FilaPastillas isMobile={isMobile}>
+                <EtiquetaFila texto="Revisión" />
+                {(
+                  [
+                    ["ALL", "Todos", stats.total],
+                    ["SI", "Revisados", stats.revisados],
+                    ["NO", "Sin revisar", stats.total - stats.revisados],
+                  ] as ["ALL" | "SI" | "NO", string, number][]
+                ).map(([v, t, n]) => (
+                  <Chip key={v} nativeID={`productos-revision-${v.toLowerCase()}`} label={`${t} (${n})`} activo={revisadoFilter === v} onPress={() => setRevisadoFilter(v)} />
+                ))}
+              </FilaPastillas>
+              <Detalle>
+                {stats.revisados} {stats.revisados === 1 ? "revisado" : "revisados"} · {stats.conGarantia} con garantía
+              </Detalle>
+              </View>
+            ) : null}
+            <FilaPastillas isMobile={isMobile} nativeID="productos-filtro-mas">
+              <EtiquetaFila texto="Más" />
+              {(
+                [
+                  ["ALL", "Todos", stats.total, true],
+                  ["DESTACADOS", "Destacados", stats.featured, supportsFeaturedHome],
+                  ["VENDIDOS", "Vendidos", stats.vendidos, true],
+                  ["RESERVADOS", "Reservados", stats.reservados, stats.reservados > 0],
+                  ["SIN_FOTOS", "Sin fotos", stats.sinFotos, supportsProductMedia],
+                  ["SIN_PESO", "Sin peso", stats.sinPeso, supportsPeso],
+                  ["ESTIMADO", "Peso estimado", stats.estimados, supportsPesoEstimado],
+                  ["SOLO_MANO", "Solo en mano", stats.soloMano, supportsSoloMano],
+                ] as [FiltroExtra, string, number, boolean][]
+              )
+                .filter(([, , , sale]) => sale)
+                .map(([v, t, n]) => (
+                  <Chip key={v} nativeID={`productos-mas-${v.toLowerCase()}`} label={`${t} (${n})`} activo={extraFilter === v} onPress={() => setExtraFilter(v)} />
+                ))}
+            </FilaPastillas>
+            </>
+            ) : null}
           </View>
 
           {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
@@ -1810,78 +2031,57 @@ export default function AdminProducts() {
             />
           )}
 
-          {/* Filtros (sin recuadro alrededor). */}
-          <View style={{ gap: 14 }}>
-
-            <View style={{ gap: 8, alignItems: "center" }}>
-              <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>Estado</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
-                <FilterPill label="Todos" active={statusFilter === "ALL"} onPress={() => setStatusFilter("ALL")} isMobile={isMobile} />
-                <FilterPill label="Borrador" active={statusFilter === "DRAFT"} onPress={() => setStatusFilter("DRAFT")} isMobile={isMobile} />
-                <FilterPill label="Por revisar" active={statusFilter === "REVIEW"} onPress={() => setStatusFilter("REVIEW")} isMobile={isMobile} />
-                <FilterPill label="Publicado" active={statusFilter === "PUBLISHED"} onPress={() => setStatusFilter("PUBLISHED")} isMobile={isMobile} />
-              </View>
-            </View>
-
-            <View style={{ gap: 8, alignItems: "center" }}>
-              <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>Visibilidad</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
-                <FilterPill label="Todos" active={visibilityFilter === "ALL"} onPress={() => setVisibilityFilter("ALL")} isMobile={isMobile} />
-                <FilterPill label="Visibles" active={visibilityFilter === "VISIBLE"} onPress={() => setVisibilityFilter("VISIBLE")} isMobile={isMobile} />
-                <FilterPill label="Ocultos" active={visibilityFilter === "HIDDEN"} onPress={() => setVisibilityFilter("HIDDEN")} isMobile={isMobile} />
-              </View>
-            </View>
-
-            {/* Revisados por el equipo (mejora 4): cuántos y filtrarlos. Sin la migración, no sale. */}
-            {supportsRevisado ? (
-              <View nativeID="productos-filtro-revisados" style={{ gap: 8, alignItems: "center" }}>
-                <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>
-                  Revisión · {stats.revisados} {stats.revisados === 1 ? "revisado" : "revisados"} · {stats.conGarantia} con garantía
-                </Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
-                  <FilterPill label="Todos" active={revisadoFilter === "ALL"} onPress={() => setRevisadoFilter("ALL")} isMobile={isMobile} />
-                  <FilterPill label="Revisados" active={revisadoFilter === "SI"} onPress={() => setRevisadoFilter("SI")} isMobile={isMobile} />
-                  <FilterPill label="Sin revisar" active={revisadoFilter === "NO"} onPress={() => setRevisadoFilter("NO")} isMobile={isMobile} />
-                </View>
-              </View>
-            ) : null}
-
-          </View>
-
-          {filteredItems.length === 0 ? (
-            <EmptyState
-              icon="game-controller-outline"
-              title="No hay productos para este filtro."
-              text="Cambia la búsqueda o crea el primero: un catálogo vacío no genera ventas."
+          {/* 4) Cuántos salen, «Abrir todos» y la lista de filas compactas. */}
+          <View style={{ gap: 4 }}>
+            <RecuentoLista
+              nativeID="productos-recuento"
+              texto={
+                buscando
+                  ? `${filteredItems.length} ${filteredItems.length === 1 ? "producto encontrado" : "productos encontrados"}`
+                  : `${filteredItems.length} de ${items.length} productos`
+              }
+              abiertas={desplegables.todasAbiertas(filteredItems.map((p) => p.id))}
+              onAlternar={filteredItems.length ? () => desplegables.abrirOCerrarTodas(filteredItems.map((p) => p.id)) : undefined}
+              idBoton="productos-abrir-todos"
             />
-          ) : (
-            // Fichas en rejilla, una al lado de otra (petición del dueño): 2 por fila en el móvil, 3 o 4 en pantallas
-            // anchas, con las acciones en iconos.
-            <View
-              nativeID="productos-rejilla"
-              onLayout={(e) => {
-                const w = Math.floor(e.nativeEvent.layout.width);
-                if (w && Math.abs(w - anchoRejilla) > 1) setAnchoRejilla(w);
-              }}
-              style={{ flexDirection: "row", flexWrap: "wrap", gap: GAP_REJILLA_PRODUCTOS }}
-            >
-              {listData.map((p) => (
-                <ProductListItem
-                  key={p.id}
-                  item={p}
-                  ancho={anchoFicha}
-                  supportsFeaturedHome={supportsFeaturedHome}
-                  onEdit={openEditProduct}
-                  onPublish={quickPublish}
-                  onToggleFeatured={toggleFeaturedHome}
-                  onMarkSold={setMarkSoldTarget}
-                  onDelete={askRemove}
-                  onToggleActive={toggleActive}
-                  uploadStatus={bgUploads[p.id]}
+            {hayFiltros ? (
+              <AccionTexto nativeID="productos-quitar-filtros" icono="close-circle-outline" texto="Quitar los filtros" onPress={quitarFiltros} />
+            ) : null}
+            {filteredItems.length === 0 ? (
+              items.length ? (
+                <ListaVacia nativeID="productos-vacio" icono="game-controller-outline" titulo="No hay productos en esta lista." texto="Prueba a borrar el buscador o a quitar los filtros." />
+              ) : (
+                <EmptyState
+                  icon="game-controller-outline"
+                  title="No hay productos para este filtro."
+                  text="Cambia la búsqueda o crea el primero: un catálogo vacío no genera ventas."
                 />
-              ))}
-            </View>
-          )}
+              )
+            ) : (
+              // Filas compactas, una debajo de otra (rediseño PANRED2; antes, fichas en rejilla): al tocar una se despliega
+              // su detalle por bloques con las acciones abajo.
+              <View nativeID="productos-lista">
+                {listData.map((p, i) => (
+                  <ProductListItem
+                    key={p.id}
+                    item={p}
+                    primera={i === 0}
+                    abierta={desplegables.estaAbierta(p.id)}
+                    onAlternar={desplegables.alternar}
+                    isMobile={isMobile}
+                    supportsFeaturedHome={supportsFeaturedHome}
+                    onEdit={openEditProduct}
+                    onPublish={quickPublish}
+                    onToggleFeatured={toggleFeaturedHome}
+                    onMarkSold={setMarkSoldTarget}
+                    onDelete={askRemove}
+                    onToggleActive={toggleActive}
+                    uploadStatus={bgUploads[p.id]}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
         </View>
       </ScrollView>
       )}
@@ -1928,6 +2128,9 @@ export default function AdminProducts() {
                 keyboardDismissMode={CIERRE_TECLADO}
               >
 
+              {/* Formulario por bloques (rediseño PANRED2): datos, envío, revisión, fotos y fase. */}
+              <BloqueFormulario icono="create-outline" titulo="Datos del artículo" nativeID="producto-bloque-datos">
+              <EtiquetaCampo texto="Título" />
               <TextInput
                 value={title}
                 onChangeText={(v) => {
@@ -1943,22 +2146,26 @@ export default function AdminProducts() {
                   paddingHorizontal: 12,
                   paddingVertical: 12,
                   color: COLORS.text,
-                  backgroundColor: "#F8FBFE",
+                  backgroundColor: "#FFFFFF",
                   fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
                 }}
               />
 
+              <EtiquetaCampo texto="Descripción" />
               <View style={{ gap: 8 }}>
                 <Pressable
                   onPress={() => setDescExpanded((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: descExpanded }}
                   style={({ pressed }) => ({
                     opacity: pressed ? 0.9 : 1,
+                    minHeight: 48,
                     borderWidth: 1,
                     borderColor: COLORS.border,
                     borderRadius: 14,
                     paddingHorizontal: 12,
                     paddingVertical: 12,
-                    backgroundColor: "#F8FBFE",
+                    backgroundColor: "#FFFFFF",
                     flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "space-between",
@@ -2002,7 +2209,7 @@ export default function AdminProducts() {
                       color: COLORS.text,
                       minHeight: (isMobile ? 88 : 96) * 3,
                       textAlignVertical: "top",
-                      backgroundColor: "#F8FBFE",
+                      backgroundColor: "#FFFFFF",
                       fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
                     }}
                   />
@@ -2015,6 +2222,7 @@ export default function AdminProducts() {
                 ) : null}
               </View>
 
+              <EtiquetaCampo texto="Precio en euros" />
               <TextInput
                 value={price}
                 onChangeText={(v) => {
@@ -2034,14 +2242,47 @@ export default function AdminProducts() {
                   paddingHorizontal: 12,
                   paddingVertical: 12,
                   color: COLORS.text,
-                  backgroundColor: "#F8FBFE",
+                  backgroundColor: "#FFFFFF",
                   fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
                 }}
               />
 
+              {supportsReference ? <EtiquetaCampo texto="Referencia del artículo (opcional)" /> : null}
+              {supportsReference ? (
+                <TextInput
+                  value={reference}
+                  onChangeText={(v) => {
+                    setReference(v);
+                    setModalErr(null);
+                  }}
+                  placeholder="Número de referencia del artículo (opcional)"
+                  placeholderTextColor="rgba(11,33,56,0.40)"
+                  autoCapitalize="characters"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    borderRadius: 14,
+                    paddingHorizontal: 12,
+                    paddingVertical: 12,
+                    color: COLORS.text,
+                    backgroundColor: "#FFFFFF",
+                    fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
+                  }}
+                />
+              ) : (
+                <Text style={{ color: COLORS.muted, lineHeight: 19, fontSize: TAMANOS.minimo }}>
+                  El número de referencia todavía no está activado: ejecuta
+                  sql/product_reference.sql en Supabase para poder rellenarlo.
+                </Text>
+              )}
+              </BloqueFormulario>
+
+              {supportsPeso || supportsSoloMano ? (
+              <BloqueFormulario icono="cube-outline" titulo="Envío" nativeID="producto-bloque-envio">
               {/* Peso con embalaje: el envío con Correos va por kilos (dueño, 2026-11-07). */}
               {supportsPeso ? (
-                <View style={{ gap: 4 }}>
+                <View style={{ gap: 8 }}>
+                  <EtiquetaCampo texto="Peso con embalaje (kg)" />
                   <TextInput
                     nativeID="producto-peso"
                     value={peso}
@@ -2060,7 +2301,7 @@ export default function AdminProducts() {
                       paddingHorizontal: 12,
                       paddingVertical: 12,
                       color: COLORS.text,
-                      backgroundColor: "#F8FBFE",
+                      backgroundColor: "#FFFFFF",
                       fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
                     }}
                   />
@@ -2088,10 +2329,13 @@ export default function AdminProducts() {
                   </Text>
                 </View>
               ) : null}
+              </BloqueFormulario>
+              ) : null}
 
               {/* «Revisado por nuestro equipo» y garantía (mejora 4, migración 20261114140000): la ficha solo los enseña si
                   se marcan aquí; sin marcar, no promete nada. */}
               {supportsRevisado ? (
+                <BloqueFormulario icono="shield-checkmark-outline" titulo="Revisión y garantía">
                 <View nativeID="producto-confianza" style={{ gap: 8 }}>
                   <View style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                     <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14, flexShrink: 1 }}>
@@ -2132,7 +2376,7 @@ export default function AdminProducts() {
                       paddingHorizontal: 12,
                       minHeight: 48,
                       color: COLORS.text,
-                      backgroundColor: "#F8FBFE",
+                      backgroundColor: "#FFFFFF",
                       fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
                     }}
                   />
@@ -2142,46 +2386,11 @@ export default function AdminProducts() {
                       : "Sin marcar, la ficha no enseña ni revisión ni garantía."}
                   </Text>
                 </View>
+                </BloqueFormulario>
               ) : null}
 
-              {supportsReference ? (
-                <TextInput
-                  value={reference}
-                  onChangeText={(v) => {
-                    setReference(v);
-                    setModalErr(null);
-                  }}
-                  placeholder="Número de referencia del artículo (opcional)"
-                  placeholderTextColor="rgba(11,33,56,0.40)"
-                  autoCapitalize="characters"
-                  style={{
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    borderRadius: 14,
-                    paddingHorizontal: 12,
-                    paddingVertical: 12,
-                    color: COLORS.text,
-                    backgroundColor: "#F8FBFE",
-                    fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
-                  }}
-                />
-              ) : (
-                <Text style={{ color: COLORS.muted, lineHeight: 19, fontSize: TAMANOS.minimo }}>
-                  El número de referencia todavía no está activado: ejecuta
-                  sql/product_reference.sql en Supabase para poder rellenarlo.
-                </Text>
-              )}
-
-              <View
-                style={{
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: COLORS.cardSoft,
-                  padding: 12,
-                  gap: 12,
-                }}
-              >
+              <BloqueFormulario icono="images-outline" titulo="Fotos y vídeo" nativeID="producto-bloque-fotos">
+              <View style={{ gap: 12 }}>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                   <ChipButton
                     label={picking ? "Procesando…" : "Añadir imágenes / vídeo"}
@@ -2262,7 +2471,9 @@ export default function AdminProducts() {
                   </View>
                 ) : null}
               </View>
+              </BloqueFormulario>
 
+              <BloqueFormulario icono="options-outline" titulo="Fase, categoría y visibilidad" nativeID="producto-bloque-fase">
               <View style={{ flexDirection: "row", gap: 10 }}>
                 <View style={{ flex: 1 }}>
                   <SelectorIOS
@@ -2356,6 +2567,7 @@ export default function AdminProducts() {
                 si, aun estando publicado, se ve o no en la tienda — apagarlo
                 lo oculta sin borrar la ficha ni perder su historial.
               </Text>
+              </BloqueFormulario>
 
               {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
               </ScrollView>

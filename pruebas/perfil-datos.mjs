@@ -205,6 +205,11 @@
  *    filas compactas con su etiqueta de color y, al tocarlas, el detalle por bloques con las acciones abajo («Abrir
  *    todas»); 360/390/1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px y sin errores. Se lanza
  *    con SOLO = PANRED1 y en la pasada completa.
+ *  - PANRED2) Tanda 2 del rediseño: Administración → Productos, Reservas con señal y Escaparate VeoAura con el mismo estilo
+ *    (cifras que filtran, buscador de 16 px, pastillas con su recuento, filas compactas con miniatura y etiqueta de color:
+ *    A la venta, Borrador, Oculto, Reservado, Vendido (pedido VZ-…), Revisado, Peso estimado…; al tocarlas, el detalle
+ *    por bloques con las acciones abajo; formularios por bloques); 360/390/1280 sin desbordar, táctiles de 44 px, letra de
+ *    13 px o más, campos de 16 px y sin errores. Datos FICTICIOS. Se lanza con SOLO = PANRED2 y en la pasada completa.
  *  - RESEN) Reservar con señal (mejora 14): apagada, ni la ficha ni Mis seguimientos enseñan nada; Administración no deja
  *    activar sin reglas ni sin «Revisado por mi gestor» (borrador marcado, escala 1-70 %); activa, la ficha calcula el % y
  *    los € según los días, la casilla es obligatoria y «Pagar señal» solo manda artículo y días; sin cuenta invita; «Mis
@@ -3635,7 +3640,8 @@ async function seccionNO() {
     await ctx.close();
   }
 
-  // NO6) Productos: lo mismo que Categorías (buscador arriba, fichas en rejilla, «+» flotante y acciones con iconos).
+  // NO6) Productos: lo mismo que Categorías (buscador arriba, filas compactas una debajo de otra desde el rediseño PANRED2
+  // (antes, fichas en rejilla), «+» flotante y acciones con iconos: el lápiz en la fila; el resto, en su detalle desplegado).
   {
     const prod = (n, extra = {}) => ({
       id: `p0000000-0000-4000-8000-00000000000${n}`, title: `Mando DualSense ${n}`, description: "Revisado.", price_eur: 49.9 + n,
@@ -3645,33 +3651,39 @@ async function seccionNO() {
     const estadoP = { filas: perfil(ADMIN.id), guardados: [], categorias: categorias(), productosAdmin: [prod(1), prod(2, { status: "DRAFT" }), prod(3)] };
     const ctx = await contexto(navegador, ADMIN, "admin", estadoP);
     const p = await pagina(ctx, "/admin/products");
-    await p.locator("#productos-rejilla").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#productos-lista").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(600);
+    // Las filas, plegadas (antes de abrir el detalle de las dos que se tocan).
+    const plegadas = await p.evaluate(() => [1, 2, 3].map((n) => {
+      const f = document.querySelector(`#producto-ficha-p0000000-0000-4000-8000-00000000000${n}`)?.getBoundingClientRect();
+      return f ? { x: Math.round(f.x), y: Math.round(f.y), w: Math.round(f.width), h: Math.round(f.height) } : null;
+    }));
+    await p.locator("#producto-fila-p0000000-0000-4000-8000-000000000002").click().catch(() => {});
+    await p.locator("#producto-fila-p0000000-0000-4000-8000-000000000001").click().catch(() => {});
+    await p.waitForTimeout(400);
     const m = await p.evaluate(() => {
       const r = (el) => el?.getBoundingClientRect();
       const buscar = r(document.querySelector("#productos-buscar"));
       const total = Array.from(document.querySelectorAll("*")).find((n) => n.children.length === 0 && n.textContent.trim() === "Total");
-      const fichas = [1, 2, 3].map((n) => r(document.querySelector(`#producto-ficha-p0000000-0000-4000-8000-00000000000${n}`)));
       const mas = r(document.querySelector('[aria-label="Nuevo producto"]'));
       const etiquetas = ["Editar Mando DualSense 2", "Publicar Mando DualSense 2", "Destacar Mando DualSense 2 en portada", "Marcar Mando DualSense 2 como vendido", "Borrar Mando DualSense 2"];
       return {
         buscadorArriba: !!buscar && !!total && buscar.bottom <= r(total).top,
-        fichas: fichas.map((f) => (f ? { x: Math.round(f.x), y: Math.round(f.y), w: Math.round(f.width) } : null)),
         mas: mas ? { derecha: Math.round(window.innerWidth - mas.right), abajo: Math.round(window.innerHeight - mas.bottom) } : null,
         iconos: etiquetas.map((l) => Math.round(r(document.querySelector(`[aria-label="${l}"]`))?.height ?? 0)),
-        conTexto: /(^|\s)(Editar|Borrar|Publicar|Marcar vendido|Destacar en portada)(\s|$)/.test(document.querySelector("#productos-rejilla")?.innerText ?? ""),
+        conTexto: /(^|\s)(Editar|Borrar|Publicar|Marcar vendido|Destacar en portada)(\s|$)/.test(document.querySelector("#productos-lista")?.innerText ?? ""),
         botonTexto: /\+ Nuevo producto/.test(document.body.innerText),
         ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
         pantalla: window.innerWidth,
       };
     });
-    const [a, b, c] = m.fichas;
+    const [a, b, c] = plegadas;
     ok(m.buscadorArriba, "NO: en Productos, el buscador también está arriba de los contadores");
-    ok(!!a && !!b && !!c && a.y === b.y && b.x > a.x && c.y > a.y && a.w < m.pantalla / 2, `NO: los productos van uno al lado de otro, 2 por fila en el móvil (${JSON.stringify(m.fichas)})`);
+    ok(!!a && !!b && !!c && b.y > a.y && c.y > b.y && a.x === b.x && a.h >= 44 && a.h <= 130, `NO: los productos van en filas compactas, una debajo de otra (${JSON.stringify(plegadas)})`);
     ok(!!m.mas && m.mas.derecha <= 24 && m.mas.abajo <= 40 && !m.botonTexto, `NO: «Nuevo producto» es el «+» flotante abajo a la derecha (${JSON.stringify(m.mas)})`);
     ok(m.iconos.every((h) => h >= 44) && !m.conTexto, `NO: editar, publicar, destacar, vendido y borrar son iconos de 44 px con su nombre (${m.iconos.join(", ")})`);
     ok(m.ancho <= m.pantalla + 1, `NO: Productos no se ensancha (${m.ancho}/${m.pantalla})`);
-    await capturar(p, "NO6-productos-rejilla");
+    await capturar(p, "NO6-productos-filas");
     await p.locator('[aria-label="Destacar Mando DualSense 1 en portada"]').click();
     for (let i = 0; i < 20 && !(estadoP.productosCambiados ?? []).length; i++) await p.waitForTimeout(250);
     const cambio = (estadoP.productosCambiados ?? [])[0];
@@ -13169,7 +13181,8 @@ async function seccionTM4() {
       estado: () => ({ guardados: [], tarifas: [], pedidosAdmin: [pedido(91, {}), pedido(92, { estado: "enviado", pago_estado: null, pago_modo: null, pago_metodo: null })] }),
     },
     {
-      etiqueta: "Productos", ruta: "/admin/products", espera: "#productos-rejilla",
+      // (desde el rediseño PANRED2, filas compactas en #productos-lista; se mide también con la primera desplegada)
+      etiqueta: "Productos", ruta: "/admin/products", espera: "#productos-lista", abrir: (p) => p.locator('[id^="producto-fila-"]').first().click({ timeout: 8000 }),
       estado: () => ({
         guardados: [], filas: [], categorias: [{ id: PS5, slug: "playstation-5", name: "PlayStation 5", sort_order: 1, is_active: true }],
         productosAdmin: [1, 2].map((n) => ({
@@ -14916,20 +14929,23 @@ async function seccionFCONF() {
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
     const p = await pagina(ctx, "/admin/products");
+    // (desde el rediseño PANRED2, la revisión va plegada en «Más filtros», como en Pedidos)
+    await p.locator("#productos-mas-filtros").click({ timeout: 30000 }).catch(() => {});
     await p.locator("#productos-filtro-revisados").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(500);
     ok(/1 revisado · 1 con garantía/.test(await texto(p, "#productos-filtro-revisados")), `FCONF (${nombre}): Productos cuenta «1 revisado · 1 con garantía» (${await texto(p, "#productos-filtro-revisados")})`);
     ok((await texto(p, `#producto-revisado-${A}`)) === "✓ Revisado · Garantía 12 meses" && (await p.locator(`#producto-revisado-${B}`).count()) === 0, `FCONF (${nombre}): en la lista, «✓ Revisado · Garantía 12 meses» solo en el marcado (${await texto(p, `#producto-revisado-${A}`)})`);
-    await p.locator("#productos-filtro-revisados").getByText("Revisados", { exact: true }).click();
+    // (desde el rediseño PANRED2 las pastillas llevan su recuento: «Revisados (1)», «Sin revisar (1)», «Todos (2)»)
+    await p.locator("#productos-filtro-revisados").getByText(/^Revisados \(\d+\)$/).click();
     await p.waitForTimeout(300);
     const visibles = await p.evaluate(() => [...document.querySelectorAll('[id^="producto-ficha-"]')].map((e) => e.id));
     ok(visibles.length === 1 && visibles[0] === `producto-ficha-${A}`, `FCONF (${nombre}): el filtro «Revisados» deja solo el revisado (${JSON.stringify(visibles)})`);
-    await p.locator("#productos-filtro-revisados").getByText("Sin revisar", { exact: true }).click();
+    await p.locator("#productos-filtro-revisados").getByText(/^Sin revisar \(\d+\)$/).click();
     await p.waitForTimeout(300);
     const sinRev = await p.evaluate(() => [...document.querySelectorAll('[id^="producto-ficha-"]')].map((e) => e.id));
     ok(sinRev.length === 1 && sinRev[0] === `producto-ficha-${B}`, `FCONF (${nombre}): «Sin revisar» deja el otro (${JSON.stringify(sinRev)})`);
     await capturar(p, `FCONF6-productos-${nombre}`);
-    await p.locator("#productos-filtro-revisados").getByText("Todos", { exact: true }).click();
+    await p.locator("#productos-filtro-revisados").getByText(/^Todos \(\d+\)$/).click();
     await p.waitForTimeout(300);
     await p.locator('[aria-label="Editar Mando DualSense"]').click();
     await p.locator("#producto-confianza").waitFor({ timeout: 10000 }).catch(() => {});
@@ -14965,9 +14981,10 @@ async function seccionFCONF() {
     const estado = { guardados: [], filas: perfilAdmin, categorias: [], productosAdmin: [fila(A, "Consola PS5 Slim"), fila(B, "Mando DualSense")] };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/products");
-    await p.locator("#productos-rejilla").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#productos-lista").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#productos-mas-filtros").click().catch(() => {});
     await p.waitForTimeout(500);
-    ok((await p.locator("#productos-filtro-revisados").count()) === 0, "FCONF: sin la columna, Productos no enseña el filtro «Revisados»");
+    ok((await p.locator("#productos-filtro-visibilidad").count()) === 1 && (await p.locator("#productos-filtro-revisados").count()) === 0, "FCONF: sin la columna, Productos no enseña el filtro «Revisados» (ni con «Más filtros» abierto)");
     await p.locator('[aria-label="Editar Mando DualSense"]').click();
     await p.getByText("Guardar cambios", { exact: true }).last().waitFor({ timeout: 10000 }).catch(() => {});
     await p.waitForTimeout(400);
@@ -18584,11 +18601,16 @@ async function seccionRESEN() {
     const datos = await texto(p, "#reserva-datos-d0000000-0000-4000-8000-000000000001");
     ok(/Señal 112,50 € \(25 % de 450,00 €\) · 10 días · vence el /.test(datos), `RESEN2 (${nombre}): cada reserva con su señal, el precio, los días y el vencimiento (${datos})`);
     ok((await texto(p, "#reservas-uso-cifras")) === "Hojas abiertas 4 · a pagar 2 · señales pagadas 1", `RESEN2 (${nombre}): el uso de 30 días (${await texto(p, "#reservas-uso-cifras")})`);
+    // (desde el rediseño PANRED2 las acciones van en el detalle de la fila: se despliega tocándola)
     await p.locator("#reservas-filtro-vencidas").click();
     await p.waitForTimeout(300);
+    await p.locator("#reserva-fila-d0000000-0000-4000-8000-000000000002").click().catch(() => {});
+    await p.waitForTimeout(200);
     ok(/Vencida \(sin marcar\)/.test(await texto(p, "#reserva-estado-d0000000-0000-4000-8000-000000000002")) && (await p.locator("#reserva-vencida-d0000000-0000-4000-8000-000000000002").count()) === 1, `RESEN2 (${nombre}): la vencida sin marcar sale con «Marcar vencida»`);
     await p.locator("#reservas-filtro-activas").click();
     await p.waitForTimeout(300);
+    await p.locator("#reserva-fila-d0000000-0000-4000-8000-000000000001").click().catch(() => {});
+    await p.waitForTimeout(200);
     ok((await alto(p, "#reserva-cancelada-d0000000-0000-4000-8000-000000000001")) >= 44, `RESEN2 (${nombre}): «Cancelar» mide 44 px`);
     await p.locator("#reservas-lista").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, `RESEN2-admin-lista-${nombre}`);
@@ -20065,6 +20087,310 @@ async function seccionPANRED1() {
   }
 }
 
+// ===== PANRED2) Tanda 2 del rediseño (2026-11-16): Administración → Productos, Reservas con señal y Escaparate VeoAura con
+// el estilo de Usuarios, Pedidos y la tanda 1 (components/admin/PanelUI.tsx): cifras que filtran, buscador de 16 px,
+// pastillas con su recuento, filas compactas con miniatura y etiqueta de color, el detalle por bloques al tocar una fila
+// (con las acciones abajo) y los formularios por bloques; 360, 390 y 1280 sin desbordar, táctiles de 44 px, letra de 13 px
+// o más, campos de 16 px y sin errores. Datos FICTICIOS (nada llega a la base de datos real). ==========================
+async function seccionPANRED2() {
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const ahora = new Date().toISOString();
+  const dias = (n) => new Date(Date.now() + n * 86_400_000).toISOString();
+  const foto = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/panred2/ps5.jpg";
+  const P = (n) => `p0000000-0000-4000-8000-0000000008${n}0`;
+  const PEDIDO = "d8000000-0000-4000-8000-000000000801";
+  const prod = (n, title, extra = {}) => ({
+    id: P(n), title, description: "Revisado y limpio.", price_eur: 100 + n, status: "PUBLISHED", is_active: true, category_id: null, images: [], condition: "GOOD",
+    reference: null, is_featured_home: false, created_at: "2026-11-01T10:00:00Z", updated_at: "2026-11-10T10:00:00Z", peso_kg: null, peso_estimado: false,
+    solo_entrega_mano: false, revisado: false, garantia_meses: null, vendido_en: null, vendido_pedido_id: null, reservado_hasta: null, ...extra,
+  });
+  const PRODUCTOS = () => [
+    prod(1, "PlayStation 5 Slim", { is_featured_home: true, revisado: true, garantia_meses: 12, peso_kg: 3.2, peso_estimado: true, reference: "PS5-001" }),
+    prod(2, "Mando DualSense", { status: "DRAFT" }),
+    prod(3, "Xbox Series S", { is_active: false, peso_kg: 2.5, vendido_en: "2026-11-15T08:45:01Z", vendido_pedido_id: PEDIDO }),
+    prod(4, "Nintendo Switch OLED", { peso_kg: 0.9, reservado_hasta: dias(5) }),
+    prod(5, "Televisor 55 pulgadas", { status: "REVIEW", is_active: false, solo_entrega_mano: true }),
+  ];
+  const R = (n) => `d0000000-0000-4000-8000-0000000008a${n}`;
+  const reserva = (n, estado, venceDias, extra = {}) => ({
+    id: R(n), producto_titulo: "Playstation 5 Slim Con Lector", product_id: P(1), dias: 10, porcentaje: 25, senal_eur: 112.5, precio_eur: 450,
+    vence_en: dias(venceDias), estado, tipo_arras: "penitenciales", creado_en: dias(-1), pagado_en: estado === "pendiente_pago" ? null : dias(-1), ...extra,
+  });
+  const RESERVAS = [
+    reserva(1, "activa", 5),
+    reserva(2, "activa", -1),
+    reserva(3, "completada", -3),
+    reserva(4, "cancelada", 2, { producto_titulo: "Mando DualSense", senal_eur: 6, porcentaje: 10, precio_eur: 60, dias: 3 }),
+    reserva(5, "pendiente_pago", 3, { producto_titulo: "Xbox Series S", senal_eur: 20, porcentaje: 10, precio_eur: 200 }),
+  ];
+  const AJUSTES = { id: 1, activa: false, escala: null, dias_max: null, tipo_arras: null, al_vencer: null, texto_condiciones: null, condiciones_revisadas: false };
+  const S = (n) => `0e000000-0000-4000-8000-0000000008b${n}`;
+  const salida = (n, evento, est) => ({ id: S(n), creado_en: `2026-11-1${n}T10:00:00Z`, evento, id_veoaura: "VA-81", pedido_id: `0b000000-0000-4000-8000-0000000008b${n}`, estado: est, intentos: est === "error" ? 2 : 1, enviado_en: est === "enviado" ? "2026-11-12T10:05:00Z" : null, detalle: est === "error" ? "VeoAura no respondió (500)" : null });
+  const SALIDAS = [salida(1, "pedido", "pendiente"), salida(2, "pedido_pagado", "enviado"), salida(3, "pedido_anulado", "error")];
+  const ARTICULOS = [
+    { id: "0c000000-0000-4000-8000-000000000881", id_veoaura: "VA-81", title: "Nintendo Switch Lite turquesa", price_eur: 129, is_active: true, vendido_en: null, retirado_en: null, view_count: 12, like_count: 3 },
+    { id: "0c000000-0000-4000-8000-000000000882", id_veoaura: "VA-82", title: "Game Boy Advance SP", price_eur: 89, is_active: false, vendido_en: "2026-11-14T10:00:00Z", retirado_en: null, view_count: 40, like_count: 9 },
+  ];
+  const REGISTRO = [
+    { id: 1, recibido_en: "2026-11-15T09:00:00Z", evento: "factura", resultado: "ok", http: 200, detalle: "VJZ-2026-000081" },
+    { id: 2, recibido_en: "2026-11-15T08:00:00Z", evento: "publicar", resultado: "error", http: 500, detalle: "Foto no válida" },
+  ];
+  const AVISOS = [{ producto_id: P(2), estado: "pendiente", intentos: 0, enviado_en: null, detalle: "Esperando al puente", creado_en: "2026-11-15T07:00:00Z" }];
+
+  const limpio = (t) => String(t ?? "").replace(/[\uE000-\uF8FF]/g, "").replace(/\s+/g, " ").trim();
+  const texto = async (p, sel) => limpio(await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => ""));
+  const pastillas = async (p, sel) => (await p.evaluate((s) => [...document.querySelectorAll(`${s} [role="button"]`)].map((b) => ({ t: b.innerText, h: Math.round(b.getBoundingClientRect().height) })), sel)).map((x) => ({ ...x, t: limpio(x.t) }));
+  const caja = (p, sel) => p.evaluate((s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? { y: Math.round(r.y), bottom: Math.round(r.bottom), h: Math.round(r.height), w: Math.round(r.width) } : null; }, sel);
+  const letra = (p, sel) => p.evaluate((s) => (document.querySelector(s) ? parseFloat(getComputedStyle(document.querySelector(s)).fontSize) : 0), sel);
+  const fondo = (p, sel) => p.evaluate((s) => (document.querySelector(s) ? getComputedStyle(document.querySelector(s)).backgroundColor : ""), sel);
+  const ids = (p, sel) => p.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.id), sel);
+  // Letra < 13 px, táctiles < 44 × 44 (los más externos), campos de menos de 16 px y el ancho de la página.
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily)) continue;
+        if (parseFloat(cs.fontSize) < 13) pequenos.push(`${t.slice(0, 30)} ${cs.fontSize}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[tabindex="0"]';
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      const campos = [...document.querySelectorAll("input,textarea")].filter((el) => !["checkbox", "radio", "file", "range", "hidden"].includes(el.type) && visible(el));
+      const camposChicos = campos.filter((el) => parseFloat(getComputedStyle(el).fontSize) < 16).map((el) => `${el.id || el.placeholder || el.tagName} ${getComputedStyle(el).fontSize}`);
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, campos: campos.length, camposChicos: camposChicos.slice(0, 8), ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    });
+  const comprobarDiseno = async (p, nombre, pantalla, momento) => {
+    const m = await medir(p);
+    ok(m.ancho <= m.v + 1, `PANRED2 (${nombre}): ${pantalla}, ${momento}, la página no se sale por los lados (${m.ancho}/${m.v})`);
+    ok(m.n >= 5 && !m.chicos.length, `PANRED2 (${nombre}): ${pantalla}, ${momento}, todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+    ok(!m.pequenos.length, `PANRED2 (${nombre}): ${pantalla}, ${momento}, ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+    ok(m.campos >= 1 && !m.camposChicos.length, `PANRED2 (${nombre}): ${pantalla}, ${momento}, los campos a 16 px (${m.campos} campos; ${m.camposChicos.join(" | ") || "ninguno pequeño"})`);
+  };
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `PANRED2: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+  const respuesta = (r, datos) => r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(datos) });
+  // Las acciones van debajo de los bloques del detalle.
+  const accionesAbajo = (p, detalle, acciones) =>
+    p.evaluate(([d, a]) => {
+      const bloques = [...(document.querySelector(d)?.children[0]?.children ?? [])].map((e) => e.getBoundingClientRect().bottom);
+      const acc = document.querySelector(a)?.getBoundingClientRect();
+      return { bloques: bloques.length ? Math.max(...bloques) : 0, acciones: acc ? acc.top : 0, alto: acc ? acc.height : 0 };
+    }, [detalle, acciones]);
+
+  for (const { nombre, vista } of VISTAS) {
+    // --- Productos ---
+    await bloque(`Productos ${nombre}`, async () => {
+      const estado = {
+        guardados: [], filas: [], categorias: [], productosAdmin: PRODUCTOS(),
+        productosMedia: [{ id: "m0000000-0000-4000-8000-000000000801", product_id: P(1), kind: "image", storage_path: "panred2/ps5.jpg", public_url: foto, file_name: "ps5.jpg", mime_type: "image/jpeg", sort_order: 0, is_cover: true, created_at: ahora }],
+        vendp: { referencias: [{ id: PEDIDO, codigo_seguimiento: "VZ-PAN2-0001" }] },
+      };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, "/admin/products");
+      await p.locator(`#producto-fila-${P(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(700);
+      const cifras = await texto(p, "#productos-cifras");
+      ok(/5 Total/.test(cifras) && /3 Publicados/.test(cifras) && /3 Visibles/.test(cifras) && /2 Ocultos/.test(cifras) && /1 Destacados portada/.test(cifras) && /1 Vendidos/.test(cifras), `PANRED2 (${nombre}): Productos, las cifras (${cifras})`);
+      const b = await caja(p, "#productos-buscar-caja");
+      const c = await caja(p, "#productos-cifras");
+      ok(!!b && !!c && b.bottom <= c.y && b.h >= 44 && (await letra(p, "#productos-buscar")) >= 16, `PANRED2 (${nombre}): Productos, el buscador de 16 px arriba de las cifras (${JSON.stringify(b)})`);
+      const fase = await pastillas(p, "#productos-filtro-estado");
+      ok(fase.map((x) => x.t).join(" · ") === "Todos (5) · Borrador (1) · Por revisar (1) · Publicado (3) · Más filtros" && (await p.locator("#productos-filtro-visibilidad").count()) === 0, `PANRED2 (${nombre}): Productos, la fase a la vista y lo demás plegado en «Más filtros» (${fase.map((x) => x.t).join(" · ")})`);
+      await p.locator("#productos-mas-filtros").click();
+      await p.waitForTimeout(300);
+      const vis = await pastillas(p, "#productos-filtro-visibilidad");
+      const rev = await pastillas(p, "#productos-filtro-revisados");
+      const mas = await pastillas(p, "#productos-filtro-mas");
+      ok(vis.map((x) => x.t).join(" · ") === "Todos (5) · Visibles (3) · Ocultos (2)" && rev.map((x) => x.t).join(" · ") === "Todos (5) · Revisados (1) · Sin revisar (4)", `PANRED2 (${nombre}): Productos, «Más filtros» abre en la tienda y revisión con su recuento (${vis.map((x) => x.t).join(" · ")} | ${rev.map((x) => x.t).join(" · ")})`);
+      ok(mas.map((x) => x.t).join(" · ") === "Todos (5) · Destacados (1) · Vendidos (1) · Reservados (1) · Sin fotos (4) · Sin peso (2) · Peso estimado (1) · Solo en mano (1)", `PANRED2 (${nombre}): Productos, «Más» con destacados, vendidos, reservados, sin fotos y el envío (${mas.map((x) => x.t).join(" · ")})`);
+      ok([...fase, ...vis, ...rev, ...mas].every((x) => x.h >= 44), `PANRED2 (${nombre}): Productos, las pastillas miden 44 px`);
+      ok(/1 revisado · 1 con garantía/.test(await texto(p, "#productos-filtro-revisados")), `PANRED2 (${nombre}): Productos, la revisión dice «1 revisado · 1 con garantía»`);
+      // Fila compacta: foto pequeña, título, etiqueta de color y las etiquetas.
+      const f1 = await texto(p, `#producto-ficha-${P(1)}`);
+      const alto = (await caja(p, `#producto-fila-${P(1)}`))?.h ?? 0;
+      ok(/PlayStation 5 Slim A la venta/.test(f1) && /101,00€/.test(f1) && (nombre !== "1280" || /Ref\. PS5-001/.test(f1)) && /1 foto/.test(f1) && /Peso estimado: 3,2 kg/.test(f1) && /✓ Revisado · Garantía 12 meses/.test(f1) && /★ Destacado/.test(f1) && (await p.locator(`#producto-fila-${P(1)} img`).count()) >= 1 && alto >= 44 && alto <= 150, `PANRED2 (${nombre}): Productos, la fila compacta con su foto, estado, precio y etiquetas (${f1} · ${alto} px)`);
+      const estados = [await texto(p, `#producto-estado-${P(1)}`), await texto(p, `#producto-estado-${P(2)}`), await texto(p, `#producto-vendido-${P(3)}`), await texto(p, `#producto-estado-${P(4)}`), await texto(p, `#producto-estado-${P(5)}`)];
+      ok(estados.join(" | ") === "A la venta | Borrador | Vendido (pedido VZ-PAN2-0001) | Reservado | Oculto", `PANRED2 (${nombre}): Productos, cada estado con su etiqueta (${estados.join(" | ")})`);
+      const fondos = [await fondo(p, `#producto-estado-${P(1)}`), await fondo(p, `#producto-estado-${P(2)}`), await fondo(p, `#producto-vendido-${P(3)}`), await fondo(p, `#producto-estado-${P(4)}`), await fondo(p, `#producto-estado-${P(5)}`)];
+      ok(new Set(fondos).size === 5, `PANRED2 (${nombre}): Productos, cada estado con su color (${fondos.join(" · ")})`);
+      ok(/Sin peso/.test(await texto(p, `#producto-peso-${P(2)}`)) && /Solo en mano/.test(await texto(p, `#producto-solo-mano-${P(5)}`)) && /Sin fotos/.test(await texto(p, `#producto-fotos-${P(2)}`)), `PANRED2 (${nombre}): Productos, «Sin peso», «Solo en mano» y «Sin fotos» a la vista`);
+      await capturar(p, `PANRED2-${nombre}-productos-lista`);
+      await comprobarDiseno(p, nombre, "Productos", "la lista");
+      // Buscador (por la referencia del pedido y la del artículo), pastillas y cifras.
+      await p.locator("#productos-buscar").fill("VZ-PAN2");
+      await p.waitForTimeout(300);
+      ok((await texto(p, "#productos-recuento")) === "1 producto encontrado" && JSON.stringify(await ids(p, '[id^="producto-ficha-"]')) === JSON.stringify([`producto-ficha-${P(3)}`]), `PANRED2 (${nombre}): Productos, el buscador encuentra por el nº de pedido VZ- (${await texto(p, "#productos-recuento")})`);
+      await p.locator("#productos-buscar").fill("ps5-001");
+      await p.waitForTimeout(300);
+      ok(JSON.stringify(await ids(p, '[id^="producto-ficha-"]')) === JSON.stringify([`producto-ficha-${P(1)}`]), `PANRED2 (${nombre}): Productos, y por la referencia del artículo`);
+      await p.locator("#productos-buscar").fill("");
+      await p.locator("#productos-visibilidad-hidden").click();
+      await p.waitForTimeout(300);
+      const ocultos = await ids(p, '[id^="producto-ficha-"]');
+      await p.locator("#productos-cifra-total").click();
+      await p.locator("#productos-cifra-vendidos").click();
+      await p.waitForTimeout(300);
+      const vendidos = await ids(p, '[id^="producto-ficha-"]');
+      ok(JSON.stringify(ocultos) === JSON.stringify([`producto-ficha-${P(3)}`, `producto-ficha-${P(5)}`]) && JSON.stringify(vendidos) === JSON.stringify([`producto-ficha-${P(3)}`]) && (await p.locator("#productos-quitar-filtros").count()) === 1, `PANRED2 (${nombre}): Productos, la pastilla «Ocultos» y la cifra «Vendidos» filtran (${ocultos.join(",")} · ${vendidos.join(",")})`);
+      await p.locator("#productos-quitar-filtros").click();
+      await p.waitForTimeout(300);
+      ok((await p.locator('[id^="producto-ficha-"]').count()) === 5, "PANRED2: Productos, «Quitar los filtros» las vuelve a enseñar todas");
+      // Detalle por bloques y acciones abajo.
+      await p.locator(`#producto-fila-${P(1)}`).click();
+      await p.waitForTimeout(400);
+      const d = await texto(p, `#producto-detalle-${P(1)}`);
+      ok((await p.locator(`#producto-fila-${P(1)}`).getAttribute("aria-expanded")) === "true" && /Venta/.test(d) && /Ficha/.test(d) && /Envío y VeoAura/.test(d) && /Referencia: PS5-001/.test(d) && /Garantía: 12 meses/.test(d) && /Peso con embalaje: 3,2 kg \(estimado/.test(d) && /Portada: Destacado en Inicio/.test(d), `PANRED2 (${nombre}): Productos, al tocar la fila se despliega por bloques (${d.slice(0, 200)})`);
+      const orden = await accionesAbajo(p, `#producto-detalle-${P(1)}`, `#producto-acciones-${P(1)}`);
+      const iconos = await p.evaluate((t) => ["Quitar " + t + " de destacados en portada", "Marcar " + t + " como vendido", "Borrar " + t, "Ocultar " + t].map((l) => Math.round(document.querySelector(`[aria-label="${l}"]`)?.getBoundingClientRect().height ?? 0)), "PlayStation 5 Slim");
+      ok(orden.acciones >= orden.bloques - 1 && orden.alto >= 44 && iconos.slice(0, 3).every((h) => h >= 44) && iconos[3] > 0, `PANRED2 (${nombre}): Productos, las acciones (visible, destacar, vendido y borrar) van abajo y miden 44 px (${JSON.stringify(orden)} · ${iconos.join(",")})`);
+      await p.locator(`#producto-detalle-${P(1)}`).scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `PANRED2-${nombre}-productos-detalle`);
+      await comprobarDiseno(p, nombre, "Productos", "con el detalle abierto");
+      await p.locator(`#producto-fila-${P(1)}`).click();
+      await p.waitForTimeout(300);
+      ok((await p.locator(`#producto-detalle-${P(1)}`).count()) === 0, `PANRED2 (${nombre}): Productos, otro toque lo pliega`);
+      // El formulario, por bloques.
+      await p.locator('[aria-label="Editar PlayStation 5 Slim"]').click();
+      await p.locator("#producto-ventana-pie").waitFor({ timeout: 10000 }).catch(() => {});
+      await p.waitForTimeout(500);
+      const bloques = await p.evaluate(() => ["producto-bloque-datos", "producto-bloque-envio", "producto-confianza", "producto-bloque-fotos", "producto-bloque-fase"].map((id) => !!document.getElementById(id)));
+      ok(bloques.every(Boolean), `PANRED2 (${nombre}): Productos, el formulario va por bloques (datos, envío, revisión, fotos y fase) (${JSON.stringify(bloques)})`);
+      await capturar(p, `PANRED2-${nombre}-productos-formulario`);
+      await comprobarDiseno(p, nombre, "Productos", "con el formulario abierto");
+      await p.locator('[aria-label="Cerrar"]').last().click();
+      await p.waitForTimeout(300);
+      ok(p.errores.length === 0, `PANRED2 (${nombre}): Productos sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+
+    // --- Reservas con señal ---
+    await bloque(`Reservas ${nombre}`, async () => {
+      const rs = { ajustes: { ...AJUSTES }, reservas: RESERVAS, eventos: [{ event_name: "reserva_abierta" }, { event_name: "reserva_abierta" }, { event_name: "reserva_pagar" }] };
+      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: [] }, vista);
+      await ctx.route("**/rest/v1/reserva_ajustes*", (r) => (r.request().method() === "OPTIONS" ? r.fallback() : respuesta(r, rs.ajustes)));
+      await ctx.route("**/rest/v1/reservas*", (r) => (r.request().method() === "OPTIONS" ? r.fallback() : respuesta(r, rs.reservas)));
+      await ctx.route("**/rest/v1/analytics_events*", (r) => (r.request().method() === "GET" ? respuesta(r, rs.eventos) : r.fallback()));
+      await ctx.route("**/api/pago*", (r) => {
+        rs.posts = [...(rs.posts ?? []), JSON.parse(r.request().postData() ?? "{}")];
+        return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, estado: "cancelada" }) });
+      });
+      const p = await pagina(ctx, "/admin/reservas");
+      await p.locator("#reservas-cifras").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const cifras = await texto(p, "#reservas-cifras");
+      ok(/2 Activas/.test(cifras) && /1 Vencidas/.test(cifras) && /1 Completadas/.test(cifras) && /112,50 € Señal de las activas/.test(cifras), `PANRED2 (${nombre}): Reservas, las cifras (${cifras})`);
+      ok((await texto(p, "#reservas-uso-cifras")) === "Hojas abiertas 2 · a pagar 1 · señales pagadas 0", `PANRED2 (${nombre}): Reservas, el uso de 30 días`);
+      const pas = await pastillas(p, "#reservas-filtros");
+      ok(pas.map((x) => x.t).join(" · ") === "Activas (2) · Vencidas (1) · Completadas (1) · Canceladas (1) · Todas (5)" && pas.every((x) => x.h >= 44), `PANRED2 (${nombre}): Reservas, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      const bb = await caja(p, "#reservas-buscar-caja");
+      ok(!!bb && bb.h >= 44 && (await letra(p, "#reservas-buscar")) >= 16, `PANRED2 (${nombre}): Reservas, el buscador de 16 px`);
+      // Apagadas: las reglas van primero, por bloques.
+      const orden = await p.evaluate(() => [document.getElementById("reservas-ajustes")?.getBoundingClientRect().top ?? 0, document.getElementById("reservas-lista")?.getBoundingClientRect().top ?? 0]);
+      const bloquesReglas = await p.evaluate(() => ["reservas-bloque-estado", "reservas-bloque-escala", "reservas-bloque-plazo", "reservas-bloque-textos"].map((id) => !!document.getElementById(id)));
+      ok(orden[0] < orden[1] && bloquesReglas.every(Boolean), `PANRED2 (${nombre}): Reservas, apagadas, las reglas (por bloques) van antes que la lista (${orden.map(Math.round).join(" < ")} · ${JSON.stringify(bloquesReglas)})`);
+      const f1 = await texto(p, `#reserva-${R(1)}`);
+      const alto = (await caja(p, `#reserva-fila-${R(1)}`))?.h ?? 0;
+      ok(/Playstation 5 Slim Con Lector Activa/.test(f1) && /Señal 112,50 € \(25 % de 450,00 €\) · 10 días · vence el/.test(f1) && alto >= 44 && alto <= 140, `PANRED2 (${nombre}): Reservas, la fila compacta (${f1} · ${alto} px)`);
+      ok((await fondo(p, `#reserva-estado-${R(1)}`)) !== (await fondo(p, `#reserva-estado-${R(5)}`)) && /Pendiente de pago/.test(await texto(p, `#reserva-estado-${R(5)}`)), `PANRED2 (${nombre}): Reservas, cada estado con su color`);
+      await p.locator("#reservas-lista").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `PANRED2-${nombre}-reservas-lista`);
+      await comprobarDiseno(p, nombre, "Reservas", "la lista");
+      await p.locator("#reservas-filtro-todas").click();
+      await p.locator("#reservas-buscar").fill("mando");
+      await p.waitForTimeout(300);
+      ok((await texto(p, "#reservas-recuento")) === "1 reserva encontrada" && (await p.locator(`#reserva-${R(4)}`).count()) === 1, `PANRED2 (${nombre}): Reservas, el buscador encuentra por el artículo (${await texto(p, "#reservas-recuento")})`);
+      await p.locator("#reservas-buscar").fill("");
+      await p.locator("#reservas-cifra-vencidas").click();
+      await p.waitForTimeout(300);
+      ok(JSON.stringify(await ids(p, '[id^="reserva-fila-"]')) === JSON.stringify([`reserva-fila-${R(2)}`]), `PANRED2 (${nombre}): Reservas, la cifra «Vencidas» filtra`);
+      await p.locator("#reservas-filtro-activas").click();
+      await p.locator(`#reserva-fila-${R(1)}`).click();
+      await p.waitForTimeout(400);
+      const d = await texto(p, `#reserva-detalle-${R(1)}`);
+      ok(/Señal/.test(d) && /Plazo/.test(d) && /Condiciones/.test(d) && /Queda por pagar: 337,50 €/.test(d) && /Arras: penitenciales/.test(d), `PANRED2 (${nombre}): Reservas, al tocar la fila se despliega por bloques (${d.slice(0, 200)})`);
+      const acc = await p.evaluate((id) => ["completada", "cancelada"].map((e) => Math.round(document.getElementById(`reserva-${e}-${id}`)?.getBoundingClientRect().height ?? 0)), R(1));
+      const ab = await p.evaluate((id) => ({ bloques: Math.max(...[...(document.getElementById(`reserva-detalle-${id}`)?.children[0]?.children ?? [])].map((e) => e.getBoundingClientRect().bottom)), boton: document.getElementById(`reserva-cancelada-${id}`)?.getBoundingClientRect().top ?? 0 }), R(1));
+      ok(acc.every((h) => h >= 44) && ab.boton >= ab.bloques - 1, `PANRED2 (${nombre}): Reservas, «Marcar completada» y «Cancelar» van abajo y miden 44 px (${acc.join(",")} · ${JSON.stringify(ab)})`);
+      await p.locator(`#reserva-detalle-${R(1)}`).scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `PANRED2-${nombre}-reservas-detalle`);
+      await comprobarDiseno(p, nombre, "Reservas", "con el detalle abierto");
+      ok(p.errores.length === 0, `PANRED2 (${nombre}): Reservas sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+
+    // --- Escaparate VeoAura ---
+    await bloque(`Escaparate ${nombre}`, async () => {
+      const ctx = await contexto(navegador, ADMIN, "admin", { guardados: [], filas: [], salidas: SALIDAS, articulosVeo: ARTICULOS }, vista);
+      await ctx.route("**/rest/v1/escaparate_registro*", (r) => (r.request().method() === "GET" ? respuesta(r, REGISTRO) : r.fallback()));
+      await ctx.route("**/rest/v1/escaparate_salida_productos*", (r) => (r.request().method() === "GET" ? respuesta(r, AVISOS) : r.fallback()));
+      await ctx.route("**/rest/v1/products*", (r) => (r.request().method() === "GET" && new URL(r.request().url()).searchParams.get("select") === "id,title,id_veoaura" ? respuesta(r, [{ id: P(2), title: "Mando DualSense", id_veoaura: null }]) : r.fallback()));
+      const p = await pagina(ctx, "/admin/escaparate");
+      await p.locator(`#escaparate-venta-${S(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const cifras = await texto(p, "#escaparate-cifras");
+      ok(/2 Ventas sin confirmar/.test(cifras) && /1 A la venta/.test(cifras) && /2 Recibidos de VeoAura/.test(cifras) && /1 Fichas de cliente/.test(cifras) && /0 Productos en VeoAura/.test(cifras) && /1 Facturas recibidas/.test(cifras), `PANRED2 (${nombre}): Escaparate, las cifras (${cifras})`);
+      ok(/Fichas de cliente enviadas a VeoAura: 1 · solo de pedidos entregados/.test(await texto(p, "#escaparate-fichas-clientes")) && /Productos de la tienda en VeoAura: 0 · pendientes: 1/.test(await texto(p, "#escaparate-productos-tienda")), `PANRED2 (${nombre}): Escaparate, siguen las líneas del resumen`);
+      const pas = await pastillas(p, "#escaparate-filtros");
+      ok(pas.map((x) => x.t).join(" · ") === "Todo (8) · Pendientes (3) · Ventas (3) · Productos de la tienda (1) · Escaparate (2) · Mensajes (2)" && pas.every((x) => x.h >= 44), `PANRED2 (${nombre}): Escaparate, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      const bb = await caja(p, "#escaparate-buscar-caja");
+      ok(!!bb && bb.h >= 44 && (await letra(p, "#escaparate-buscar")) >= 16, `PANRED2 (${nombre}): Escaparate, el buscador de 16 px`);
+      const v1 = await texto(p, `#escaparate-venta-${S(1)}`);
+      const alto = (await caja(p, `#escaparate-venta-${S(1)}-fila`))?.h ?? 0;
+      ok(/Nintendo Switch Lite turquesa Pendiente de avisar/.test(v1) && /Pedido · /.test(v1) && alto >= 44 && alto <= 140, `PANRED2 (${nombre}): Escaparate, la venta en una fila compacta (${v1} · ${alto} px)`);
+      const fondos = [await fondo(p, `#escaparate-venta-estado-${S(1)}`), await fondo(p, `#escaparate-venta-estado-${S(2)}`), await fondo(p, `#escaparate-venta-estado-${S(3)}`)];
+      ok(new Set(fondos).size === 3 && /Error al avisar/.test(await texto(p, `#escaparate-venta-${S(3)}`)), `PANRED2 (${nombre}): Escaparate, cada aviso con su color (${fondos.join(" · ")})`);
+      ok(/Game Boy Advance SP Vendido/.test(await texto(p, "#escaparate-articulo-0c000000-0000-4000-8000-000000000882")) && /factura Correcto/.test(await texto(p, "#escaparate-mensaje-1")) && /publicar Error 500/.test(await texto(p, "#escaparate-mensaje-2")), `PANRED2 (${nombre}): Escaparate, artículos y mensajes con su etiqueta`);
+      await capturar(p, `PANRED2-${nombre}-escaparate-lista`);
+      await comprobarDiseno(p, nombre, "Escaparate", "la lista");
+      await p.locator("#escaparate-filtro-pendientes").click();
+      await p.waitForTimeout(300);
+      const pend = await ids(p, '[id^="escaparate-venta-"][id$="-fila"]');
+      ok(JSON.stringify(pend) === JSON.stringify([`escaparate-venta-${S(1)}-fila`, `escaparate-venta-${S(3)}-fila`]) && (await p.locator("#escaparate-articulos").count()) === 0 && (await p.locator("#escaparate-productos").count()) === 1, `PANRED2 (${nombre}): Escaparate, «Pendientes» deja solo lo que falta por avisar (${pend.join(",")})`);
+      await p.locator("#escaparate-filtro-todo").click();
+      await p.locator("#escaparate-buscar").fill("game boy");
+      await p.waitForTimeout(300);
+      ok((await p.locator('[id^="escaparate-articulo-"][id$="-fila"]').count()) === 1 && (await p.locator('[id^="escaparate-venta-"][id$="-fila"]').count()) === 0, `PANRED2 (${nombre}): Escaparate, el buscador filtra todas las listas`);
+      await p.locator("#escaparate-buscar").fill("");
+      await p.locator(`#escaparate-venta-${S(1)}-fila`).click();
+      await p.waitForTimeout(400);
+      const d = await texto(p, `#escaparate-venta-${S(1)}-detalle`);
+      ok(/Aviso a VeoAura/.test(d) && /Pedido/.test(d) && /Intentos: 1/.test(d) && /Ver en Pedidos/.test(d) && /Avisar ahora/.test(d), `PANRED2 (${nombre}): Escaparate, al tocar la venta se despliega por bloques con sus acciones (${d.slice(0, 200)})`);
+      await p.locator("#escaparate-articulo-0c000000-0000-4000-8000-000000000881-fila").click();
+      await p.waitForTimeout(300);
+      ok(/Ver en la tienda/.test(await texto(p, "#escaparate-articulo-0c000000-0000-4000-8000-000000000881-detalle")), `PANRED2 (${nombre}): Escaparate, el artículo a la venta ofrece «Ver en la tienda»`);
+      await p.locator(`#escaparate-venta-${S(1)}`).scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `PANRED2-${nombre}-escaparate-detalle`);
+      await comprobarDiseno(p, nombre, "Escaparate", "con el detalle abierto");
+      ok(p.errores.length === 0, `PANRED2 (${nombre}): Escaparate sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+}
+
 // ===== PEDRED) Rediseño de Administración → Pedidos (dueño, 2026-11-15: «lo veo todo muy confuso»), con el estilo de
 // Usuarios y participación: avisos plegados arriba, cifras que filtran, pastillas con su recuento y «Más filtros», filas
 // compactas con su etiqueta de estado de color, el detalle por bloques al tocar una fila, cancelados y devueltos en gris,
@@ -20301,6 +20627,7 @@ const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "CANCAV") await seccionCANCAV();
   if (SOLO === "PANRED1") await seccionPANRED1();
+  if (SOLO === "PANRED2") await seccionPANRED2();
   if (SOLO === "PEDRED") await seccionPEDRED();
   if (SOLO === "VENDP") await seccionVENDP();
   if (SOLO === "FRANJ") await seccionFRANJ();
@@ -21426,6 +21753,7 @@ try {
   await seccionVENDP();
   await seccionPEDRED();
   await seccionPANRED1();
+  await seccionPANRED2();
   await seccionCANCAV();
   }
 } catch (e) {
