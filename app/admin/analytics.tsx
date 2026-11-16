@@ -87,6 +87,8 @@
  *   pedido_aviso_estado_mostrado / _tocado, seguir_envio y aviso_precio_activado / _desactivado / _mostrado / _tocado /
  *   _invitacion (components/Campanita.tsx, app/producto/[id].tsx, app/(tabs)/perfil.tsx; sin datos personales) y cuántos
  *   clientes siguen cada producto (avisos_precio, migración 20261114160100: solo recuentos, sin nombres; sin ella, no sale).
+ *   Y «Avisos de reposición» (#analitica-avisos-reposicion, dueño 2026-11-16, migración 20261116100000): activos por canal,
+ *   avisados y los eventos aviso_reposicion_activado (canal) / _desactivado / _tocado; sin la tabla, no sale.
  * - «Parecidos y complementos (30 días)» (#analitica-parecidos, mejora 6 del 2026-11-14): eventos parecidos_mostrado,
  *   parecido_tocado, complemento_mostrado (ficha o cesta), complemento_tocado y complemento_anadido de
  *   components/CategoryProductsShelf.tsx (solo ids de producto) y los 5 productos que más se añaden desde ahí.
@@ -941,16 +943,41 @@ export default function AdminAnalytics() {
     porProducto: { id: string; titulo: string; clientes: number }[] | null;
     clientes: number | null;
     ev: Record<string, number>;
+    // «Avisarme cuando haya otro» (avisos_reposicion, migración 20261116100000; null sin ella): solo recuentos.
+    repo: { activos: number; app: number; correo: number; ambas: number; avisados: number } | null;
   } | null>(null);
   useEffect(() => {
     let vivo = true;
     (async () => {
-      const NOMBRES = ["pedido_aviso_estado_mostrado", "pedido_aviso_estado_tocado", "aviso_precio_activado", "aviso_precio_desactivado", "aviso_precio_mostrado", "aviso_precio_tocado", "aviso_precio_invitacion", "seguir_envio"];
+      const NOMBRES = [
+        "pedido_aviso_estado_mostrado",
+        "pedido_aviso_estado_tocado",
+        "aviso_precio_activado",
+        "aviso_precio_desactivado",
+        "aviso_precio_mostrado",
+        "aviso_precio_tocado",
+        "aviso_precio_invitacion",
+        "seguir_envio",
+        "aviso_reposicion_activado",
+        "aviso_reposicion_desactivado",
+        "aviso_reposicion_tocado",
+      ];
       const desde = new Date(Date.now() - 30 * 86400000).toISOString();
-      const [ev, filas] = await Promise.all([
+      const [ev, filas, repoFilas] = await Promise.all([
         supabase.from("analytics_events").select("event_name").in("event_name", NOMBRES).gte("created_at", desde).limit(5000),
         supabase.from("avisos_precio").select("product_id,user_id").limit(5000),
+        supabase.from("avisos_reposicion").select("canal,activo,avisado_en").limit(5000),
       ]);
+      const listaRepo = repoFilas.error || !Array.isArray(repoFilas.data) ? null : (repoFilas.data as { canal: string; activo: boolean; avisado_en: string | null }[]);
+      const repo = listaRepo
+        ? {
+            activos: listaRepo.filter((a) => a.activo).length,
+            app: listaRepo.filter((a) => a.activo && a.canal === "app").length,
+            correo: listaRepo.filter((a) => a.activo && a.canal === "correo").length,
+            ambas: listaRepo.filter((a) => a.activo && a.canal === "ambas").length,
+            avisados: listaRepo.filter((a) => !!a.avisado_en).length,
+          }
+        : null;
       const cuenta: Record<string, number> = Object.fromEntries(NOMBRES.map((n) => [n, 0]));
       for (const f of (ev.error ? [] : ev.data ?? []) as { event_name: string }[]) cuenta[f.event_name] = (cuenta[f.event_name] ?? 0) + 1;
       let porProducto: { id: string; titulo: string; clientes: number }[] | null = null;
@@ -971,7 +998,7 @@ export default function AdminAnalytics() {
           .sort((a, b) => b.clientes - a.clientes)
           .slice(0, 10);
       }
-      if (vivo) setAvisosPrecio({ porProducto, clientes, ev: cuenta });
+      if (vivo) setAvisosPrecio({ porProducto, clientes, ev: cuenta, repo });
     })();
     return () => {
       vivo = false;
@@ -2469,6 +2496,17 @@ export default function AdminAnalytics() {
                       {avisosPrecio.ev.aviso_precio_invitacion}
                     </Text>
                   </View>
+                  {/* «Avisarme cuando haya otro» tras cancelar un pedido (sin datos personales: recuentos y canal). */}
+                  {avisosPrecio.repo ? (
+                    <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                      <Ionicons name="notifications-outline" size={16} color={COLORS.accentDark} />
+                      <Text nativeID="analitica-avisos-reposicion" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                        {`Avisos de reposición: ${avisosPrecio.repo.activos} activos · por app ${avisosPrecio.repo.app} · por correo ${avisosPrecio.repo.correo} · ambas ${avisosPrecio.repo.ambas} · avisados ${avisosPrecio.repo.avisados}`}
+                        {` · en 30 días: activados ${avisosPrecio.ev.aviso_reposicion_activado} · apagados ${avisosPrecio.ev.aviso_reposicion_desactivado} · avisos tocados ${avisosPrecio.ev.aviso_reposicion_tocado}`}
+                        {avisosPrecio.repo.correo + avisosPrecio.repo.ambas > 0 ? " · Correo pendiente de activar en la tienda (de momento Blue les avisa en la app)" : ""}
+                      </Text>
+                    </View>
+                  ) : null}
                   {avisosPrecio.porProducto ? (
                     <View nativeID="analitica-avisos-precio-productos" style={{ gap: 6 }}>
                       <Text nativeID="analitica-avisos-precio-total" style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>

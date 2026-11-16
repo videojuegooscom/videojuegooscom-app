@@ -103,6 +103,11 @@
  *     (tabla avisos_busqueda; también desde el catálogo y desde el buscador de Inicio cuando una
  *     búsqueda no encuentra nada, con crearAvisoBusqueda) y Blue le avisa cuando entra un artículo
  *     con todas esas palabras.
+ *   · «Avisarme cuando haya otro» (dueño, 2026-11-16; tabla avisos_reposicion, lib/interaccion.ts): tras un pedido
+ *     cancelado porque el artículo ya no está disponible, el cliente lo enciende en Mis pedidos; cuando entra otro de la
+ *     misma familia o modelo (encajaReposicion, con los sinónimos de la búsqueda) sale «Ya tenemos otro «Xbox Series S»:
+ *     … · Ver» con los demás avisos; al tocarlo queda avisado (avisado_en) y se mide aviso_reposicion_tocado. Sale en la
+ *     app sea cual sea el canal elegido (el correo aún no se manda).
  *   · Estado de tus pedidos y reparaciones (con sesión): si la tienda cambia la etapa de un pedido o de una
  *     reparación (tablas pedidos y service_requests, las mismas que enseña Perfil → Seguimientos) sale un
  *     aviso con icono, suma al número rojo y Blue lo dice una vez en un mensaje que lleva a Seguimientos. Se
@@ -183,12 +188,21 @@ import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { rolDeUsuario, supabase } from "../lib/supabase";
 import { getAnalyticsConsent, marcarOrigenRegistro, marcarOrigenVender, trackEvent, trasPrimeraPintura } from "../lib/analytics";
-import { alCambiarAvisosPrecio, marcarBajadaAvisada, misAvisosPrecio, misMeGustaServidor, precioReferenciaAviso } from "../lib/interaccion";
+import {
+  alCambiarAvisosPrecio,
+  alCambiarAvisosReposicion,
+  marcarBajadaAvisada,
+  marcarReposicionAvisada,
+  misAvisosPrecio,
+  misAvisosReposicion,
+  misMeGustaServidor,
+  precioReferenciaAviso,
+} from "../lib/interaccion";
 import { sinEmojis } from "../lib/admin/products.utils";
 import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaConocimiento } from "../lib/conocimiento";
 import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificaciones";
 import MarcaAnimada from "./marca/MarcaAnimada";
-import { asegurarCssSiriTexto, escribirEnBuscadorDemo, registrarAvisoLlegada, TextoSiri } from "./Barramagic";
+import { asegurarCssSiriTexto, escribirEnBuscadorDemo, palabrasBusqueda, registrarAvisoLlegada, TextoSiri } from "./Barramagic";
 import { alRecargar } from "./TirarParaActualizar";
 import { useMiPerfilAbierto, usePerfilObligatorioVisible } from "./PerfilPublico";
 import { suscribirVisorFotos, visorFotosAbierto } from "./ImageLightbox";
@@ -251,7 +265,8 @@ const CART_KEY = "videojuegoos_cart_v1";
 
 type ProductoAviso = { id: string; title: string; price: number };
 type AvisoBusqueda = { id: string; texto: string; visto_hasta: string };
-type Llegada = { aviso: AvisoBusqueda; productos: ProductoAviso[] };
+// reposicion: «Avisarme cuando haya otro» de un pedido cancelado (tabla avisos_reposicion, no avisos_busqueda).
+type Llegada = { aviso: AvisoBusqueda; productos: ProductoAviso[]; reposicion?: boolean };
 // seguido: el cliente activó «Avísame si baja de precio» en la ficha (tabla avisos_precio); antes = precio de referencia.
 type Bajada = { id: string; title: string; antes: number; ahora: number; seguido?: boolean };
 // Artículo de la cesta con su reserva en marcha (lib/reservas.ts: 15 minutos); `hasta` = fin de la reserva (ms).
@@ -613,6 +628,49 @@ export async function crearAvisoBusqueda(texto: string): Promise<"ok" | "sin_ses
 }
 // El buscador de Inicio (components/Barramagic.tsx) lo ofrece cuando no encuentra nada.
 registrarAvisoLlegada(crearAvisoBusqueda);
+
+/**
+ * «Avisarme cuando haya otro» (dueño, 2026-11-16; avisos_reposicion, lib/interaccion.ts): por cada aviso encendido y aún
+ * sin avisar, los artículos a la venta que han entrado (o vuelto) desde que se encendió y son de la misma familia o
+ * modelo, con las mismas palabras que la búsqueda tolerante (palabrasBusqueda de Barramagic, GRUPOS_SINONIMOS: «Xbox
+ * Series S» = xboxseries + «s»; «PlayStation 5» = ps5). Sin el artículo cancelado. Blue avisa en la app sea cual sea el
+ * canal (el correo aún no se manda).
+ */
+export function encajaReposicion(texto: string, titulo: string): boolean {
+  const aviso = palabrasBusqueda(texto);
+  const prod = palabrasBusqueda(titulo);
+  const claves = aviso.canon.filter((t) => t.length >= 2 || /\d/.test(t));
+  if (!claves.length) return false;
+  if (!claves.every((t) => prod.set.has(t))) return false;
+  // Una letra suelta del modelo («Series S» frente a «Series X») tiene que estar también.
+  return aviso.raw.filter((t) => /^[a-z]$/.test(t)).every((t) => prod.raw.includes(t));
+}
+
+async function llegadasReposicion(): Promise<Llegada[]> {
+  const avisos = await misAvisosReposicion();
+  const pendientes = (avisos ?? []).filter((a) => a.activo && !a.avisado_en).slice(0, 10);
+  if (!pendientes.length) return [];
+  const desde = new Date(Math.min(...pendientes.map((a) => Date.parse(a.activado_en)))).toISOString();
+  const { data, error } = await supabase
+    .from("products")
+    .select("id,title,price_eur,novedad_en")
+    .eq("status", "PUBLISHED")
+    .eq("is_active", true)
+    .gt("novedad_en", desde)
+    .order("novedad_en", { ascending: false })
+    .limit(60);
+  if (error) return [];
+  const prods = (data ?? []) as { id: string; title: string; price_eur: number | string | null; novedad_en: string }[];
+  const res: Llegada[] = [];
+  for (const a of pendientes) {
+    const encajan = prods
+      .filter((p) => p.id !== a.product_id && Date.parse(p.novedad_en) > Date.parse(a.activado_en) && encajaReposicion(a.texto, p.title))
+      .slice(0, 3)
+      .map((p) => ({ id: p.id, title: p.title, price: Number(p.price_eur ?? 0) }));
+    if (encajan.length) res.push({ aviso: { id: a.id, texto: a.texto, visto_hasta: a.activado_en }, productos: encajan, reposicion: true });
+  }
+  return res;
+}
 
 async function leerJsonLocal<T>(clave: string, porDefecto: T): Promise<T> {
   try {
@@ -1426,12 +1484,17 @@ export default function Campanita() {
         setLlegadas([]);
         return;
       }
+      // «Avisarme cuando haya otro» (pedidos cancelados): a la vez, y sin que un fallo suyo quite los de las búsquedas.
+      const deReposicion = llegadasReposicion().catch(() => [] as Llegada[]);
       const { data, error } = await supabase
         .from("avisos_busqueda")
         .select("id,texto,visto_hasta")
         .order("created_at", { ascending: true })
         .limit(10);
-      if (error) throw error;
+      if (error) {
+        setLlegadas(await deReposicion);
+        throw error;
+      }
       const avisos = (data ?? []) as AvisoBusqueda[];
       setAvisosBusqueda(avisos);
 
@@ -1460,10 +1523,10 @@ export default function Campanita() {
           return productos.length ? { aviso, productos } : null;
         })
       );
-      setLlegadas(encontradas.filter((x): x is Llegada => x !== null));
+      setLlegadas([...(await deReposicion), ...encontradas.filter((x): x is Llegada => x !== null)]);
     } catch {
-      // la tabla puede no existir aún: sin avisos
-      setLlegadas([]);
+      // la tabla puede no existir aún: sin avisos de búsquedas (los de reposición ya se han puesto)
+      setLlegadas((prev) => prev.filter((l) => l.reposicion));
     }
   }, []);
 
@@ -1770,6 +1833,8 @@ export default function Campanita() {
   }, [refreshAvisosBusqueda]);
   // La ficha activa o quita un «Avísame si baja de precio»: se releen las bajadas (sin sondeo nuevo).
   useEffect(() => alCambiarAvisosPrecio(() => refreshBajadas()), [refreshBajadas]);
+  // Mis pedidos enciende, apaga o cambia un «Avisarme cuando haya otro»: se releen las llegadas.
+  useEffect(() => alCambiarAvisosReposicion(() => refreshAvisosBusqueda()), [refreshAvisosBusqueda]);
 
   useEffect(() => {
     // Carga rápida (mejora 7, 2026-11-14): lo de Blue se lee cuando la pantalla ya está pintada (con el navegador libre o,
@@ -2755,6 +2820,13 @@ export default function Campanita() {
   const verLlegada = useCallback(
     async (l: Llegada) => {
       setLlegadas((prev) => prev.filter((x) => x.aviso.id !== l.aviso.id));
+      if (l.reposicion) {
+        // «Avisarme cuando haya otro»: queda avisado (en la cuenta) y se mide el toque (sin datos personales).
+        void marcarReposicionAvisada(l.aviso.id);
+        void trackEvent("aviso_reposicion_tocado", "Blue: aviso de reposición tocado", { metadata: { productos: l.productos.length } });
+        ir(l.productos.length === 1 ? `/producto/${l.productos[0].id}` : `/catalogo?query=${encodeURIComponent(l.aviso.texto)}`);
+        return;
+      }
       supabase
         .from("avisos_busqueda")
         .update({ visto_hasta: new Date().toISOString() })
@@ -3354,9 +3426,9 @@ export default function Campanita() {
                     ) : null}
                     {llegadas.map((l) => (
                       <Aviso
-                        icono="checkmark-done-outline"
+                        icono={l.reposicion ? "notifications-outline" : "checkmark-done-outline"}
                         key={l.aviso.id}
-                        titulo={`Ha llegado lo que buscabas («${l.aviso.texto}»): ${l.productos[0].title} · ${fmtEUR(l.productos[0].price)}${
+                        titulo={`${l.reposicion ? `Ya tenemos otro «${l.aviso.texto}»` : `Ha llegado lo que buscabas («${l.aviso.texto}»)`}: ${l.productos[0].title} · ${fmtEUR(l.productos[0].price)}${
                           l.productos.length > 1 ? ` y ${l.productos.length - 1} más` : ""
                         }`}
                         accion="Ver"

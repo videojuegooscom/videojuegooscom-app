@@ -187,6 +187,13 @@
  *    vender» al guardar el pedido o al ir a pagar (sin Stripe, cesta intacta, medido sin datos personales); Pedidos con la
  *    doble venta avisada y filtrada y «Volver a poner a la venta» (44 px) solo donde toca; Productos «Vendido (pedido
  *    VZ-…)»; Analítica. 360/390/1280. Se lanza con SOLO = VENDP y en la pasada completa.
+ *  - CANCAV) Motivo de la cancelación y «Avisarme cuando haya otro» (dueño, 2026-11-16; migración 20261116100000): en
+ *    Pedidos se elige el motivo en pastillas (por defecto «El artículo ya no se encuentra disponible», «Otro motivo» con
+ *    texto de 16 px) y se guarda; el detalle enseña el motivo, el aviso del cliente con su canal («Correo pendiente de
+ *    activar en la tienda») y el recuento; en Mis pedidos, «Pedido cancelado · motivo», «Te hemos devuelto X», el
+ *    interruptor (44 px, role switch) y el canal (En la app · Por correo · Las dos; radios de 44 px y 16 px) que se guardan
+ *    y se apagan; otro motivo no lo ofrece; Blue avisa de otro parecido (y no de otro modelo); Analítica sin datos
+ *    personales; sin la migración se cancela como antes. 360/390/1280. Se lanza con SOLO = CANCAV y en la pasada completa.
  *  - PEDRED) Rediseño de Administración → Pedidos (dueño, 2026-11-15: «lo veo todo muy confuso»), con el estilo de
  *    Usuarios: «Avisos en este móvil · …» plegado arriba; cifras (Hoy, Por pagar, Por preparar, Reparto de hoy, Doble venta,
  *    Devueltos e Ingresos de 30 días) que filtran; pastillas con su recuento y «Más filtros»; filas compactas (referencia,
@@ -1704,7 +1711,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (metodo === "GET" || metodo === "HEAD") {
       // Administración → Analítica mira con «*» en una fila si products ya tiene «revisado» (mejora 4): sin fila, no sale.
       if (url.pathname.endsWith("/rest/v1/products") && url.searchParams.get("select") === "*" && url.searchParams.get("limit") === "1") return json([]);
-      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|product_chats|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento|pedido_estados|avisos_precio|admin_avisos_suscripciones|admin_avisos_registro|reservas)$/.test(url.pathname)) {
+      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|product_chats|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento|pedido_estados|avisos_precio|avisos_reposicion|admin_avisos_suscripciones|admin_avisos_registro|reservas)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
       }
       // Reservar con señal: los ajustes como los deja la migración (apagada y vacía), sin ir a la base de datos real.
@@ -19343,6 +19350,420 @@ async function seccionVENDP() {
   }
 }
 
+// ===== CANCAV) Motivo de la cancelación y «Avisarme cuando haya otro» (dueño, 2026-11-16; migración
+// 20261116100000_cancelacion_motivo_aviso.sql). Datos FICTICIOS: la base de datos de esta sección (pedidos, sus artículos,
+// avisos_reposicion con sus reglas y su disparador, y los productos nuevos) va por encima de la de contexto(). ==========
+async function seccionCANCAV() {
+  const MOTIVO = "El artículo ya no se encuentra disponible";
+  const XBOX = "00000000-0000-4000-8000-0000000c0a01";
+  const XBOX_S = "00000000-0000-4000-8000-0000000c0a02";
+  const XBOX_X = "00000000-0000-4000-8000-0000000c0a03";
+  const ID = (n) => `c0000000-0000-4000-8000-000000000${n}`;
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const perfil = { user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", telefono: null, codigo_postal: "50001", localidad: "Zaragoza", direccion: "Calle Mayor 5", piso: null, direcciones: [] };
+  const perfilAdmin = { user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" };
+  // El texto visible, sin los iconos (Ionicons usa caracteres de uso privado de Unicode).
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/[-]/g, "").replace(/\s+/g, " ").trim()).catch(() => "");
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const alto = (p, sel) => p.evaluate((s) => Math.round(document.querySelector(s)?.getBoundingClientRect().height ?? 0), sel);
+  const letra = (p, sel) => p.evaluate((s) => parseFloat(getComputedStyle(document.querySelector(s) ?? document.body).fontSize), sel);
+  const marcado = (p, sel) => p.locator(sel).first().getAttribute("aria-checked").catch(() => null);
+  const sinDesborde = (p) => p.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= window.innerWidth + 1);
+  const dentro = (p, sel) =>
+    p.evaluate((s) => {
+      const r = document.querySelector(s)?.getBoundingClientRect();
+      return !!r && r.left >= 0 && r.right <= window.innerWidth + 1;
+    }, sel);
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `CANCAV: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+  const pedido = (n, estado, extra = {}) => ({
+    id: ID(n), numero: n, created_at: "2026-11-15T09:00:00Z", estado, entrega: "envio", nombre: "Ana", email: CLIENTE.email, telefono: "600111222",
+    direccion: "Calle Mayor 5", codigo_postal: "50001", ciudad: "Zaragoza", notas: null, total_eur: 289.9, productos_eur: 289.9, envio_eur: 0, zona_envio: "local",
+    envio_manual: false, user_id: CLIENTE.id, codigo_seguimiento: `VZ-CANC-0${n}`, id_veoaura: null, vinculado_en: null, nota_admin: null, pago_estado: null, pago_modo: null,
+    pago_referencia: null, pagado_eur: null, pagado_en: null, pago_metodo: null, devuelto_eur: null, devuelto_en: null, doble_venta_en: null, cancelacion_motivo: null, cancelado_en: null,
+    ...extra,
+  });
+  const PEDIDOS = () => [
+    pedido(301, "cancelado", {
+      pago_estado: "pagado", pago_modo: "real", pago_referencia: "pi_3Canc301", pagado_eur: 289.9, pagado_en: "2026-11-15T09:02:00Z", pago_metodo: "card",
+      devuelto_eur: 289.9, devuelto_en: "2026-11-15T12:00:00Z", cancelacion_motivo: MOTIVO, cancelado_en: "2026-11-15T11:50:00Z",
+    }),
+    pedido(302, "cancelado", { cancelacion_motivo: "Lo has pedido tú", cancelado_en: "2026-11-15T11:55:00Z" }),
+    pedido(303, "enviado"),
+    pedido(304, "pendiente"),
+    pedido(305, "pendiente"),
+  ];
+  const ITEMS = [
+    { id: "ci1", pedido_id: ID(301), product_id: XBOX, titulo: "Xbox Series S 512GB Blanca", precio_eur: 289.9 },
+    { id: "ci2", pedido_id: ID(302), product_id: null, titulo: "Mando DualSense", precio_eur: 49 },
+    { id: "ci3", pedido_id: ID(303), product_id: null, titulo: "Nintendo Switch OLED", precio_eur: 249 },
+    { id: "ci4", pedido_id: ID(304), product_id: null, titulo: "PlayStation 5 Slim", precio_eur: 399 },
+    { id: "ci5", pedido_id: ID(305), product_id: null, titulo: "Mando Xbox", precio_eur: 39 },
+  ];
+  const producto = (id, title, novedad_en) => ({ id, title, price_eur: 279, status: "PUBLISHED", is_active: true, novedad_en });
+  // `sin`: la migración aún no está aplicada (sin columnas de cancelación ni tabla avisos_reposicion).
+  const rutas = async (ctx, s, usuario, rol) => {
+    s.pedidos ??= PEDIDOS();
+    s.avisos ??= [];
+    s.productos ??= [];
+    s.cambios = [];
+    s.avisosCreados = [];
+    s.avisosCambiados = [];
+    await ctx.route("**/*", async (r) => {
+      const q = r.request();
+      const url = new URL(q.url());
+      const metodo = q.method();
+      const json = (cuerpo, status = 200) => r.fulfill({ status, contentType: "application/json", headers: CORS, body: JSON.stringify(cuerpo) });
+      const falta = (t) => json({ code: "PGRST205", message: `Could not find the table 'public.${t}' in the schema cache` }, 404);
+      const filtro = (campo) => url.searchParams.get(campo) ?? "";
+      const lista = (campo) => (filtro(campo).startsWith("in.(") ? filtro(campo).slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")) : null);
+      const objeto = /vnd\.pgrst\.object/.test(q.headers()["accept"] ?? "");
+      if (metodo === "OPTIONS") return r.fallback();
+      const tabla = url.pathname.startsWith("/rest/v1/") ? url.pathname.slice(9) : null;
+      if (!tabla) return r.fallback();
+      const select = filtro("select");
+      if (tabla === "pedidos") {
+        if (s.sin && /cancelacion_motivo|cancelado_en/.test(select)) {
+          s.pedidos400 = (s.pedidos400 ?? 0) + 1;
+          return json({ code: "42703", message: "column pedidos.cancelacion_motivo does not exist" }, 400);
+        }
+        if (metodo === "PATCH") {
+          const id = filtro("id").replace(/^eq\./, "");
+          const cuerpo = JSON.parse(q.postData() ?? "{}");
+          s.cambios.push({ id, cuerpo });
+          // Como el disparador pedidos_apuntar_cancelacion: la hora la pone la base de datos.
+          s.pedidos = s.pedidos.map((p) => (p.id === id ? { ...p, ...cuerpo, ...(!s.sin && cuerpo.estado === "cancelado" && p.estado !== "cancelado" ? { cancelado_en: new Date().toISOString() } : {}) } : p));
+          return r.fulfill({ status: 204, headers: CORS, body: "" });
+        }
+        if (metodo === "HEAD") return r.fulfill({ status: 200, headers: { ...CORS, "content-range": "*/0", "access-control-expose-headers": "*" }, body: "" });
+        const uid = filtro("user_id").replace(/^eq\./, "");
+        const ids = lista("id");
+        let filas = s.pedidos.filter((p) => (rol === "admin" || p.user_id === usuario.id) && (!uid || p.user_id === uid) && (!ids || ids.includes(p.id)));
+        if (/pedido_items/.test(select)) filas = filas.map((p) => ({ ...p, pedido_items: ITEMS.filter((i) => i.pedido_id === p.id) }));
+        if (s.sin) filas = filas.map(({ cancelacion_motivo, cancelado_en, ...resto }) => resto);
+        return json(filas);
+      }
+      if (tabla === "pedido_items") {
+        const ids = lista("pedido_id");
+        const mios = new Set(s.pedidos.filter((p) => rol === "admin" || p.user_id === usuario.id).map((p) => p.id));
+        return json(ITEMS.filter((i) => mios.has(i.pedido_id) && (!ids || ids.includes(i.pedido_id))));
+      }
+      if (tabla === "avisos_reposicion") {
+        if (s.sin) return falta("avisos_reposicion");
+        if (metodo === "POST") {
+          const cuerpo = [].concat(JSON.parse(q.postData() ?? "{}"))[0];
+          s.avisosCreados.push(cuerpo);
+          // Como el disparador avisos_reposicion_normalizar: solo un pedido PROPIO cancelado por ese motivo.
+          const ped = s.pedidos.find((p) => p.id === cuerpo.pedido_id && p.user_id === usuario.id && p.estado === "cancelado" && p.cancelacion_motivo === MOTIVO);
+          if (!ped) return json({ code: "P0001", message: "Este pedido no tiene aviso de reposición." }, 400);
+          const ahora = new Date().toISOString();
+          const fila = { id: `ar${s.avisos.length + 1}`, user_id: usuario.id, pedido_id: cuerpo.pedido_id, product_id: cuerpo.product_id ?? null, texto: String(cuerpo.texto).trim(), canal: cuerpo.canal ?? "app", activo: true, creado_en: ahora, activado_en: ahora, avisado_en: null };
+          s.avisos.push(fila);
+          return objeto ? json(fila, 201) : json([fila], 201);
+        }
+        if (metodo === "PATCH") {
+          const id = filtro("id").replace(/^eq\./, "");
+          const cuerpo = JSON.parse(q.postData() ?? "{}");
+          s.avisosCambiados.push({ id, cuerpo });
+          let fila = null;
+          s.avisos = s.avisos.map((a) => {
+            // RLS: solo las suyas.
+            if (a.id !== id || a.user_id !== usuario.id) return a;
+            const n = { ...a, ...("canal" in cuerpo ? { canal: cuerpo.canal } : {}), ...("activo" in cuerpo ? { activo: cuerpo.activo } : {}), ...("avisado_en" in cuerpo ? { avisado_en: cuerpo.avisado_en } : {}) };
+            if (n.activo && !a.activo) {
+              n.activado_en = new Date().toISOString();
+              n.avisado_en = null;
+            }
+            fila = n;
+            return n;
+          });
+          return objeto ? json(fila, fila ? 200 : 406) : json(fila ? [fila] : []);
+        }
+        const uid = filtro("user_id").replace(/^eq\./, "");
+        const ids = lista("pedido_id");
+        return json(s.avisos.filter((a) => (rol === "admin" || a.user_id === usuario.id) && (!uid || a.user_id === uid) && (!ids || ids.includes(a.pedido_id))));
+      }
+      if (tabla === "products") {
+        if (metodo === "HEAD") return r.fulfill({ status: 200, headers: { ...CORS, "content-range": "*/0", "access-control-expose-headers": "*" }, body: "" });
+        if (metodo === "GET" && filtro("novedad_en").startsWith("gt.") && /title/.test(select)) {
+          const desde = Date.parse(decodeURIComponent(filtro("novedad_en").slice(3)));
+          return json(s.productos.filter((p) => Date.parse(p.novedad_en) > desde));
+        }
+        if (metodo === "GET") return objeto ? json(null, 406) : json([]);
+      }
+      if (["pedido_estados", "product_media", "product_likes", "product_reviews", "pedido_valoraciones", "avisos_busqueda"].includes(tabla) && metodo === "GET") return json([]);
+      if (tabla === "pedido_facturas" && metodo === "GET") return falta("pedido_facturas");
+      return r.fallback();
+    });
+  };
+  const cliente = async (s, vista = {}, extra = {}) => {
+    const estado = { filas: [perfil], guardados: [], aceptaAnalitica: true, ...extra };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await rutas(ctx, s, CLIENTE, "user");
+    return { ctx, estado };
+  };
+  const admin = async (s, vista = {}, extra = {}) => {
+    const estado = { filas: [perfilAdmin], guardados: [], categorias: [], tarifas: [], ...extra };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    await rutas(ctx, s, ADMIN, "admin");
+    return { ctx, estado };
+  };
+  const abrirMisPedidos = async (ctx) => {
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.locator("#cancelacion-pedido-301").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    return p;
+  };
+  const abrirPedidosAdmin = async (ctx) => {
+    const p = await pagina(ctx, "/admin/pedidos?buscar=");
+    await p.locator("#pedido-titulo-301").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    await p.locator("#pedidos-filtro-todos").click().catch(() => {});
+    await desplegarPedidos(p);
+    await p.waitForTimeout(500);
+    return p;
+  };
+
+  // CANCAV1) Administración → Pedidos (390): al cancelar se elige el motivo (por defecto, el artículo ya no está
+  // disponible) y se guarda; «Otro motivo» con su texto; el detalle enseña el motivo, el aviso del cliente con su canal y el
+  // recuento de abajo.
+  await bloque("CANCAV1 Pedidos", async () => {
+    const s = {
+      avisos: [
+        { id: "ar1", user_id: CLIENTE.id, pedido_id: ID(301), product_id: XBOX, texto: "Xbox Series S", canal: "ambas", activo: true, creado_en: "2026-11-15T12:10:00Z", activado_en: "2026-11-15T12:10:00Z", avisado_en: null },
+        { id: "ar9", user_id: "22222222-2222-4222-8222-222222222222", pedido_id: "c0000000-0000-4000-8000-000000000999", product_id: null, texto: "Nintendo Switch", canal: "app", activo: true, creado_en: "2026-11-14T12:10:00Z", activado_en: "2026-11-14T12:10:00Z", avisado_en: "2026-11-15T08:00:00Z" },
+      ],
+    };
+    const { ctx } = await admin(s);
+    const p = await abrirPedidosAdmin(ctx);
+    ok((await texto(p, "#pedido-cancelacion-motivo-301")) === `Motivo: ${MOTIVO}`, `CANCAV1: el detalle enseña el motivo (${await texto(p, "#pedido-cancelacion-motivo-301")})`);
+    const av = await texto(p, "#pedido-aviso-repo-301");
+    ok(/Pidió aviso cuando haya otro «Xbox Series S» · en la app y por correo/.test(av) && /Correo pendiente de activar en la tienda/.test(av), `CANCAV1: el aviso del cliente con su canal y el correo pendiente (${av})`);
+    ok((await texto(p, "#pedido-cancelacion-motivo-302")) === "Motivo: Lo has pedido tú" && (await p.locator("#pedido-aviso-repo-302").count()) === 0, "CANCAV1: otro motivo, sin aviso de reposición");
+    const rec = await texto(p, "#pedidos-avisos-reposicion");
+    ok(/^Avisos de reposición: 2 activos · por app 1 · por correo 0 · ambas 1 · avisados 1/.test(rec), `CANCAV1: recuento de avisos de reposición (${rec})`);
+    // Cancelar el 304: el primer toque enseña los motivos (el primero marcado) y no cancela.
+    await p.locator("#pedido-cancelar-304").click();
+    await p.waitForTimeout(300);
+    ok((await p.locator("#pedido-cancelar-motivos-304").count()) === 1 && !s.cambios.length, "CANCAV1: el primer toque de «Cancelar pedido» enseña los motivos sin cancelar");
+    ok((await marcado(p, "#pedido-motivo-304-0")) === "true" && (await marcado(p, "#pedido-motivo-304-1")) === "false", "CANCAV1: por defecto, «El artículo ya no se encuentra disponible»");
+    const altos = await Promise.all([0, 1, 2, 3].map((i) => alto(p, `#pedido-motivo-304-${i}`)));
+    ok(altos.every((a) => a >= 44), `CANCAV1: las pastillas de motivo miden 44 px o más (${altos.join(", ")})`);
+    const letraMotivos = await p.evaluate(() => Math.min(...[...document.querySelectorAll("#pedido-cancelar-motivos-304 *")].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())).map((e) => parseFloat(getComputedStyle(e).fontSize))));
+    ok(letraMotivos >= 13, `CANCAV1: la letra de los motivos no baja de 13 px (${letraMotivos})`);
+    // «Otro motivo» enseña su campo de 16 px; volver al primero y confirmar.
+    await p.locator("#pedido-motivo-304-3").click();
+    await p.waitForTimeout(200);
+    ok((await p.locator("#pedido-motivo-otro-304").count()) === 1 && (await letra(p, "#pedido-motivo-otro-304")) >= 16 && (await alto(p, "#pedido-motivo-otro-304")) >= 44, `CANCAV1: «Otro motivo» enseña su campo de 16 px y 44 de alto (${await letra(p, "#pedido-motivo-otro-304")})`);
+    await p.locator("#pedido-motivo-304-0").click();
+    await p.waitForTimeout(200);
+    await p.locator("#pedido-cancelar-motivos-304").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "CANCAV1-pedidos-motivos-390");
+    await p.locator("#pedido-cancelar-304").click();
+    for (let i = 0; i < 20 && !s.cambios.length; i++) await p.waitForTimeout(250);
+    ok(JSON.stringify(s.cambios[0]?.cuerpo) === JSON.stringify({ estado: "cancelado", cancelacion_motivo: MOTIVO }), `CANCAV1: se cancela y se guarda el motivo (${JSON.stringify(s.cambios[0] ?? null)})`);
+    await p.waitForTimeout(500);
+    ok((await texto(p, "#pedido-cancelacion-motivo-304")) === `Motivo: ${MOTIVO}` && /Cancelado el/.test(await texto(p, "#pedido-bloque-cancelacion-304")), `CANCAV1: el detalle ya enseña el motivo y la hora (${await texto(p, "#pedido-bloque-cancelacion-304")})`);
+    ok(/no ha pedido aviso/.test(await texto(p, "#pedido-aviso-repo-304")), "CANCAV1: y que el cliente aún no ha pedido aviso");
+    // «Otro motivo» con su texto (como mucho 200 letras).
+    await p.locator("#pedido-cancelar-305").click();
+    await p.waitForTimeout(200);
+    await p.locator("#pedido-motivo-305-3").click();
+    await p.locator("#pedido-motivo-otro-305").fill("  Nos ha llegado   dañado del proveedor  ");
+    await p.locator("#pedido-cancelar-305").click();
+    for (let i = 0; i < 20 && s.cambios.length < 2; i++) await p.waitForTimeout(250);
+    ok(s.cambios[1]?.cuerpo?.cancelacion_motivo === "Nos ha llegado dañado del proveedor", `CANCAV1: «Otro motivo» guarda el texto limpio (${JSON.stringify(s.cambios[1] ?? null)})`);
+    const largo = await p.evaluate(() => document.getElementById("pedido-motivo-otro-305")?.getAttribute("maxlength") ?? null);
+    ok(largo === null || Number(largo) === 200, `CANCAV1: el campo de otro motivo admite como mucho 200 letras (${largo})`);
+    ok((await sinDesborde(p)) && p.errores.length === 0, `CANCAV1: sin desbordes ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // CANCAV2) Mis pedidos (390): la tarjeta del cancelado (motivo y devolución), el interruptor y el canal se guardan, se
+  // cambian y se apagan; otro motivo no ofrece el aviso; el enviado no tiene tarjeta; se mide sin datos personales.
+  await bloque("CANCAV2 Mis pedidos", async () => {
+    const s = {};
+    const { ctx, estado } = await cliente(s);
+    const p = await abrirMisPedidos(ctx);
+    const t = await texto(p, "#cancelacion-pedido-301");
+    ok(/Pedido cancelado · El artículo ya no se encuentra disponible/.test(t), `CANCAV2: «Pedido cancelado · motivo» (${t})`);
+    ok(/Te hemos devuelto 289,90\s?€/.test(await texto(p, "#cancelacion-devolucion-301")), `CANCAV2: «Te hemos devuelto 289,90 €» (${await texto(p, "#cancelacion-devolucion-301")})`);
+    ok((await p.locator("#cancelacion-aviso-301").count()) === 1 && (await marcado(p, "#cancelacion-aviso-301")) === "false", "CANCAV2: el interruptor sale apagado");
+    const rol = await p.locator("#cancelacion-aviso-301").getAttribute("role").catch(() => null);
+    ok(rol === "switch" && (await alto(p, "#cancelacion-aviso-301")) >= 44, `CANCAV2: el interruptor es accesible (role ${rol}) y mide 44 px o más (${await alto(p, "#cancelacion-aviso-301")})`);
+    ok(/Avisarme cuando haya otro/.test(await texto(p, "#cancelacion-aviso-301")) && /Xbox Series S/.test(await texto(p, "#cancelacion-aviso-301")), `CANCAV2: «Avisarme cuando haya otro» con el modelo (${await texto(p, "#cancelacion-aviso-301")})`);
+    ok((await p.locator("#cancelacion-canal-301").count()) === 0, "CANCAV2: apagado, sin el selector de canal");
+    ok(/Pedido cancelado · Lo has pedido tú/.test(await texto(p, "#cancelacion-pedido-302")) && (await p.locator("#cancelacion-aviso-302").count()) === 0, "CANCAV2: con otro motivo, sin «Avisarme cuando haya otro»");
+    ok((await p.locator("#cancelacion-pedido-303").count()) === 0, "CANCAV2: un pedido en curso no tiene tarjeta de cancelación");
+    // Encender: se guarda con el modelo y «En la app».
+    await p.locator("#cancelacion-aviso-301").click();
+    for (let i = 0; i < 20 && !s.avisosCreados.length; i++) await p.waitForTimeout(250);
+    await p.waitForTimeout(400);
+    ok(JSON.stringify(s.avisosCreados[0]) === JSON.stringify({ pedido_id: ID(301), product_id: XBOX, texto: "Xbox Series S", canal: "app" }), `CANCAV2: encenderlo guarda el pedido, el artículo, el modelo y el canal (${JSON.stringify(s.avisosCreados)})`);
+    ok((await marcado(p, "#cancelacion-aviso-301")) === "true" && (await p.locator("#cancelacion-canal-301").count()) === 1, "CANCAV2: queda encendido y sale «¿Cómo quieres que te avisemos?»");
+    ok(/te avisaremos en la app cuando tengamos otro «Xbox Series S»/.test(await texto(p, "#cancelacion-mensaje-301")), `CANCAV2: lo confirma (${await texto(p, "#cancelacion-mensaje-301")})`);
+    const canales = ["app", "correo", "ambas"];
+    const datos = await Promise.all(canales.map(async (c) => ({ c, alto: await alto(p, `#cancelacion-canal-301-${c}`), rol: await p.locator(`#cancelacion-canal-301-${c}`).getAttribute("role").catch(() => null), txt: await texto(p, `#cancelacion-canal-301-${c}`) })));
+    ok(datos.every((d) => d.alto >= 44 && d.rol === "radio"), `CANCAV2: las tres opciones son botones de opción de 44 px (${JSON.stringify(datos)})`);
+    const letraOpc = await p.evaluate(() => Math.min(...["app", "correo", "ambas"].map((c) => [...document.querySelectorAll(`#cancelacion-canal-301-${c} *`)].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())).map((e) => parseFloat(getComputedStyle(e).fontSize))).flat()));
+    ok(letraOpc >= 16, `CANCAV2: el texto de las opciones a 16 px (${letraOpc})`);
+    ok(JSON.stringify(datos.map((d) => d.txt)) === JSON.stringify(["En la app", "Por correo", "Las dos"]) && (await marcado(p, "#cancelacion-canal-301-app")) === "true", `CANCAV2: «En la app · Por correo · Las dos», con «En la app» elegido (${datos.map((d) => d.txt).join(" · ")})`);
+    await p.locator("#cancelacion-pedido-301").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "CANCAV2-mis-pedidos-encendido-390");
+    // Cambiar el canal.
+    await p.locator("#cancelacion-canal-301-correo").click();
+    for (let i = 0; i < 20 && !s.avisosCambiados.length; i++) await p.waitForTimeout(250);
+    await p.waitForTimeout(300);
+    ok(JSON.stringify(s.avisosCambiados[0]?.cuerpo) === JSON.stringify({ activo: true, canal: "correo" }) && (await marcado(p, "#cancelacion-canal-301-correo")) === "true", `CANCAV2: elegir «Por correo» lo guarda (${JSON.stringify(s.avisosCambiados[0] ?? null)})`);
+    ok(/te avisaremos por correo/.test(await texto(p, "#cancelacion-mensaje-301")), "CANCAV2: y lo confirma");
+    // Al volver a la pantalla sigue como lo dejó (lo lee de la cuenta).
+    const p2 = await abrirMisPedidos(ctx);
+    ok((await marcado(p2, "#cancelacion-aviso-301")) === "true" && (await marcado(p2, "#cancelacion-canal-301-correo")) === "true", "CANCAV2: al volver sigue encendido y por correo");
+    // Apagar.
+    await p2.locator("#cancelacion-aviso-301").click();
+    for (let i = 0; i < 20 && s.avisosCambiados.length < 2; i++) await p2.waitForTimeout(250);
+    await p2.waitForTimeout(300);
+    ok(s.avisosCambiados[1]?.cuerpo?.activo === false && (await marcado(p2, "#cancelacion-aviso-301")) === "false" && (await p2.locator("#cancelacion-canal-301").count()) === 0 && s.avisos.length === 1, "CANCAV2: tocarlo otra vez lo apaga (sin borrar la fila) y quita el selector");
+    const act = evento(estado, "aviso_reposicion_activado");
+    const des = evento(estado, "aviso_reposicion_desactivado");
+    ok(act.length === 1 && JSON.stringify(act[0].metadata) === JSON.stringify({ canal: "app" }) && des.length === 1, `CANCAV2: se miden aviso_reposicion_activado (canal) y _desactivado (${JSON.stringify(act.map((e) => e.metadata))} · ${des.length})`);
+    ok(!/Xbox|VZ-CANC|cliente@|Ana|c0000000/.test(JSON.stringify([...act, ...des].map((e) => e.metadata))), "CANCAV2: sin datos personales ni del pedido en la analítica");
+    ok(p.errores.length === 0 && p2.errores.length === 0, `CANCAV2: sin errores de JavaScript (${p.errores[0] ?? p2.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // CANCAV3) 360, 390 y 1280: Mis pedidos con el aviso encendido y Pedidos con los motivos abiertos, sin desbordar.
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`CANCAV3 ${nombre}`, async () => {
+      const s = { avisos: [{ id: "ar1", user_id: CLIENTE.id, pedido_id: ID(301), product_id: XBOX, texto: "Xbox Series S", canal: "ambas", activo: true, creado_en: "2026-11-15T12:10:00Z", activado_en: "2026-11-15T12:10:00Z", avisado_en: null }] };
+      const { ctx } = await cliente(s, vista);
+      const p = await abrirMisPedidos(ctx);
+      ok((await sinDesborde(p)) && (await dentro(p, "#cancelacion-pedido-301")) && (await dentro(p, "#cancelacion-canal-301-ambas")), `CANCAV3 (${nombre}): Mis pedidos con el aviso cabe sin ensancharse`);
+      // Cada nombre en una sola línea, entero (sin «…») y dentro de su opción.
+      const corta = await p.evaluate(() => ["app", "correo", "ambas"].some((c) => {
+        const caja = document.getElementById(`cancelacion-canal-301-${c}`);
+        const e = [...(caja?.querySelectorAll("*") ?? [])].find((x) => [...x.childNodes].some((n) => n.nodeType === 3 && /[a-z]/i.test(n.textContent)));
+        if (!caja || !e) return true;
+        const r = e.getBoundingClientRect();
+        const rc = caja.getBoundingClientRect();
+        const cs = getComputedStyle(e);
+        return e.scrollWidth > e.clientWidth + 1 || r.height > parseFloat(cs.fontSize) * 1.7 || r.right > rc.right + 1 || cs.textOverflow === "ellipsis";
+      }));
+      ok(!corta, `CANCAV3 (${nombre}): los nombres de los canales se leen enteros`);
+      await p.locator("#cancelacion-pedido-301").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `CANCAV3-mis-pedidos-${nombre}`);
+      ok(p.errores.length === 0, `CANCAV3 (${nombre}): Mis pedidos sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+      const s2 = { avisos: s.avisos };
+      const a = await admin(s2, vista);
+      const q = await abrirPedidosAdmin(a.ctx);
+      await q.locator("#pedido-cancelar-304").click();
+      await q.waitForTimeout(300);
+      ok((await sinDesborde(q)) && (await dentro(q, "#pedido-cancelar-motivos-304")) && (await dentro(q, "#pedido-bloque-cancelacion-301")), `CANCAV3 (${nombre}): Pedidos con los motivos y la cancelación cabe sin ensancharse`);
+      await q.locator("#pedido-cancelar-motivos-304").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(q, `CANCAV3-pedidos-motivos-${nombre}`);
+      await q.locator("#pedido-bloque-cancelacion-301").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(q, `CANCAV3-pedidos-cancelacion-${nombre}`);
+      ok(q.errores.length === 0, `CANCAV3 (${nombre}): Pedidos sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
+      await a.ctx.close();
+    });
+  }
+
+  // CANCAV4) Blue avisa en la app cuando entra otro del mismo modelo (no otro modelo, ni el mismo artículo); al tocarlo
+  // queda avisado y se mide.
+  await bloque("CANCAV4 Blue", async () => {
+    const s = {
+      avisos: [{ id: "ar1", user_id: CLIENTE.id, pedido_id: ID(301), product_id: XBOX, texto: "Xbox Series S", canal: "correo", activo: true, creado_en: "2026-11-15T12:10:00Z", activado_en: "2026-11-15T12:10:00Z", avisado_en: null }],
+      productos: [producto(XBOX_S, "Xbox Series S 1TB Negra", "2026-11-16T08:00:00Z"), producto(XBOX_X, "Xbox Series X 1TB", "2026-11-16T08:30:00Z"), producto(XBOX, "Xbox Series S 512GB Blanca", "2026-11-16T07:00:00Z")],
+    };
+    const { ctx, estado } = await cliente(s);
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.setItem("videojuegoszaragoza:novedades_seen_version", "1");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await pagina(ctx, "/");
+    await p.locator("#blue-flotante").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').first().click({ timeout: 10000 }).catch(() => {});
+    await p.getByRole("tab", { name: /Noticias y avisos/ }).first().click({ timeout: 10000 }).catch(() => {});
+    const aviso = p.getByRole("button", { name: /Ya tenemos otro «Xbox Series S»/ }).first();
+    await aviso.waitFor({ timeout: 15000 }).catch(() => {});
+    const t = await aviso.innerText().catch(() => "");
+    ok(/Ya tenemos otro «Xbox Series S»: Xbox Series S 1TB Negra/.test(t) && !/más/.test(t) && !/Series X/.test(t), `CANCAV4: Blue avisa del mismo modelo, no de otro ni del mismo artículo (${t.replace(/\s+/g, " ")})`);
+    await capturar(p, "CANCAV4-blue-aviso-390");
+    await aviso.click().catch(() => {});
+    for (let i = 0; i < 20 && !s.avisosCambiados.length; i++) await p.waitForTimeout(250);
+    ok(!!s.avisosCambiados[0]?.cuerpo?.avisado_en && /\/producto\//.test(p.url()), `CANCAV4: al tocarlo queda avisado y abre el artículo (${JSON.stringify(s.avisosCambiados[0] ?? null)} · ${p.url().replace(BASE, "")})`);
+    const ev = evento(estado, "aviso_reposicion_tocado");
+    ok(ev.length === 1 && !/Xbox|c0000000|VZ-/.test(JSON.stringify(ev[0].metadata)), `CANCAV4: se mide «aviso_reposicion_tocado» sin datos personales (${JSON.stringify(ev.map((e) => e.metadata))})`);
+    ok(p.errores.length === 0, `CANCAV4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // CANCAV5) Analítica (390 y 1280): la línea de avisos de reposición (recuentos y eventos, sin nombres).
+  for (const { nombre, vista } of [VISTAS[1], VISTAS[2]]) {
+    await bloque(`CANCAV5 ${nombre}`, async () => {
+      const s = {
+        avisos: [
+          { id: "ar1", user_id: CLIENTE.id, pedido_id: ID(301), product_id: XBOX, texto: "Xbox Series S", canal: "app", activo: true, creado_en: "2026-11-15T12:10:00Z", activado_en: "2026-11-15T12:10:00Z", avisado_en: null },
+          { id: "ar2", user_id: "22222222-2222-4222-8222-222222222222", pedido_id: ID(399), product_id: null, texto: "PlayStation 5", canal: "ambas", activo: true, creado_en: "2026-11-15T12:10:00Z", activado_en: "2026-11-15T12:10:00Z", avisado_en: "2026-11-16T08:00:00Z" },
+          { id: "ar3", user_id: "33333333-3333-4333-8333-333333333333", pedido_id: ID(398), product_id: null, texto: "Nintendo Switch", canal: "correo", activo: false, creado_en: "2026-11-15T12:10:00Z", activado_en: "2026-11-15T12:10:00Z", avisado_en: null },
+        ],
+      };
+      const ev = (n, k, metadata = {}) => Array.from({ length: k }, () => ({ event_name: n, label: n, path: "/perfil", metadata, created_at: new Date().toISOString(), session_id: "x", step_label: n }));
+      const { ctx } = await admin(s, vista, { embudo: [], eventos: [...ev("aviso_reposicion_activado", 3, { canal: "app" }), ...ev("aviso_reposicion_desactivado", 1), ...ev("aviso_reposicion_tocado", 2)] });
+      const p = await pagina(ctx, "/admin/analytics");
+      await p.locator("#analitica-avisos-reposicion").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(500);
+      const t = await texto(p, "#analitica-avisos-reposicion");
+      ok(/^Avisos de reposición: 2 activos · por app 1 · por correo 0 · ambas 1 · avisados 1 · en 30 días: activados 3 · apagados 1 · avisos tocados 2 · Correo pendiente de activar en la tienda/.test(t), `CANCAV5 (${nombre}): Analítica cuenta los avisos de reposición (${t})`);
+      ok(!/Xbox|PlayStation|Nintendo|cliente@|Ana/.test(t), "CANCAV5: sin nombres ni artículos de los clientes");
+      await p.locator("#analitica-avisos-reposicion").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `CANCAV5-analitica-${nombre}`);
+      ok((await sinDesborde(p)) && p.errores.length === 0, `CANCAV5 (${nombre}): sin desbordes ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
+  // CANCAV6) Sin la migración: Pedidos cancela como antes (sin motivos ni pedir columnas que no existen) y Mis pedidos sale
+  // entero, sin el interruptor.
+  await bloque("CANCAV6 sin la migración", async () => {
+    const s = { sin: true };
+    const { ctx } = await admin(s);
+    const p = await abrirPedidosAdmin(ctx);
+    await p.locator("#pedido-cancelar-304").click();
+    await p.waitForTimeout(300);
+    ok((await p.locator("#pedido-cancelar-motivos-304").count()) === 0 && (await texto(p, "#pedido-cancelar-304")) === "Toca otra vez para cancelar el pedido", "CANCAV6: sin la migración, sin motivos y con el segundo toque de siempre");
+    await p.locator("#pedido-cancelar-304").click();
+    for (let i = 0; i < 20 && !s.cambios.length; i++) await p.waitForTimeout(250);
+    ok(JSON.stringify(s.cambios[0]?.cuerpo) === JSON.stringify({ estado: "cancelado" }) && (s.pedidos400 ?? 0) <= 1, `CANCAV6: cancela como antes (${JSON.stringify(s.cambios[0] ?? null)} · ${s.pedidos400 ?? 0} errores)`);
+    ok(p.errores.length === 0, `CANCAV6: Pedidos sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+    const s2 = { sin: true };
+    const c = await cliente(s2);
+    const q = await pagina(c.ctx, "/perfil?tab=seguimientos");
+    await q.locator("#cancelacion-pedido-301").waitFor({ timeout: 40000 }).catch(() => {});
+    await q.waitForTimeout(500);
+    const tq = await texto(q, "#cancelacion-pedido-301");
+    ok(/^Pedido cancelado/.test(tq) && !/·/.test(tq.split("Te hemos")[0]) && (await q.locator("#cancelacion-aviso-301").count()) === 0, `CANCAV6: sin la migración, la tarjeta sin motivo ni interruptor (${await texto(q, "#cancelacion-pedido-301")})`);
+    ok(q.errores.length === 0, `CANCAV6: Mis pedidos sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
+    await c.ctx.close();
+  });
+}
+
 // ===== PANRED1) Rediseño de Administración → Categorías, Servicios y Tarifas de envío (2026-11-16), con el estilo de
 // Usuarios y de Pedidos (components/admin/PanelUI.tsx): en las tres, cifras, buscador de 16 px, pastillas con su recuento,
 // filas compactas con su etiqueta de color, el detalle por bloques al tocar una fila (con las acciones abajo); 360, 390 y
@@ -19878,6 +20299,7 @@ async function seccionPEDRED() {
 
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "CANCAV") await seccionCANCAV();
   if (SOLO === "PANRED1") await seccionPANRED1();
   if (SOLO === "PEDRED") await seccionPEDRED();
   if (SOLO === "VENDP") await seccionVENDP();
@@ -21004,6 +21426,7 @@ try {
   await seccionVENDP();
   await seccionPEDRED();
   await seccionPANRED1();
+  await seccionCANCAV();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

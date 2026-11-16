@@ -156,7 +156,21 @@ import SiteFooter from "../../components/SiteFooter";
 import SmartImage from "../../components/SmartImage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { medirCuentaCreada, trackEvent } from "../../lib/analytics";
-import { fijarAvisoPrecio, LIKED_PRODUCTS_KEY, LIKED_SERVICES_KEY, meGustaLocales, misAvisosPrecio, misMeGustaServidor } from "../../lib/interaccion";
+import {
+  CANALES_REPOSICION,
+  fijarAvisoPrecio,
+  fijarAvisoReposicion,
+  LIKED_PRODUCTS_KEY,
+  LIKED_SERVICES_KEY,
+  meGustaLocales,
+  misAvisosPrecio,
+  misAvisosReposicion,
+  misMeGustaServidor,
+  MOTIVO_NO_DISPONIBLE,
+  textoReposicion,
+  type AvisoReposicion,
+  type CanalReposicion,
+} from "../../lib/interaccion";
 import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
 import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
@@ -1688,6 +1702,10 @@ type PedidoSeg = {
   envio_seguimiento?: string | null;
   // Primer artículo del pedido con producto: el chat de la tienda abre con su tarjeta (valoración baja, mejora 11).
   primerProducto?: string | null;
+  // Título de ese artículo (para «Avisarme cuando haya otro» tras una cancelación).
+  primerTitulo?: string | null;
+  // Motivo de la cancelación (migración 20261116100000; puede no venir).
+  cancelacion_motivo?: string | null;
 };
 
 // «Pagado con Bizum · Entregado» bajo el título «Compra en tienda VZ-…» (venta en mano que manda VeoAura, evento
@@ -1817,6 +1835,188 @@ function PagoDelPedido({ p }: { p: PedidoSeg }) {
           : `Pagado online${con} · ${segEuros(Number(p.pagado_eur))} · ${segFecha(p.pagado_en ?? null)}`}
         {p.pago_modo === "prueba" ? " (de prueba)" : ""}
       </Text>
+    </View>
+  );
+}
+
+// Pedido cancelado (dueño, 2026-11-16): tarjeta con «Pedido cancelado · {motivo}», la devolución si la hubo y, si el
+// motivo es que el artículo ya no está disponible, el interruptor «Avisarme cuando haya otro» (44 px) y, encendido, «¿Cómo
+// quieres que te avisemos?»: En la app · Por correo · Las dos (avisos_reposicion, lib/interaccion.ts). Blue
+// (components/Campanita.tsx) avisa en la app cuando entra otro parecido. Analítica: aviso_reposicion_activado (canal) y
+// aviso_reposicion_desactivado, sin datos personales. Se prueba con la sección CANCAV de pruebas/perfil-datos.mjs.
+function CancelacionDelPedido({
+  p,
+  aviso,
+  avisosOk,
+  onGuardado,
+}: {
+  p: PedidoSeg;
+  aviso: AvisoReposicion | null;
+  avisosOk: boolean;
+  onGuardado: (a: AvisoReposicion) => void;
+}) {
+  const ref = p.numero ?? p.id;
+  // Estrecho (móvil): las tres opciones del canal, una debajo de otra (a 16 px no caben en una fila sin cortarse).
+  const estrecho = useWindowDimensions().width < 520;
+  const activo = !!aviso?.activo;
+  const [canal, setCanal] = useState<CanalReposicion>(aviso?.canal ?? "app");
+  const [ocupado, setOcupado] = useState(false);
+  const [mensaje, setMensaje] = useState<{ ok: boolean; texto: string } | null>(null);
+  useEffect(() => {
+    if (aviso?.canal) setCanal(aviso.canal);
+  }, [aviso?.canal]);
+  const ofreceAviso = avisosOk && p.cancelacion_motivo === MOTIVO_NO_DISPONIBLE && !!(p.primerTitulo ?? p.items[0]);
+  const modelo = textoReposicion(p.primerTitulo ?? p.items[0] ?? "");
+  const devuelto = !!p.devuelto_en && Number(p.devuelto_eur ?? 0) > 0;
+  const nombreCanal = (c: CanalReposicion) => (c === "app" ? "en la app" : c === "correo" ? "por correo" : "en la app y por correo");
+
+  async function guardar(cambios: { activo: boolean; canal: CanalReposicion }) {
+    if (ocupado) return;
+    setOcupado(true);
+    setMensaje(null);
+    const r = await fijarAvisoReposicion({ pedidoId: p.id, productId: p.primerProducto ?? null, titulo: p.primerTitulo ?? p.items[0] ?? "" }, cambios, aviso);
+    setOcupado(false);
+    if (r === "sin_sesion" || r === "error") {
+      setMensaje({ ok: false, texto: r === "sin_sesion" ? "Inicia sesión para activar el aviso." : "No hemos podido guardarlo. Inténtalo de nuevo." });
+      return;
+    }
+    onGuardado(r);
+    if (cambios.activo !== activo) {
+      void trackEvent(cambios.activo ? "aviso_reposicion_activado" : "aviso_reposicion_desactivado", cambios.activo ? "Pedidos: aviso de reposición activado" : "Pedidos: aviso de reposición apagado", {
+        metadata: cambios.activo ? { canal: cambios.canal } : {},
+      });
+    }
+    setMensaje({
+      ok: true,
+      texto: cambios.activo ? `Listo: te avisaremos ${nombreCanal(cambios.canal)} cuando tengamos otro «${r.texto}».` : "Aviso apagado. Puedes volver a encenderlo cuando quieras.",
+    });
+  }
+
+  return (
+    <View
+      nativeID={`cancelacion-pedido-${ref}`}
+      style={{ width: "100%", maxWidth: 460, alignSelf: "center", gap: 12, borderRadius: 18, borderWidth: 1, borderColor: SEG.line, backgroundColor: "#FFFFFF", padding: 14 }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "#FEE2E2", alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="close" size={18} color={SEG.danger} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <Text nativeID={`cancelacion-motivo-${ref}`} style={{ color: SEG.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
+            Pedido cancelado
+            {p.cancelacion_motivo ? <Text style={{ color: SEG.text, fontWeight: "700" }}>{` · ${p.cancelacion_motivo}`}</Text> : null}
+          </Text>
+          {devuelto ? (
+            <View nativeID={`cancelacion-devolucion-${ref}`} style={{ gap: 2 }}>
+              <Text style={{ color: SEG.ok, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>Te hemos devuelto {segEuros(Number(p.devuelto_eur))}</Text>
+              <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>Según tu banco, lo verás en tu cuenta en 5-10 días hábiles.</Text>
+            </View>
+          ) : p.pago_estado === "pagado" ? (
+            <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>Te devolveremos el importe pagado en breve.</Text>
+          ) : null}
+        </View>
+      </View>
+
+      {ofreceAviso ? (
+        <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: SEG.line, paddingTop: 12 }}>
+          <Pressable
+            nativeID={`cancelacion-aviso-${ref}`}
+            onPress={() => guardar({ activo: !activo, canal })}
+            disabled={ocupado}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: activo, disabled: ocupado }}
+            aria-checked={activo}
+            accessibilityLabel={`Avisarme cuando haya otro ${modelo}`}
+            style={({ pressed }) => ({
+              minHeight: TACTIL.minimo,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              paddingVertical: 6,
+              opacity: pressed || ocupado ? 0.8 : 1,
+            })}
+          >
+            <Ionicons name={activo ? "notifications" : "notifications-outline"} size={20} color={activo ? SEG.accent : SEG.text} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: SEG.text, fontWeight: "900", fontSize: CAMPO.letra, lineHeight: 21 }}>Avisarme cuando haya otro</Text>
+              <Text numberOfLines={2} style={{ color: SEG.muted, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                {modelo}
+              </Text>
+            </View>
+            {ocupado ? <ActivityIndicator size="small" color={SEG.accent} /> : null}
+            {/* El interruptor dibujado (se toca toda la fila, de 44 px). */}
+            <View style={{ width: 46, height: 28, borderRadius: 14, padding: 3, backgroundColor: activo ? SEG.accent : "#CBD5E1", alignItems: activo ? "flex-end" : "flex-start" }}>
+              <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: "#FFFFFF" }} />
+            </View>
+          </Pressable>
+
+          {activo ? (
+            <View nativeID={`cancelacion-canal-${ref}`} style={{ gap: 8 }}>
+              <Text style={{ color: SEG.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>¿Cómo quieres que te avisemos?</Text>
+              <View
+                role="radiogroup"
+                aria-label="¿Cómo quieres que te avisemos?"
+                style={{ flexDirection: estrecho ? "column" : "row", borderRadius: 14, borderWidth: 1, borderColor: SEG.line, backgroundColor: "#F4F9FD", padding: 3, gap: 3 }}
+              >
+                {CANALES_REPOSICION.map((c) => {
+                  const elegido = canal === c.valor;
+                  return (
+                    <Pressable
+                      key={c.valor}
+                      nativeID={`cancelacion-canal-${ref}-${c.valor}`}
+                      onPress={() => {
+                        if (elegido) return;
+                        setCanal(c.valor);
+                        void guardar({ activo: true, canal: c.valor });
+                      }}
+                      disabled={ocupado}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: elegido, disabled: ocupado }}
+                      aria-checked={elegido}
+                      accessibilityLabel={c.texto}
+                      style={({ pressed }) => ({
+                        flex: estrecho ? undefined : 1,
+                        minWidth: 0,
+                        minHeight: TACTIL.minimo,
+                        flexDirection: estrecho ? "row" : "column",
+                        alignItems: "center",
+                        justifyContent: estrecho ? "flex-start" : "center",
+                        gap: estrecho ? 10 : 2,
+                        paddingVertical: 6,
+                        paddingHorizontal: estrecho ? 12 : 4,
+                        borderRadius: 11,
+                        backgroundColor: elegido ? "#FFFFFF" : "transparent",
+                        borderWidth: 1,
+                        borderColor: elegido ? SEG.accent : "transparent",
+                        opacity: pressed ? 0.85 : 1,
+                      })}
+                    >
+                      <Ionicons name={c.icono} size={18} color={elegido ? SEG.accent : SEG.muted} />
+                      <Text style={{ flexShrink: 1, color: elegido ? SEG.text : SEG.muted, fontWeight: elegido ? "900" : "700", fontSize: CAMPO.letra, textAlign: estrecho ? "left" : "center" }}>
+                        {c.texto}
+                      </Text>
+                      {estrecho ? (
+                        <Ionicons name={elegido ? "radio-button-on" : "radio-button-off"} size={20} color={elegido ? SEG.accent : SEG.muted} style={{ marginLeft: "auto" }} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {mensaje ? (
+        <Text
+          nativeID={`cancelacion-mensaje-${ref}`}
+          accessibilityLiveRegion="polite"
+          aria-live="polite"
+          style={{ color: mensaje.ok ? SEG.ok : SEG.danger, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}
+        >
+          {mensaje.texto}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -3572,6 +3772,8 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
   // ¿La página de pago online ofrece también Bizum? (api/pago.ts; sin él, no se promete)
   const [bizumOnline, setBizumOnline] = useState(false);
   const [avisoPago, setAvisoPago] = useState<{ ok: boolean; texto: string } | null>(null);
+  // «Avisarme cuando haya otro» de los pedidos cancelados, por pedido (null: aún no se puede, sin la migración).
+  const [avisosReposicion, setAvisosReposicion] = useState<Record<string, AvisoReposicion> | null>(null);
 
   // Para recargar desde dentro de `cargar` (al unirse una compra en mano a la cuenta).
   const cargarRef = useRef<((silencioso?: boolean) => Promise<void>) | null>(null);
@@ -3619,6 +3821,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
         // Miniatura de cada pedido (dueño, 2026-11-10): la portada del primer artículo que la tenga.
         const fotoPedido: Record<string, string> = {};
         const primerProducto: Record<string, string> = {};
+        const primerTitulo: Record<string, string> = {};
         if (filas.length) {
           const itRes = await supabase
             .from("pedido_items")
@@ -3632,9 +3835,24 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
           for (const it of items) {
             const f = it.product_id ? portadas[it.product_id] : undefined;
             if (f && !fotoPedido[it.pedido_id]) fotoPedido[it.pedido_id] = f;
-            if (it.product_id && !primerProducto[it.pedido_id]) primerProducto[it.pedido_id] = it.product_id;
+            if (it.product_id && !primerProducto[it.pedido_id]) {
+              primerProducto[it.pedido_id] = it.product_id;
+              primerTitulo[it.pedido_id] = it.titulo;
+            }
           }
         }
+        // Cancelados: el motivo (migración 20261116100000; sin la columna, sin él) y sus «Avisarme cuando haya otro».
+        const canceladosIds = filas.filter((p) => p.estado === "cancelado").map((p) => p.id);
+        const motivos: Record<string, string | null> = {};
+        let avisosCancel: AvisoReposicion[] | null = null;
+        if (canceladosIds.length) {
+          const mot = await supabase.from("pedidos").select("id,cancelacion_motivo").in("id", canceladosIds);
+          if (!mot.error) {
+            for (const m of (mot.data ?? []) as { id: string; cancelacion_motivo: string | null }[]) motivos[m.id] = m.cancelacion_motivo;
+            avisosCancel = await misAvisosReposicion(canceladosIds);
+          }
+        }
+        setAvisosReposicion(avisosCancel ? Object.fromEntries(avisosCancel.map((a) => [a.pedido_id, a])) : null);
         // Las devoluciones (migración 20261106100000) solo se piden si hay algún pedido pagado con tarjeta.
         const pagados = filas.filter((p) => p.pago_estado === "pagado").map((p) => p.id);
         // Con qué se pagó online (pago_metodo, migración 20261111150000): si la columna aún no existe, sin él.
@@ -3677,6 +3895,8 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
           filas.map((p) => ({
             ...p,
             primerProducto: primerProducto[p.id] ?? null,
+            primerTitulo: primerTitulo[p.id] ?? porPedido[p.id]?.[0] ?? null,
+            cancelacion_motivo: motivos[p.id] ?? null,
             envio_seguimiento: seg.numeros[p.id] ?? null,
             ...devueltos[p.id],
             items: porPedido[p.id] ?? [],
@@ -3931,6 +4151,14 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
                       cancelado={p.estado === "cancelado"}
                     />
                     <PasosDelPedido p={p} historial={historial} />
+                    {p.estado === "cancelado" ? (
+                      <CancelacionDelPedido
+                        p={p}
+                        aviso={avisosReposicion?.[p.id] ?? null}
+                        avisosOk={avisosReposicion !== null}
+                        onGuardado={(a) => setAvisosReposicion((prev) => ({ ...(prev ?? {}), [p.id]: a }))}
+                      />
+                    ) : null}
                     {p.entrega !== "recogida" && p.estado !== "cancelado" ? (
                       <BotonSeguirEnvio id={`seguir-envio-${p.numero ?? p.id}`} numero={p.envio_seguimiento} tipo="pedido" />
                     ) : null}

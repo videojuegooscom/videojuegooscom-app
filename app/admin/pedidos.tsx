@@ -93,8 +93,15 @@
  * - Franjas de entrega (dueño, 2026-11-15; migración 20261115180000): en cada fila, el día y la franja que eligió el
  *   cliente (#pedido-franja-N) y el filtro «Reparto de hoy» (los de hoy sin entregar ni cancelar), agrupado por franja
  *   (mañana / tarde) para planificar la ruta. Sin la migración, nada.
+ * - Motivo de la cancelación y «Avisarme cuando haya otro» (dueño, 2026-11-16; migración 20261116100000): al primer toque
+ *   de «Cancelar pedido» salen los motivos en pastillas (por defecto «El artículo ya no se encuentra disponible»; «No hemos
+ *   podido confirmar el pago», «Lo has pedido tú» y «Otro motivo» con texto opcional de hasta 200 letras); el segundo toque
+ *   cancela y guarda el motivo (pedidos.cancelacion_motivo; cancelado_en lo pone la base de datos). El bloque
+ *   «Cancelación» del detalle enseña el motivo y si el cliente pidió aviso y por qué canal (avisos_reposicion; con correo,
+ *   «Correo pendiente de activar en la tienda»: aún no hay envío de correos propio). Recuento abajo
+ *   (#pedidos-avisos-reposicion). Sin la migración, se cancela como antes.
  * - pruebas/perfil-datos.mjs → sección PEDRED (este diseño) y P, Q, VA, TE, PT, FA, VT, FCH, TM4, SEGP, VALOR, AVISOM,
- *   FRANJ y VENDP.
+ *   FRANJ, VENDP y CANCAV.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View, useWindowDimensions } from "react-native";
@@ -103,6 +110,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
+import { MOTIVO_MAX, MOTIVO_NO_DISPONIBLE, MOTIVOS_CANCELACION, type CanalReposicion } from "../../lib/interaccion";
 import {
   cargarAjustesFranjas,
   cargarSeguimientoPedidos,
@@ -179,11 +187,19 @@ type Pedido = {
   venta_forma_pago?: string | null;
   // Doble venta (migración 20261115200000_vendido_al_pagar): se cobró con un artículo que ya estaba vendido.
   doble_venta_en?: string | null;
+  // Motivo y hora de la cancelación (migración 20261116100000_cancelacion_motivo_aviso; puede no existir aún).
+  cancelacion_motivo?: string | null;
+  cancelado_en?: string | null;
 };
 
 // Estado de venta de cada artículo de los pedidos (products): cada artículo es UNA unidad. vendido_pedido_id solo existe
 // con la migración 20261115200000 (sin ella, no viene).
 type ArticuloEstado = { id: string; is_active: boolean | null; vendido_en: string | null; vendido_pedido_id?: string | null };
+
+// «Avisarme cuando haya otro» que pidió el cliente de un pedido cancelado (avisos_reposicion, migración 20261116100000).
+type AvisoRepoAdmin = { id: string; pedido_id: string; texto: string; canal: CanalReposicion; activo: boolean; avisado_en: string | null };
+const CANAL_ADMIN: Record<CanalReposicion, string> = { app: "en la app", correo: "por correo", ambas: "en la app y por correo" };
+const OTRO_MOTIVO = "otro";
 
 // Filtros: los de la fila principal y los de «Más filtros».
 type Filtro =
@@ -609,6 +625,13 @@ export default function PedidosAdmin() {
   const [todosAbiertos, setTodosAbiertos] = useState(false);
   // false = aún no existe doble_venta_en (migración 20261115200000 sin aplicar): ni aviso ni filtro.
   const [dobleOk, setDobleOk] = useState(false);
+  // false = aún no existe el motivo de cancelación (migración 20261116100000 sin aplicar): se cancela como antes.
+  const [cancelacionOk, setCancelacionOk] = useState(false);
+  // Motivo elegido al cancelar cada pedido (por defecto, el artículo ya no está disponible) y el texto de «Otro motivo».
+  const [motivoElegido, setMotivoElegido] = useState<Record<string, string>>({});
+  const [motivoOtro, setMotivoOtro] = useState<Record<string, string>>({});
+  // Avisos de reposición que pidieron los clientes (null sin la tabla).
+  const [avisosRepo, setAvisosRepo] = useState<AvisoRepoAdmin[] | null>(null);
   // Artículos de los pedidos cargados (para «Volver a poner a la venta» tras cancelar uno pagado).
   const [articulos, setArticulos] = useState<Record<string, ArticuloEstado>>({});
   // false = la franja de entrega aún no existe (migración 20261115180000 sin aplicar): ni filtro ni franja.
@@ -672,6 +695,9 @@ export default function PedidosAdmin() {
     const FRANJA = ",entrega_franja,entrega_fecha";
     // Doble venta de un artículo único (migración 20261115200000).
     const DOBLE = ",doble_venta_en";
+    // Motivo y hora de la cancelación (migración 20261116100000).
+    const CANCELACION = ",cancelacion_motivo,cancelado_en";
+    let conCancelacion = true;
     let conDoble = true;
     let conFranja = true;
     let conVenta = true;
@@ -681,11 +707,12 @@ export default function PedidosAdmin() {
     let conEnvio = true;
     let conNumeros = true;
     const columnas = () =>
-      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}${conFranja ? FRANJA : ""}${conDoble ? DOBLE : ""}`;
+      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}${conFranja ? FRANJA : ""}${conDoble ? DOBLE : ""}${conCancelacion ? CANCELACION : ""}`;
     let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(columnas());
-    for (let vuelta = 0; vuelta < 8 && res.error; vuelta++) {
+    for (let vuelta = 0; vuelta < 9 && res.error; vuelta++) {
       const msg = String(res.error.message ?? "");
-      if (conDoble && /doble_venta_en/.test(msg)) conDoble = false;
+      if (conCancelacion && /cancelacion_motivo|cancelado_en/.test(msg)) conCancelacion = false;
+      else if (conDoble && /doble_venta_en/.test(msg)) conDoble = false;
       else if (conFranja && /entrega_franja|entrega_fecha/.test(msg)) conFranja = false;
       else if (conVenta && /origen|veoaura_venta_id|venta_forma_pago/.test(msg)) conVenta = false;
       else if (conMetodo && /pago_metodo/.test(msg)) conMetodo = false;
@@ -704,7 +731,18 @@ export default function PedidosAdmin() {
     setVentasOk(!res.error && conVenta);
     setFranjaOk(!res.error && conFranja);
     setDobleOk(!res.error && conDoble);
+    setCancelacionOk(!res.error && conCancelacion);
     if (conFranja) cargarAjustesFranjas();
+    // «Avisarme cuando haya otro» (avisos_reposicion; el administrador las lee todas): por pedido y los recuentos. Sin la
+    // tabla, null (no se enseña nada).
+    if (conCancelacion) {
+      supabase
+        .from("avisos_reposicion")
+        .select("id,pedido_id,texto,canal,activo,avisado_en")
+        .order("creado_en", { ascending: false })
+        .limit(1000)
+        .then(({ data: av, error: errAv }) => setAvisosRepo(errAv || !Array.isArray(av) ? null : (av as AvisoRepoAdmin[])));
+    } else setAvisosRepo(null);
     const { data, error } = res;
     if (error) {
       const msg = String(error.message ?? "").toLowerCase();
@@ -971,14 +1009,18 @@ export default function PedidosAdmin() {
     };
   }, [pedidos]);
 
-  async function cambiarEstado(p: Pedido, estado: Estado) {
-    if (p.estado === estado) return;
+  // extra: el motivo de la cancelación (solo con la migración 20261116100000). Devuelve si se guardó.
+  async function cambiarEstado(p: Pedido, estado: Estado, extra?: { cancelacion_motivo: string | null }): Promise<boolean> {
+    if (p.estado === estado) return false;
     setGuardando(p.id);
-    const { error } = await supabase.from("pedidos").update({ estado }).eq("id", p.id);
+    const { error } = await supabase.from("pedidos").update({ estado, ...(extra ?? {}) }).eq("id", p.id);
     if (error) {
       setErr("No se pudo cambiar el estado del pedido.");
     } else {
-      setPedidos((prev) => prev.map((x) => (x.id === p.id ? { ...x, estado } : x)));
+      const ahora = new Date().toISOString();
+      setPedidos((prev) =>
+        prev.map((x) => (x.id === p.id ? { ...x, estado, ...(extra ?? {}), ...(estado === "cancelado" && cancelacionOk ? { cancelado_en: ahora } : {}) } : x))
+      );
       // La hora del paso la pone la base de datos (pedido_estados): se relee la de este pedido.
       if (historial) {
         cargarSeguimientoPedidos([p.id]).then((seg) => {
@@ -990,6 +1032,7 @@ export default function PedidosAdmin() {
       if (Platform.OS === "web") fetch("/api/escaparate-retorno", { method: "POST" }).catch(() => {});
     }
     setGuardando(null);
+    return !error;
   }
 
   // Número de envío (Correos) o enlace del transportista: el cliente ve «Seguir el envío». Vacío lo quita.
@@ -1077,6 +1120,15 @@ export default function PedidosAdmin() {
     setGuardando(null);
   }
 
+  // El motivo que verá el cliente: el elegido en las pastillas (por defecto, el artículo ya no está disponible) o el texto
+  // de «Otro motivo» (sin texto, sin motivo).
+  function motivoDe(p: Pedido): string | null {
+    const elegido = motivoElegido[p.id] ?? MOTIVO_NO_DISPONIBLE;
+    if (elegido !== OTRO_MOTIVO) return elegido;
+    const t = (motivoOtro[p.id] ?? "").replace(/\s+/g, " ").trim().slice(0, MOTIVO_MAX);
+    return t.length >= 2 ? t : null;
+  }
+
   async function cancelarPedido(p: Pedido) {
     if (confirmando !== `cancelar:${p.id}`) {
       setConfirmando(`cancelar:${p.id}`);
@@ -1084,7 +1136,11 @@ export default function PedidosAdmin() {
       return;
     }
     setConfirmando(null);
-    await cambiarEstado(p, "cancelado");
+    const ok = await cambiarEstado(p, "cancelado", cancelacionOk ? { cancelacion_motivo: motivoDe(p) } : undefined);
+    if (!ok) {
+      setAccionMsg({ id: p.id, tipo: "error", texto: "No se pudo cancelar el pedido. Vuelve a intentarlo." });
+      return;
+    }
     const quedanVendidos = articulosParaReponer({ ...p, estado: "cancelado" }).length > 0;
     setAccionMsg({
       id: p.id,
@@ -1387,6 +1443,43 @@ export default function PedidosAdmin() {
             </Bloque>
           ) : null}
 
+          {/* Cancelación (migración 20261116100000): el motivo que ve el cliente y, si lo pidió, su «Avisarme cuando haya
+              otro» con el canal (el correo aún no se manda: lo dice). */}
+          {cancelacionOk && p.estado === "cancelado" && !tienda ? (
+            <Bloque nativeID={`pedido-bloque-cancelacion-${p.numero}`} icono="close-circle-outline" titulo="Cancelación" ancho={anchoBloque}>
+              <Text nativeID={`pedido-cancelacion-motivo-${p.numero}`} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                {p.cancelacion_motivo ? `Motivo: ${p.cancelacion_motivo}` : "Sin motivo indicado"}
+              </Text>
+              {p.cancelado_en ? <Detalle>Cancelado el {fmtFecha(p.cancelado_en)}</Detalle> : null}
+              {avisosRepo ? (
+                (() => {
+                  const a = avisosRepo.find((x) => x.pedido_id === p.id);
+                  if (!a) {
+                    return p.cancelacion_motivo === MOTIVO_NO_DISPONIBLE ? (
+                      <Detalle nativeID={`pedido-aviso-repo-${p.numero}`}>El cliente no ha pedido aviso de reposición.</Detalle>
+                    ) : null;
+                  }
+                  return (
+                    <View nativeID={`pedido-aviso-repo-${p.numero}`} style={{ gap: 2 }}>
+                      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                        <Ionicons name={a.activo ? "notifications" : "notifications-off-outline"} size={16} color={a.activo ? COLORS.success : COLORS.muted} style={{ marginTop: 1 }} />
+                        <Text style={{ color: a.activo ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19, flex: 1, minWidth: 0 }}>
+                          {a.activo ? `Pidió aviso cuando haya otro «${a.texto}» · ${CANAL_ADMIN[a.canal]}` : `Aviso de «${a.texto}» apagado por el cliente`}
+                        </Text>
+                      </View>
+                      {a.avisado_en ? <Detalle color={COLORS.text}>Ya se le avisó el {fmtFecha(a.avisado_en)}</Detalle> : null}
+                      {a.activo && a.canal !== "app" ? (
+                        <Detalle nativeID={`pedido-aviso-repo-correo-${p.numero}`} color="#92400E">
+                          Correo pendiente de activar en la tienda (de momento Blue le avisa en la app).
+                        </Detalle>
+                      ) : null}
+                    </View>
+                  );
+                })()
+              ) : null}
+            </Bloque>
+          ) : null}
+
           {/* Valoración tras la entrega (mejora 11): la nota y el comentario del cliente, o cuándo se le pide. */}
           {valoraciones && p.estado === "entregado" ? (
             <Bloque nativeID={`pedido-bloque-valoracion-${p.numero}`} icono="star-outline" titulo="Valoración" ancho={anchoBloque}>
@@ -1496,6 +1589,61 @@ export default function PedidosAdmin() {
                   texto={confirmando === `reponer:${p.id}` ? "Toca otra vez para ponerlo a la venta" : "Volver a poner a la venta"}
                 />
               ) : null}
+            </View>
+          ) : null}
+          {/* Tras el primer toque de «Cancelar pedido»: el motivo que verá el cliente en Mis pedidos (por defecto, el
+              artículo ya no está disponible, que le ofrece «Avisarme cuando haya otro»). */}
+          {cancelacionOk && !tienda && puedeCancelar && confirmando === `cancelar:${p.id}` ? (
+            <View nativeID={`pedido-cancelar-motivos-${p.numero}`} style={{ gap: 8, borderRadius: 14, backgroundColor: COLORS.bg2, padding: 12 }}>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Motivo de la cancelación (lo verá el cliente)</Text>
+              <View role="radiogroup" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+                {[...MOTIVOS_CANCELACION, OTRO_MOTIVO].map((m, i) => {
+                  const activo = (motivoElegido[p.id] ?? MOTIVO_NO_DISPONIBLE) === m;
+                  return (
+                    <Pressable
+                      key={m}
+                      nativeID={`pedido-motivo-${p.numero}-${i}`}
+                      onPress={() => setMotivoElegido((x) => ({ ...x, [p.id]: m }))}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: activo }}
+                      aria-checked={activo}
+                      style={({ pressed }) => ({
+                        minHeight: TACTIL.minimo,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        paddingHorizontal: 14,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: activo ? COLORS.accent : COLORS.border,
+                        backgroundColor: activo ? COLORS.accent2 : COLORS.bg,
+                        opacity: pressed ? 0.85 : 1,
+                        maxWidth: "100%",
+                      })}
+                    >
+                      <Ionicons name={activo ? "radio-button-on" : "radio-button-off"} size={16} color={activo ? COLORS.accent : COLORS.muted} />
+                      <Text style={{ color: COLORS.text, fontWeight: activo ? "900" : "800", fontSize: TAMANOS.minimo, flexShrink: 1 }}>{m === OTRO_MOTIVO ? "Otro motivo" : m}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {(motivoElegido[p.id] ?? MOTIVO_NO_DISPONIBLE) === OTRO_MOTIVO ? (
+                <TextInput
+                  nativeID={`pedido-motivo-otro-${p.numero}`}
+                  value={motivoOtro[p.id] ?? ""}
+                  onChangeText={(t) => setMotivoOtro((x) => ({ ...x, [p.id]: t.slice(0, MOTIVO_MAX) }))}
+                  maxLength={MOTIVO_MAX}
+                  placeholder="Escribe el motivo (opcional, lo verá el cliente)"
+                  placeholderTextColor={COLORS.muted}
+                  accessibilityLabel={`Otro motivo de cancelación del pedido ${p.numero}`}
+                  style={{ ...estiloCampo, width: "100%" }}
+                />
+              ) : null}
+              <Detalle>
+                {(motivoElegido[p.id] ?? MOTIVO_NO_DISPONIBLE) === MOTIVO_NO_DISPONIBLE
+                  ? "El cliente podrá pedir que le avisemos cuando haya otro parecido."
+                  : "Toca otra vez «Cancelar pedido» para confirmar."}
+              </Detalle>
             </View>
           ) : null}
           {accionMsg?.id === p.id ? (
@@ -1918,6 +2066,14 @@ export default function PedidosAdmin() {
                     Valoraciones: {Object.keys(valoraciones).length} · media{" "}
                     {(Object.values(valoraciones).reduce((s, v) => s + v.nota, 0) / Object.keys(valoraciones).length).toFixed(1).replace(".", ",")} de 5 · bajas
                     (1-2): {Object.values(valoraciones).filter((v) => v.nota <= 2).length}
+                  </Detalle>
+                ) : null}
+                {avisosRepo ? (
+                  <Detalle nativeID="pedidos-avisos-reposicion" color={COLORS.text}>
+                    {`Avisos de reposición: ${avisosRepo.filter((a) => a.activo).length} activos · por app ${avisosRepo.filter((a) => a.activo && a.canal === "app").length} · por correo ${
+                      avisosRepo.filter((a) => a.activo && a.canal === "correo").length
+                    } · ambas ${avisosRepo.filter((a) => a.activo && a.canal === "ambas").length} · avisados ${avisosRepo.filter((a) => !!a.avisado_en).length}`}
+                    {avisosRepo.some((a) => a.activo && a.canal !== "app") ? " · Correo pendiente de activar en la tienda (Blue les avisa en la app)" : ""}
                   </Detalle>
                 ) : null}
                 {facturasOk ? (
