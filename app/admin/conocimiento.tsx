@@ -15,11 +15,17 @@
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px,
  *   grises desde COLORES_TEXTO.secundario, texto azul pequeño en azulTexto, todo lo que se toca de
  *   44 px y los campos de 16 px y 48 de alto.
+ * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx, como Blog y Noticias Flash): cifras que
+ *   filtran (Temas, Blue lo usa, Ocultos) y las propuestas de Blue, buscador de 16 px (tema o respuesta), pastillas con
+ *   su recuento, «Blue te propone» en pastillas, filas compactas (tema, etiqueta de color, respuesta y fecha) con el
+ *   lápiz y la papelera a mano y, al tocar una, el detalle por bloques (Respuesta y Uso) con «Ocultar a Blue» o «Que Blue
+ *   lo use» abajo. «Añadir información» es el «+» flotante.
  *
  * Conectado con:
  * - lib/conocimiento.ts → temas propuestos y guardado.
  * - api/blue-ia.ts → lee los temas activos para responder a los clientes.
  * - app/admin/index.tsx → tarjeta de entrada; app/admin/_layout.tsx → registra la ruta.
+ * - components/admin/PanelUI.tsx → piezas comunes; pruebas/perfil-datos.mjs (NO7, TM5 y PANRED5).
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -29,59 +35,58 @@ import {
   Pressable,
   ScrollView,
   StatusBar,
-  Switch,
   Text,
   TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { IconButton, PieVentana } from "../../lib/admin/products.components";
-import CargaMarca from "../../components/marca/CargaMarca";
+import { AdminHeader, AdminLoading, AdminNotice, BotonFlotante, EmptyState, IconButton, PieVentana } from "../../lib/admin/products.components";
 import { guardarConocimiento, TEMAS_CONOCIMIENTO, type ItemConocimiento } from "../../lib/conocimiento";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TAMANOS } from "../../constants/theme";
+import {
+  AccionTexto,
+  Bloque,
+  BotonesFila,
+  Buscador,
+  Chip,
+  Cifra,
+  Dato,
+  Detalle,
+  DetalleFila,
+  Etiqueta,
+  EtiquetaColor,
+  FilaCifras,
+  FilaLista,
+  FilaPastillas,
+  ListaVacia,
+  PANEL,
+  RecuentoLista,
+  Seccion,
+  fechaPanel,
+  useDesplegables,
+} from "../../components/admin/PanelUI";
 
-const COLORS = {
-  bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  card: "#F6FAFD",
-  border: "#E3EAF2",
-  text: "#0B2138",
-  muted: COLORES_TEXTO.secundario,
-  muted2: COLORES_TEXTO.secundario,
-  accent: "#1EA7E8",
-  accentText: COLORES_TEXTO.azulTexto,
-  accent2: "#EAF6FD",
-  accentBorder: "#BEE6FA",
-  danger: "#B91C1C",
-  dangerBg: "#FFE4E6",
-  dangerBorder: "#FDA4AF",
-};
-
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
+type Filtro = "todos" | "activos" | "ocultos";
+const PASTILLAS: [Filtro, string][] = [
+  ["todos", "Todos"],
+  ["activos", "Blue lo usa"],
+  ["ocultos", "Ocultos"],
+];
+const cumple = (i: ItemConocimiento, f: Filtro) => (f === "activos" ? i.activo : f === "ocultos" ? !i.activo : true);
 
 export default function AdminConocimiento() {
   const { width } = useWindowDimensions();
   const isMobile = (width && width > 0 ? width : 1024) < 700;
-  const pagePadding = isMobile ? 12 : 16;
   const insets = useSafeAreaInsets();
+  const desplegables = useDesplegables();
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
   const [items, setItems] = useState<ItemConocimiento[]>([]);
+  const [filtro, setFiltro] = useState<Filtro>("todos");
+  const [search, setSearch] = useState("");
 
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -97,6 +102,13 @@ export default function AdminConocimiento() {
     const hechos = new Set(items.map((i) => i.tema));
     return TEMAS_CONOCIMIENTO.filter((t) => !hechos.has(t.tema));
   }, [items]);
+
+  const q = search.trim().toLowerCase();
+  const cuenta = (f: Filtro) => items.filter((i) => cumple(i, f)).length;
+  const visibles = useMemo(
+    () => items.filter((i) => cumple(i, filtro) && (!q || i.tema.toLowerCase().includes(q) || String(i.respuesta ?? "").toLowerCase().includes(q))),
+    [items, filtro, q]
+  );
 
   async function load() {
     setLoading(true);
@@ -173,125 +185,173 @@ export default function AdminConocimiento() {
         justifyContent: "center",
         paddingHorizontal: 14,
         borderWidth: 1,
-        borderColor: principal ? COLORS.accent : COLORS.border,
-        backgroundColor: principal ? COLORS.accent : "#F6FAFD",
+        borderColor: principal ? PANEL.accent : PANEL.border,
+        backgroundColor: principal ? PANEL.accent : PANEL.card,
         opacity: pressed ? 0.88 : 1,
       })}
     >
-      <Text style={{ color: principal ? "#FFFFFF" : COLORS.text, fontWeight: "900", fontSize: 13.5, textAlign: "center" }}>{texto}</Text>
+      <Text style={{ color: principal ? "#FFFFFF" : PANEL.text, fontWeight: "900", fontSize: 13.5, textAlign: "center" }}>{texto}</Text>
     </Pressable>
   );
 
+  const hayFiltro = filtro !== "todos" || !!q;
+
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+    <View style={{ flex: 1, backgroundColor: PANEL.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border,
-          paddingHorizontal: pagePadding,
-          paddingTop: (isMobile ? 10 : 12) + insets.top,
-          paddingBottom: isMobile ? 10 : 12,
-        }}
-      >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
-          <Pressable
-            onPress={smartBackAdminHome}
-            accessibilityRole="button"
-            accessibilityLabel="Volver al panel"
-            hitSlop={8}
-            // zIndex: por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
-            style={{ position: "absolute", zIndex: 1, left: 0, top: 0, bottom: 0, width: TACTIL.minimo, alignItems: "center", justifyContent: "center" }}
-          >
-            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-          </Pressable>
-          <Text style={{ color: COLORS.text, fontSize: isMobile ? 19 : 22, fontWeight: "900", textAlign: "center", paddingHorizontal: 44 }}>
-            Lo que Blue sabe
-          </Text>
-        </View>
-      </View>
+      <AdminHeader title="Lo que Blue sabe" isMobile={isMobile} />
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <CargaMarca texto="Cargando…" />
-        </View>
+        <AdminLoading texto="Cargando…" />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+          contentContainerStyle={{ padding: 16, paddingBottom: 48 + 74 + insets.bottom, alignItems: "center" }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
-            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-              Escribe aquí respuestas reales de la tienda. Blue IA las usa para contestar a tus clientes con precisión, sin inventar
-              nada.
-            </Text>
+          <View style={{ width: "100%", maxWidth: 1040, gap: isMobile ? 18 : 22 }}>
+            {/* 1) Cifras: las tres primeras filtran la lista (otro toque en la misma, todos). */}
+            <FilaCifras nativeID="conocimiento-cifras">
+              {(
+                [
+                  ["todos", "Temas", "bulb-outline"],
+                  ["activos", "Blue lo usa", "checkmark-circle-outline"],
+                  ["ocultos", "Ocultos", "eye-off-outline"],
+                ] as const
+              ).map(([f, etiqueta, icono]) => (
+                <Cifra
+                  key={f}
+                  nativeID={`conocimiento-cifra-${f}`}
+                  valor={String(cuenta(f))}
+                  etiqueta={etiqueta}
+                  icono={icono}
+                  ancho={isMobile ? "45%" : 0}
+                  activa={filtro === f && f !== "todos"}
+                  onPress={() => setFiltro((x) => (x === f ? "todos" : f))}
+                />
+              ))}
+              <Cifra nativeID="conocimiento-cifra-propuestas" valor={String(pendientes.length)} etiqueta="Propuestas de Blue" icono="sparkles-outline" ancho={isMobile ? "45%" : 0} />
+            </FilaCifras>
 
-            {boton("+ Añadir información", () => abrir("", "", null, false), true)}
+            <Detalle>Respuestas reales de la tienda. Blue IA las usa para contestar a tus clientes con precisión, sin inventar nada.</Detalle>
 
-            {!!screenErr && (
-              <View style={{ borderRadius: 14, backgroundColor: COLORS.dangerBg, padding: 10 }}>
-                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>{screenErr}</Text>
-              </View>
-            )}
+            {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
 
+            {/* 2) Lo que Blue propone: al tocar un tema, se abre el formulario con su pregunta. */}
             {pendientes.length ? (
-              <View style={{ gap: 10, alignItems: "center" }}>
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>Blue te propone</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+              <Seccion nativeID="conocimiento-propuestas" icon="sparkles-outline" title="Blue te propone" extra={`${pendientes.length} ${pendientes.length === 1 ? "tema" : "temas"}`}>
+                <FilaPastillas isMobile={isMobile}>
                   {pendientes.map((t) => (
-                    <Pressable
-                      key={t.tema}
-                      onPress={() => abrir(t.tema, "", t.pregunta, false)}
-                      style={({ pressed }) => ({
-                        borderRadius: 999,
-                        minHeight: TACTIL.minimo,
-                        justifyContent: "center",
-                        paddingHorizontal: 14,
-                        borderWidth: 1,
-                        borderColor: COLORS.accentBorder,
-                        backgroundColor: COLORS.accent2,
-                        opacity: pressed ? 0.85 : 1,
-                      })}
-                    >
-                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>{t.tema}</Text>
-                    </Pressable>
+                    <Chip key={t.tema} label={t.tema} onPress={() => abrir(t.tema, "", t.pregunta, false)} />
                   ))}
-                </View>
-              </View>
+                </FilaPastillas>
+              </Seccion>
             ) : null}
 
-            {items.length === 0 ? (
-              <View style={{ alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 12 }}>
-                <Ionicons name="bulb-outline" size={24} color={COLORS.muted2} />
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Todavía no hay información.</Text>
-                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-                  Toca uno de los temas de Blue o añade lo tuyo.
-                </Text>
-              </View>
-            ) : (
-              items.map((row) => (
-                <View key={row.id} style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: isMobile ? 12 : 14, gap: 10, opacity: row.activo ? 1 : 0.6 }}>
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>{row.tema}</Text>
-                  <Text style={{ color: COLORS.text, lineHeight: 21, textAlign: "center" }}>{row.respuesta}</Text>
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Switch value={row.activo} onValueChange={() => alternar(row)} />
-                      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 13 }}>{row.activo ? "Blue lo usa" : "Oculto"}</Text>
-                    </View>
-                    {/* Acciones con iconos (su nombre, para el lector de pantalla y al pasar el ratón). */}
-                    <IconButton icon="create-outline" label={`Editar «${row.tema}»`} variant="primary" onPress={() => abrir(row.tema, row.respuesta, null, true)} />
-                    <IconButton icon="trash-outline" label={`Borrar «${row.tema}»`} variant="danger" onPress={() => setBorrar(row)} />
-                  </View>
+            {/* 3) Buscador y pastillas con su recuento. */}
+            <View style={{ gap: 12 }}>
+              <Buscador
+                nativeID="conocimiento-buscar"
+                valor={search}
+                onCambiar={setSearch}
+                placeholder="Buscar por tema o respuesta"
+                etiqueta="Buscar en lo que Blue sabe por tema o respuesta"
+              />
+              <FilaPastillas isMobile={isMobile} nativeID="conocimiento-filtros">
+                {PASTILLAS.map(([f, t]) => (
+                  <Chip key={f} nativeID={`conocimiento-filtro-${f}`} label={`${t} (${cuenta(f)})`} activo={filtro === f} onPress={() => setFiltro(f)} />
+                ))}
+              </FilaPastillas>
+            </View>
+
+            {/* 4) Cuántos salen, «Abrir todos» y las filas compactas. */}
+            <View style={{ gap: 4 }}>
+              <RecuentoLista
+                nativeID="conocimiento-recuento"
+                texto={q ? `${visibles.length} ${visibles.length === 1 ? "tema encontrado" : "temas encontrados"}` : `${visibles.length} de ${items.length} temas`}
+                abiertas={desplegables.todasAbiertas(visibles.map((r) => r.id))}
+                onAlternar={visibles.length ? () => desplegables.abrirOCerrarTodas(visibles.map((r) => r.id)) : undefined}
+                idBoton="conocimiento-abrir-todos"
+              />
+              {visibles.length === 0 ? (
+                items.length && hayFiltro ? (
+                  <ListaVacia nativeID="conocimiento-vacio" icono="bulb-outline" titulo="No hay temas para este filtro." texto="Prueba a borrar el buscador o a elegir «Todos»." />
+                ) : (
+                  <EmptyState icon="bulb-outline" title="Todavía no hay información." text="Toca uno de los temas de Blue o añade lo tuyo con el «+»." />
+                )
+              ) : (
+                <View nativeID="conocimiento-lista">
+                  {visibles.map((row, n) => {
+                    const abierta = desplegables.estaAbierta(row.id);
+                    return (
+                      <FilaLista
+                        key={row.id}
+                        nativeID={`conocimiento-${row.id}`}
+                        idFila={`conocimiento-fila-${row.id}`}
+                        primera={n === 0}
+                        abierta={abierta}
+                        onPress={() => desplegables.alternar(row.id)}
+                        etiquetaAccesible={`${row.tema}, ${row.activo ? "Blue lo usa" : "oculto"}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+                        titulo={row.tema}
+                        etiqueta={<EtiquetaColor nativeID={`conocimiento-estado-${row.id}`} texto={row.activo ? "Blue lo usa" : "Oculto"} tono={row.activo ? "verde" : "gris"} />}
+                        subtitulo={row.respuesta}
+                        idSubtitulo={`conocimiento-respuesta-${row.id}`}
+                        lineasSubtitulo={2}
+                        etiquetas={
+                          <>
+                            <Etiqueta icon="time-outline" color={PANEL.muted} texto={`Actualizado: ${fechaPanel(row.updated_at)}`} />
+                            <Etiqueta icon="text-outline" color={COLORES_TEXTO.azulTexto} texto={`${String(row.respuesta ?? "").length} / 800`} />
+                          </>
+                        }
+                        derecha={
+                          <BotonesFila>
+                            {/* Acciones con iconos (su nombre, para el lector de pantalla y al pasar el ratón). */}
+                            <IconButton icon="create-outline" label={`Editar «${row.tema}»`} variant="primary" onPress={() => abrir(row.tema, row.respuesta, null, true)} />
+                            <IconButton icon="trash-outline" label={`Borrar «${row.tema}»`} variant="danger" onPress={() => setBorrar(row)} />
+                          </BotonesFila>
+                        }
+                      >
+                        <DetalleFila
+                          nativeID={`conocimiento-detalle-${row.id}`}
+                          idAcciones={`conocimiento-acciones-${row.id}`}
+                          acciones={
+                            <>
+                              <AccionTexto
+                                nativeID={`conocimiento-alternar-${row.id}`}
+                                icono={row.activo ? "eye-off-outline" : "checkmark-circle-outline"}
+                                texto={row.activo ? "Ocultar a Blue" : "Que Blue lo use"}
+                                onPress={() => alternar(row)}
+                              />
+                              <AccionTexto nativeID={`conocimiento-editar-${row.id}`} icono="create-outline" texto="Editar la respuesta" onPress={() => abrir(row.tema, row.respuesta, null, true)} />
+                            </>
+                          }
+                        >
+                          <Bloque icono="chatbox-ellipses-outline" titulo="Respuesta" ancho={isMobile ? "100%" : "55%"}>
+                            <Text style={{ color: PANEL.text, fontSize: TAMANOS.minimo, lineHeight: 19 }}>{row.respuesta}</Text>
+                          </Bloque>
+                          <Bloque icono="pulse-outline" titulo="Uso" ancho={isMobile ? "100%" : "35%"}>
+                            <View style={{ flexDirection: "row" }}>
+                              <EtiquetaColor texto={row.activo ? "Blue lo usa" : "Oculto"} tono={row.activo ? "verde" : "gris"} />
+                            </View>
+                            <Detalle>{row.activo ? "Blue IA lo tiene en cuenta al contestar a los clientes." : "Guardado, pero Blue IA no lo usa."}</Detalle>
+                            <Dato etiqueta="Creado">{fechaPanel(row.created_at, true)}</Dato>
+                            <Dato etiqueta="Actualizado">{fechaPanel(row.updated_at, true)}</Dato>
+                          </Bloque>
+                        </DetalleFila>
+                      </FilaLista>
+                    );
+                  })}
                 </View>
-              ))
-            )}
+              )}
+            </View>
           </View>
         </ScrollView>
       )}
+
+      {/* «Añadir información»: el «+» flotante abajo a la derecha (al alcance del pulgar). */}
+      {!loading ? <BotonFlotante nativeID="conocimiento-nuevo" label="Añadir información" onPress={() => abrir("", "", null, false)} /> : null}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
@@ -301,13 +361,13 @@ export default function AdminConocimiento() {
           >
             <Pressable
               onPress={() => undefined}
-              style={{ width: "100%", maxWidth: 480, backgroundColor: COLORS.bg, borderRadius: 24, padding: 18, gap: 12 }}
+              style={{ width: "100%", maxWidth: 480, backgroundColor: PANEL.bg, borderRadius: 24, padding: 18, gap: 12 }}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
+              <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
                 {editando ? "Editar información" : "Añadir información"}
               </Text>
               {pregunta ? (
-                <Text style={{ color: COLORS.accentText, fontWeight: "900", lineHeight: 21, textAlign: "center" }}>Blue pregunta: {pregunta}</Text>
+                <Text style={{ color: PANEL.accentDark, fontWeight: "900", lineHeight: 21, textAlign: "center" }}>Blue pregunta: {pregunta}</Text>
               ) : null}
               <TextInput
                 value={tema}
@@ -315,7 +375,7 @@ export default function AdminConocimiento() {
                 editable={!editando && !pregunta}
                 placeholder="Tema (ej.: Horario de atención)"
                 maxLength={80}
-                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 12, textAlign: "center", color: COLORS.text, backgroundColor: COLORS.card, fontSize: CAMPO.letra, minHeight: CAMPO.alto }}
+                style={{ borderWidth: 1, borderColor: PANEL.border, borderRadius: 14, padding: 12, color: PANEL.text, backgroundColor: PANEL.card, fontSize: CAMPO.letra, minHeight: CAMPO.alto }}
               />
               <TextInput
                 value={respuesta}
@@ -323,10 +383,10 @@ export default function AdminConocimiento() {
                 placeholder="Escribe la respuesta real"
                 multiline
                 maxLength={800}
-                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 12, minHeight: 110, textAlign: "center", color: COLORS.text, backgroundColor: COLORS.card, fontSize: CAMPO.letra }}
+                style={{ borderWidth: 1, borderColor: PANEL.border, borderRadius: 14, padding: 12, minHeight: 110, color: PANEL.text, backgroundColor: PANEL.card, fontSize: CAMPO.letra, textAlignVertical: "top" }}
               />
-              <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, textAlign: "center" }}>{respuesta.length} / 800</Text>
-              {!!modalErr && <Text style={{ color: COLORS.danger, fontWeight: "800", textAlign: "center" }}>{modalErr}</Text>}
+              <Text style={{ color: PANEL.muted, fontSize: TAMANOS.minimo, textAlign: "right" }}>{respuesta.length} / 800</Text>
+              {!!modalErr && <Text style={{ color: PANEL.danger, fontWeight: "800", textAlign: "center" }}>{modalErr}</Text>}
               {/* «Guardar» y, a su derecha, la X para cerrar (dueño, 2026-11-04). */}
               <PieVentana onCerrar={() => setOpen(false)}>
                 <View style={{ flex: 1 }}>{boton(saving ? "Guardando…" : "Guardar", guardar, true)}</View>
@@ -341,9 +401,9 @@ export default function AdminConocimiento() {
           onPress={() => setBorrar(null)}
           style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.45)", alignItems: "center", justifyContent: "center", padding: 16 }}
         >
-          <Pressable onPress={() => undefined} style={{ width: "100%", maxWidth: 420, backgroundColor: COLORS.bg, borderRadius: 24, padding: 18, gap: 12 }}>
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>¿Borrar «{borrar?.tema}»?</Text>
-            <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>Blue dejará de usar esta información.</Text>
+          <Pressable onPress={() => undefined} style={{ width: "100%", maxWidth: 420, backgroundColor: PANEL.bg, borderRadius: 24, padding: 18, gap: 12 }}>
+            <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>¿Borrar «{borrar?.tema}»?</Text>
+            <Text style={{ color: PANEL.muted, textAlign: "center", lineHeight: 20 }}>Blue dejará de usar esta información.</Text>
             <PieVentana onCerrar={() => setBorrar(null)}>
               <View style={{ flex: 1 }}>{boton("Borrar", borrarConfirmado, true)}</View>
             </PieVentana>
