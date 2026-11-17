@@ -278,7 +278,9 @@ for (const decl of importsOrigen) {
   if (c.namedBindings && ts.isNamedImports(c.namedBindings)) c.namedBindings.elements.forEach((e) => todos.push(e.name.text));
   if (todos.every((n) => siguen.has(n))) continue;
   const rehecho = textoImport(decl, siguen, decl.moduleSpecifier.text);
-  cambios.push({ ini: decl.getStart(fuente), fin: decl.end, texto: rehecho ?? "" });
+  // Si el import desaparece entero, se quita también su salto de línea (para no dejar una línea en blanco).
+  const fin = rehecho === null && texto[decl.end] === "\n" ? decl.end + 1 : decl.end;
+  cambios.push({ ini: decl.getStart(fuente), fin, texto: rehecho ?? "" });
 }
 const especNuevo = relativo(path.dirname(origenAbs), destinoAbs);
 const importados = [...usadosPorElOrigen].sort();
