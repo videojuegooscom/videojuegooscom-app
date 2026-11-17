@@ -4422,9 +4422,16 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
     };
   }, [cargar]);
 
+  // Dónde va «¿Tienes un número de seguimiento…?» se decide al cargar la primera vez: si cambiara mientras el cliente lo
+  // usa (al añadir su primer pedido), el recuadro saltaría de arriba abajo, se plegaría y perdería el «Listo: …».
+  const [numeroArriba, setNumeroArriba] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!cargando && numeroArriba === null) setNumeroArriba(!pedidos || pedidos.length === 0);
+  }, [cargando, pedidos, numeroArriba]);
+
   if (cargando) return <CargaMarca texto="Cargando tus seguimientos…" />;
   if (!conSesion) return null;
-  const sinPedidos = !pedidos || pedidos.length === 0;
+  const sinPedidos = numeroArriba ?? (!pedidos || pedidos.length === 0);
 
   return (
     // Móvil (dueño, 2026-11-10): en cada pedido, primero lo que compraste y su estado, luego pago y factura, y entrega y
