@@ -211,3 +211,20 @@ en 24 archivos. Las claves de `ERRORES_PANEL` (p. ej. `MAX_IMAGES`) y el nombre 
 | `LocalPickedMedia` · `ProductFormState` · `ProductStats` · `ProductMediaCounts` | `ArchivoElegidoLocal` · `EstadoFormularioProducto` · `CifrasProductosPanel` · `RecuentoArchivosProducto` |
 | `MEDIA_BUCKET` · `MAX_IMAGES` · `MAX_VIDEO_SECONDS` · `MAX_FILE_SIZE_MB` · `MAX_FILE_SIZE_BYTES` | `CUBO_ARCHIVOS_PRODUCTO` · `MAX_FOTOS_PRODUCTO` · `MAX_SEGUNDOS_VIDEO_PRODUCTO` · `MAX_TAMANO_ARCHIVO_MB` · `MAX_TAMANO_ARCHIVO_BYTES` |
 | `SUPPORTED_IMAGE_MIME` · `SUPPORTED_VIDEO_MIME` · `CONVERTIBLE_IMAGE_MIME` · `ERRORS` | `TIPOS_FOTO_ADMITIDOS` · `TIPOS_VIDEO_ADMITIDOS` · `TIPOS_FOTO_CONVERTIBLES` · `ERRORES_PANEL` |
+
+## Copias unificadas (tanda 4)
+
+Solo copias idénticas (comprobado comparando el texto de cada función). Fuera, por ser zonas delicadas: `app/checkout.tsx`,
+`app/(tabs)/perfil.tsx`, `app/admin/pedidos.tsx`, `app/admin/users.tsx`, `app/_layout.tsx` y `api/` (que además son
+funciones de Vercel separadas).
+
+| Copia que se quita | Ahora usa | Archivos |
+|---|---|---|
+| `fmtEUR` (precio «1.299,00€») | `formatearEuros` de `lib/envio.ts` | cesta, comparar, producto/[id], servicio/[id], (tabs)/index, admin/escaparate, BarraBusqueda, AsistenteBlue, CarruselProductosCategoria |
+| `softShadow` | `sombraSuave` de `lib/admin/productos.utilidades.ts` | admin/blog, admin/flash-news, admin/index, admin/policies |
+| `smartBackAdminHome` | `volverAlPanel` de `lib/admin/productos.utilidades.ts` | admin/envios |
+
+Siguen con copia propia porque NO son idénticas (dan otro resultado o usan otros tipos): `fmtEUR` de blue-ia (sin signo
+negativo), envios (sin `Number()`) y users (con espacio antes de €); `toIntSafe` del panel (no limpia símbolos como
+`enteroSeguro`); `softShadow` de Inicio, AvisoAnaliticaCookies, FiltrosCatalogo, VenderAhoraModal y VentanaValoracion
+(otra sombra); `sortMediaRows` y `normalizeMediaKind` (cada pantalla con su propio tipo).

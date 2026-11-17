@@ -109,6 +109,7 @@ import {
 } from "react-native";
 import { supabase } from "../lib/supabase";
 import { medirEvento } from "../lib/analiticaPropia";
+import { formatearEuros } from "../lib/envio";
 import { colorTextoAzul } from "../constants/temaTienda";
 import ImagenInteligente from "./ImagenInteligente";
 
@@ -126,14 +127,6 @@ function pushRoute(route: Href) {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.max(min, Math.min(value, max));
-}
-
-// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
-function fmtEUR(n: number) {
-  const v = Number(n);
-  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
-  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 // ---------------------------------------------------------------------------
@@ -930,7 +923,7 @@ function PanelBusqueda({
                 resaltada={i === activo}
                 primera={i === 0 && !intencion}
                 onPress={() => onProducto(i)}
-                etiqueta={`${p.titulo}, ${fmtEUR(p.precio)}`}
+                etiqueta={`${p.titulo}, ${formatearEuros(p.precio)}`}
               >
                 <View style={{ width: 48, height: 48, flexShrink: 0, backgroundColor: "#FFFFFF" }}>
                   {p.imagen ? <ImagenInteligente uri={p.imagen} alt={p.titulo} ancho={96} contentFit="contain" style={{ width: "100%", height: "100%" }} /> : null}
@@ -939,7 +932,7 @@ function PanelBusqueda({
                   <Text numberOfLines={2} style={{ color: COLORS.text, fontSize: 14.5, lineHeight: 19, fontWeight: "700", textAlign: "center" }}>
                     {p.titulo}
                   </Text>
-                  <Text style={{ color: COLORS.brand, fontSize: 14, lineHeight: 19, fontWeight: "800", textAlign: "center" }}>{fmtEUR(p.precio)}</Text>
+                  <Text style={{ color: COLORS.brand, fontSize: 14, lineHeight: 19, fontWeight: "800", textAlign: "center" }}>{formatearEuros(p.precio)}</Text>
                 </View>
                 <View style={{ width: 48, flexShrink: 0 }} />
               </FilaPanel>

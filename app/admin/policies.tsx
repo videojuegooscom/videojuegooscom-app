@@ -75,6 +75,7 @@ import {
   BotonIconoPanel,
   PieVentana,
 } from "../../lib/admin/productos.componentes";
+import { sombraSuave } from "../../lib/admin/productos.utilidades";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
   AccionTexto,
@@ -152,18 +153,6 @@ const PASTILLAS: [FiltroPoliticas, string][] = [
   ["pie", "En el pie de página"],
 ];
 
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.24,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
 
 function slugify(input: string) {
   return (input ?? "")
@@ -677,7 +666,7 @@ export default function AdminPolicies() {
                 backgroundColor: COLORS.bg,
                 padding: isMobile ? 14 : 16,
                 gap: 12,
-                ...softShadow(),
+                ...sombraSuave(),
               }}
             >
               <Text style={{ color: COLORS.text, fontSize: isMobile ? 19 : 20, fontWeight: "900", textAlign: "center" }}>

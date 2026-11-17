@@ -86,6 +86,14 @@ export function formatearKg(kg: number): string {
   return `${(Math.round(kg * 100) / 100).toLocaleString("es-ES", { maximumFractionDigits: 2 })} kg`;
 }
 
+/** «1.299,00€», «-5,00€»: el precio como lo enseña la tienda (antes, una copia idéntica en cada pantalla). */
+export function formatearEuros(n: number) {
+  const v = Number(n);
+  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
+}
+
 /** El peso de una compra: la suma de sus artículos (sin peso, PESO_SIN_DATO_KG cada uno). */
 export function pesoDeCompra(pesos: (number | null | undefined)[]): number {
   return Math.round(pesos.reduce<number>((a, p) => a + (p && p > 0 ? p : PESO_SIN_DATO_KG), 0) * 1000) / 1000;

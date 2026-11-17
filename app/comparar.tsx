@@ -47,7 +47,7 @@ import { COMPARAR_MAX, fijarComparados, quitarDeComparar, useComparar, type Prod
 import { direccionesDeFila } from "../components/PerfilPublico";
 import { filaPerfilCliente, supabase } from "../lib/supabase";
 import { medirEvento } from "../lib/analiticaPropia";
-import { cargarTarifas, entregaEstimada, limpiarCodigoPostal, tipoEntregaPorCodigo, type ZonaEnvio } from "../lib/envio";
+import { cargarTarifas, entregaEstimada, formatearEuros, limpiarCodigoPostal, tipoEntregaPorCodigo, type ZonaEnvio } from "../lib/envio";
 import { COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../constants/temaTienda";
 
 const COLORS = {
@@ -72,14 +72,6 @@ type FilaComparar = {
   revisado: boolean;
   garantiaMeses: number | null;
 };
-
-// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
-function fmtEUR(n: number) {
-  const v = Number(n);
-  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
-  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
-}
 
 // El mismo texto que el estado de la ficha (debajo del título). Sin estado guardado no se inventa ninguno.
 function textoEstado(c: unknown): string {
@@ -455,7 +447,7 @@ export default function CompararScreen() {
         {filaTabla("precio", "Precio", (f) =>
           f.disponible ? (
             <>
-              <Text style={{ color: colorTextoAzul(estrecha ? 16 : 20), fontWeight: "900", fontSize: estrecha ? 16 : 20, textAlign: "center" }}>{fmtEUR(f.precio)}</Text>
+              <Text style={{ color: colorTextoAzul(estrecha ? 16 : 20), fontWeight: "900", fontSize: estrecha ? 16 : 20, textAlign: "center" }}>{formatearEuros(f.precio)}</Text>
               {masBarato !== null && f.precio === masBarato ? (
                 <View nativeID={`comparar-mas-barato-${f.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                   <Ionicons name="pricetag-outline" size={13} color={COLORES_TEXTO.azulTexto} />

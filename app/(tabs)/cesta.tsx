@@ -78,7 +78,7 @@ import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PieDePagina from "../../components/PieDePagina";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import { useRecarga } from "../../components/TirarParaActualizar";
-import { cargarTarifas, gratisDesdeMinimo, hayEnviosDePago, type ZonaEnvio } from "../../lib/envio";
+import { cargarTarifas, formatearEuros, gratisDesdeMinimo, hayEnviosDePago, type ZonaEnvio } from "../../lib/envio";
 import {
   formatoCuentaAtras,
   liberarReserva,
@@ -398,14 +398,6 @@ function BotonBlueElegir({ conArticulos }: { conArticulos: boolean }) {
       </Text>
     </Pressable>
   );
-}
-
-// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
-function fmtEUR(n: number) {
-  const v = Number(n);
-  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
-  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 function safeInt(n: unknown, fallback = 1) {
@@ -993,7 +985,7 @@ export default function CestaScreen() {
                     ) : null}
 
                     <Text nativeID={`cesta-precio-${it.id}`} style={{ color: COLORS.accent, fontSize: TAMANOS.destacado, fontWeight: "900" }}>
-                      {fmtEUR(it.priceEUR * it.qty)}
+                      {formatearEuros(it.priceEUR * it.qty)}
                     </Text>
 
                     {/* Reserva de 15 minutos: al llegar a 0 sale de la cesta. */}
@@ -1049,7 +1041,7 @@ export default function CestaScreen() {
               Resumen del pedido
             </Text>
 
-            <Row label="Subtotal" value={fmtEUR(subtotal)} />
+            <Row label="Subtotal" value={formatearEuros(subtotal)} />
             {/* Envío: «Gratis» en verde (sin burbuja) si todas las tarifas están a 0 €; si no, se calcula al pagar. */}
             <Row
               nativeID="cesta-envio"
@@ -1061,11 +1053,11 @@ export default function CestaScreen() {
               <Text nativeID="cesta-envio-gratis-desde" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
                 {subtotal >= gratisDesde
                   ? "Con este importe el envío puede salir gratis: se confirma con tu código postal"
-                  : `Envío gratis desde ${fmtEUR(gratisDesde)} (según la zona)`}
+                  : `Envío gratis desde ${formatearEuros(gratisDesde)} (según la zona)`}
               </Text>
             ) : null}
             <View style={{ height: 1, backgroundColor: "#E3EAF2" }} />
-            <Row label={envioDePago ? "Total sin envío" : "Total"} value={fmtEUR(total)} strong />
+            <Row label={envioDePago ? "Total sin envío" : "Total"} value={formatearEuros(total)} strong />
 
             <View style={{ marginTop: 4 }}>
               <ActionButton nativeID="cesta-pagar" title="Ir a pagar" icon="arrow-forward" onPress={() => pushRoute("/checkout" as Href)} />
