@@ -53,7 +53,7 @@ import {
   ListaVacia,
   PANEL,
   RecuentoLista,
-  type IoniconName,
+  type NombreIconoPanel,
   type Tono,
   fechaPanel,
   useDesplegables,
@@ -74,7 +74,7 @@ type Fila = {
   resultado: Punto[];
 };
 
-const SIMBOLO: Record<Punto["estado"], { icono: IoniconName; color: string; texto: string }> = {
+const SIMBOLO: Record<Punto["estado"], { icono: NombreIconoPanel; color: string; texto: string }> = {
   ok: { icono: "checkmark-circle", color: PANEL.success, texto: "Bien" },
   aviso: { icono: "alert-circle", color: PANEL.warning, texto: "Aviso" },
   fallo: { icono: "close-circle", color: PANEL.danger, texto: "Fallo" },

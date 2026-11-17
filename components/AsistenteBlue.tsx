@@ -218,7 +218,7 @@ import { asegurarCssSiriTexto, escribirEnBuscadorDemo, palabrasBusqueda, registr
 import { alRecargar } from "./TirarParaActualizar";
 import { useMiPerfilAbierto, usePerfilObligatorioVisible } from "./PerfilPublico";
 import { suscribirVisorFotos, visorFotosAbierto } from "./VisorFotos";
-import { MejorasModal, VALORACION_ESPERA_MS, cargarValoracionesPedidos, entregadoEnDe, tocaValorarPedido } from "./VentanaValoracion";
+import { VentanaMejoras, VALORACION_ESPERA_MS, cargarValoracionesPedidos, entregadoEnDe, tocaValorarPedido } from "./VentanaValoracion";
 import { useAlturaBarraComparar, useComparar } from "./CarruselProductosCategoria";
 import { CAMPO, COLORES_TEXTO, colorTextoAzul, TACTIL, TAMANOS } from "../constants/temaTienda";
 import { cargarAjustesReparacionEnvio, cargarHistorialPedidos } from "../lib/envio";
@@ -1004,7 +1004,7 @@ function mensajeProducto(titulo: string, descripcion: string | null): string {
   return `¿Te gusta ${titulo}? Es unidad única: si la añades a la cesta te la reservamos 15 minutos.`;
 }
 
-export default function Campanita() {
+export default function AsistenteBlue() {
   const pathname = usePathname() ?? "";
   const enAdmin = pathname.startsWith("/admin");
   // En las pantallas de chat (y en el propio chat de Blue IA) no se muestra: taparía
@@ -3742,7 +3742,7 @@ export default function Campanita() {
       </Modal>
 
       {/* «Mejoras en la tienda» (desde el Asistente). */}
-      <MejorasModal visible={mejorasAbierta} onClose={() => setMejorasAbierta(false)} origen="blue" />
+      <VentanaMejoras visible={mejorasAbierta} onClose={() => setMejorasAbierta(false)} origen="blue" />
 
       {capaConsejo}
     </>

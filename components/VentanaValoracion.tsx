@@ -167,7 +167,7 @@ export function emojisParaResena(comentario: string, estrellas: number): string[
   return Array.from(new Set(lista)).filter((e) => !comentario.includes(e)).slice(0, MAX_EMOJIS);
 }
 
-export type PublishedReview = {
+export type ResenaPublicada = {
   id: string;
   created_at: string;
   user_id: string;
@@ -310,7 +310,7 @@ function StarPicker({ rating, onChange }: { rating: number; onChange: (n: number
 // servicio: valorar un servicio terminado desde «Mis seguimientos» (dueño, 2026-11-03). La reseña va unida a esa
 // solicitud (service_request_id) y la base de datos solo la acepta si es del cliente y ya está «entregado», una vez
 // (supabase/migrations/20261103210000_resenas_servicios.sql); la ficha del servicio la enseña.
-export default function ReviewModal({
+export default function VentanaValoracion({
   visible,
   onClose,
   onPublished,
@@ -318,7 +318,7 @@ export default function ReviewModal({
 }: {
   visible: boolean;
   onClose: () => void;
-  onPublished: (review: PublishedReview) => void;
+  onPublished: (review: ResenaPublicada) => void;
   servicio?: { solicitudId: string; titulo: string } | null;
 }) {
   const [phase, setPhase] = useState<Phase>("checking");
@@ -434,7 +434,7 @@ export default function ReviewModal({
           emojis: Array.from(new Set(emojisAnadidos)).filter((e) => final.includes(e)).length,
         },
       });
-      onPublished(data as PublishedReview);
+      onPublished(data as ResenaPublicada);
       setPhase("success");
     } catch (e: any) {
       const msg = String(e?.message ?? "");
@@ -813,7 +813,7 @@ function faltaTablaMejoras(e: { code?: string; message?: string } | null | undef
 
 type FaseMejora = "checking" | "auth-required" | "no-disponible" | "form" | "success";
 
-export function MejorasModal({ visible, onClose, origen }: { visible: boolean; onClose: () => void; origen: OrigenMejora }) {
+export function VentanaMejoras({ visible, onClose, origen }: { visible: boolean; onClose: () => void; origen: OrigenMejora }) {
   const [fase, setFase] = useState<FaseMejora>("checking");
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);

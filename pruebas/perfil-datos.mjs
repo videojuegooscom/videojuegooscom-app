@@ -12434,7 +12434,7 @@ async function seccionTM() {
     const campanita = leer("components/AsistenteBlue.tsx");
     const tema = leer("constants/temaTienda.ts");
     const campo = /placeholder="Escribe la respuesta real de la tienda"[\s\S]{0,700}?\/>/.exec(campanita)?.[0] ?? "";
-    ok(/fontSize: CAMPO\.letra/.test(campo) && /CAMPO = \{\s*letra: 16,/.test(tema), "TM: el campo de la respuesta de Blue (Campanita) usa CAMPO.letra, que es 16 px");
+    ok(/fontSize: CAMPO\.letra/.test(campo) && /CAMPO = \{\s*letra: 16,/.test(tema), "TM: el campo de la respuesta de Blue (AsistenteBlue) usa CAMPO.letra, que es 16 px");
   }
 }
 

@@ -105,7 +105,7 @@ import { supabase } from "../lib/supabase";
 import { openExternalLink } from "../lib/abrirEnlaceExterno";
 import { trackEvent } from "../lib/analiticaPropia";
 
-export type SocialPlatform =
+export type PlataformaSocial =
   | "instagram"
   | "tiktok"
   | "whatsapp"
@@ -117,15 +117,15 @@ export type SocialPlatform =
   | "vinted";
 
 type SocialLinkRow = {
-  platform: SocialPlatform;
+  platform: PlataformaSocial;
   label: string;
   url: string | null;
   enabled: boolean;
   sort_order: number;
 };
 
-export const SOCIAL_ICONS: Record<
-  SocialPlatform,
+export const ICONOS_REDES: Record<
+  PlataformaSocial,
   { render: (color: string, size: number) => React.ReactNode; color: string; bg: string }
 > = {
   instagram: {
@@ -185,7 +185,7 @@ export const SOCIAL_ICONS: Record<
   },
 };
 
-export function buildSocialHref(platform: SocialPlatform, raw: string): string | null {
+export function enlaceRedSocial(platform: PlataformaSocial, raw: string): string | null {
   const value = raw.trim();
   if (!value) return null;
 
@@ -269,7 +269,7 @@ export function useRedesJuntoAlLogo(): Partial<Record<RedLogo, FilaRedLogo>> {
         const nuevas: Partial<Record<RedLogo, FilaRedLogo>> = {};
         for (const r of res.data as unknown as (SocialLinkRow & { seguidores?: number | null })[]) {
           if (r.platform !== "tiktok" && r.platform !== "instagram") continue;
-          const href = r.enabled && r.url ? buildSocialHref(r.platform, r.url) : null;
+          const href = r.enabled && r.url ? enlaceRedSocial(r.platform, r.url) : null;
           if (!href) continue;
           const n = Number(r.seguidores);
           nuevas[r.platform] = { platform: r.platform, label: r.label, href, seguidores: r.seguidores != null && Number.isFinite(n) && n >= 0 ? n : null };
@@ -288,7 +288,7 @@ export function useRedesJuntoAlLogo(): Partial<Record<RedLogo, FilaRedLogo>> {
 
 /** Una red junto al logo: su icono, los seguidores (o «Síguenos») y, al tocar, su perfil. */
 export function RedJuntoAlLogo({ fila, estrecho }: { fila: FilaRedLogo; estrecho?: boolean }) {
-  const meta = SOCIAL_ICONS[fila.platform];
+  const meta = ICONOS_REDES[fila.platform];
   const numero = fila.seguidores != null ? formatearSeguidores(fila.seguidores) : null;
   const detalle = fila.seguidores === 1 ? "seguidor" : "seguidores";
   return (
@@ -375,7 +375,7 @@ export function ResenasCanales({ n, estrecho }: { n: number; estrecho?: boolean 
   );
 }
 
-export default function SocialLinks({
+export default function EnlacesRedesSociales({
   title,
   titleColor = "#0B2138",
 }: {
@@ -428,7 +428,7 @@ export default function SocialLinks({
 
   const visible = rows
     .filter((r) => r.enabled)
-    .map((r) => ({ ...r, href: r.url ? buildSocialHref(r.platform, r.url) : null }))
+    .map((r) => ({ ...r, href: r.url ? enlaceRedSocial(r.platform, r.url) : null }))
     .filter((r) => !!r.href);
 
   if (visible.length === 0) return null;
@@ -452,7 +452,7 @@ export default function SocialLinks({
         }}
       >
         {visible.map((r) => {
-          const meta = SOCIAL_ICONS[r.platform];
+          const meta = ICONOS_REDES[r.platform];
           if (!meta) return null;
           return (
             <Pressable

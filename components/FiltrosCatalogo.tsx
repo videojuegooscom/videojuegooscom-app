@@ -48,15 +48,15 @@ const COLORS = {
   white: "#FFFFFF",
 };
 
-export type ConditionFilter = "ALL" | "NEW" | "USED" | "LIKE_NEW" | "GOOD" | "FAIR" | "PARTS";
-export type SortKey = "NEWEST" | "PRICE_ASC" | "PRICE_DESC" | "MOST_VIEWED";
+export type FiltroEstadoCatalogo = "ALL" | "NEW" | "USED" | "LIKE_NEW" | "GOOD" | "FAIR" | "PARTS";
+export type ClaveOrden = "NEWEST" | "PRICE_ASC" | "PRICE_DESC" | "MOST_VIEWED";
 
-export type CatalogCategoryOption = { id: string; name: string; slug: string };
+export type OpcionCategoriaCatalogo = { id: string; name: string; slug: string };
 
 /** Condiciones de segunda mano (todo lo que no es "NEW"). */
-export const USED_CONDITIONS = ["LIKE_NEW", "GOOD", "FAIR", "PARTS"] as const;
+export const ESTADOS_USADO = ["LIKE_NEW", "GOOD", "FAIR", "PARTS"] as const;
 
-const USED_DETAIL: { key: ConditionFilter; label: string }[] = [
+const USED_DETAIL: { key: FiltroEstadoCatalogo; label: string }[] = [
   { key: "LIKE_NEW", label: "Como nuevo" },
   { key: "GOOD", label: "Bueno" },
   { key: "FAIR", label: "Regular" },
@@ -64,14 +64,14 @@ const USED_DETAIL: { key: ConditionFilter; label: string }[] = [
 ];
 
 /** Nombre de cada estado (los de products.condition: NEW, LIKE_NEW, GOOD, FAIR y PARTS; USED = toda la segunda mano). */
-export function nombreEstado(c: ConditionFilter): string {
+export function nombreEstado(c: FiltroEstadoCatalogo): string {
   if (c === "NEW") return "Nuevo";
   if (c === "USED") return "Segunda mano";
   return USED_DETAIL.find((d) => d.key === c)?.label ?? "Todos";
 }
 
 /** El estado en la dirección (?estado=): palabras legibles para que el enlace se pueda compartir. */
-const ESTADO_URL: Record<Exclude<ConditionFilter, "ALL">, string> = {
+const ESTADO_URL: Record<Exclude<FiltroEstadoCatalogo, "ALL">, string> = {
   NEW: "nuevo",
   USED: "segunda-mano",
   LIKE_NEW: "como-nuevo",
@@ -79,12 +79,12 @@ const ESTADO_URL: Record<Exclude<ConditionFilter, "ALL">, string> = {
   FAIR: "regular",
   PARTS: "para-piezas",
 };
-export function estadoAUrl(c: ConditionFilter): string | undefined {
+export function estadoAUrl(c: FiltroEstadoCatalogo): string | undefined {
   return c === "ALL" ? undefined : ESTADO_URL[c];
 }
-export function estadoDeUrl(v: string | undefined): ConditionFilter {
+export function estadoDeUrl(v: string | undefined): FiltroEstadoCatalogo {
   const t = String(v ?? "").trim().toLowerCase();
-  const par = (Object.entries(ESTADO_URL) as [Exclude<ConditionFilter, "ALL">, string][]).find(([k, s]) => s === t || k.toLowerCase() === t);
+  const par = (Object.entries(ESTADO_URL) as [Exclude<FiltroEstadoCatalogo, "ALL">, string][]).find(([k, s]) => s === t || k.toLowerCase() === t);
   return par ? par[0] : "ALL";
 }
 
@@ -322,7 +322,7 @@ export function BarraPrecio({ min, max, onCommit }: { min: number; max: number; 
   );
 }
 
-const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+const SORT_OPTIONS: { key: ClaveOrden; label: string }[] = [
   { key: "NEWEST", label: "Novedades" },
   { key: "PRICE_ASC", label: "Precio más bajo" },
   { key: "PRICE_DESC", label: "Precio más alto" },
@@ -422,7 +422,7 @@ function productsLabel(total: number) {
 /** Lo que hay de verdad en una categoría: sus estados y sus precios (para no ofrecer filtros vacíos). */
 export type FiltrosDisponibles = { condiciones: string[]; precios: number[] };
 
-export default function CatalogFilters({
+export default function FiltrosCatalogo({
   isMobile,
   categories,
   categoryId,
@@ -445,17 +445,17 @@ export default function CatalogFilters({
   disponibles = null,
 }: {
   isMobile: boolean;
-  categories: CatalogCategoryOption[];
+  categories: OpcionCategoriaCatalogo[];
   categoryId: string | null;
-  onCategoryChange: (cat: CatalogCategoryOption | null) => void;
-  condition: ConditionFilter;
-  onConditionChange: (c: ConditionFilter) => void;
+  onCategoryChange: (cat: OpcionCategoriaCatalogo | null) => void;
+  condition: FiltroEstadoCatalogo;
+  onConditionChange: (c: FiltroEstadoCatalogo) => void;
   /** Precio de 1 a 1000 (1000 = sin tope); onPriceCommit al soltar la barra. */
   priceMin: number;
   priceMax: number;
   onPriceCommit: (min: number, max: number) => void;
-  sort: SortKey;
-  onSortChange: (s: SortKey) => void;
+  sort: ClaveOrden;
+  onSortChange: (s: ClaveOrden) => void;
   total: number | null;
   busy: boolean;
   hasActiveFilters: boolean;

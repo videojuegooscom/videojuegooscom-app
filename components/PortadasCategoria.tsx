@@ -42,7 +42,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Platform, Text, View, type StyleProp, type ViewStyle } from "react-native";
-import SmartImage from "./ImagenInteligente";
+import ImagenInteligente from "./ImagenInteligente";
 import { supabase } from "../lib/supabase";
 
 export const MAX_PORTADAS = 3;
@@ -281,9 +281,9 @@ function FotoEntera({ uri, ancho, alt, prioridad, style }: { uri: string; ancho:
         // Ampliada al doble: el borde del desenfoque (que se aclara al mezclarse con el fondo) queda fuera de la vista.
         style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, transform: [{ scale: 2 }] }, { filter: "blur(22px) saturate(1.1)" } as object]}
       >
-        <SmartImage uri={uri} ancho={96} contentFit="cover" alt="" priority="low" style={{ width: "100%", height: "100%" }} />
+        <ImagenInteligente uri={uri} ancho={96} contentFit="cover" alt="" priority="low" style={{ width: "100%", height: "100%" }} />
       </View>
-      <SmartImage uri={uri} ancho={ancho} contentFit="contain" alt={alt} priority={prioridad} style={{ width: "100%", height: "100%" }} />
+      <ImagenInteligente uri={uri} ancho={ancho} contentFit="contain" alt={alt} priority={prioridad} style={{ width: "100%", height: "100%" }} />
     </View>
   );
 }
@@ -399,7 +399,7 @@ export default function PortadasCategoria({
             return (Array.isArray(entera) ? !!entera[k % total] : entera) ? (
               <FotoEntera key={`${k}-${uri}`} uri={uri} ancho={ancho} alt={textoAlt} prioridad={k === 0 ? prioridad : "low"} style={caja} />
             ) : (
-              <SmartImage
+              <ImagenInteligente
                 key={`${k}-${uri}`}
                 uri={uri}
                 ancho={ancho}

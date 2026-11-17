@@ -79,13 +79,13 @@ import Head from "expo-router/head";
 import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import BotonAtrasAlcance from "../components/BotonAtrasAlcance";
-import BrandLoadingScreen, { BIENVENIDA_MS, BIENVENIDA_RELLENO_ID } from "../components/PantallaCargaMarca";
-import Campanita from "../components/AsistenteBlue";
+import PantallaCargaMarca, { BIENVENIDA_MS, BIENVENIDA_RELLENO_ID } from "../components/PantallaCargaMarca";
+import AsistenteBlue from "../components/AsistenteBlue";
 import { BarraComparar } from "../components/CarruselProductosCategoria";
-import CookieConsentBanner from "../components/AvisoAnaliticaCookies";
-import LineaPensadoraEfectoSiri from "../components/EfectoPensando";
+import AvisoAnaliticaCookies from "../components/AvisoAnaliticaCookies";
+import EfectoPensando from "../components/EfectoPensando";
 import { PerfilObligatorio } from "../components/PerfilPublico";
-import SiteHead from "../components/EtiquetasCabeceraWeb";
+import EtiquetasCabeceraWeb from "../components/EtiquetasCabeceraWeb";
 import TirarParaActualizar from "../components/TirarParaActualizar";
 import { medirLlegadaDesdeRedes, trackEvent } from "../lib/analiticaPropia";
 import { alIncidenciaDeSesion, registrarDispositivo, supabase } from "../lib/supabase";
@@ -369,7 +369,7 @@ export default function RootLayout() {
           BIENVENIDA_TRANSICION,
         ]}
       >
-        <BrandLoadingScreen onEntrar={!bootLoading && bienvenida === "visible" ? () => quitarBienvenida(true) : undefined} />
+        <PantallaCargaMarca onEntrar={!bootLoading && bienvenida === "visible" ? () => quitarBienvenida(true) : undefined} />
       </View>
     ) : null;
 
@@ -439,7 +439,7 @@ export default function RootLayout() {
       </Stack>
 
       {/* Blue, asistente flotante (antes campanita): por encima de TODO, en todas las pantallas. */}
-      <Campanita />
+      <AsistenteBlue />
 
       {/* «Volver» a mano del pulgar derecho en las páginas de lectura. */}
       <BotonAtrasAlcance />
@@ -451,16 +451,16 @@ export default function RootLayout() {
       <TirarParaActualizar />
 
       {/* Aviso de cookies/analítica: por encima de todo salvo /admin. */}
-      <CookieConsentBanner />
+      <AvisoAnaliticaCookies />
 
       {/* «Completa tu perfil»: con sesión y el perfil sin completar, tapa la tienda hasta que se guarde (no en Mi cuenta). */}
       <PerfilObligatorio />
 
       {/* Barra "Pensando": se enciende sola mientras algo carga. */}
-      <LineaPensadoraEfectoSiri />
+      <EfectoPensando />
 
       {/* Título/descripción/logo para Google y el navegador. No pinta nada. */}
-      <SiteHead />
+      <EtiquetasCabeceraWeb />
 
       {/* Bienvenida: encima de todo mientras la tienda termina de cargar debajo. */}
       {capaBienvenida}

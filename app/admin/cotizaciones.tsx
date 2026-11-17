@@ -77,7 +77,7 @@ import { Image, Linking, Modal, Pressable, ScrollView, StatusBar, Text, View, us
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { MIN_SELL_IMAGES, downloadSellRequestMedia, enlacesSellRequestMedia, type SellRequestMediaRow } from "../../components/FotosVideoVenta";
+import { MIN_SELL_IMAGES, downloadSellRequestMedia, enlacesSellRequestMedia, type FilaArchivoVenta } from "../../components/FotosVideoVenta";
 import {
   AdminHeader,
   AdminLoading,
@@ -123,7 +123,7 @@ const COLORS = {
 
 // Las fotos y el vídeo de una solicitud, para VERLOS en el panel (dueño, 2026-11-16): miniaturas de 96 px que abren la
 // foto en grande; el vídeo se abre en otra pestaña. Los enlaces se firman al abrir el detalle (10 minutos).
-function GaleriaAdjuntos({ idSolicitud, media }: { idSolicitud: string; media: SellRequestMediaRow[] }) {
+function GaleriaAdjuntos({ idSolicitud, media }: { idSolicitud: string; media: FilaArchivoVenta[] }) {
   const [enlaces, setEnlaces] = useState<Record<string, string> | null>(null);
   const [fallo, setFallo] = useState(false);
   const [grande, setGrande] = useState<string | null>(null);
@@ -324,7 +324,7 @@ export default function AdminCotizaciones() {
   // agrupados por sell_request_id. Si la tabla todavía no existe (falta
   // ejecutar sql/sell_request_media.sql) se deja vacío sin romper el resto
   // del panel.
-  const [mediaByRequest, setMediaByRequest] = useState<Record<string, SellRequestMediaRow[]>>({});
+  const [mediaByRequest, setMediaByRequest] = useState<Record<string, FilaArchivoVenta[]>>({});
   const [downloadingMediaId, setDownloadingMediaId] = useState<string | null>(null);
   const [mediaErr, setMediaErr] = useState<string | null>(null);
   // «Faltan fotos o vídeo» (2026-11-16, fotos y vídeo obligatorios en «Vender ahora»): menos de 7 fotos o sin vídeo
@@ -401,8 +401,8 @@ export default function AdminCotizaciones() {
 
         if (mediaRes.error) throw mediaRes.error;
 
-        const grouped: Record<string, SellRequestMediaRow[]> = {};
-        for (const row of (mediaRes.data ?? []) as SellRequestMediaRow[]) {
+        const grouped: Record<string, FilaArchivoVenta[]> = {};
+        for (const row of (mediaRes.data ?? []) as FilaArchivoVenta[]) {
           const list = grouped[row.sell_request_id] ?? (grouped[row.sell_request_id] = []);
           list.push(row);
         }
@@ -453,7 +453,7 @@ export default function AdminCotizaciones() {
     }
   }
 
-  async function handleDownloadMedia(row: SellRequestMediaRow) {
+  async function handleDownloadMedia(row: FilaArchivoVenta) {
     if (downloadingMediaId) return;
 
     setMediaErr(null);

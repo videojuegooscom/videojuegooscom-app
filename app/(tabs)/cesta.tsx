@@ -72,11 +72,11 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import CategoryProductsShelf, { CompletaTuCompra, tipoDeArticulo } from "../../components/CarruselProductosCategoria";
+import CarruselProductosCategoria, { CompletaTuCompra, tipoDeArticulo } from "../../components/CarruselProductosCategoria";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
-import SiteFooter from "../../components/PieDePagina";
-import SmartImage from "../../components/ImagenInteligente";
+import PieDePagina from "../../components/PieDePagina";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import { cargarTarifas, gratisDesdeMinimo, hayEnviosDePago, type ZonaEnvio } from "../../lib/envio";
 import {
@@ -972,7 +972,7 @@ export default function CestaScreen() {
                       nativeID={`cesta-foto-${it.id}`}
                       style={{ width: 88, height: 88, borderRadius: 14, overflow: "hidden", backgroundColor: "#FFFFFF" }}
                     >
-                      <SmartImage uri={it.imageUrl} alt={it.title} ancho={104} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                      <ImagenInteligente uri={it.imageUrl} alt={it.title} ancho={104} contentFit="contain" style={{ width: "100%", height: "100%" }} />
                     </View>
                   ) : (
                     <View style={{ width: 88, height: 88, alignItems: "center", justifyContent: "center" }}>
@@ -1085,11 +1085,11 @@ export default function CestaScreen() {
           {/* Con la cesta vacía o llena: Blue IA ayuda a elegir (abre la conversación con la pregunta ya enviada). */}
           <BotonBlueElegir conArticulos={items.length > 0} />
 
-          <CategoryProductsShelf />
+          <CarruselProductosCategoria />
           {/* Las redes sociales ya salen en el pie de página (SiteFooter): no se repiten. */}
           </View>
 
-          <SiteFooter sidePadding={16} />
+          <PieDePagina sidePadding={16} />
         </ScrollView>
       )}
     </SafeAreaView>

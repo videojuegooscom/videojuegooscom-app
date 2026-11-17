@@ -137,7 +137,7 @@ import {
   RecuentoLista,
   TONOS,
   useDesplegables,
-  type IoniconName,
+  type NombreIconoPanel,
   type Tono,
 } from "../../components/admin/PiezasPanelAdmin";
 import {
@@ -2048,7 +2048,7 @@ export default function AdminProducts() {
                 { key: "ocultos", valor: stats.hidden, etiqueta: "Ocultos", icono: "eye-off-outline", activa: visibilityFilter === "HIDDEN", accion: () => setVisibilityFilter((f) => (f === "HIDDEN" ? "ALL" : "HIDDEN")) },
                 { key: "destacados", valor: stats.featured, etiqueta: "Destacados portada", icono: "star-outline", activa: extraFilter === "DESTACADOS", accion: () => setExtraFilter((f) => (f === "DESTACADOS" ? "ALL" : "DESTACADOS")) },
                 { key: "vendidos", valor: stats.vendidos, etiqueta: "Vendidos", icono: "bag-check-outline", activa: extraFilter === "VENDIDOS", accion: () => setExtraFilter((f) => (f === "VENDIDOS" ? "ALL" : "VENDIDOS")) },
-              ] as { key: string; valor: number; etiqueta: string; icono: IoniconName; activa: boolean; accion: () => void }[]
+              ] as { key: string; valor: number; etiqueta: string; icono: NombreIconoPanel; activa: boolean; accion: () => void }[]
             ).map((c) => (
               <Cifra
                 key={c.key}

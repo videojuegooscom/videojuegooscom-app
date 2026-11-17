@@ -93,7 +93,7 @@ function urlOptimizada(uri: string, ancho: number | undefined): string {
 // foto perdida.
 const LOAD_SAFETY_TIMEOUT_MS = 20000;
 
-export type SmartImageProps = {
+export type PropsImagenInteligente = {
   uri: string | null | undefined;
   style?: StyleProp<ImageStyle>;
   contentFit?: ImageContentFit;
@@ -224,7 +224,7 @@ function FotoWeb({
   );
 }
 
-export default function SmartImage({
+export default function ImagenInteligente({
   uri,
   style,
   contentFit = "cover",
@@ -235,7 +235,7 @@ export default function SmartImage({
   priority = "normal",
   onTamano,
   onFallo,
-}: SmartImageProps) {
+}: PropsImagenInteligente) {
   // Si la versión optimizada falla, se vuelve a la foto original.
   const [usarOriginal, setUsarOriginal] = useState(false);
   useEffect(() => setUsarOriginal(false), [uri]);

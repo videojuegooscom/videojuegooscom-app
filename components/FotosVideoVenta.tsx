@@ -78,7 +78,7 @@ export const AVISO_VIDEO_SIN_DURACION =
   "No hemos podido comprobar cuánto dura este vídeo. Prueba con otro archivo (MP4 o MOV) de 20 a 30 segundos, por ejemplo grabado con la cámara del móvil.";
 
 /** ¿El vídeo elegido es válido para enviar? (duración medida y dentro de 20-30 s). */
-export function videoEsValido(video: LocalSellMedia | null): boolean {
+export function videoEsValido(video: ArchivoVentaLocal | null): boolean {
   const d = video?.durationSeconds;
   return typeof d === "number" && Number.isFinite(d) && duracionEnRango(d);
 }
@@ -106,7 +106,7 @@ const COLORS = {
 export type SellMediaKind = "image" | "video";
 
 // Archivo elegido en el navegador del cliente, todavía sin subir.
-export type LocalSellMedia = {
+export type ArchivoVentaLocal = {
   id: string;
   kind: SellMediaKind;
   file: File;
@@ -118,7 +118,7 @@ export type LocalSellMedia = {
 };
 
 // Fila ya guardada en la tabla "sell_request_media" (la lee el admin).
-export type SellRequestMediaRow = {
+export type FilaArchivoVenta = {
   id: string;
   sell_request_id: string;
   kind: SellMediaKind;
@@ -276,7 +276,7 @@ export function pickSellVideoWeb() {
   return pickFilesWeb("video/mp4,video/webm,video/quicktime,.mov", false);
 }
 
-async function buildLocalImage(originalFile: File): Promise<LocalSellMedia> {
+async function buildLocalImage(originalFile: File): Promise<ArchivoVentaLocal> {
   let file = originalFile;
 
   if (isHeicLike(file)) {
@@ -303,7 +303,7 @@ async function buildLocalImage(originalFile: File): Promise<LocalSellMedia> {
   };
 }
 
-async function buildLocalVideo(file: File): Promise<LocalSellMedia> {
+async function buildLocalVideo(file: File): Promise<ArchivoVentaLocal> {
   const mimeType = String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name);
   if (!SUPPORTED_VIDEO_MIME.has(mimeType)) {
     throw new Error(`Formato de vídeo no soportado (${mimeType || "desconocido"}).`);
@@ -336,7 +336,7 @@ async function buildLocalVideo(file: File): Promise<LocalSellMedia> {
   };
 }
 
-function buildSellMediaPath(sellRequestId: string, item: LocalSellMedia, index: number) {
+function buildSellMediaPath(sellRequestId: string, item: ArchivoVentaLocal, index: number) {
   const fallbackExt = item.kind === "video" ? "mp4" : "jpg";
   const ext = extFromName(item.name, fallbackExt);
   const stamp = Date.now();
@@ -360,10 +360,10 @@ function buildSellMediaPath(sellRequestId: string, item: LocalSellMedia, index: 
  * cuentan como fallidos todos los de esa tanda (se vuelven a subir enteros).
  * Nunca lanza: la solicitud ya está guardada aparte.
  */
-export type SellMediaPendiente = { item: LocalSellMedia; orden: number };
+export type SellMediaPendiente = { item: ArchivoVentaLocal; orden: number };
 
 /** Las fotos y el vídeo, en el orden en que se guardan (sort_order): primero las fotos y al final el vídeo. */
-export function listaParaSubir(images: LocalSellMedia[], video: LocalSellMedia | null): SellMediaPendiente[] {
+export function listaParaSubir(images: ArchivoVentaLocal[], video: ArchivoVentaLocal | null): SellMediaPendiente[] {
   const items = video ? [...images, video] : images;
   return items.map((item, orden) => ({ item, orden }));
 }
@@ -420,7 +420,7 @@ export async function uploadSellRequestMedia(
  * visualizar los archivos multimedia»). El almacén sigue siendo privado: solo un administrador puede firmarlos y el
  * enlace caduca solo. Devuelve { storage_path: url } (los que no se puedan firmar, sin entrada).
  */
-export async function enlacesSellRequestMedia(rows: SellRequestMediaRow[], segundos = 600): Promise<Record<string, string>> {
+export async function enlacesSellRequestMedia(rows: FilaArchivoVenta[], segundos = 600): Promise<Record<string, string>> {
   if (!rows.length) return {};
   const { data, error } = await supabase.storage.from(SELL_MEDIA_BUCKET).createSignedUrls(
     rows.map((r) => r.storage_path),
@@ -437,7 +437,7 @@ export async function enlacesSellRequestMedia(rows: SellRequestMediaRow[], segun
  * temporal (el bucket es privado) y fuerza la descarga en vez de abrirla
  * embebida — cada imagen/vídeo se baja de una en una, tal y como se pidió.
  */
-export async function downloadSellRequestMedia(row: SellRequestMediaRow) {
+export async function downloadSellRequestMedia(row: FilaArchivoVenta) {
   const { data, error } = await supabase.storage
     .from(SELL_MEDIA_BUCKET)
     .createSignedUrl(row.storage_path, 60);
@@ -475,7 +475,7 @@ function ThumbChip({
   onRemove,
   disabled,
 }: {
-  item: LocalSellMedia;
+  item: ArchivoVentaLocal;
   onRemove: () => void;
   disabled?: boolean;
 }) {
@@ -544,7 +544,7 @@ function ThumbChip({
 // Revoca el blob URL de una previsualización que ya no se usa (al quitar un
 // archivo antes de enviar el formulario). Sin esto, cada foto/vídeo quitado
 // seguía ocupando memoria en el navegador hasta recargar la página.
-function revokePreview(item: LocalSellMedia) {
+function revokePreview(item: ArchivoVentaLocal) {
   try {
     URL.revokeObjectURL(item.previewUrl);
   } catch {
@@ -554,7 +554,7 @@ function revokePreview(item: LocalSellMedia) {
 
 // solo="fotos" o solo="video": pinta solo esa parte (el formulario las pone en dos apartados, cada uno con su título);
 // sin «solo», las dos juntas como antes.
-export function SellMediaPicker({
+export function FotosVideoVenta({
   images,
   video,
   onImagesChange,
@@ -562,10 +562,10 @@ export function SellMediaPicker({
   disabled,
   solo,
 }: {
-  images: LocalSellMedia[];
-  video: LocalSellMedia | null;
-  onImagesChange: (next: LocalSellMedia[]) => void;
-  onVideoChange: (next: LocalSellMedia | null) => void;
+  images: ArchivoVentaLocal[];
+  video: ArchivoVentaLocal | null;
+  onImagesChange: (next: ArchivoVentaLocal[]) => void;
+  onVideoChange: (next: ArchivoVentaLocal | null) => void;
   disabled?: boolean;
   solo?: "fotos" | "video";
 }) {
@@ -590,7 +590,7 @@ export function SellMediaPicker({
       // Cada archivo se procesa por separado: si uno falla (formato o tamaño
       // no válido) no se pierden los demás ya convertidos de la misma tanda,
       // y no se generan previsualizaciones "huérfanas" que nunca se liberan.
-      const built: LocalSellMedia[] = [];
+      const built: ArchivoVentaLocal[] = [];
       const failedNames: string[] = [];
       for (const f of toProcess) {
         try {

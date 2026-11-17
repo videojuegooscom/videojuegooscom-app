@@ -89,7 +89,7 @@ import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analiticaPropia";
 import { fmtEUR } from "../lib/admin/productos.utilidades";
-import SmartImage from "./ImagenInteligente";
+import ImagenInteligente from "./ImagenInteligente";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 
 // Título de las conversaciones sin producto ni venta (chat general con la tienda).
@@ -189,7 +189,7 @@ export function TarjetaArticuloChat({ articulo, modo, nativeID = "chat-producto-
   return (
     <View nativeID={nativeID} style={{ width: "100%", maxWidth: 640, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: "#E3EAF2", backgroundColor: "#FFFFFF" }}>
       {articulo.foto ? (
-        <SmartImage uri={articulo.foto} ancho={56} alt={articulo.titulo ?? "Artículo"} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: "#F6FAFD" }} />
+        <ImagenInteligente uri={articulo.foto} ancho={56} alt={articulo.titulo ?? "Artículo"} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: "#F6FAFD" }} />
       ) : (
         <View style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: "#F6FAFD", alignItems: "center", justifyContent: "center" }}>
           <Ionicons name="cube-outline" size={20} color={COLORES_TEXTO.secundario} />
@@ -381,7 +381,7 @@ function AnimatedPressable({
 
 type ChatKind = "product" | "sell" | "support";
 
-export default function ProductChatThread({
+export default function ConversacionProducto({
   chatId,
   headerRight,
   bajoCabecera,

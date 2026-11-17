@@ -100,7 +100,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
-import SmartImage from "../../components/ImagenInteligente";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import {
   CATEGORIA_SERVICIOS,
   MAX_PORTADAS,
@@ -145,7 +145,7 @@ import {
   ListaVacia,
   RecuentoLista,
   useDesplegables,
-  type IoniconName,
+  type NombreIconoPanel,
 } from "../../components/admin/PiezasPanelAdmin";
 import { CIERRE_TECLADO, pickMediaFilesWeb, reducirImagenWeb } from "../../lib/admin/productos.utilidades";
 import { MEDIA_BUCKET } from "../../lib/admin/productos.constantes";
@@ -899,7 +899,7 @@ export default function AdminCategories() {
                     ]
                   : []),
                 { key: "sin_portada", valor: stats.sinPortada, etiqueta: "Sin portada", icono: "image-outline" },
-              ] as { key: FiltroCategorias; valor: number; etiqueta: string; icono: IoniconName }[]
+              ] as { key: FiltroCategorias; valor: number; etiqueta: string; icono: NombreIconoPanel }[]
             ).map((c) => (
               <Cifra
                 key={c.key}
@@ -986,7 +986,7 @@ export default function AdminCategories() {
                     {/* Portada pequeña (la primera, con su encuadre de Inicio) o «sin portada». */}
                     <View style={{ width: 72, height: 48, borderRadius: 10, overflow: "hidden", backgroundColor: COLORS.cardSoft, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", justifyContent: "center" }}>
                       {fotos.length ? (
-                        <SmartImage uri={fotos[0]} contentFit={enterasInicioDe(c)[0] ? "contain" : "cover"} ancho={150} alt={`Portada de ${c.name}`} style={{ width: "100%", height: "100%" }} />
+                        <ImagenInteligente uri={fotos[0]} contentFit={enterasInicioDe(c)[0] ? "contain" : "cover"} ancho={150} alt={`Portada de ${c.name}`} style={{ width: "100%", height: "100%" }} />
                       ) : (
                         <Ionicons name="images-outline" size={20} color={COLORS.muted2} />
                       )}
@@ -1231,7 +1231,7 @@ export default function AdminCategories() {
                         }}
                       >
                         {/* Como en la tienda: el encuadre, la foto entera («Entera») o la foto recortada por el centro. */}
-                        <SmartImage
+                        <ImagenInteligente
                           uri={encuadres[i] && encuadres[i] !== PORTADA_ENTERA ? encuadres[i] : url}
                           contentFit={encuadres[i] === PORTADA_ENTERA ? "contain" : "cover"}
                           ancho={150}

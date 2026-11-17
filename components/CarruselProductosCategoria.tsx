@@ -101,7 +101,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { NativeScrollEvent, NativeSyntheticEvent, ViewStyle } from "react-native";
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import SmartImage from "./ImagenInteligente";
+import ImagenInteligente from "./ImagenInteligente";
 import { useRecarga } from "./TirarParaActualizar";
 import { cargarIndiceBusqueda, palabrasBusqueda, portadasDeProductos, type ProductoIndice } from "./BarraBusqueda";
 import { supabase } from "../lib/supabase";
@@ -232,7 +232,7 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
         }}
       >
         {imagenUrl ? (
-          <SmartImage
+          <ImagenInteligente
             uri={imagenUrl}
             alt={titulo}
             // En el móvil (2 columnas) la foto mide media pantalla menos márgenes (160 px a 390): se pide ≈ 2 × eso.
@@ -501,7 +501,7 @@ async function getShelfProductsCached(modo: ShelfModo, forzar = false): Promise<
   return enVuelo;
 }
 
-export default function CategoryProductsShelf({
+export default function CarruselProductosCategoria({
   modo = "consolas",
   titulo,
   pie,
@@ -682,7 +682,7 @@ export default function CategoryProductsShelf({
                 }}
               >
                 {p.image ? (
-                  <SmartImage uri={p.image} alt={p.title} ancho={150} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                  <ImagenInteligente uri={p.image} alt={p.title} ancho={150} contentFit="contain" style={{ width: "100%", height: "100%" }} />
                 ) : (
                   <Ionicons name="game-controller-outline" size={28} color={COLORS.muted} />
                 )}
@@ -903,7 +903,7 @@ export function ProductosParecidos({
   );
 
   if (!lista || !lista.length) return null;
-  if (isMobile) return <CategoryProductsShelf nativeID="ficha-parecidos" titulo="Productos parecidos" productos={lista} onTocar={tocar} sinMovimiento />;
+  if (isMobile) return <CarruselProductosCategoria nativeID="ficha-parecidos" titulo="Productos parecidos" productos={lista} onTocar={tocar} sinMovimiento />;
   return (
     <View nativeID="ficha-parecidos" style={{ gap: 12 }}>
       <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
@@ -998,7 +998,7 @@ export function CompletaTuCompra({
           >
             <View style={{ width: enCesta ? 56 : 44, height: enCesta ? 56 : 44, borderRadius: 10, overflow: "hidden", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
               {p.image ? (
-                <SmartImage uri={p.image} alt={p.title} ancho={enCesta ? 72 : 56} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                <ImagenInteligente uri={p.image} alt={p.title} ancho={enCesta ? 72 : 56} contentFit="contain" style={{ width: "100%", height: "100%" }} />
               ) : (
                 <Ionicons name="game-controller-outline" size={20} color={COLORS.muted} />
               )}
@@ -1422,7 +1422,7 @@ export function BarraComparar() {
                 })}
               >
                 {p.imagen ? (
-                  <SmartImage uri={p.imagen} alt={p.titulo} ancho={88} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                  <ImagenInteligente uri={p.imagen} alt={p.titulo} ancho={88} contentFit="contain" style={{ width: "100%", height: "100%" }} />
                 ) : (
                   <Ionicons name="game-controller-outline" size={20} color={COLORS.muted} />
                 )}
@@ -1628,7 +1628,7 @@ export function VistosRecientemente({ pie }: { pie?: React.ReactNode }) {
 
   if (!productos || productos.length < VISTOS_MIN) return null;
   return (
-    <CategoryProductsShelf
+    <CarruselProductosCategoria
       nativeID="inicio-vistos"
       titulo="Vistos recientemente"
       productos={productos}

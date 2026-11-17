@@ -117,8 +117,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import SmartImage from "../../components/ImagenInteligente";
-import ImageLightbox, { type LightboxImage } from "../../components/VisorFotos";
+import ImagenInteligente from "../../components/ImagenInteligente";
+import VisorFotos, { type FotoVisor } from "../../components/VisorFotos";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
 import { cargarAjustesReparacionEnvio, cargarTarifas, hayTarifaCorreos, type AjustesReparacionEnvio } from "../../lib/envio";
 import { enlaceVideo, esEnlaceCorto } from "../servicios";
@@ -439,7 +439,7 @@ function coverUrl(media: ServiceMediaRow[]): string | null {
 }
 
 // Las fotos de un servicio para el visor (la portada primero, luego en su orden).
-function fotosDelServicio(media: ServiceMediaRow[]): LightboxImage[] {
+function fotosDelServicio(media: ServiceMediaRow[]): FotoVisor[] {
   const conUrl = (media ?? []).filter((m) => !!m.public_url);
   const portada = conUrl.find((m) => m.is_cover) ?? conUrl[0];
   return [...(portada ? [portada] : []), ...conUrl.filter((m) => m !== portada)].map((m) => ({ id: m.id, url: m.public_url as string }));
@@ -904,7 +904,7 @@ function PanelEnvioSolicitud({
   request: ServiceRequestRow;
   isMobile: boolean;
   onSaved: (patch: Partial<ServiceRequestRow>) => void;
-  onVerFotos: (fotos: LightboxImage[]) => void;
+  onVerFotos: (fotos: FotoVisor[]) => void;
   parte2?: boolean;
 }) {
   const porEnvio = request.entrega_modo === "correos";
@@ -1401,7 +1401,7 @@ export default function AdminServices() {
   // Deslizar el dedo sobre el contenido cambia de pestaña, en bucle (dueño, 2026-11-03).
   const gesto = useGestoPestanas(ORDEN_PESTANAS, tab, (t) => setTab(t));
   // Visor de fotos a pantalla completa con zoom al tocar la foto de un servicio (dueño, 2026-11-03).
-  const [visor, setVisor] = useState<{ fotos: LightboxImage[]; inicio: number } | null>(null);
+  const [visor, setVisor] = useState<{ fotos: FotoVisor[]; inicio: number } | null>(null);
 
   // --- Catálogo ---
   const [loading, setLoading] = useState(true);
@@ -1922,7 +1922,7 @@ export default function AdminServices() {
   // false = aún no está la parte 2 (migración 20261111130000): sin cobros, «sin arreglo» ni garantía.
   const [parte2Ok, setParte2Ok] = useState(false);
   // Fotos de recepción abiertas en el visor (enlaces firmados del almacén privado).
-  const [visorEnvio, setVisorEnvio] = useState<LightboxImage[] | null>(null);
+  const [visorEnvio, setVisorEnvio] = useState<FotoVisor[] | null>(null);
   // Reseñas de los servicios terminados (migración 20261103210000): la de cada solicitud y la media de cada servicio.
   // Vacías si la migración aún no está aplicada.
   const [resenasSolicitud, setResenasSolicitud] = useState<Record<string, { rating: number; comment: string }>>({});
@@ -2481,7 +2481,7 @@ export default function AdminServices() {
                           accessibilityLabel={`Ver las fotos de ${s.title || "el servicio"}`}
                           style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
                         >
-                          <SmartImage uri={cover} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
+                          <ImagenInteligente uri={cover} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
                         </Pressable>
                       ) : (
                         <View
@@ -2754,14 +2754,14 @@ export default function AdminServices() {
       {tab === "catalogo" && !loading ? <BotonFlotante nativeID="servicio-nuevo" label="Nuevo servicio" onPress={openCreate} /> : null}
 
       {/* Las fotos de un servicio en grande, con zoom (el mismo visor que la ficha de producto). */}
-      <ImageLightbox
+      <VisorFotos
         visible={!!visor}
         images={visor?.fotos ?? []}
         initialIndex={visor?.inicio ?? 0}
         onClose={() => setVisor(null)}
       />
       {/* Fotos de recepción de una reparación por envío (enlaces firmados de 5 minutos). */}
-      <ImageLightbox visible={!!visorEnvio} images={visorEnvio ?? []} initialIndex={0} onClose={() => setVisorEnvio(null)} />
+      <VisorFotos visible={!!visorEnvio} images={visorEnvio ?? []} initialIndex={0} onClose={() => setVisorEnvio(null)} />
 
       {/* Modal crear/editar servicio: cabecera fija con la X y el
           formulario desplazable dentro (maxHeight), con sitio para el
@@ -2902,7 +2902,7 @@ export default function AdminServices() {
                         })}
                       >
                         {fotoUri ? (
-                          <SmartImage uri={fotoUri} style={{ width: 48, height: 48 }} />
+                          <ImagenInteligente uri={fotoUri} style={{ width: 48, height: 48 }} />
                         ) : (
                           <Ionicons name="image-outline" size={20} color={COLORS.muted} />
                         )}
@@ -2982,7 +2982,7 @@ export default function AdminServices() {
                                 borderColor: o.foto === f.valor ? COLORS.accent : COLORS.border,
                               }}
                             >
-                              <SmartImage uri={f.uri} style={{ width: "100%", height: "100%" }} />
+                              <ImagenInteligente uri={f.uri} style={{ width: "100%", height: "100%" }} />
                             </Pressable>
                           ))}
                         </View>
@@ -3077,7 +3077,7 @@ export default function AdminServices() {
                     const elegida = seleccion.elegidas.includes(f.id);
                     return (
                       <View key={f.id} nativeID={`servicio-foto-${f.id}`} style={{ width: 76, height: 76 }}>
-                        <SmartImage uri={f.uri} style={{ width: 76, height: 76, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
+                        <ImagenInteligente uri={f.uri} style={{ width: 76, height: 76, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
                         {seleccion.seleccionando ? (
                           <Pressable
                             onPress={() => seleccion.alternar(f.id)}

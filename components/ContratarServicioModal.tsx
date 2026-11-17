@@ -91,8 +91,8 @@ import {
 import { SelectorIOS } from "../lib/admin/productos.componentes";
 import { BotonAtrasFlotante } from "./BotonAtrasAlcance";
 import CabeceraMarca from "./CabeceraMarca";
-import SmartImage from "./ImagenInteligente";
-import { FieldInput, FieldLabel as VLabel, IsMobileContext, SelectField } from "./VenderAhoraModal";
+import ImagenInteligente from "./ImagenInteligente";
+import { CampoTexto, EtiquetaCampoVenta as VLabel, ContextoEsMovil, CampoSelector } from "./VenderAhoraModal";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -146,7 +146,7 @@ export function leerModalidades(valor: unknown): ModalidadServicio[] {
 }
 
 // Precio con dos decimales, coma decimal y miles con punto (45,00€ · 1.299,00€).
-export function fmtEURServicio(n: number) {
+export function formatearEurosServicio(n: number) {
   const v = Number(n);
   const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
   const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
@@ -267,7 +267,7 @@ function TextField({
     // space-between: en una fila de dos, las etiquetas empiezan a la misma altura y los recuadros quedan alineados abajo.
     <View style={{ gap: 8, flex, justifyContent: "space-between" }} onLayout={onLayoutY ? (e) => onLayoutY(e.nativeEvent.layout.y) : undefined}>
       <VLabel>{label}</VLabel>
-      <FieldInput
+      <CampoTexto
         ref={inputRef}
         nativeID={nativeID}
         value={value}
@@ -313,7 +313,7 @@ function ChipGroup<T extends string>({
       onLayout={onLayoutY ? (e) => onLayoutY(e.nativeEvent.layout.y) : undefined}
     >
       <VLabel>{label}</VLabel>
-      <SelectField options={options} value={value} onChange={onChange} />
+      <CampoSelector options={options} value={value} onChange={onChange} />
     </View>
   );
 }
@@ -632,7 +632,7 @@ export default function ContratarServicioModal({
             }}
           >
             {fotoResumen ? (
-              <SmartImage key={fotoResumen} uri={fotoResumen} alt={service.title} ancho={160} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+              <ImagenInteligente key={fotoResumen} uri={fotoResumen} alt={service.title} ancho={160} contentFit="cover" style={{ width: "100%", height: "100%" }} />
             ) : (
               <Ionicons name="construct-outline" size={26} color={COLORS.accent} />
             )}
@@ -658,7 +658,7 @@ export default function ContratarServicioModal({
               ) : null}
               {precioResumen != null ? (
                 <Text nativeID="contratar-precio" style={{ color: COLORS.accent, fontWeight: "900", fontSize: 18 }}>
-                  {fmtEURServicio(precioResumen)}
+                  {formatearEurosServicio(precioResumen)}
                 </Text>
               ) : null}
             </View>
@@ -733,7 +733,7 @@ export default function ContratarServicioModal({
 
   // (IsMobileContext: las piezas de «Vender ahora» ajustan su tamaño al móvil con él)
   return (
-    <IsMobileContext.Provider value={isMobile}>
+    <ContextoEsMovil.Provider value={isMobile}>
     {envolver(
           sent ? (
             <ScrollView contentContainerStyle={{ alignItems: "center", paddingBottom: huecoFinal }}>
@@ -846,7 +846,7 @@ export default function ContratarServicioModal({
                   centrado
                   value={modalidad}
                   onChange={setModalidad}
-                  options={modalidades.map((m) => ({ value: m.nombre, label: `${m.nombre} · ${fmtEURServicio(m.precio_eur)}` }))}
+                  options={modalidades.map((m) => ({ value: m.nombre, label: `${m.nombre} · ${formatearEurosServicio(m.precio_eur)}` }))}
                 />
               ) : null}
 
@@ -1002,7 +1002,7 @@ export default function ContratarServicioModal({
                     <Ionicons name="pricetag-outline" size={18} color={COLORS.accent} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14.5, lineHeight: 20, textAlign: "center", flexShrink: 1 }}>
                       {etiquetaEnvio?.estado === "ok"
-                        ? `Etiqueta de Correos: ${fmtEURServicio(etiquetaEnvio.precio)} · ${fmtKg(etiquetaEnvio.pesoKg)}`
+                        ? `Etiqueta de Correos: ${formatearEurosServicio(etiquetaEnvio.precio)} · ${fmtKg(etiquetaEnvio.pesoKg)}`
                         : etiquetaEnvio?.estado === "local"
                           ? "En Zaragoza y Cuarte te lo recogemos: elige «Recogida en Zaragoza o Cuarte»."
                           : etiquetaEnvio?.estado === "sin_tarifa"
@@ -1013,8 +1013,8 @@ export default function ContratarServicioModal({
                   {precioBase != null ? (
                     <View nativeID="contratar-precio-orientativo" style={{ alignItems: "center", gap: 2 }}>
                       <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>
-                        Precio orientativo: desde {fmtEURServicio(precioBase * aparatos)}
-                        {aparatos > 1 ? ` (${aparatos} × ${fmtEURServicio(precioBase)})` : ""}
+                        Precio orientativo: desde {formatearEurosServicio(precioBase * aparatos)}
+                        {aparatos > 1 ? ` (${aparatos} × ${formatearEurosServicio(precioBase)})` : ""}
                       </Text>
                       <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                         El precio final te lo confirmamos tras el diagnóstico. La vuelta va incluida.
@@ -1106,9 +1106,9 @@ export default function ContratarServicioModal({
                       ? "Enviando…"
                       : isValid
                         ? porCorreos && precioBase != null
-                          ? `Enviar solicitud · desde ${fmtEURServicio(precioBase * aparatos)}`
+                          ? `Enviar solicitud · desde ${formatearEurosServicio(precioBase * aparatos)}`
                           : opcionElegida
-                            ? `Enviar solicitud · ${fmtEURServicio(opcionElegida.precio_eur)}`
+                            ? `Enviar solicitud · ${formatearEurosServicio(opcionElegida.precio_eur)}`
                             : "Enviar solicitud"
                         : `Te falta: ${enumerar(faltan.map((c) => NOMBRE_CAMPO[c]))}`}
                   </Text>
@@ -1134,6 +1134,6 @@ export default function ContratarServicioModal({
             </ScrollView>
           )
     )}
-    </IsMobileContext.Provider>
+    </ContextoEsMovil.Provider>
   );
 }

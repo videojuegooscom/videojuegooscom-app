@@ -74,8 +74,8 @@ import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, LIKED_S
 import { trackEvent } from "../../lib/analiticaPropia";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
 import { SelectorIOS } from "../../lib/admin/productos.componentes";
-import ImageLightbox, { type LightboxImage } from "../../components/VisorFotos";
-import SmartImage from "../../components/ImagenInteligente";
+import VisorFotos, { type FotoVisor } from "../../components/VisorFotos";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
@@ -323,7 +323,7 @@ export default function ServicioScreen() {
   const media = resenas?.length ? resenas.reduce((t, r) => t + r.rating, 0) / resenas.length : null;
 
   const imageGallery = s?.media ?? [];
-  const lightboxImages: LightboxImage[] = useMemo(() => (s?.media ?? []).map((m) => ({ id: m.id, url: m.publicUrl })), [s]);
+  const lightboxImages: FotoVisor[] = useMemo(() => (s?.media ?? []).map((m) => ({ id: m.id, url: m.publicUrl })), [s]);
 
   function openLightbox() {
     if (!lightboxImages.length) return;
@@ -544,7 +544,7 @@ export default function ServicioScreen() {
                 >
                   {selectedImageUrl ? (
                     <View nativeID="servicio-foto" style={{ width: "100%" }} {...mainImagePan.panHandlers}>
-                      <SmartImage
+                      <ImagenInteligente
                         uri={selectedImageUrl}
                         alt={s.title}
                         ancho={isWide ? 700 : 420}
@@ -721,7 +721,7 @@ export default function ServicioScreen() {
                         >
                           {/* Carga diferida: solo las miniaturas que se ven (y unas pocas más) piden su foto. */}
                           {i < miniaturasCargadas ? (
-                            <SmartImage
+                            <ImagenInteligente
                               uri={m.publicUrl}
                               alt={`${s.title} (miniatura ${i + 1})`}
                               ancho={90}
@@ -898,7 +898,7 @@ export default function ServicioScreen() {
         </ScrollView>
       ) : null}
 
-      <ImageLightbox
+      <VisorFotos
         visible={lightboxOpen}
         images={lightboxImages}
         initialIndex={lightboxIndex}

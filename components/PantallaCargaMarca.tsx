@@ -125,12 +125,12 @@ function Capa({ clase, id, children }: { clase: string; id?: string; children?: 
   return <View style={{ alignItems: "center" }}>{children}</View>;
 }
 
-type BrandLoadingScreenProps = {
+type PropsPantallaCargaMarca = {
   /** Si se pasa, un toque en cualquier parte entra en la tienda antes de tiempo. */
   onEntrar?: () => void;
 };
 
-export default function BrandLoadingScreen({ onEntrar }: BrandLoadingScreenProps) {
+export default function PantallaCargaMarca({ onEntrar }: PropsPantallaCargaMarca) {
   // Las animaciones empezaron al pintarse el HTML estático. Si el navegador volviera a crear estos elementos (al
   // arrancar la tienda o más tarde), empezarían de cero (un salto atrás): se les pone el mismo comienzo que tenía la
   // barra, antes de que se pinte nada. Se mira en cada pintado (es barato y solo toca algo si van desfasadas).

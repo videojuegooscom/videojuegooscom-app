@@ -62,7 +62,7 @@
  * - Empezar una conversación (dueño, 2026-11-13): desde la ficha del cliente («Escribir por el chat») el administrador crea la
  *   conversación general del cliente (la política RLS ya deja al administrador insertar en product_chats; sin migración) y
  *   llega aquí con ?chat=<id>, que abre el hilo. «la empezó la tienda» sale junto al nombre cuando el primer mensaje es del
- *   administrador; el cliente ve el mensaje en su chat y Campanita/Blue le avisan (get_unread_chat_count: último mensaje del
+ *   administrador; el cliente ve el mensaje en su chat y AsistenteBlue le avisa (get_unread_chat_count: último mensaje del
  *   administrador sin leer).
  *
  * - Chat con el producto adjunto (mejora 10, 2026-11-15): cada producto de la lista lleva su tarjeta (TarjetaArticuloChat
@@ -107,7 +107,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { openExternalLink } from "../../lib/abrirEnlaceExterno";
 import { supabase } from "../../lib/supabase";
-import ProductChatThread, { cargarArticulosChat, TarjetaArticuloChat, TITULO_ATENCION_CLIENTE, type ArticuloChat } from "../../components/ConversacionProducto";
+import ConversacionProducto, { cargarArticulosChat, TarjetaArticuloChat, TITULO_ATENCION_CLIENTE, type ArticuloChat } from "../../components/ConversacionProducto";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
@@ -1002,7 +1002,7 @@ export default function AdminChats() {
           Conversación empezada por la tienda
         </Text>
       ) : null}
-      <ProductChatThread
+      <ConversacionProducto
         chatId={selectedChat.id}
         bajoCabecera={
           // Ventas de clientes (nos venden ellos): sin seguimiento. En las demás, asignar uno a este cliente.
