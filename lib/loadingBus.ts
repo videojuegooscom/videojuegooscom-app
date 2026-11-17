@@ -2,8 +2,8 @@
  * Archivo: lib/loadingBus.ts
  * Función: utilidad de estado global de «cargando» (patrón publicador/suscriptor).
  * Para qué sirve: cuenta las peticiones a Supabase y las fotos que están cargando para encender el efecto «Pensando» de Siri y el brillo del icono de pestaña sin tocar pantalla por pantalla.
- * Conectado con: lib/supabase.ts (markStart / markEnd), components/SmartImage.tsx, components/lineapensadoraefectosiri.tsx, components/TirarParaActualizar.tsx.
- * Utilizado por: lib/supabase.ts, components/SmartImage.tsx, components/lineapensadoraefectosiri.tsx, components/TirarParaActualizar.tsx, app/_layout.tsx y app/(tabs)/_layout.tsx.
+ * Conectado con: lib/supabase.ts (markStart / markEnd), components/ImagenInteligente.tsx, components/EfectoPensando.tsx, components/TirarParaActualizar.tsx.
+ * Utilizado por: lib/supabase.ts, components/ImagenInteligente.tsx, components/EfectoPensando.tsx, components/TirarParaActualizar.tsx, app/_layout.tsx y app/(tabs)/_layout.tsx.
  * Dependencias: react.
  * Estado: ACTIVO
  */
@@ -12,16 +12,16 @@
  * Qué hace: cuenta cuántas cosas reales están en marcha AHORA MISMO en toda
  * la app — peticiones a Supabase Y fotos cargando — para encender el efecto
  * "Pensando" tipo Siri (marco de colores alrededor de la pantalla, ver
- * components/lineapensadoraefectosiri.tsx) y el brillo del icono de la
+ * components/EfectoPensando.tsx) y el brillo del icono de la
  * pestaña activa (app/(tabs)/_layout.tsx), sin tocar pantalla por pantalla.
  *
  * Cómo funciona: un contador simple + listas de "quién quiere enterarse"
  * (patrón pub/sub, sin librerías).
  * - lib/supabase.ts llama a markStart()/markEnd() alrededor de cada fetch
  *   real del cliente de Supabase (consultas, inserts, updates, rpc...).
- * - components/SmartImage.tsx llama a markStart()/markEnd() mientras SU
+ * - components/ImagenInteligente.tsx llama a markStart()/markEnd() mientras SU
  *   foto está cargando de verdad.
- * - components/lineapensadoraefectosiri.tsx llama a pulseLoading() en cada
+ * - components/EfectoPensando.tsx llama a pulseLoading() en cada
  *   cambio de ruta, para avisar siempre al cambiar de pestaña/sección.
  * - app/(tabs)/_layout.tsx llama a pulseLoading(ms, true) al recargar una
  *   pestaña con triple toque: "inmediato" se salta la espera de entrada
@@ -42,8 +42,8 @@
  *
  * Conectado con:
  * - lib/supabase.ts → markStart()/markEnd() en cada fetch real.
- * - components/SmartImage.tsx → markStart()/markEnd() por cada foto.
- * - components/lineapensadoraefectosiri.tsx → useCargando() para el marco y
+ * - components/ImagenInteligente.tsx → markStart()/markEnd() por cada foto.
+ * - components/EfectoPensando.tsx → useCargando() para el marco y
  *   pulseLoading() en cada cambio de ruta.
  * - app/(tabs)/_layout.tsx → useCargando() para el brillo del icono activo y
  *   pulseLoading(ms, true) al recargar una pestaña (triple toque).

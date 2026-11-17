@@ -1,8 +1,8 @@
 /**
- * Archivo: components/SiteFooter.tsx
+ * Archivo: components/PieDePagina.tsx
  * Función: componente del pie de página de la tienda.
  * Para qué sirve: pinta el pie completo (navegación, políticas, blog, redes sociales, «Mejoras en la tienda» y copyright) con acordeones plegables, y se monta al final de Inicio, Perfil, Cesta, Quiénes somos y Noticias.
- * Conectado con: components/SocialLinks.tsx, components/marca/MarcaAnimada.tsx, components/ReviewModal.tsx (MejorasModal).
+ * Conectado con: components/EnlacesRedesSociales.tsx, components/marca/MarcaAnimada.tsx, components/VentanaValoracion.tsx (MejorasModal).
  * Utilizado por: app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx, app/quienes-somos.tsx, app/noticias/index.tsx.
  * Dependencias: @expo/vector-icons, expo-router, react, react-native.
  * Estado: ACTIVO
@@ -32,10 +32,10 @@
  * - Navegación / Políticas / Blog son acordeones plegables (altura y flecha
  *   animadas con Animated), separados entre sí por líneas finas.
  * - «Mejoras en la tienda» (a la vista, debajo): abre la cajita de ideas
- *   (MejorasModal de components/ReviewModal.tsx, origen «pie»).
+ *   (MejorasModal de components/VentanaValoracion.tsx, origen «pie»).
  *
  * Conectado con:
- * - components/SocialLinks.tsx → fila de iconos de redes sociales.
+ * - components/EnlacesRedesSociales.tsx → fila de iconos de redes sociales.
  * - components/marca/MarcaAnimada.tsx → logo animado del pie.
  * - app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx →
  *   pantallas que lo montan al final de su scroll.
@@ -47,9 +47,9 @@ import type { Href } from "expo-router";
 import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Pressable, Text, View } from "react-native";
-import SocialLinks from "./SocialLinks";
+import SocialLinks from "./EnlacesRedesSociales";
 import MarcaAnimada from "./marca/MarcaAnimada";
-import { MejorasModal } from "./ReviewModal";
+import { MejorasModal } from "./VentanaValoracion";
 
 // Paleta del pie: fondo blanco, textos en azul marino y acento azul.
 const FOOTER_BG = "#FFFFFF";

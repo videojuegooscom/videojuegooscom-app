@@ -1,5 +1,5 @@
 /**
- * Archivo: components/SiteHead.tsx
+ * Archivo: components/EtiquetasCabeceraWeb.tsx
  * Función: componente invisible que escribe título, descripción, icono y enlace canónico en el head del navegador.
  * Para qué sirve: aplica el título y la descripción editados en «Marca y SEO», el logo como favicon/og:image y el título propio de cada página pública, leyendo la fila única de site_settings.
  * Conectado con: lib/supabase.ts, tabla site_settings, app/admin/marca-seo.tsx (la edita).
@@ -51,7 +51,7 @@
  * - lib/supabase.ts → lee "site_settings".
  * - app/admin/marca-seo.tsx → desde donde se edita seo_title,
  *   seo_description y logo_url.
- * - app/_layout.tsx → la monta una única vez, junto a Campanita/CookieConsentBanner.
+ * - app/_layout.tsx → la monta una única vez, junto a AsistenteBlue/AvisoAnaliticaCookies.
  * - app/noticias/[id].tsx → usa upsertMeta/upsertLink para su propia cabecera (título, descripción, og:* y
  *   NewsArticle); aquí esas rutas solo reciben la dirección oficial (RUTAS_CON_CABECERA_PROPIA).
  */

@@ -2,7 +2,7 @@
  * Archivo: app/servicio/[id].tsx
  * Función: ficha de un servicio (reparación, limpieza, mantenimiento), en la dirección /servicio/<id>.
  * Para qué sirve: el cliente ve fotos, precio, opciones, reseñas y «me gusta» del servicio, pregunta por él o pasa a contratarlo.
- * Conectado con: lib/supabase.ts (tablas services, service_media, store_reviews), lib/interaccion.ts (me gusta y visitas; api/interaccion.ts), lib/analytics.ts, constants/theme.ts, lib/admin/products.components.ts, components/ContratarServicioModal.tsx, ImageLightbox.tsx, SmartImage.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*, app/producto/[id].tsx (FichaProducto).
+ * Conectado con: lib/supabase.ts (tablas services, service_media, store_reviews), lib/interaccion.ts (me gusta y visitas; api/interaccion.ts), lib/analytics.ts, constants/theme.ts, lib/admin/products.components.ts, components/ContratarServicioModal.tsx, VisorFotos.tsx, ImagenInteligente.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*, app/producto/[id].tsx (FichaProducto).
  * Utilizado por: Expo Router (dirección /servicio/<id>); la enlazan app/servicios.tsx, app/contratar/[id].tsx, components/ContratarServicioModal.tsx; exporta fetchService, fotoDeOpcion y faltaColumna que usan app/contratar/[id].tsx y app/noticias/*.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -49,7 +49,7 @@
  * - components/ContratarServicioModal.tsx → formulario de "Contratar
  *   servicio ahora" (inserta en service_requests, ver
  *   sql/service_requests.sql).
- * - components/ImageLightbox.tsx → foto en grande con zoom.
+ * - components/VisorFotos.tsx → foto en grande con zoom.
  * - app/servicios.tsx → catálogo del que se navega hasta aquí, y a donde
  *   vuelve «Volver atrás» si no hay historial.
  * - app/noticias/[id].tsx, app/noticias/index.tsx → reutilizan faltaColumna.
@@ -74,8 +74,8 @@ import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, LIKED_S
 import { trackEvent } from "../../lib/analytics";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
 import { SelectorIOS } from "../../lib/admin/products.components";
-import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
-import SmartImage from "../../components/SmartImage";
+import ImageLightbox, { type LightboxImage } from "../../components/VisorFotos";
+import SmartImage from "../../components/ImagenInteligente";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";

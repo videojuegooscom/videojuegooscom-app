@@ -2,7 +2,7 @@
  * Archivo: app/admin/index.tsx
  * Función: pantalla de inicio del panel de administración, en la dirección /admin.
  * Para qué sirve: el administrador ve las cifras de lo nuevo (pedidos, chats, solicitudes, cotizaciones) y una rejilla de accesos agrupados a todas las secciones del panel, con contadores de novedades.
- * Conectado con: lib/admin/products.components.ts (AdminHeader), lib/admin/products.utils.ts (leerPanelVistos), lib/supabase.ts (recuentos de novedades en varias tablas), constants/theme.ts, components/AvisosMovil.tsx, components/admin/PanelUI.tsx; enlaza a todas las pantallas app/admin/*.tsx.
+ * Conectado con: lib/admin/products.components.ts (AdminHeader), lib/admin/products.utils.ts (leerPanelVistos), lib/supabase.ts (recuentos de novedades en varias tablas), constants/theme.ts, components/AvisosMovil.tsx, components/admin/PiezasPanelAdmin.tsx; enlaza a todas las pantallas app/admin/*.tsx.
  * Utilizado por: Expo Router (dirección /admin, protegida por app/admin/_layout.tsx); la abre el botón «Panel de control» de app/(tabs)/perfil.tsx.
  * Dependencias: react, react-native, react-native-safe-area-context, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -56,7 +56,7 @@
  * Avisos en este móvil (dueño, 2026-11-15): encima de la rejilla, la tarjeta corta de components/AvisosMovil.tsx (estado,
  * «Activar avisos en este móvil» y «Ver en Pedidos», donde está la completa con la prueba, desactivar y las cifras).
  *
- * Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx): arriba, las cifras clave de lo que ha llegado
+ * Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PiezasPanelAdmin.tsx): arriba, las cifras clave de lo que ha llegado
  * desde la última visita (Pedidos nuevos, Chats sin leer, Solicitudes de servicio y Cotizaciones nuevas; las mismas cuentas de
  * contarNovedades, sin consultas nuevas), que llevan a su apartado al tocarlas; debajo, los recuadros agrupados por
  * apartados con su título (Ventas y clientes, Catálogo, Contenido y Blue, Tienda y marca): en el móvil, en 2 columnas;
@@ -92,7 +92,7 @@ import { leerPanelVistos, type SeccionConNovedades } from "../../lib/admin/produ
 import { supabase } from "../../lib/supabase";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import AvisosMovil from "../../components/AvisosMovil";
-import { Cifra, FilaCifras, Seccion } from "../../components/admin/PanelUI";
+import { Cifra, FilaCifras, Seccion } from "../../components/admin/PiezasPanelAdmin";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 

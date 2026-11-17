@@ -2,8 +2,8 @@
  * Archivo: app/(tabs)/blue-ia.tsx
  * Función: pantalla «Blue IA» (pestaña del asistente), en la dirección /blue-ia (admite ?q=, ?producto=, ?servicio=, ?pedido=, ?reparacion=, ?tema=).
  * Para qué sirve: el cliente conversa con el asistente de la tienda, que responde con datos reales del catálogo, enlaza a páginas útiles, enseña facturas y pasa la conversación al equipo cuando hace falta.
- * Conectado con: api/blue-ia.ts (respuestas), api/factura.ts (descarga de facturas), lib/supabase.ts (tablas blue_ia_conversaciones, blue_ia_mensajes, pedidos y facturas), lib/analytics.ts, lib/horarioAtencion.ts, lib/openExternalLink.ts, components/ProductChatThread.tsx (abrirChatEquipo), components/marca/MarcaAnimada.tsx.
- * Utilizado por: Expo Router (dirección /blue-ia, pestaña de app/(tabs)/_layout.tsx); la abren app/(tabs)/index.tsx (preguntas frecuentes), app/(tabs)/cesta.tsx («Blue, ayúdame a elegir»), app/servicio/[id].tsx y app/producto/[id].tsx (preguntar) y components/Campanita.tsx.
+ * Conectado con: api/blue-ia.ts (respuestas), api/factura.ts (descarga de facturas), lib/supabase.ts (tablas blue_ia_conversaciones, blue_ia_mensajes, pedidos y facturas), lib/analytics.ts, lib/horarioAtencion.ts, lib/openExternalLink.ts, components/ConversacionProducto.tsx (abrirChatEquipo), components/marca/MarcaAnimada.tsx.
+ * Utilizado por: Expo Router (dirección /blue-ia, pestaña de app/(tabs)/_layout.tsx); la abren app/(tabs)/index.tsx (preguntas frecuentes), app/(tabs)/cesta.tsx («Blue, ayúdame a elegir»), app/servicio/[id].tsx y app/producto/[id].tsx (preguntar) y components/AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, expo-linear-gradient, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
  */
@@ -100,7 +100,7 @@
  *   escribe, se mueve.
  *
  * Conectado con:
- * - components/ProductChatThread.tsx → abrirChatEquipo.
+ * - components/ConversacionProducto.tsx → abrirChatEquipo.
  * - api/blue-ia.ts → el backend real de este asistente (prompt + selección
  *   de qué redes sociales mandar como "socialChips").
  * - app/(tabs)/index.tsx → la sección "Preguntas frecuentes" de Inicio
@@ -125,7 +125,7 @@ import {
   View,
 } from "react-native";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
-import { abrirChatEquipo } from "../../components/ProductChatThread";
+import { abrirChatEquipo } from "../../components/ConversacionProducto";
 import { trackEvent } from "../../lib/analytics";
 import { estadoAtencion, HORARIO_CORTO, type EstadoAtencion } from "../../lib/horarioAtencion";
 import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
@@ -346,7 +346,7 @@ const SALUDOS: (() => string)[] = [
 
 // Icono + color de marca por plataforma, para pintar los "socialChips" que
 // puede traer una respuesta de Blue IA. Deliberadamente duplicado del mapa
-// de components/SocialLinks.tsx (mismo motivo que ya se explica ahí y en
+// de components/EnlacesRedesSociales.tsx (mismo motivo que ya se explica ahí y en
 // api/blue-ia.ts: cada archivo vive en su propio mundo — este es pantalla,
 // aquel es un componente compartido, y api/blue-ia.ts es una función
 // serverless aparte — así que mantenerlo en tres sitios pequeños es más
@@ -399,7 +399,7 @@ const SOCIAL_CHIP_ICONS: Record<
 
 function openSocialChip(href: string) {
   try {
-    // Síncrono a propósito — ver la nota de components/SocialLinks.tsx: el
+    // Síncrono a propósito — ver la nota de components/EnlacesRedesSociales.tsx: el
     // truco de abrir en Chrome (lib/openExternalLink.ts) necesita ocurrir
     // dentro del mismo toque del usuario.
     openExternalLink(href);
@@ -1707,7 +1707,7 @@ function BotonPrincipal({
 // respuesta trae "socialChips" (ver api/blue-ia.ts), se pintan como una fila
 // de botones con icono justo debajo del texto — nunca como enlaces sueltos
 // dentro del mensaje.
-// Quién responde: Blue, la mascota de atención al cliente (la misma imagen que Blue flotante, components/Campanita.tsx),
+// Quién responde: Blue, la mascota de atención al cliente (la misma imagen que Blue flotante, components/AsistenteBlue.tsx),
 // quieta en cada mensaje para no distraer; mientras escribe, se mueve. Para un lector de pantalla no se repite en cada
 // mensaje.
 function AvatarBlue({ escribiendo }: { escribiendo?: boolean }) {
@@ -2009,7 +2009,7 @@ function BlueIAFacturas({ refPedido, onVer }: { refPedido?: string; onVer: () =>
 // borde suave — nada de URLs ni corchetes de markdown a la vista. Cada uno
 // abre el enlace real (el mismo que guarda Daniel en
 // app/admin/redes-sociales.tsx) tal y como lo resuelve el sistema operativo
-// del usuario (ver la nota larga en components/SocialLinks.tsx sobre por
+// del usuario (ver la nota larga en components/EnlacesRedesSociales.tsx sobre por
 // qué no hace falta ningún truco extra para "abrir la app o descargarla").
 function BlueIASocialChips({ chips }: { chips: SocialChip[] }) {
   return (

@@ -2,8 +2,8 @@
  * Archivo: app/(tabs)/perfil.tsx
  * Función: pantalla «Mi cuenta» (pestaña Perfil), en la dirección /perfil (admite ?tab=seguimientos y ?filtro=).
  * Para qué sirve: el cliente inicia sesión o crea cuenta, completa su perfil, sigue sus pedidos y reparaciones (facturas, pagos, valoraciones), ve sus «me gusta» y avisos de precio; el administrador accede desde aquí al panel.
- * Conectado con: lib/supabase.ts (Supabase Auth, tablas profiles, pedidos, pedido_facturas y las de reparaciones), lib/envio.ts, lib/interaccion.ts, lib/reservas.ts, lib/openExternalLink.ts, lib/analytics.ts, constants/theme.ts, components/PerfilPublico.tsx, Campanita.tsx, CategoryProductsShelf.tsx, ReviewModal.tsx, ImageLightbox.tsx, SiteFooter.tsx, SmartImage.tsx, components/marca/*; api/pago.ts y api/factura.ts.
- * Utilizado por: Expo Router (dirección /perfil, pestaña de app/(tabs)/_layout.tsx); la abren app/(tabs)/chat-global.tsx (iniciar sesión), app/(tabs)/blue-ia.tsx (facturas), app/producto/[id].tsx y components/Campanita.tsx.
+ * Conectado con: lib/supabase.ts (Supabase Auth, tablas profiles, pedidos, pedido_facturas y las de reparaciones), lib/envio.ts, lib/interaccion.ts, lib/reservas.ts, lib/openExternalLink.ts, lib/analytics.ts, constants/theme.ts, components/PerfilPublico.tsx, AsistenteBlue.tsx, CarruselProductosCategoria.tsx, VentanaValoracion.tsx, VisorFotos.tsx, PieDePagina.tsx, ImagenInteligente.tsx, components/marca/*; api/pago.ts y api/factura.ts.
+ * Utilizado por: Expo Router (dirección /perfil, pestaña de app/(tabs)/_layout.tsx); la abren app/(tabs)/chat-global.tsx (iniciar sesión), app/(tabs)/blue-ia.tsx (facturas), app/producto/[id].tsx y components/AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage.
  * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño (inicio de sesión, cuenta, pagos y facturas)
  */
@@ -16,7 +16,7 @@
  * de la tienda) con la cuenta dentro (subtítulo «Tu cuenta está activa», el
  * correo de la sesión en un recuadro más y, al pie, «Cerrar sesión» y, si el
  * rol es admin, «Panel de control» en la misma fila; encima, «Mejoras en la
- * tienda», que abre la cajita de ideas de components/ReviewModal.tsx) y la
+ * tienda», que abre la cajita de ideas de components/VentanaValoracion.tsx) y la
  * pestaña «Mis seguimientos»; se cambia de pestaña tocándola o deslizando el
  * dedo. Al final, el pie de página (con las redes sociales, una sola vez).
  * En «Mis pedidos», cada pedido se llama por su referencia («Pedido VZ-XXXX-XXXX · total · fecha»), nunca por su número
@@ -66,7 +66,7 @@
  *   qué emails están registrados).
  * - Sin sesión, debajo del subtítulo, la ventaja de tener cuenta (dueño, 2026-11-11): «Con tu cuenta, Blue te avisa
  *   de bajadas de precio y artículos nuevos» (#perfil-ventaja-avisos). Los avisos son solo con cuenta
- *   (components/Campanita.tsx), que deja aquí la pantalla a la que volver (VOLVER_TRAS_ACCESO_KEY).
+ *   (components/AsistenteBlue.tsx), que deja aquí la pantalla a la que volver (VOLVER_TRAS_ACCESO_KEY).
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase usado para todo el login/registro.
@@ -84,7 +84,7 @@
  * - «Reparaciones y Mantenimientos» → reparación por envío (migración 20261111100000): barra de nueve
  *   etapas (compacta: etapa actual y «Paso N de M»), plazo, «Esperando pieza», «Descargar etiqueta»
  *   (api/factura.ts?solicitud=…), cómo embalarlo y a dónde enviarlo (plegable, dirección de
- *   reparacion_envio_ajustes vía lib/envio.ts), fotos de recepción (components/ImageLightbox.tsx) y
+ *   reparacion_envio_ajustes vía lib/envio.ts), fotos de recepción (components/VisorFotos.tsx) y
  *   «Aceptar presupuesto». Se mide con «Reparación por envío: …» (app/admin/analytics.tsx).
  *   Parte 2 (migración 20261111130000; sin ella no sale nada de esto): CobrosDeLaReparacion paga la
  *   etiqueta y, con la reparación lista y el presupuesto aceptado, «Pagar y enviármelo» (tarjeta por
@@ -108,7 +108,7 @@
  *   lo que sigue desde la ficha y «Quitar» (AvisosPrecioSeccion, migración 20261114160100).
  * - Valoración tras la entrega (mejora 11, 2026-11-15; migración 20261115100000): en los pedidos entregados hace 3 días o
  *   más (paso «entregado» de pedido_estados) y sin valorar, «Valorar compra» (44 px) abre ValorarPedidoModal
- *   (components/ReviewModal.tsx); valorado, «Tu valoración: ★★★★☆». Sin la migración no sale nada.
+ *   (components/VentanaValoracion.tsx); valorado, «Tu valoración: ★★★★☆». Sin la migración no sale nada.
  * - Tamaños y colores (auditoría móvil y lección del 2026-11-12, constants/theme.ts): toda la letra sale de TAMANOS (13 px
  *   como mínimo; 12 solo «SESIÓN ACTUAL», las etiquetas de la barra de etapas y las de los filtros cuando son cinco), lo
  *   que se toca mide 44 px (pestañas Mi cuenta / Mis seguimientos / Me gusta, «Preguntar por esto», enlaces), los campos
@@ -136,10 +136,10 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { firmaPedidoSeg, marcarSeguimientosVistos } from "../../components/Campanita";
-import CategoryProductsShelf, { columnasLista, RejillaTarjetas, TarjetaProducto } from "../../components/CategoryProductsShelf";
+import { firmaPedidoSeg, marcarSeguimientosVistos } from "../../components/AsistenteBlue";
+import CategoryProductsShelf, { columnasLista, RejillaTarjetas, TarjetaProducto } from "../../components/CarruselProductosCategoria";
 import CargaMarca from "../../components/marca/CargaMarca";
-import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
+import ImageLightbox, { type LightboxImage } from "../../components/VisorFotos";
 import {
   cargarAjustesReparacionEnvio,
   cargarSeguimientoPedidos,
@@ -160,9 +160,9 @@ import ReviewModal, {
   estrellasDeNota,
   tocaValorarPedido,
   type ValoracionPedido,
-} from "../../components/ReviewModal";
-import SiteFooter from "../../components/SiteFooter";
-import SmartImage from "../../components/SmartImage";
+} from "../../components/VentanaValoracion";
+import SiteFooter from "../../components/PieDePagina";
+import SmartImage from "../../components/ImagenInteligente";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { medirCuentaCreada, trackEvent } from "../../lib/analytics";
 import {
@@ -410,7 +410,7 @@ function Input({
           color: COLORS.text,
           backgroundColor: "#F8FBFE",
           // 16px mínimo: por debajo, el móvil hace zoom automático al
-          // tocar la casilla (ver components/ProductChatThread.tsx).
+          // tocar la casilla (ver components/ConversacionProducto.tsx).
           fontSize: CAMPO.letra,
         }}
       />
@@ -584,7 +584,7 @@ export default function PerfilScreen() {
   // Pestañas del perfil con sesión: "Mi cuenta" | "Mis seguimientos" (?tab=seguimientos) | "Me gusta" (?tab=megusta)
   // ?aviso=… lo manda quien trae aquí para iniciar sesión (p. ej. "Hablar con el equipo").
   // ?acceso=registro | entrar → abre directamente el formulario de crear cuenta o de iniciar
-  // sesión (lo usa la guía de Blue, components/Campanita.tsx).
+  // sesión (lo usa la guía de Blue, components/AsistenteBlue.tsx).
   // ?filtro=facturas (con ?tab=seguimientos) → «Mis pedidos» con el filtro «Facturas» ya puesto («Ver mis facturas» de
   // Blue IA, app/(tabs)/blue-ia.tsx; dueño, 2026-11-11).
   const {
@@ -1131,7 +1131,7 @@ export default function PerfilScreen() {
   // subtítulo de «Mi perfil» y el correo de la sesión va en su recuadro, con los datos (components/PerfilPublico.tsx).
   const accionesCuenta = (
     <View nativeID="perfil-cuenta" style={{ gap: 8, alignItems: "center" }}>
-      {/* «Mejoras en la tienda»: la cajita de ideas (components/ReviewModal.tsx), con la sesión ya iniciada. */}
+      {/* «Mejoras en la tienda»: la cajita de ideas (components/VentanaValoracion.tsx), con la sesión ya iniciada. */}
       <Pressable
         nativeID="perfil-mejoras"
         onPress={() => setMejorasAbierta(true)}
@@ -1592,7 +1592,7 @@ function PerfilTabs({ value, onChange }: { value: PerfilTab; onChange: (t: Perfi
     { key: "megusta", label: "Me gusta" },
   ];
   return (
-    // nativeID: la guía de Blue (components/Campanita.tsx) enmarca estas pestañas. Las tres caben en 360 px.
+    // nativeID: la guía de Blue (components/AsistenteBlue.tsx) enmarca estas pestañas. Las tres caben en 360 px.
     <View nativeID="perfil-pestanas" role="tablist" style={{ flexDirection: "row", justifyContent: "center", gap: width < 400 ? 18 : 28, paddingTop: 4 }}>
       {tabs.map((t) => {
         const active = value === t.key;

@@ -2,7 +2,7 @@
  * Archivo: components/Resenas.tsx
  * Función: componente del bloque de reseñas de la pantalla de inicio.
  * Para qué sirve: muestra la valoración media real, el botón «Dejar una reseña» y las últimas reseñas publicadas, leyendo store_reviews.
- * Conectado con: lib/supabase.ts, components/PerfilPublico.tsx (perfilesPublicos), ReviewModal.tsx, SmartImage.tsx, TirarParaActualizar.tsx (useRecarga), constants/theme.ts, tabla store_reviews.
+ * Conectado con: lib/supabase.ts, components/PerfilPublico.tsx (perfilesPublicos), VentanaValoracion.tsx, ImagenInteligente.tsx, TirarParaActualizar.tsx (useRecarga), constants/theme.ts, tabla store_reviews.
  * Utilizado por: app/(tabs)/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -11,7 +11,7 @@
  * Notas:
  * Qué hace: bloque de "Reseñas" de la pantalla de inicio: valoración media
  * real (calculada a partir de las reseñas guardadas en Supabase), un botón
- * "Dejar una reseña" que abre components/ReviewModal.tsx, y las últimas
+ * "Dejar una reseña" que abre components/VentanaValoracion.tsx, y las últimas
  * reseñas publicadas por clientes de verdad (quién la escribió y cuándo).
  *
  * Cómo funciona: pide a Supabase (tabla "store_reviews", ver
@@ -40,7 +40,7 @@
  *
  * Conectado con:
  * - lib/supabase.ts → lee "store_reviews" y "product_sales".
- * - components/ReviewModal.tsx → el "pop" donde se publica una reseña
+ * - components/VentanaValoracion.tsx → el "pop" donde se publica una reseña
  *   nueva (estrellas + comentario), firmada con la sesión real del cliente.
  * - app/(tabs)/index.tsx → lo incluye como sección de la pantalla de inicio.
  */
@@ -49,8 +49,8 @@ import { Pressable, Text, View } from "react-native";
 import { supabase } from "../lib/supabase";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 import { perfilesPublicos, type PerfilForo } from "./PerfilPublico";
-import ReviewModal, { type PublishedReview } from "./ReviewModal";
-import SmartImage from "./SmartImage";
+import ReviewModal, { type PublishedReview } from "./VentanaValoracion";
+import SmartImage from "./ImagenInteligente";
 import { useRecarga } from "./TirarParaActualizar";
 
 // Mismo texto que labelCondition() en app/producto/[id].tsx (duplicado a

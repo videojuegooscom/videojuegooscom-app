@@ -1,9 +1,9 @@
 /**
- * Archivo: components/SmartImage.tsx
+ * Archivo: components/ImagenInteligente.tsx
  * Función: componente de imagen remota de toda la tienda.
  * Para qué sirve: sustituye a Image con caché en memoria y disco, fundido de entrada, carga perezosa y prioridad en web (img del navegador) y expo-image en nativo; avisa a lib/loadingBus.ts de las cargas para el efecto «Pensando».
  * Conectado con: lib/loadingBus.ts.
- * Utilizado por: casi todas las pantallas con fotos (catálogo, producto, servicio, cesta, noticias, Inicio, Foro, admin/categories, admin/services, admin/users…) y los componentes ImageLightbox, ProductChatThread, PerfilPublico, ContratarServicioModal, Barramagic, CategoryProductsShelf, Resenas y PortadasCategoria.
+ * Utilizado por: casi todas las pantallas con fotos (catálogo, producto, servicio, cesta, noticias, Inicio, Foro, admin/categories, admin/services, admin/users…) y los componentes VisorFotos, ConversacionProducto, PerfilPublico, ContratarServicioModal, BarraBusqueda, CarruselProductosCategoria, Resenas y PortadasCategoria.
  * Dependencias: react, react-native, expo-image.
  * Estado: ACTIVO
  *
@@ -46,7 +46,7 @@
  * Barra de carga global ("Pensando"): cada SmartImage avisa a
  * lib/loadingBus.ts (markStart/markEnd) mientras SU foto está cargando de
  * verdad, igual que lib/supabase.ts avisa por cada petición — así
- * components/lineapensadoraefectosiri.tsx se queda encendida hasta que TODAS
+ * components/EfectoPensando.tsx se queda encendida hasta que TODAS
  * las fotos en pantalla han terminado de cargar, no solo mientras llegan
  * los datos. Dos redes de seguridad para que esto nunca se quede "pegado":
  * - si la "uri" cambia o el componente desaparece de pantalla mientras
@@ -58,7 +58,7 @@
  *
  * Conectado con: app/catalogo.tsx, app/producto/[id].tsx,
  * app/(tabs)/index.tsx, app/servicios.tsx, app/admin/categories.tsx,
- * app/admin/services.tsx, components/ImageLightbox.tsx,
+ * app/admin/services.tsx, components/VisorFotos.tsx,
  * components/Resenas.tsx — cualquier sitio que antes usaba <Image> de
  * "react-native" para pintar una foto remota (uri) ahora usa <SmartImage>.
  * lib/loadingBus.ts → a quien avisa mientras carga.

@@ -2,7 +2,7 @@
  * Archivo: app/admin/cotizaciones.tsx
  * Función: pantalla de administración «Cotizaciones», en la dirección /admin/cotizaciones.
  * Para qué sirve: el administrador revisa las solicitudes de venta que los clientes envían con «Vender ahora» (datos, fotos y vídeo), cambia su estado (nuevo, revisado, contactado, descartado) y las borra.
- * Conectado con: lib/supabase.ts (tablas sell_requests y sell_request_media, bucket privado sell-request-media), components/SellRequestMedia.tsx, components/VenderAhoraModal.tsx, lib/admin/products.components.ts y products.utils.ts, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Conectado con: lib/supabase.ts (tablas sell_requests y sell_request_media, bucket privado sell-request-media), components/FotosVideoVenta.tsx, components/VenderAhoraModal.tsx, lib/admin/products.components.ts y products.utils.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/cotizaciones, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Cotizaciones» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -33,7 +33,7 @@
  *   tienen su pastilla con recuento (#cotizaciones-filtro-faltan-media); solo si los adjuntos se han podido cargar.
  * - Filtro rápido por estado + buscador por nombre, artículo, ciudad o
  *   contacto.
- * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Categorías y
+ * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos, Categorías y
  *   Productos): cifras que filtran (Total, Nuevas, Revisadas, Contactadas), buscador de 16 px, pastillas de 44 px con su
  *   recuento (los cuatro estados y «Cambio desde la cesta»), filas compactas (artículo, etiqueta de color del estado,
  *   cliente, ciudad, precio esperado y fecha; etiquetas de la cesta, la avería, los adjuntos y la mayoría de edad sin
@@ -43,7 +43,7 @@
  *   borrado se mantiene oscuro a propósito.
  * - Si el cliente adjuntó fotos/vídeo, el detalle los ENSEÑA (dueño, 2026-11-16: «no me deja visualizar los archivos
  *   multimedia»): miniaturas que abren la foto en grande y «Ver vídeo» en otra pestaña, con enlaces firmados de 10
- *   minutos (GaleriaAdjuntos y components/SellRequestMedia.tsx → enlacesSellRequestMedia()); el almacén sigue privado.
+ *   minutos (GaleriaAdjuntos y components/FotosVideoVenta.tsx → enlacesSellRequestMedia()); el almacén sigue privado.
  *   Debajo sigue el botón «Descargar» por archivo (downloadSellRequestMedia()). Si no adjuntó nada, el bloque lo dice
  *   («El cliente no adjuntó fotos ni vídeo», #cotizacion-sin-fotos-<id>), para no confundirlo con un fallo.
  *
@@ -54,8 +54,8 @@
  *   bucket privado "sell-request-media" con sus políticas RLS.
  * - components/VenderAhoraModal.tsx → origen de cada fila (INSERT público)
  *   y de sus archivos adjuntos.
- * - components/SellRequestMedia.tsx → tipos y descarga de cada archivo.
- * - components/admin/PanelUI.tsx → cifras, buscador, pastillas, filas y bloques.
+ * - components/FotosVideoVenta.tsx → tipos y descarga de cada archivo.
+ * - components/admin/PiezasPanelAdmin.tsx → cifras, buscador, pastillas, filas y bloques.
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
  * - app/admin/_layout.tsx → registra esta ruta ("cotizaciones") dentro del
  *   Stack protegido del panel admin.
@@ -77,7 +77,7 @@ import { Image, Linking, Modal, Pressable, ScrollView, StatusBar, Text, View, us
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { MIN_SELL_IMAGES, downloadSellRequestMedia, enlacesSellRequestMedia, type SellRequestMediaRow } from "../../components/SellRequestMedia";
+import { MIN_SELL_IMAGES, downloadSellRequestMedia, enlacesSellRequestMedia, type SellRequestMediaRow } from "../../components/FotosVideoVenta";
 import {
   AdminHeader,
   AdminLoading,
@@ -109,7 +109,7 @@ import {
   RecuentoLista,
   useDesplegables,
   type Tono,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 
 const COLORS = {
   bg: "#FFFFFF",

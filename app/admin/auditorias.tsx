@@ -2,7 +2,7 @@
  * Archivo: app/admin/auditorias.tsx
  * Función: pantalla de administración «Revisiones», en la dirección /admin/auditorias.
  * Para qué sirve: el administrador consulta el registro de las revisiones de calidad web automáticas (20 puntos) con su resultado y el detalle punto por punto.
- * Conectado con: lib/supabase.ts (tabla auditorias_web, que escribe api/auditoria-web.ts por cron), lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Conectado con: lib/supabase.ts (tabla auditorias_web, que escribe api/auditoria-web.ts por cron), lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/auditorias, protegida por app/admin/_layout.tsx); la enlaza la tarjeta correspondiente de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -22,13 +22,13 @@
  *
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario y «volver» de 44 px.
- * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx): cifras que filtran (Revisiones, Con fallos,
+ * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PiezasPanelAdmin.tsx): cifras que filtran (Revisiones, Con fallos,
  *   Con avisos, Todo bien), buscador de 16 px (resumen, cambios o puntos), pastillas con su recuento, filas compactas
  *   (fecha, etiqueta de color, resumen y recuentos) y, al tocar una, el detalle por bloques (Resumen y Puntos revisados).
  *   La más reciente sale ya abierta.
  *
  * Conectado con: api/auditoria-web.ts, app/admin/index.tsx (tarjeta), app/admin/_layout.tsx,
- * components/admin/PanelUI.tsx y pruebas/perfil-datos.mjs (TM5 y PANRED5).
+ * components/admin/PiezasPanelAdmin.tsx y pruebas/perfil-datos.mjs (TM5 y PANRED5).
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
@@ -57,7 +57,7 @@ import {
   type Tono,
   fechaPanel,
   useDesplegables,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 
 type Punto = { n: number; nombre: string; estado: "ok" | "aviso" | "fallo" | "manual"; detalle: string };
 type Fila = {

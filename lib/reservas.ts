@@ -3,7 +3,7 @@
  * Función: utilidad de reservas de 15 minutos de los artículos de la cesta (y borrador de las condiciones de reserva).
  * Para qué sirve: reserva cada artículo único de segunda mano al añadirlo a la cesta para que nadie más lo compre, guarda un token por dispositivo y cae a una reserva local si el servidor no responde.
  * Conectado con: lib/interaccion.ts (URL_INTERACCION), lib/supabase.ts, api/interaccion.ts (acción reservar), funciones SQL de reservas de la cesta.
- * Utilizado por: app/producto/[id].tsx, app/(tabs)/cesta.tsx, app/checkout.tsx, app/(tabs)/perfil.tsx, app/admin/reservas.tsx, app/admin/index.tsx, app/admin/_layout.tsx, lib/alquiler.ts y components/Campanita.tsx.
+ * Utilizado por: app/producto/[id].tsx, app/(tabs)/cesta.tsx, app/checkout.tsx, app/(tabs)/perfil.tsx, app/admin/reservas.tsx, app/admin/index.tsx, app/admin/_layout.tsx, lib/alquiler.ts y components/AsistenteBlue.tsx.
  * Dependencias: @react-native-async-storage/async-storage.
  * Estado: ACTIVO
  */

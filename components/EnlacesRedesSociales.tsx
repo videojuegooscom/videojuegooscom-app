@@ -1,9 +1,9 @@
 /**
- * Archivo: components/SocialLinks.tsx
+ * Archivo: components/EnlacesRedesSociales.tsx
  * Función: componente del bloque «Síguenos» con los iconos de redes sociales.
  * Para qué sirve: lee de Supabase las redes que el dueño ha activado y pinta sus iconos en fila, cada uno con su enlace real; no pinta nada si no hay ninguna activa.
  * Conectado con: lib/supabase.ts, lib/openExternalLink.ts, lib/analytics.ts, tablas social_links y site_settings (social_links_title).
- * Utilizado por: components/SiteFooter.tsx y app/(tabs)/index.tsx.
+ * Utilizado por: components/PieDePagina.tsx y app/(tabs)/index.tsx.
  * Dependencias: react, react-native, @expo/vector-icons.
  * Estado: ACTIVO
  *

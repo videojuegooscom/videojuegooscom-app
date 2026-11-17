@@ -90,7 +90,7 @@ const PRODUCTOS = [
   { id: P2, title: "Consola Prueba Dos", description: "", price_eur: 89.5, condition: "GOOD", category_id: null, created_at: "2026-11-01T00:00:00Z", view_count: 0, status: "PUBLISHED", images: [] },
 ];
 // Desde la mejora 3 (2026-11-14) la búsqueda es tolerante y se hace en la tienda con un índice ligero de productos
-// (components/Barramagic.tsx → cargarIndiceBusqueda): se pide sin fotos, una vez, y ya no hay «ilike» a la base de datos.
+// (components/BarraBusqueda.tsx → cargarIndiceBusqueda): se pide sin fotos, una vez, y ya no hay «ilike» a la base de datos.
 const COLUMNAS_INDICE = /^id,title,description,price_eur,condition/;
 const productosSimulados = (url) => {
   const select = url.searchParams.get("select") ?? "";

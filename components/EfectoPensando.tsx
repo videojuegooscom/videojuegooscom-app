@@ -1,9 +1,9 @@
 /**
- * Archivo: components/lineapensadoraefectosiri.tsx
+ * Archivo: components/EfectoPensando.tsx
  * Función: componente del efecto «Pensando» tipo Siri (marco luminoso de carga).
  * Para qué sirve: ilumina el borde de la pantalla mientras algo carga y exporta BrilloIconoSeccion (halo del icono de pestaña) y la paleta/máscara Siri que reutiliza la pantalla de bienvenida.
  * Conectado con: lib/loadingBus.ts (useCargando, pulseLoading), expo-router (usePathname).
- * Utilizado por: app/_layout.tsx (marco), app/(tabs)/_layout.tsx (BrilloIconoSeccion) y components/BrandLoadingScreen.tsx (paleta).
+ * Utilizado por: app/_layout.tsx (marco), app/(tabs)/_layout.tsx (BrilloIconoSeccion) y components/PantallaCargaMarca.tsx (paleta).
  * Dependencias: react, react-native, expo-router, react-native-safe-area-context.
  * Estado: ACTIVO
  */
@@ -64,7 +64,7 @@
  *
  * Conectado con:
  * - lib/loadingBus.ts → useCargando() y pulseLoading().
- * - lib/supabase.ts y components/SmartImage.tsx → encienden el contador.
+ * - lib/supabase.ts y components/ImagenInteligente.tsx → encienden el contador.
  * - app/_layout.tsx → monta el marco una única vez, por encima del Stack.
  * - app/(tabs)/_layout.tsx → usa BrilloIconoSeccion en los iconos y enciende
  *   el efecto al recargar una pestaña con triple toque.
@@ -88,7 +88,7 @@ const GROSOR = 3;
 // Paleta con brillo y saturación parecidos (ninguno "desaparece" sobre blanco):
 // azul de marca, cian, lavanda, violeta, rosa y azul cielo. Va dos veces en la
 // vuelta, así los lados opuestos llevan los mismos colores a la vez. (La bienvenida,
-// components/BrandLoadingScreen.tsx, usa la misma paleta y la misma máscara.)
+// components/PantallaCargaMarca.tsx, usa la misma paleta y la misma máscara.)
 export const PALETA_SIRI = ["#1EA7E8", "#3FC6F0", "#6F8CF7", "#A774F2", "#EE7DBA", "#5B9DF9"];
 const PALETA = PALETA_SIRI;
 export const COLORES_SIRI = [...PALETA, ...PALETA, PALETA[0]].join(",");

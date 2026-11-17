@@ -2,7 +2,7 @@
  * Archivo: components/BotonAtrasAlcance.tsx
  * Función: componente del botón «Volver» flotante abajo a la derecha.
  * Para qué sirve: pone un botón de volver al alcance del pulgar en las páginas de lectura; exporta BotonAtrasFlotante para usarlo con otra acción.
- * Conectado con: components/CategoryProductsShelf.tsx (useAlturaBarraComparar), expo-router.
+ * Conectado con: components/CarruselProductosCategoria.tsx (useAlturaBarraComparar), expo-router.
  * Utilizado por: app/_layout.tsx (montaje) y components/ContratarServicioModal.tsx.
  * Dependencias: react, react-native, @expo/vector-icons, expo-router, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -25,17 +25,17 @@
  * y «Contratar servicio» deja su propia franja. Lo comprueba la prueba TM3 de pruebas/perfil-datos.mjs.
  *
  * Barra de «Comparar» (mejora 8, 2026-11-14): en el catálogo, con productos elegidos para comparar, el botón sube lo
- * que mide esa barra (components/CategoryProductsShelf.tsx → useAlturaBarraComparar) para no quedar encima de ella.
+ * que mide esa barra (components/CarruselProductosCategoria.tsx → useAlturaBarraComparar) para no quedar encima de ella.
  *
- * Conectado con: app/_layout.tsx (lo monta), components/Campanita.tsx (se aparta de él),
- * components/CategoryProductsShelf.tsx (BarraComparar).
+ * Conectado con: app/_layout.tsx (lo monta), components/AsistenteBlue.tsx (se aparta de él),
+ * components/CarruselProductosCategoria.tsx (BarraComparar).
  */
 import React from "react";
 import { Platform, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAlturaBarraComparar } from "./CategoryProductsShelf";
+import { useAlturaBarraComparar } from "./CarruselProductosCategoria";
 
 const RUTAS = /^\/(catalogo|servicios|politicas\/|blog|noticias)/;
 

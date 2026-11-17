@@ -2,7 +2,7 @@
  * Archivo: app/admin/marca-seo.tsx
  * Función: pantalla de administración «Marca y SEO», en la dirección /admin/marca-seo.
  * Para qué sirve: el administrador sube el logo de la tienda y edita el título y la descripción que Google y el navegador muestran, sin tocar código.
- * Conectado con: lib/supabase.ts (tabla site_settings y bucket de Storage site-assets), lib/admin/products.components.ts, components/SmartImage.tsx, constants/theme.ts, components/admin/PanelUI.tsx; components/SiteHead.tsx lee esos mismos datos.
+ * Conectado con: lib/supabase.ts (tabla site_settings y bucket de Storage site-assets), lib/admin/products.components.ts, components/ImagenInteligente.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; components/EtiquetasCabeceraWeb.tsx lee esos mismos datos.
  * Utilizado por: Expo Router (dirección /admin/marca-seo, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Marca y SEO» de app/admin/index.tsx.
  * Dependencias: react, react-native, @expo/vector-icons.
  * Estado: ACTIVO
@@ -35,16 +35,16 @@
  *   WhatsApp/Facebook — esos programas no ejecutan JavaScript, así que
  *   necesitarían una pieza aparte (una función de Vercel) que de momento no
  *   se ha construido. Si más adelante se quiere, es un paso siguiente.
- * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx): arriba, tres cifras de estado (Logo,
+ * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PiezasPanelAdmin.tsx): arriba, tres cifras de estado (Logo,
  *   Título y Descripción, con su largo frente al máximo de Google; en rojo si falta o se pasa) y debajo dos bloques con
  *   su título: «Logo de la tienda» y «Cómo aparece en Google» (vista previa, campos y «Guardar SEO»).
  *
  * Conectado con:
- * - components/SiteHead.tsx → lee esta misma tabla y aplica el título,
+ * - components/EtiquetasCabeceraWeb.tsx → lee esta misma tabla y aplica el título,
  *   descripción, icono y og:image en cada pantalla.
  * - app/admin/index.tsx → tarjeta "Marca y SEO" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("marca-seo") en el Stack.
- * - components/admin/PanelUI.tsx → piezas comunes; pruebas/perfil-datos.mjs (TM5 y PANRED5).
+ * - components/admin/PiezasPanelAdmin.tsx → piezas comunes; pruebas/perfil-datos.mjs (TM5 y PANRED5).
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario, todo lo que se toca de 44 px y los campos de 16 px y 48 de alto.
  */
@@ -65,9 +65,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { AdminHeader, AdminLoading, AdminNotice, IconButton } from "../../lib/admin/products.components";
-import SmartImage from "../../components/SmartImage";
+import SmartImage from "../../components/ImagenInteligente";
 import { CAMPO, TAMANOS } from "../../constants/theme";
-import { BloqueFormulario, Cifra, Detalle, FilaCifras, PANEL } from "../../components/admin/PanelUI";
+import { BloqueFormulario, Cifra, Detalle, FilaCifras, PANEL } from "../../components/admin/PiezasPanelAdmin";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.

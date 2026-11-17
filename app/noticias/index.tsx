@@ -2,8 +2,8 @@
  * Archivo: app/noticias/index.tsx
  * Función: pantalla índice de noticias, en la dirección /noticias.
  * Para qué sirve: el cliente ve las 30 últimas noticias publicadas, las filtra por categoría y entra a cada una.
- * Conectado con: lib/supabase.ts (tabla noticias_gaming), lib/analytics.ts, components/SmartImage.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/CargaMarca.tsx, app/noticias/[id].tsx y app/servicio/[id].tsx (funciones compartidas).
- * Utilizado por: Expo Router (dirección /noticias); la enlazan components/SiteFooter.tsx («Noticias») y app/noticias/[id].tsx («Ver noticias», «Más noticias»).
+ * Conectado con: lib/supabase.ts (tabla noticias_gaming), lib/analytics.ts, components/ImagenInteligente.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/CargaMarca.tsx, app/noticias/[id].tsx y app/servicio/[id].tsx (funciones compartidas).
+ * Utilizado por: Expo Router (dirección /noticias); la enlazan components/PieDePagina.tsx («Noticias») y app/noticias/[id].tsx («Ver noticias», «Más noticias»).
  * Dependencias: react, react-native, expo-router.
  * Estado: ACTIVO
  */
@@ -13,14 +13,14 @@
  * «Noticias de consolas, videojuegos y tecnología», filtros por categoría (chips) y las 30 últimas noticias publicadas,
  * cada una en una tarjeta (foto solo si el servidor la comprobó, categoría y fecha, título y resumen corto) que es un
  * enlace de verdad (<a href>) a su página /noticias/<id>. Diseño de la tienda (CabeceraMarca, colores, SmartImage,
- * CargaMarca). Título y descripción para Google: components/SiteHead.tsx (PAGINAS["/noticias"]).
+ * CargaMarca). Título y descripción para Google: components/EtiquetasCabeceraWeb.tsx (PAGINAS["/noticias"]).
  *
  * Analítica propia: «Noticias: índice visto» (Administración → Analítica, #analitica-noticias-organicas).
  *
  * Conectado con:
  * - lib/supabase.ts → tabla noticias_gaming (lectura pública, publicada = true).
  * - app/noticias/[id].tsx → la página de cada noticia (y leerFotosNoticia, fechaNoticia, recortar, CATEGORIAS_NOTICIAS).
- * - app/servicio/[id].tsx → faltaColumna; components/SiteHead.tsx → su título; components/SiteFooter.tsx → «Noticias».
+ * - app/servicio/[id].tsx → faltaColumna; components/EtiquetasCabeceraWeb.tsx → su título; components/PieDePagina.tsx → «Noticias».
  * - api/sitemap.ts → /noticias en el sitemap.
  */
 import React, { useEffect, useState } from "react";
@@ -28,7 +28,7 @@ import { Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } fro
 import { Link, type Href } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { trackEvent } from "../../lib/analytics";
-import SmartImage from "../../components/SmartImage";
+import SmartImage from "../../components/ImagenInteligente";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import { useRecarga } from "../../components/TirarParaActualizar";

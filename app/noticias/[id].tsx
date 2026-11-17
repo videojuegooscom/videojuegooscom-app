@@ -2,7 +2,7 @@
  * Archivo: app/noticias/[id].tsx
  * Función: pantalla de una noticia, en la dirección /noticias/<id>.
  * Para qué sirve: el cliente (y Google) lee una noticia de consolas y videojuegos con resumen, puntos clave, fuente y enlace para comentar en el Foro; pone su propio título y datos SEO en el head.
- * Conectado con: lib/supabase.ts (tabla noticias_gaming; la llena api/noticias-gaming.ts), lib/analytics.ts, components/SiteHead.tsx (upsertMeta, upsertLink), SmartImage, CabeceraMarca, TirarParaActualizar y components/marca/*, app/servicio/[id].tsx (faltaColumna).
+ * Conectado con: lib/supabase.ts (tabla noticias_gaming; la llena api/noticias-gaming.ts), lib/analytics.ts, components/EtiquetasCabeceraWeb.tsx (upsertMeta, upsertLink), ImagenInteligente, CabeceraMarca, TirarParaActualizar y components/marca/*, app/servicio/[id].tsx (faltaColumna).
  * Utilizado por: Expo Router (dirección /noticias/<id>); la enlazan app/noticias/index.tsx (que además importa funciones de aquí) y app/(tabs)/chat-global.tsx (Foro).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -22,7 +22,7 @@
  *
  * Para Google: título «<titulo> | Noticias | VideojuegosZaragoza», meta description (el resumen recortado), dirección
  * oficial (canonical), og:* y datos estructurados NewsArticle, escritos en el <head> con el mismo método que
- * components/SiteHead.tsx (DOM directo; SiteHead deja estas rutas a la página) y quitados al salir.
+ * components/EtiquetasCabeceraWeb.tsx (DOM directo; SiteHead deja estas rutas a la página) y quitados al salir.
  *
  * Analítica propia (Administración → Analítica, #analitica-noticias-organicas): «Noticias: página vista · <categoría>»
  * y, si la visita entró por la noticia desde un buscador, «Noticias: llegada desde buscador · Google» (solo el nombre
@@ -30,7 +30,7 @@
  *
  * Conectado con:
  * - lib/supabase.ts → tabla noticias_gaming (lectura pública, publicada = true); la llena api/noticias-gaming.ts.
- * - components/SiteHead.tsx → upsertMeta/upsertLink y RUTAS_CON_CABECERA_PROPIA.
+ * - components/EtiquetasCabeceraWeb.tsx → upsertMeta/upsertLink y RUTAS_CON_CABECERA_PROPIA.
  * - app/servicio/[id].tsx → faltaColumna (reintentar sin la columna que falta).
  * - app/noticias/index.tsx → el índice de noticias (usa leerFotosNoticia, CATEGORIAS_NOTICIAS y fechaNoticia de aquí).
  * - app/(tabs)/chat-global.tsx → el Foro («Comentar en el Foro»; su tarjeta enlaza aquí y comparte esta dirección).
@@ -43,11 +43,11 @@ import { Link, router, useLocalSearchParams, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { medirNoticiaDesdeBuscador, trackEvent } from "../../lib/analytics";
-import SmartImage from "../../components/SmartImage";
+import SmartImage from "../../components/ImagenInteligente";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import CabeceraMarca from "../../components/CabeceraMarca";
-import { upsertLink, upsertMeta } from "../../components/SiteHead";
+import { upsertLink, upsertMeta } from "../../components/EtiquetasCabeceraWeb";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import { faltaColumna } from "../servicio/[id]";
 

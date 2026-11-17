@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/cesta.tsx
  * Función: pantalla de la cesta de la compra (pestaña «Cesta»), en la dirección /cesta (admite ?add=<id>).
  * Para qué sirve: el cliente ve los artículos que ha añadido, cambia cantidades, los quita, ve el total y el envío, y pasa a pagar.
- * Conectado con: lib/supabase.ts (tabla products), lib/envio.ts (tarifas), lib/reservas.ts, lib/analytics.ts, constants/theme.ts, components/CategoryProductsShelf.tsx, SiteFooter.tsx, SmartImage.tsx, TirarParaActualizar.tsx, components/marca/*; guarda la cesta en AsyncStorage (misma clave que app/checkout.tsx).
+ * Conectado con: lib/supabase.ts (tabla products), lib/envio.ts (tarifas), lib/reservas.ts, lib/analytics.ts, constants/theme.ts, components/CarruselProductosCategoria.tsx, PieDePagina.tsx, ImagenInteligente.tsx, TirarParaActualizar.tsx, components/marca/*; guarda la cesta en AsyncStorage (misma clave que app/checkout.tsx).
  * Utilizado por: Expo Router (dirección /cesta, pestaña de app/(tabs)/_layout.tsx); la abre app/producto/[id].tsx («Añadir a la cesta») y app/comparar.tsx (?add=).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage, @react-navigation/native.
  * Estado: ACTIVO
@@ -24,7 +24,7 @@
  * - app/checkout.tsx → botón "Ir a pagar".
  * - lib/supabase.ts → tabla products, para completar los datos del
  *   artículo añadido.
- * - components/SiteFooter.tsx → pie de página (las redes sociales salen ahí una
+ * - components/PieDePagina.tsx → pie de página (las redes sociales salen ahí una
  *   sola vez; antes se repetían también encima).
  * - app/(tabs)/blue-ia.tsx → «Blue, ayúdame a elegir un artículo» (con la
  *   cesta vacía o llena) abre Blue IA y le manda la pregunta sola (?q=); los
@@ -40,7 +40,7 @@
  * bajar; letra mínima 13 y grises a 0,72 (constants/theme.ts). La prueba TM3
  * de pruebas/perfil-datos.mjs lo comprueba.
  *
- * «Completa tu compra» (mejora 6, 2026-11-14; components/CategoryProductsShelf.tsx → CompletaTuCompra): si en la cesta
+ * «Completa tu compra» (mejora 6, 2026-11-14; components/CarruselProductosCategoria.tsx → CompletaTuCompra): si en la cesta
  * hay una consola, debajo del resumen salen como mucho 3 mandos o accesorios de su familia con un «Añadir» de 44 px que
  * los añade aquí mismo (anadirProducto, con su reserva). Sin consola o sin nada que encaje, no sale. Se mide como
  * complemento_mostrado / _tocado / _anadido (Administración → Analítica).
@@ -72,11 +72,11 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import CategoryProductsShelf, { CompletaTuCompra, tipoDeArticulo } from "../../components/CategoryProductsShelf";
+import CategoryProductsShelf, { CompletaTuCompra, tipoDeArticulo } from "../../components/CarruselProductosCategoria";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
-import SiteFooter from "../../components/SiteFooter";
-import SmartImage from "../../components/SmartImage";
+import SiteFooter from "../../components/PieDePagina";
+import SmartImage from "../../components/ImagenInteligente";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import { cargarTarifas, gratisDesdeMinimo, hayEnviosDePago, type ZonaEnvio } from "../../lib/envio";
 import {

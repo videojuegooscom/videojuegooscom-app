@@ -2,7 +2,7 @@
  * Archivo: app/admin/envios.tsx
  * Función: pantalla de administración «Tarifas de envío», en la dirección /admin/envios.
  * Para qué sirve: el administrador edita a mano los precios de envío por zona y código postal, «gratis desde» y si se envía a cada zona; la tienda sigue calculando el envío sola con esas tarifas.
- * Conectado con: lib/supabase.ts (tablas de tarifas de envío, migración 20261104210000_tarifas_envio.sql), lib/envio.ts, components/marca/CargaMarca.tsx, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Conectado con: lib/supabase.ts (tablas de tarifas de envío, migración 20261104210000_tarifas_envio.sql), lib/envio.ts, components/marca/CargaMarca.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/envios, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Tarifas de envío» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -26,7 +26,7 @@
  *   el envío puesto a mano y cuántos sin zona.
  * - Sin la migración aplicada, la pantalla lo dice y la tienda sigue con el envío gratis.
  *
- * - DISEÑO (2026-11-16, el de Usuarios y Pedidos; piezas de components/admin/PanelUI.tsx): cifras arriba (zonas
+ * - DISEÑO (2026-11-16, el de Usuarios y Pedidos; piezas de components/admin/PiezasPanelAdmin.tsx): cifras arriba (zonas
  *   activas y sin envío web, que filtran, y los datos de 30 días), buscador de 16 px (nombre, clave o un código postal:
  *   deja la zona a la que iría), pastillas con su recuento (Todas, Activas, Sin envío web, Por kilos, Con «gratis
  *   desde») y cada zona en una fila compacta (nombre, etiqueta Activa / Sin envío web / Sin guardar, códigos, precio
@@ -71,7 +71,7 @@ import {
   RecuentoLista,
   Seccion,
   useDesplegables,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import {
   calcularEnvio,

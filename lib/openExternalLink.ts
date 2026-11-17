@@ -3,7 +3,7 @@
  * Función: utilidad para abrir enlaces externos.
  * Para qué sirve: abre redes sociales, WhatsApp y otros enlaces intentando que se abran en Chrome en lugar del navegador actual.
  * Conectado con: ninguna otra pieza del proyecto (usa Linking de react-native).
- * Utilizado por: components/SocialLinks.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/admin/pedidos.tsx, chats.tsx, services.tsx, redes-sociales.tsx y app/admin/cliente/[userId].tsx.
+ * Utilizado por: components/EnlacesRedesSociales.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/admin/pedidos.tsx, chats.tsx, services.tsx, redes-sociales.tsx y app/admin/cliente/[userId].tsx.
  * Dependencias: react-native.
  * Estado: ACTIVO
  */
@@ -44,11 +44,11 @@
  * cualquiera — a diferencia de intentar abrir la app de OTRA empresa
  * (Instagram, Wallapop...), donde no hay ninguna garantía documentada del
  * esquema exacto de cada una (ver la nota larga de
- * components/SocialLinks.tsx sobre por qué ahí se confía en los enlaces
+ * components/EnlacesRedesSociales.tsx sobre por qué ahí se confía en los enlaces
  * universales en vez de un truco casero).
  *
  * Conectado con:
- * - components/SocialLinks.tsx y app/(tabs)/blue-ia.tsx (chips de redes
+ * - components/EnlacesRedesSociales.tsx y app/(tabs)/blue-ia.tsx (chips de redes
  *   sociales) → sustituyen su Linking.openURL directo por esta función.
  * - app/(tabs)/index.tsx, app/producto/[id].tsx, app/servicio/[id].tsx
  *   (app/checkout.tsx ya no abre WhatsApp desde el 2026-11-11: el pedido se

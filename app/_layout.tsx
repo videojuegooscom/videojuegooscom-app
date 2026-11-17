@@ -2,7 +2,7 @@
  * Archivo: app/_layout.tsx
  * Función: layout raíz de toda la app (Expo Router): pantalla de carga de marca y Stack con todas las rutas de nivel superior.
  * Para qué sirve: arranca la tienda para el cliente, monta una sola vez los elementos globales (campanita, aviso de cookies, perfil obligatorio, barra de comparar, barra de carga), registra el dispositivo, mide la analítica de arranque y recarga sola la web si hay versión nueva.
- * Conectado con: components/BrandLoadingScreen.tsx, Campanita.tsx, CategoryProductsShelf.tsx (BarraComparar), CookieConsentBanner.tsx, lineapensadoraefectosiri.tsx, PerfilPublico.tsx (PerfilObligatorio), SiteHead.tsx, TirarParaActualizar.tsx, BotonAtrasAlcance.tsx; lib/analytics.ts; lib/supabase.ts (supabase, registrarDispositivo, alIncidenciaDeSesion; tabla cliente_dispositivos).
+ * Conectado con: components/PantallaCargaMarca.tsx, AsistenteBlue.tsx, CarruselProductosCategoria.tsx (BarraComparar), AvisoAnaliticaCookies.tsx, EfectoPensando.tsx, PerfilPublico.tsx (PerfilObligatorio), EtiquetasCabeceraWeb.tsx, TirarParaActualizar.tsx, BotonAtrasAlcance.tsx; lib/analytics.ts; lib/supabase.ts (supabase, registrarDispositivo, alIncidenciaDeSesion; tabla cliente_dispositivos).
  * Utilizado por: Expo Router (es el layout raíz de todas las direcciones); envuelve a app/(tabs)/_layout.tsx y a todas las pantallas.
  * Dependencias: react, react-native, expo-router, expo-router/head, expo-font, @expo/vector-icons.
  * Estado: ACTIVO
@@ -18,7 +18,7 @@
  *
  * Pantalla de carga: es también la versión pre-generada de cada página (la tienda se
  * pinta solo ya montada en el dispositivo, con su ancho real; ver «montado» abajo).
- * Es la bienvenida (components/BrandLoadingScreen.tsx): la primera vez en cada visita se
+ * Es la bienvenida (components/PantallaCargaMarca.tsx): la primera vez en cada visita se
  * queda al menos 3 s encima de la tienda, que carga debajo, y la tienda empieza en Inicio
  * (ver BIENVENIDA_* abajo).
  * Además espera a la fuente de Ionicons (la usa TODA la app),
@@ -42,22 +42,22 @@
  * Administración → Usuarios los cuenta (30 días).
  *
  * Conectado con:
- * - components/BrandLoadingScreen.tsx → pantalla de carga inicial.
- * - components/Campanita.tsx → campanita flotante de notificaciones, se
+ * - components/PantallaCargaMarca.tsx → pantalla de carga inicial.
+ * - components/AsistenteBlue.tsx → campanita flotante de notificaciones, se
  *   monta aquí UNA sola vez (fuera y por encima del Stack) para que
  *   aparezca en todas las pantallas y no se reinicie al navegar.
  * - components/PerfilPublico.tsx (PerfilObligatorio) → «Completa tu perfil»,
  *   montado igual que la campanita: con sesión y el perfil a medias tapa la
  *   tienda hasta guardarlo completo (no en Mi cuenta ni en las políticas).
- * - components/CookieConsentBanner.tsx → aviso de analítica/cookies, montado
+ * - components/AvisoAnaliticaCookies.tsx → aviso de analítica/cookies, montado
  *   igual que la campanita (una sola vez, fuera del Stack); se oculta solo
  *   en /admin y desaparece en cuanto el visitante contesta.
- * - components/lineapensadoraefectosiri.tsx → barra de colores tipo "Siri"
+ * - components/EfectoPensando.tsx → barra de colores tipo "Siri"
  *   que se enciende sola, en toda la app, mientras haya algo cargando
  *   (peticiones a Supabase, fotos, o un simple cambio de pantalla — ver
  *   lib/loadingBus.ts). Montada igual que la campanita, fuera del Stack,
  *   para que aparezca en cualquier pantalla sin tocarlas una a una.
- * - components/SiteHead.tsx → aplica el título de pestaña, la descripción
+ * - components/EtiquetasCabeceraWeb.tsx → aplica el título de pestaña, la descripción
  *   para Google y (si hay) el logo subido desde app/admin/marca-seo.tsx. No
  *   pinta nada en pantalla (return null), solo toca el <head> del documento
  *   en web.
@@ -70,7 +70,7 @@
  *   pestañas.
  * - app/admin/_layout.tsx → todas las rutas /admin.
  * - app/comparar.tsx → «Comparar 2-3 productos» (/comparar?ids=…); su barra flotante (BarraComparar de
- *   components/CategoryProductsShelf.tsx) se monta aquí una vez, como el «Volver» flotante.
+ *   components/CarruselProductosCategoria.tsx) se monta aquí una vez, como el «Volver» flotante.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Platform, View, type ViewStyle } from "react-native";
@@ -79,13 +79,13 @@ import Head from "expo-router/head";
 import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import BotonAtrasAlcance from "../components/BotonAtrasAlcance";
-import BrandLoadingScreen, { BIENVENIDA_MS, BIENVENIDA_RELLENO_ID } from "../components/BrandLoadingScreen";
-import Campanita from "../components/Campanita";
-import { BarraComparar } from "../components/CategoryProductsShelf";
-import CookieConsentBanner from "../components/CookieConsentBanner";
-import LineaPensadoraEfectoSiri from "../components/lineapensadoraefectosiri";
+import BrandLoadingScreen, { BIENVENIDA_MS, BIENVENIDA_RELLENO_ID } from "../components/PantallaCargaMarca";
+import Campanita from "../components/AsistenteBlue";
+import { BarraComparar } from "../components/CarruselProductosCategoria";
+import CookieConsentBanner from "../components/AvisoAnaliticaCookies";
+import LineaPensadoraEfectoSiri from "../components/EfectoPensando";
 import { PerfilObligatorio } from "../components/PerfilPublico";
-import SiteHead from "../components/SiteHead";
+import SiteHead from "../components/EtiquetasCabeceraWeb";
 import TirarParaActualizar from "../components/TirarParaActualizar";
 import { medirLlegadaDesdeRedes, trackEvent } from "../lib/analytics";
 import { alIncidenciaDeSesion, registrarDispositivo, supabase } from "../lib/supabase";
@@ -128,7 +128,7 @@ const BIENVENIDA_TRANSICION = (Platform.OS === "web"
   : {}) as unknown as ViewStyle;
 
 // Lo que le falta a la barra de la bienvenida para llenarse (ms). La barra es una animación CSS que empezó al pintarse
-// la página (components/BrandLoadingScreen.tsx): la bienvenida se va justo cuando se llena. Sin ella (navegadores
+// la página (components/PantallaCargaMarca.tsx): la bienvenida se va justo cuando se llena. Sin ella (navegadores
 // antiguos), lo que falte hasta BIENVENIDA_MS desde que se abrió la página.
 function faltaParaLlenarse(): number {
   try {

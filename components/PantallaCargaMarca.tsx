@@ -1,8 +1,8 @@
 /**
- * Archivo: components/BrandLoadingScreen.tsx
+ * Archivo: components/PantallaCargaMarca.tsx
  * Función: componente de la pantalla de bienvenida y de carga de la tienda.
  * Para qué sirve: muestra el logo, las mascotas, el lema y una barra de carga con efecto Siri; es también la versión HTML estática que se genera de antemano para todas las páginas.
- * Conectado con: components/marca/MarcaAnimada.tsx, components/lineapensadoraefectosiri.tsx (paleta y máscara Siri).
+ * Conectado con: components/marca/MarcaAnimada.tsx, components/EfectoPensando.tsx (paleta y máscara Siri).
  * Utilizado por: app/_layout.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -21,7 +21,7 @@
  * - La barra: pista azul clara y un relleno con los colores de Siri que se descubre de izquierda a derecha (dos capas
  *   que se desplazan en sentidos contrarios, así los colores no se estiran), con una chispa de luz en la punta. Tarda
  *   BIENVENIDA_MS con una curva suave al empezar y al acabar; cuando se llena, app/_layout.tsx quita la bienvenida.
- * - El marco Siri en los bordes: el mismo aro de colores que gira de «Pensando» (components/lineapensadoraefectosiri.tsx:
+ * - El marco Siri en los bordes: el mismo aro de colores que gira de «Pensando» (components/EfectoPensando.tsx:
  *   misma paleta y misma máscara), aquí dibujado solo con CSS para que gire desde el primer pintado. Cada lado recibe más
  *   o menos el mismo trozo de la vuelta (media queries por proporción de pantalla, sin medir nada con JavaScript).
  * - Las mascotas entran con un pequeño fundido y luego flotan suavemente (CSS); el texto entra justo después.
@@ -37,12 +37,12 @@
  * Conectado con:
  * - app/_layout.tsx → la muestra al arrancar, decide cuánto tiempo (lee el avance de la barra) y la funde al salir.
  * - components/marca/MarcaAnimada.tsx → las mascotas (en la web sin su movimiento de JavaScript: lo pone el CSS).
- * - components/lineapensadoraefectosiri.tsx → paleta y máscara del marco Siri.
+ * - components/EfectoPensando.tsx → paleta y máscara del marco Siri.
  */
 import React, { useEffect, useLayoutEffect, type ReactNode } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import MarcaAnimada from "./marca/MarcaAnimada";
-import { COLORES_SIRI, MASCARA_MARCO_SIRI, PALETA_SIRI } from "./lineapensadoraefectosiri";
+import { COLORES_SIRI, MASCARA_MARCO_SIRI, PALETA_SIRI } from "./EfectoPensando";
 
 /** Lo que dura la bienvenida la primera vez en cada visita (lo que tarda la barra en llenarse). */
 export const BIENVENIDA_MS = 3000;

@@ -2,7 +2,7 @@
  * Archivo: components/VenderAhoraModal.tsx
  * Función: componente del formulario «Vender ahora» (página Vender).
  * Para qué sirve: recoge los datos de contacto y del artículo (con fotos y vídeo obligatorios) y guarda la solicitud de venta en Supabase; exporta además campos reutilizables (FieldInput, FieldLabel, SelectField, IsMobileContext).
- * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/notificaciones.ts, components/SellRequestMedia.tsx, components/PerfilPublico.tsx (datosDeFila), CabeceraMarca.tsx, constants/theme.ts, tabla sell_requests.
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/notificaciones.ts, components/FotosVideoVenta.tsx, components/PerfilPublico.tsx (datosDeFila), CabeceraMarca.tsx, constants/theme.ts, tabla sell_requests.
  * Utilizado por: app/vender.tsx, app/(tabs)/index.tsx, app/(tabs)/cesta.tsx, app/(tabs)/chat-global.tsx y components/ContratarServicioModal.tsx (campos).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -73,7 +73,7 @@
  *   pide la disponibilidad horaria (Mañana/Medio día/Tarde noche).
  * - Fotos y vídeo del artículo (OBLIGATORIOS, dueño 2026-11-16): de 7 a 10
  *   fotos y 1 vídeo de 20 a 30 segundos (hasta 60 MB), en dos apartados con
- *   SellMediaPicker (ver components/SellRequestMedia.tsx); un vídeo fuera de
+ *   SellMediaPicker (ver components/FotosVideoVenta.tsx); un vídeo fuera de
  *   ese rango o cuya duración no se puede medir se rechaza con su aviso.
  *   Cuentan para el progreso como los demás campos. Se suben a Storage
  *   DESPUÉS de guardar la solicitud (hace falta su id para enlazarlos); si
@@ -166,7 +166,7 @@ import {
   videoEsValido,
   type LocalSellMedia,
   type SellMediaPendiente,
-} from "./SellRequestMedia";
+} from "./FotosVideoVenta";
 import { datosDeFila } from "./PerfilPublico";
 
 const COLORS = {
@@ -1529,7 +1529,7 @@ export default function VenderAhoraModal({
     <IsMobileContext.Provider value={isMobile}>
       {envolver(
           <ScrollView
-            // nativeID: la guía de Blue (components/Campanita.tsx) desplaza el formulario para enseñar que hay más abajo.
+            // nativeID: la guía de Blue (components/AsistenteBlue.tsx) desplaza el formulario para enseñar que hay más abajo.
             nativeID="vender-scroll"
             contentContainerStyle={{ flexGrow: 1, justifyContent: comoPagina ? "flex-start" : "center", paddingBottom: comoPagina ? 48 + insets.bottom : 0 }}
             keyboardShouldPersistTaps="handled"

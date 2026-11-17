@@ -1,5 +1,5 @@
 /**
- * Archivo: components/SellRequestMedia.tsx
+ * Archivo: components/FotosVideoVenta.tsx
  * Función: componente y utilidades de las fotos y el vídeo del formulario «Vender ahora».
  * Para qué sirve: valida, convierte (HEIC a JPEG) y sube a Supabase Storage las fotos y el vídeo que adjunta un cliente a su solicitud de venta, y ofrece el selector visual (SellMediaPicker) y los enlaces firmados para que el administrador los vea o los descargue.
  * Conectado con: constants/theme.ts (TAMANOS, TACTIL, COLORES_TEXTO), lib/supabase.ts, tablas sell_request_media y sell_requests, bucket privado de Storage sell-request-media.

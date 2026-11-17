@@ -2,7 +2,7 @@
  * Archivo: components/PortadasCategoria.tsx
  * Función: componente del carrusel de portadas de una categoría.
  * Para qué sirve: muestra hasta 3 fotos de portada que pasan solas cada 5 s, y ofrece utilidades (portadasDe, encuadresDe, portadasInicioDe) para leer las portadas de una fila de categories.
- * Conectado con: components/SmartImage.tsx, lib/supabase.ts, tabla categories (imagenes, portadas_inicio).
+ * Conectado con: components/ImagenInteligente.tsx, lib/supabase.ts, tabla categories (imagenes, portadas_inicio).
  * Utilizado por: app/(tabs)/index.tsx, app/catalogo.tsx, app/admin/categories.tsx, app/admin/products.tsx y app/admin/alquileres.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -42,7 +42,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Platform, Text, View, type StyleProp, type ViewStyle } from "react-native";
-import SmartImage from "./SmartImage";
+import SmartImage from "./ImagenInteligente";
 import { supabase } from "../lib/supabase";
 
 export const MAX_PORTADAS = 3;

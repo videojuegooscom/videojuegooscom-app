@@ -1,8 +1,8 @@
 /**
- * Archivo: components/Campanita.tsx
+ * Archivo: components/AsistenteBlue.tsx
  * Función: componente de Blue, la asistente flotante de la tienda (antes una campanita).
  * Para qué sirve: muestra a Blue (avisos, guía de bienvenida y mini-guías, panel de asistente, noticias, valoraciones de pedidos y chat con el equipo) en Inicio, fichas y panel; se monta una sola vez en app/_layout.tsx.
- * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/interaccion.ts, lib/conocimiento.ts, lib/notificaciones.ts, lib/envio.ts, lib/admin/products.utils.ts, components/marca/MarcaAnimada.tsx, Barramagic.tsx, TirarParaActualizar.tsx, PerfilPublico.tsx, ImageLightbox.tsx, ReviewModal.tsx, CategoryProductsShelf.tsx, constants/theme.ts, api/blue-ia.ts.
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/interaccion.ts, lib/conocimiento.ts, lib/notificaciones.ts, lib/envio.ts, lib/admin/products.utils.ts, components/marca/MarcaAnimada.tsx, BarraBusqueda.tsx, TirarParaActualizar.tsx, PerfilPublico.tsx, VisorFotos.tsx, VentanaValoracion.tsx, CarruselProductosCategoria.tsx, constants/theme.ts, api/blue-ia.ts.
  * Utilizado por: app/_layout.tsx (montaje) y otras pantallas que lo mencionan o lo escuchan (por ejemplo catálogo, ficha de producto, Blue IA y panel).
  * Dependencias: react, react-native, @expo/vector-icons, expo-router, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
@@ -31,7 +31,7 @@
  *   «Vender ahora» y abrir el formulario, desplazarlo y salir con la flecha, escribir ejemplos
  *   en el buscador con letras Siri, enmarcar las pestañas de Perfil). SEÑALA cada botón (se
  *   oscurece todo menos él, aro azul que late y flecha) con data-testid "pestana-*" en
- *   app/(tabs)/_layout.tsx, id "buscador-flotante" en components/Barramagic.tsx y los
+ *   app/(tabs)/_layout.tsx, id "buscador-flotante" en components/BarraBusqueda.tsx y los
  *   nativeID "vender-scroll", "perfil-pestanas" y "perfil-acceso". Va a Inicio al empezar y
  *   se usa con un dedo: la tarjeta mide siempre lo mismo y «Siguiente» queda siempre a la
  *   altura del pulgar derecho (lo señalado se desplaza hacia arriba para no quedar tapado).
@@ -51,7 +51,7 @@
  *   aparte (miniguia_*). Van en el panel porque Blue no se ve en Vender, el Foro ni Blue IA.
  *   Se prueba con pruebas/blue-panel.mjs.
  *   «Mejoras en la tienda» (fila del Asistente, solo en la tienda): cierra el panel y abre la cajita de ideas
- *   (MejorasModal de components/ReviewModal.tsx, origen «blue»).
+ *   (MejorasModal de components/VentanaValoracion.tsx, origen «blue»).
  * - Aparece 10 s después de entrar en la web (APARECER_MS, contados desde que
  *   se abrió la página con performance.now()): antes no se ve ni se puede tocar.
  *   Entra con un rebote de escala, saluda moviéndose de lado a lado y enseña un
@@ -66,7 +66,7 @@
  * - «Mi perfil» desplegado en Mi cuenta (/perfil; useMiPerfilAbierto de components/PerfilPublico.tsx): Blue no aparece
  *   (dueño, 2026-11-03), como con «Completa tu perfil». Desde 2026-11-04 Blue ya no sale en Mi cuenta (solo lo hace si
  *   la guía lo lleva allí).
- * - Visor de fotos (components/ImageLightbox.tsx, foto ampliada de la ficha): mientras está abierto Blue se esconde
+ * - Visor de fotos (components/VisorFotos.tsx, foto ampliada de la ficha): mientras está abierto Blue se esconde
  *   del todo (dueño, 2026-10-31) y no dice nada: sus mensajes y su saludo esperan a que se cierre.
  * - Habla con bocadillos DEBAJO de ella (pegados a su borde derecho; al lado tapaban la cabecera de las fichas), en
  *   cristal transparente (se lee bien) y al tocarlos llevan a lo que dicen (solo cuando ya ha aparecido):
@@ -214,12 +214,12 @@ import { sinEmojis } from "../lib/admin/products.utils";
 import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaConocimiento } from "../lib/conocimiento";
 import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificaciones";
 import MarcaAnimada from "./marca/MarcaAnimada";
-import { asegurarCssSiriTexto, escribirEnBuscadorDemo, palabrasBusqueda, registrarAvisoLlegada, TextoSiri } from "./Barramagic";
+import { asegurarCssSiriTexto, escribirEnBuscadorDemo, palabrasBusqueda, registrarAvisoLlegada, TextoSiri } from "./BarraBusqueda";
 import { alRecargar } from "./TirarParaActualizar";
 import { useMiPerfilAbierto, usePerfilObligatorioVisible } from "./PerfilPublico";
-import { suscribirVisorFotos, visorFotosAbierto } from "./ImageLightbox";
-import { MejorasModal, VALORACION_ESPERA_MS, cargarValoracionesPedidos, entregadoEnDe, tocaValorarPedido } from "./ReviewModal";
-import { useAlturaBarraComparar, useComparar } from "./CategoryProductsShelf";
+import { suscribirVisorFotos, visorFotosAbierto } from "./VisorFotos";
+import { MejorasModal, VALORACION_ESPERA_MS, cargarValoracionesPedidos, entregadoEnDe, tocaValorarPedido } from "./VentanaValoracion";
+import { useAlturaBarraComparar, useComparar } from "./CarruselProductosCategoria";
 import { CAMPO, COLORES_TEXTO, colorTextoAzul, TACTIL, TAMANOS } from "../constants/theme";
 import { cargarAjustesReparacionEnvio, cargarHistorialPedidos } from "../lib/envio";
 
@@ -638,13 +638,13 @@ export async function crearAvisoBusqueda(texto: string): Promise<"ok" | "sin_ses
     return "error";
   }
 }
-// El buscador de Inicio (components/Barramagic.tsx) lo ofrece cuando no encuentra nada.
+// El buscador de Inicio (components/BarraBusqueda.tsx) lo ofrece cuando no encuentra nada.
 registrarAvisoLlegada(crearAvisoBusqueda);
 
 /**
  * «Avisarme cuando haya otro» (dueño, 2026-11-16; avisos_reposicion, lib/interaccion.ts): por cada aviso encendido y aún
  * sin avisar, los artículos a la venta que han entrado (o vuelto) desde que se encendió y son de la misma familia o
- * modelo, con las mismas palabras que la búsqueda tolerante (palabrasBusqueda de Barramagic, GRUPOS_SINONIMOS: «Xbox
+ * modelo, con las mismas palabras que la búsqueda tolerante (palabrasBusqueda de BarraBusqueda, GRUPOS_SINONIMOS: «Xbox
  * Series S» = xboxseries + «s»; «PlayStation 5» = ps5). Sin el artículo cancelado. Blue avisa en la app sea cual sea el
  * canal (el correo aún no se manda).
  */
@@ -856,7 +856,7 @@ export function pantallaConBlue(pathname: string) {
 }
 // En Inicio el buscador va arriba: Blue se pone justo debajo (nunca encima de él), también mientras el buscador está
 // escondido un momento por el scroll (se mide donde volverá a salir). Si la persona lo ha bajado, Blue va arriba del todo.
-// En el móvil, debajo del buscador están TikTok e Instagram junto al logo (components/SocialLinks.tsx): si ese sitio cae
+// En el móvil, debajo del buscador están TikTok e Instagram junto al logo (components/EnlacesRedesSociales.tsx): si ese sitio cae
 // encima de uno, Blue va justo debajo de él. Se mide donde están con la página arriba del todo (sumando lo desplazado),
 // para que Blue no se mueva al desplazarla.
 const JUNTO_AL_LOGO = ["inicio-instagram", "inicio-tiktok"];
@@ -925,7 +925,7 @@ function algoDebajoDeBlue(xy: { x: number; y: number }): boolean {
 }
 
 // --- La barra de búsqueda: Blue nunca encima (solo web) ----------------------------------
-// Blue no se pone NUNCA encima de la barra de búsqueda flotante (components/Barramagic.tsx): en Inicio va justo debajo
+// Blue no se pone NUNCA encima de la barra de búsqueda flotante (components/BarraBusqueda.tsx): en Inicio va justo debajo
 // (posicionFija), también mientras la barra está escondida un momento por el scroll (vuelve a salir en cuanto se sube).
 // Se mide la barra de verdad (el hijo de #buscador-flotante: la capa de fuera ocupa todo el ancho). La lista de
 // resultados baja por debajo de la barra: mientras está abierta encima del sitio de Blue, Blue se esconde.
@@ -3228,7 +3228,7 @@ export default function Campanita() {
                 />
                 {/* Solo si se puede instalar en este dispositivo y aún no está instalada. */}
                 {modoInst ? <BotonPanel icono="download-outline" texto="Instalar la tienda como app" onPress={instalarApp} /> : null}
-                {/* La cajita de ideas (components/ReviewModal.tsx): se cierra el panel y se abre encima de la tienda. */}
+                {/* La cajita de ideas (components/VentanaValoracion.tsx): se cierra el panel y se abre encima de la tienda. */}
                 <BotonPanel
                   icono="bulb-outline"
                   texto="Mejoras en la tienda"

@@ -2,7 +2,7 @@
  * Archivo: components/ContratarServicioModal.tsx
  * Función: componente del formulario «Contratar servicio ahora».
  * Para qué sirve: recoge los datos del cliente y de la opción de servicio elegida (incluida la reparación por envío) y guarda la solicitud en Supabase.
- * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/envio.ts, lib/admin/products.components.tsx (SelectorIOS), components/BotonAtrasAlcance.tsx, CabeceraMarca.tsx, SmartImage.tsx, VenderAhoraModal.tsx (campos), constants/theme.ts, tabla service_requests.
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/envio.ts, lib/admin/products.components.tsx (SelectorIOS), components/BotonAtrasAlcance.tsx, CabeceraMarca.tsx, ImagenInteligente.tsx, VenderAhoraModal.tsx (campos), constants/theme.ts, tabla service_requests.
  * Utilizado por: app/servicio/[id].tsx y app/contratar/[id].tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -91,7 +91,7 @@ import {
 import { SelectorIOS } from "../lib/admin/products.components";
 import { BotonAtrasFlotante } from "./BotonAtrasAlcance";
 import CabeceraMarca from "./CabeceraMarca";
-import SmartImage from "./SmartImage";
+import SmartImage from "./ImagenInteligente";
 import { FieldInput, FieldLabel as VLabel, IsMobileContext, SelectField } from "./VenderAhoraModal";
 
 const COLORS = {

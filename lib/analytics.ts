@@ -2,8 +2,8 @@
  * Archivo: lib/analytics.ts
  * Función: utilidad de analítica propia de la tienda (cliente de eventos).
  * Para qué sirve: genera la sesión de visita, gestiona el consentimiento (RGPD) y envía eventos (trackEvent) a Supabase para reconstruir el recorrido de cada visita en Administración; no envía nada de quien rechazó.
- * Conectado con: lib/supabase.ts, tabla analytics_events, components/CookieConsentBanner.tsx.
- * Utilizado por: casi todas las pantallas y componentes de la tienda y del panel (checkout, catálogo, producto, perfil, Campanita, VenderAhoraModal, ReviewModal, etc.).
+ * Conectado con: lib/supabase.ts, tabla analytics_events, components/AvisoAnaliticaCookies.tsx.
+ * Utilizado por: casi todas las pantallas y componentes de la tienda y del panel (checkout, catálogo, producto, perfil, AsistenteBlue, VenderAhoraModal, VentanaValoracion, etc.).
  * Dependencias: @react-native-async-storage/async-storage.
  * Estado: ACTIVO
  */
@@ -25,7 +25,7 @@
  *   tiempo se genera una sesión nueva, como en cualquier herramienta de
  *   analítica web.
  * - Consentimiento (RGPD): respeta el aviso de cookies/analítica (ver
- *   components/CookieConsentBanner.tsx). NO se envía nada a Supabase (ni se
+ *   components/AvisoAnaliticaCookies.tsx). NO se envía nada a Supabase (ni se
  *   crea el session_id en el dispositivo) hasta que el visitante pulsa
  *   "Aceptar". Mientras no ha contestado, los eventos de esta visita se
  *   guardan solo en memoria (cola limitada a MAX_PENDING_EVENTS): si acepta,
@@ -49,12 +49,12 @@
  * Conectado con:
  * - lib/supabase.ts → cliente usado para leer la sesión (user_id) y para el
  *   insert en analytics_events.
- * - components/CookieConsentBanner.tsx → lee/escribe el consentimiento con
+ * - components/AvisoAnaliticaCookies.tsx → lee/escribe el consentimiento con
  *   getAnalyticsConsent()/setAnalyticsConsent().
  * - app/(tabs)/index.tsx, app/catalogo.tsx, app/producto/[id].tsx → llaman a
  *   trackEvent()/trackEventThrottled() en los pasos del recorrido (Inicio,
  *   Scroll, Categoría, Categoría X, Producto, Reseñas...).
- * - components/Campanita.tsx → «Crear cuenta gratis» de los avisos de Blue
+ * - components/AsistenteBlue.tsx → «Crear cuenta gratis» de los avisos de Blue
  *   (marcarOrigenRegistro): la cuenta creada después se cuenta aparte.
  * - app/noticias/[id].tsx → página de cada noticia (vista por categoría y
  *   llegada desde un buscador, medirNoticiaDesdeBuscador).
@@ -321,7 +321,7 @@ export function medirLlegadaDesdeRedes(): void {
 }
 
 // Desde dónde se fue a crear la cuenta (dueño, 2026-11-11: los avisos de Blue de bajadas de precio y artículos nuevos son
-// solo para clientes con cuenta). «blue_avisos» = «Crear cuenta gratis» del panel de Blue (components/Campanita.tsx). Solo
+// solo para clientes con cuenta). «blue_avisos» = «Crear cuenta gratis» del panel de Blue (components/AsistenteBlue.tsx). Solo
 // vive en memoria y caduca a la hora; si la cuenta se crea antes, se cuenta aparte (Administración → Analítica).
 let origenRegistro: { origen: string; hasta: number } | null = null;
 export function marcarOrigenRegistro(origen: string): void {
@@ -375,7 +375,7 @@ export function medirNoticiaDesdeBuscador(path: string): void {
 }
 
 // Carga rápida (dueño, 2026-11-14, mejora 7). trasPrimeraPintura: lo que no hace falta para ver la pantalla (Blue y sus
-// avisos, components/Campanita.tsx) espera a que el navegador esté libre tras pintarla o, como mucho, `maxMs`. Devuelve
+// avisos, components/AsistenteBlue.tsx) espera a que el navegador esté libre tras pintarla o, como mucho, `maxMs`. Devuelve
 // cómo cancelarlo (al desmontar).
 type ConIdle = { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
 export function trasPrimeraPintura(fn: () => void, maxMs = 1500): () => void {

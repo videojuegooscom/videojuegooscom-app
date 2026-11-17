@@ -3,7 +3,7 @@
  * Función: utilidad de tarifas de envío, historial de pedidos y reparación por envío.
  * Para qué sirve: lee las zonas de tarifas_envio y calcula el envío de una compra (por código postal y por peso) con la misma regla que la base de datos; también carga ajustes de reparación por envío y el historial de estados de pedidos.
  * Conectado con: lib/supabase.ts, tablas tarifas_envio y pedidos, reparacion_envio_ajustes, migración 20261104210000_tarifas_envio.sql.
- * Utilizado por: app/checkout.tsx, app/(tabs)/cesta.tsx, app/(tabs)/perfil.tsx, app/producto/[id].tsx, app/comparar.tsx, app/admin/envios.tsx, pedidos.tsx, users.tsx, services.tsx, products.tsx, analytics.tsx, app/admin/cliente/[userId].tsx, components/ContratarServicioModal.tsx, Campanita.tsx y ReviewModal.tsx.
+ * Utilizado por: app/checkout.tsx, app/(tabs)/cesta.tsx, app/(tabs)/perfil.tsx, app/producto/[id].tsx, app/comparar.tsx, app/admin/envios.tsx, pedidos.tsx, users.tsx, services.tsx, products.tsx, analytics.tsx, app/admin/cliente/[userId].tsx, components/ContratarServicioModal.tsx, AsistenteBlue.tsx y VentanaValoracion.tsx.
  * Dependencias: ninguna externa.
  * Estado: ACTIVO
  */

@@ -1,9 +1,9 @@
 /**
- * Archivo: components/ProductChatThread.tsx
+ * Archivo: components/ConversacionProducto.tsx
  * Función: componente de la conversación privada cliente-tienda (chat de producto, de venta o de atención al cliente).
  * Para qué sirve: carga mensajes en tiempo real de un chat (product_chats), permite escribir, borrar la conversación para uno mismo y abrir el chat con el equipo (abrirChatEquipo); lo comparten la pantalla del cliente y la bandeja del administrador.
- * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/admin/products.utils.ts (fmtEUR), components/SmartImage.tsx, constants/theme.ts, tablas product_chats y mensajes, funciones SQL get_or_create_*_chat y delete_chat_for_me.
- * Utilizado por: app/chat/[chatId].tsx, app/admin/chats.tsx, components/ReviewModal.tsx (abrirChatEquipo) y pantallas que abren el chat del equipo (checkout, producto, perfil, Blue IA, Foro, analítica).
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/admin/products.utils.ts (fmtEUR), components/ImagenInteligente.tsx, constants/theme.ts, tablas product_chats y mensajes, funciones SQL get_or_create_*_chat y delete_chat_for_me.
+ * Utilizado por: app/chat/[chatId].tsx, app/admin/chats.tsx, components/VentanaValoracion.tsx (abrirChatEquipo) y pantallas que abren el chat del equipo (checkout, producto, perfil, Blue IA, Foro, analítica).
  * Dependencias: react, react-native, @expo/vector-icons, expo-router.
  * Estado: ACTIVO
  *
@@ -89,7 +89,7 @@ import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
 import { fmtEUR } from "../lib/admin/products.utils";
-import SmartImage from "./SmartImage";
+import SmartImage from "./ImagenInteligente";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 
 // Título de las conversaciones sin producto ni venta (chat general con la tienda).
@@ -490,7 +490,7 @@ export default function ProductChatThread({
 
   // Al abrir la conversación se marca como leída del lado de quien la abre
   // (cliente o admin, lo decide sql/product_chats.sql). Así el contador de
-  // components/Campanita.tsx baja en cuanto se lee, sin esperar a nada más.
+  // components/AsistenteBlue.tsx baja en cuanto se lee, sin esperar a nada más.
   useEffect(() => {
     if (!chatId) return;
     supabase.rpc("mark_chat_read", { p_chat_id: chatId }).then(

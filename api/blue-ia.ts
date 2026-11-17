@@ -3,7 +3,7 @@
  * Función: función de servidor en /api/blue-ia (Vercel).
  * Para qué sirve: responde a las preguntas del asistente Blue IA con OpenAI (gpt-4o-mini) añadiendo contexto real de la tienda (catálogo, «Lo que Blue sabe», horario); aplica comprobación de origen y cupos de uso por persona y globales.
  * Conectado con: Supabase (clave de servidor; catálogo, blue_conocimiento y cupos), OpenAI.
- * Utilizado por: app/(tabs)/blue-ia.tsx y components/Campanita.tsx (guía y asistente de Blue).
+ * Utilizado por: app/(tabs)/blue-ia.tsx y components/AsistenteBlue.tsx (guía y asistente de Blue).
  * Dependencias: @supabase/supabase-js.
  * Estado: ACTIVO
  */
@@ -119,7 +119,7 @@
  *   justo lo que ve cualquier visitante sin sesión).
  * - tabla "flash_news" (app/admin/flash-news.tsx) → avisos y promociones activas que
  *   Blue IA conoce y cuenta cuando encajan (también los muestra el asistente
- *   flotante, components/Campanita.tsx). Los avisos de Blue (bajadas de precio, artículos
+ *   flotante, components/AsistenteBlue.tsx). Los avisos de Blue (bajadas de precio, artículos
  *   nuevos, «Avísame cuando llegue») son solo con cuenta (dueño, 2026-11-11): Blue IA
  *   nunca dice que se pueden tener sin ella.
  * - Reparación por envío (parte 2, migración 20261111130000): Blue IA explica cómo se paga (etiqueta al
@@ -133,7 +133,7 @@
  *   social_links_add_platforms_and_title) → de aquí sale qué redes están
  *   activas ahora mismo y su enlace real, para que Blue IA las conozca y las
  *   recomiende — se gestionan desde app/admin/redes-sociales.tsx, con
- *   components/SocialLinks.tsx.
+ *   components/EnlacesRedesSociales.tsx.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
@@ -747,7 +747,7 @@ const GENERIC_SOCIAL_HINTS = [
 
 // Convierte lo que Daniel escribió en app/admin/redes-sociales.tsx en un
 // enlace completo — misma lógica que buildSocialHref() en
-// components/SocialLinks.tsx, duplicada aquí a propósito: este archivo es
+// components/EnlacesRedesSociales.tsx, duplicada aquí a propósito: este archivo es
 // una función serverless aparte y no puede importar código de la app
 // móvil/web.
 function buildSocialHref(platform: string, raw: string): string | null {

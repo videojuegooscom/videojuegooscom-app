@@ -36,8 +36,8 @@ Todos vienen de la plantilla con la que se creó el proyecto en Expo y no los us
 **Ojo al borrarlos:** los exports `Colors` y `Fonts` de `constants/theme.ts` solo los usan estos candidatos; se pueden
 quitar después, en la tanda 5 (código sin usar).
 
-**No es candidato:** `components/lineapensadoraefectosiri.tsx` (lo usan `app/_layout.tsx`, `app/(tabs)/_layout.tsx` y
-`BrandLoadingScreen.tsx`).
+**No es candidato:** `components/EfectoPensando.tsx` (antes `lineapensadoraefectosiri.tsx`; lo usan `app/_layout.tsx`,
+`app/(tabs)/_layout.tsx` y `PantallaCargaMarca.tsx`).
 
 ## Zonas delicadas (no tocar sin revisión del dueño)
 
@@ -55,32 +55,56 @@ quitar después, en la tanda 5 (código sin usar).
 Solo `components/`, `lib/` y `constants/` (los de `app/` y `api/` son direcciones de la web). Comprobado que ningún
 nombre nuevo existe ya.
 
-| Ahora | Propuesta |
-|---|---|
-| `components/ReviewModal.tsx` | `VentanaValoracion.tsx` |
-| `components/SmartImage.tsx` | `ImagenInteligente.tsx` |
-| `components/ImageLightbox.tsx` | `VisorFotos.tsx` |
-| `components/SiteFooter.tsx` | `PieDePagina.tsx` |
-| `components/SiteHead.tsx` | `EtiquetasCabeceraWeb.tsx` |
-| `components/SocialLinks.tsx` | `EnlacesRedesSociales.tsx` |
-| `components/ProductChatThread.tsx` | `ConversacionProducto.tsx` |
-| `components/CatalogFilters.tsx` | `FiltrosCatalogo.tsx` |
-| `components/CookieConsentBanner.tsx` | `AvisoAnaliticaCookies.tsx` |
-| `components/CategoryProductsShelf.tsx` | `CarruselProductosCategoria.tsx` |
-| `components/SellRequestMedia.tsx` | `FotosVideoVenta.tsx` |
-| `components/BrandLoadingScreen.tsx` | `PantallaCargaMarca.tsx` |
-| `components/Campanita.tsx` | `AsistenteBlue.tsx` |
-| `components/Barramagic.tsx` | `BarraBusqueda.tsx` |
-| `components/lineapensadoraefectosiri.tsx` | `EfectoPensando.tsx` |
-| `components/admin/PanelUI.tsx` | `PiezasPanelAdmin.tsx` |
-| `lib/loadingBus.ts` | `estadoCarga.ts` |
-| `lib/tabBar.ts` | `barraPestanas.ts` |
-| `lib/openExternalLink.ts` | `abrirEnlaceExterno.ts` |
-| `lib/analytics.ts` | `analitica.ts` |
-| `lib/admin/products.types.ts` | `lib/admin/productos.tipos.ts` |
-| `lib/admin/products.utils.ts` | `lib/admin/productos.utilidades.ts` |
-| `lib/admin/products.components.tsx` | `lib/admin/productos.componentes.tsx` |
-| `lib/admin/products.constants.ts` | `lib/admin/productos.constantes.ts` |
-| `constants/theme.ts` | `constants/tema.ts` |
+| Ahora | Propuesta | Estado |
+|---|---|---|
+| `components/ReviewModal.tsx` | `VentanaValoracion.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/SmartImage.tsx` | `ImagenInteligente.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/ImageLightbox.tsx` | `VisorFotos.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/SiteFooter.tsx` | `PieDePagina.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/SiteHead.tsx` | `EtiquetasCabeceraWeb.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/SocialLinks.tsx` | `EnlacesRedesSociales.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/ProductChatThread.tsx` | `ConversacionProducto.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/CatalogFilters.tsx` | `FiltrosCatalogo.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/CookieConsentBanner.tsx` | `AvisoAnaliticaCookies.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/CategoryProductsShelf.tsx` | `CarruselProductosCategoria.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/SellRequestMedia.tsx` | `FotosVideoVenta.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/BrandLoadingScreen.tsx` | `PantallaCargaMarca.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/Campanita.tsx` | `AsistenteBlue.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/Barramagic.tsx` | `BarraBusqueda.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/lineapensadoraefectosiri.tsx` | `EfectoPensando.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `components/admin/PanelUI.tsx` | `PiezasPanelAdmin.tsx` | Hecho en la tanda 2a (2026-11-17) |
+| `lib/loadingBus.ts` | `estadoCarga.ts` | Pendiente |
+| `lib/tabBar.ts` | `barraPestanas.ts` | Pendiente |
+| `lib/openExternalLink.ts` | `abrirEnlaceExterno.ts` | Pendiente |
+| `lib/analytics.ts` | `analitica.ts` | Pendiente |
+| `lib/admin/products.types.ts` | `lib/admin/productos.tipos.ts` | Pendiente |
+| `lib/admin/products.utils.ts` | `lib/admin/productos.utilidades.ts` | Pendiente |
+| `lib/admin/products.components.tsx` | `lib/admin/productos.componentes.tsx` | Pendiente |
+| `lib/admin/products.constants.ts` | `lib/admin/productos.constantes.ts` | Pendiente |
+| `constants/theme.ts` | `constants/tema.ts` | Pendiente |
 
 Se quedan igual: `lib/supabase.ts` (nombre propio del servicio) y los archivos de `app/` y `api/`.
+
+## Renombrados
+
+Tanda 2a (2026-11-17): solo cambian el nombre del archivo y las rutas de los imports, cabeceras y pruebas; las funciones,
+componentes y tipos de dentro conservan su nombre (eso va en otra tanda).
+
+| Antes | Después |
+|---|---|
+| `components/ReviewModal.tsx` | `components/VentanaValoracion.tsx` |
+| `components/SmartImage.tsx` | `components/ImagenInteligente.tsx` |
+| `components/ImageLightbox.tsx` | `components/VisorFotos.tsx` |
+| `components/SiteFooter.tsx` | `components/PieDePagina.tsx` |
+| `components/SiteHead.tsx` | `components/EtiquetasCabeceraWeb.tsx` |
+| `components/SocialLinks.tsx` | `components/EnlacesRedesSociales.tsx` |
+| `components/ProductChatThread.tsx` | `components/ConversacionProducto.tsx` |
+| `components/CatalogFilters.tsx` | `components/FiltrosCatalogo.tsx` |
+| `components/CookieConsentBanner.tsx` | `components/AvisoAnaliticaCookies.tsx` |
+| `components/CategoryProductsShelf.tsx` | `components/CarruselProductosCategoria.tsx` |
+| `components/SellRequestMedia.tsx` | `components/FotosVideoVenta.tsx` |
+| `components/BrandLoadingScreen.tsx` | `components/PantallaCargaMarca.tsx` |
+| `components/Campanita.tsx` | `components/AsistenteBlue.tsx` |
+| `components/Barramagic.tsx` | `components/BarraBusqueda.tsx` |
+| `components/lineapensadoraefectosiri.tsx` | `components/EfectoPensando.tsx` |
+| `components/admin/PanelUI.tsx` | `components/admin/PiezasPanelAdmin.tsx` |

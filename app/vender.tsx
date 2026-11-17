@@ -3,7 +3,7 @@
  * Función: pantalla «Vender ahora», en la dirección /vender (parámetros ?articulo=, ?cambio=1, ?nota=, ?desde=cesta, ?para=).
  * Para qué sirve: el cliente cuenta qué artículo quiere vender o intercambiar y la tienda le responde con un precio; es el formulario de VenderAhoraModal como página completa.
  * Conectado con: components/VenderAhoraModal.tsx (el formulario); el formulario escribe en Supabase desde ese componente.
- * Utilizado por: Expo Router (dirección /vender); la enlazan app/(tabs)/index.tsx, app/(tabs)/blue-ia.tsx, app/(tabs)/perfil.tsx (reparación sin arreglo), app/(tabs)/cesta.tsx (cambio de consola), app/quienes-somos.tsx, components/Campanita.tsx, components/Barramagic.tsx.
+ * Utilizado por: Expo Router (dirección /vender); la enlazan app/(tabs)/index.tsx, app/(tabs)/blue-ia.tsx, app/(tabs)/perfil.tsx (reparación sin arreglo), app/(tabs)/cesta.tsx (cambio de consola), app/quienes-somos.tsx, components/AsistenteBlue.tsx, components/BarraBusqueda.tsx.
  * Dependencias: react, expo-router.
  * Estado: ACTIVO
  */
@@ -18,7 +18,7 @@
  *
  * Conectado con:
  * - components/VenderAhoraModal.tsx → el formulario (prop comoPagina).
- * - app/(tabs)/index.tsx, components/Campanita.tsx → los botones «Vender ahora» llevan aquí.
+ * - app/(tabs)/index.tsx, components/AsistenteBlue.tsx → los botones «Vender ahora» llevan aquí.
  * - app/(tabs)/perfil.tsx → «Te lo compramos» de una reparación sin arreglo.
  * - app/(tabs)/cesta.tsx → «Ver cuánto me dais» (cambio de consola desde la cesta).
  * - app/_layout.tsx → registra la ruta.

@@ -2,7 +2,7 @@
  * Archivo: app/admin/inventario.tsx
  * Función: pantalla de administración de inventario interno, en la dirección /admin/inventario.
  * Para qué sirve: el administrador lista, crea, edita, cambia de estado (por revisar, listo, en reparación) y borra las unidades físicas que gestiona la tienda.
- * Conectado con: lib/supabase.ts (tabla inventory_items; sql/inventory_items.sql), lib/admin/products.components.ts, lib/admin/products.utils.ts, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Conectado con: lib/supabase.ts (tabla inventory_items; sql/inventory_items.sql), lib/admin/products.components.ts, lib/admin/products.utils.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/inventario, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Inventario» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -36,7 +36,7 @@
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, los botones de estado
  *   de 44 px de alto y los campos de 16 px y 48 de alto.
- * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Categorías y
+ * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos, Categorías y
  *   Productos): cifras que filtran (Total, Por revisar, Listos, En reparación), buscador de 16 px (código, título o
  *   notas), pastillas de 44 px con su recuento, filas compactas (código · título, etiqueta de color del estado, notas y
  *   cuándo se actualizó) con el lápiz a mano y, al tocar una, el detalle por bloques (Artículo y Estado) con las acciones
@@ -48,7 +48,7 @@
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
  *   "Inventario") y a la que se vuelve con el botón de la cabecera.
  * - lib/admin/products.components.tsx → AdminHeader, PrimaryButton, AdminNotice, EmptyState, BotonFlotante.
- * - components/admin/PanelUI.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (TM5 y PANRED3).
+ * - components/admin/PiezasPanelAdmin.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (TM5 y PANRED3).
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -97,7 +97,7 @@ import {
   useDesplegables,
   type IoniconName,
   type Tono,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 
 const COLORS = {
   bg: "#FFFFFF",

@@ -2,7 +2,7 @@
  * Archivo: app/admin/redes-sociales.tsx
  * Función: pantalla de administración «Redes sociales», en la dirección /admin/redes-sociales.
  * Para qué sirve: el administrador pone el enlace de cada red o plataforma (Instagram, TikTok, WhatsApp…), elige cuáles están activas y en qué orden, el título del bloque y los seguidores que se ven junto al logo.
- * Conectado con: lib/supabase.ts (tablas social_links y site_settings), components/SocialLinks.tsx (formatearSeguidores; lo que se ve en la tienda), lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; api/blue-ia.ts usa las redes activas.
+ * Conectado con: lib/supabase.ts (tablas social_links y site_settings), components/EnlacesRedesSociales.tsx (formatearSeguidores; lo que se ve en la tienda), lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/blue-ia.ts usa las redes activas.
  * Utilizado por: Expo Router (dirección /admin/redes-sociales, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Redes sociales» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -25,7 +25,7 @@
  *   fila única que el SEO, ver app/admin/marca-seo.tsx) — se lee y guarda
  *   igual que el resto de campos de esa tabla.
  * - "Activar" una red la hace aparecer de inmediato en los tres sitios que
- *   la muestran (ver components/SocialLinks.tsx) Y se la menciona a Blue IA
+ *   la muestran (ver components/EnlacesRedesSociales.tsx) Y se la menciona a Blue IA
  *   para que la recomiende (ver api/blue-ia.ts). Desactivarla la quita de
  *   los tres sitios sin borrar el enlace guardado — así se puede "quitar" y
  *   volver a "poner" sin tener que escribirlo de nuevo.
@@ -34,18 +34,18 @@
  *   número real (`sort_order`) se recalcula al guardar según el orden final
  *   de la lista, así siempre queda 1,2,3... sin huecos. Activar todas a la
  *   vez no tiene ningún límite: el bloque en la tienda las reparte en varias
- *   filas automáticamente (ver components/SocialLinks.tsx), así que activar
+ *   filas automáticamente (ver components/EnlacesRedesSociales.tsx), así que activar
  *   las 9 no rompe nada.
  * - No hace falta pegar la URL completa en todos los casos: WhatsApp acepta
  *   un número de teléfono normal (se arma el enlace wa.me solo), Gmail
  *   acepta solo la dirección de correo (se arma el "mailto:" solo), y Apple
  *   Maps acepta solo una dirección o nombre de sitio (se arma el enlace de
- *   búsqueda solo) — el detalle exacto está en components/SocialLinks.tsx
+ *   búsqueda solo) — el detalle exacto está en components/EnlacesRedesSociales.tsx
  *   (buildSocialHref).
  * - Un único botón "Guardar cambios" guarda todas las filas (enlace, activa,
  *   orden) y el título a la vez.
  * - TikTok e Instagram llevan además «Seguidores»: el número que se ve junto
- *   al logo de Inicio (components/SocialLinks.tsx, RedJuntoAlLogo) y la fecha
+ *   al logo de Inicio (components/EnlacesRedesSociales.tsx, RedJuntoAlLogo) y la fecha
  *   en que se escribió (columnas seguidores y seguidores_actualizado,
  *   migración 20261101100000; sin ella el campo avisa y no se guarda, y en
  *   Inicio sale «Síguenos»). Arriba, cuántas veces se tocan desde Inicio
@@ -59,7 +59,7 @@
  *   sistema operativo del usuario (enlaces universales de Instagram,
  *   Facebook, YouTube, WhatsApp, Wallapop, Vinted y Apple Maps) — no hace
  *   falta ninguna configuración aquí (ver la nota larga en
- *   components/SocialLinks.tsx). El propio icono, en cambio, sí se intenta
+ *   components/EnlacesRedesSociales.tsx). El propio icono, en cambio, sí se intenta
  *   abrir en Chrome en vez de en el navegador actual — ver
  *   lib/openExternalLink.ts.
  *
@@ -68,7 +68,7 @@
  * y una línea fina bajo la cabecera son suficientes para distinguir dónde
  * empieza cada bloque.
  *
- * Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx): arriba, las cifras de estado (Activas, Sin
+ * Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PiezasPanelAdmin.tsx): arriba, las cifras de estado (Activas, Sin
  * enlace, Toques desde Inicio y Visitas distintas, 30 días) y debajo los bloques con su título: «Título del bloque»,
  * «Reseñas en los canales de venta» y «Redes y enlaces» (cada red en su bloque con su etiqueta Activa / Desactivada /
  * Falta el enlace, las flechas de orden y el interruptor; sus campos siempre a la vista). «Guardar cambios» al final.
@@ -80,7 +80,7 @@
  * más abajo), sin depender de que el navegador lo haga bien por su cuenta.
  *
  * Conectado con:
- * - components/SocialLinks.tsx → quien lee estas mismas filas y el título,
+ * - components/EnlacesRedesSociales.tsx → quien lee estas mismas filas y el título,
  *   y pinta los iconos en el pie de página de Inicio, Perfil y la Cesta.
  * - api/blue-ia.ts → lee las redes activas para que Blue IA las conozca y
  *   las recomiende cuando encaje en la conversación.
@@ -108,9 +108,9 @@ import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-ic
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { AdminHeader, AdminLoading, AdminNotice } from "../../lib/admin/products.components";
-import { formatearSeguidores } from "../../components/SocialLinks";
+import { formatearSeguidores } from "../../components/EnlacesRedesSociales";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
-import { BloqueFormulario, Cifra, Detalle, EtiquetaColor, FilaCifras, Seccion } from "../../components/admin/PanelUI";
+import { BloqueFormulario, Cifra, Detalle, EtiquetaColor, FilaCifras, Seccion } from "../../components/admin/PiezasPanelAdmin";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, incluido el que hace
 // scrollFieldIntoView (más abajo) al enfocar un campo: el campo se cerraba solo y "no dejaba
@@ -139,7 +139,7 @@ type SocialLinkRow = {
   seguidores_actualizado?: string | null;
 };
 
-// Las redes que salen junto al logo de Inicio con sus seguidores (components/SocialLinks.tsx, RedJuntoAlLogo).
+// Las redes que salen junto al logo de Inicio con sus seguidores (components/EnlacesRedesSociales.tsx, RedJuntoAlLogo).
 const REDES_CON_SEGUIDORES: SocialPlatform[] = ["tiktok", "instagram"];
 
 function fechaCorta(iso: string | null | undefined): string {

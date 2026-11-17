@@ -3,7 +3,7 @@
  * Función: utilidad cliente de visitas, «me gusta» y reservas que pasa por /api/interaccion.
  * Para qué sirve: cuenta visitas de productos y servicios y da o quita el «me gusta» mediante el endpoint con límites, con respaldo a las funciones antiguas de la base de datos si el endpoint no responde.
  * Conectado con: lib/supabase.ts, api/interaccion.ts, tablas de visitas y apoyos (migración 20261018130000).
- * Utilizado por: app/producto/[id].tsx, app/servicio/[id].tsx, app/(tabs)/perfil.tsx, app/admin/pedidos.tsx, lib/reservas.ts y components/Campanita.tsx.
+ * Utilizado por: app/producto/[id].tsx, app/servicio/[id].tsx, app/(tabs)/perfil.tsx, app/admin/pedidos.tsx, lib/reservas.ts y components/AsistenteBlue.tsx.
  * Dependencias: @react-native-async-storage/async-storage, react-native.
  * Estado: ACTIVO
  */
@@ -29,7 +29,7 @@
  *   marcarReposicionAvisada sobre la tabla avisos_reposicion (pedido cancelado porque el artículo ya no está disponible).
  *
  * Conectado con: app/producto/[id].tsx (visitas, «me gusta» y aviso de precio), app/servicio/[id].tsx (visitas y «me
- * gusta»), app/(tabs)/perfil.tsx (pestaña «Me gusta» y sus avisos de precio), components/Campanita.tsx (Blue avisa de las
+ * gusta»), app/(tabs)/perfil.tsx (pestaña «Me gusta» y sus avisos de precio), components/AsistenteBlue.tsx (Blue avisa de las
  * bajadas), api/interaccion.ts, lib/supabase.ts.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -177,7 +177,7 @@ export async function misMeGustaServidor(): Promise<{ productos: string[]; servi
 
 // --- «Avísame si baja de precio» (mejora 5, 2026-11-14; migración 20261114160100_avisos_precio.sql) ----------------
 // SOLO CON CUENTA. Cada cliente sigue los productos que quiere (tabla avisos_precio, RLS: solo los suyos). El precio al
-// activarlo lo pone la base de datos; Blue (components/Campanita.tsx) avisa cuando baja y apunta en precio_avisado el
+// activarlo lo pone la base de datos; Blue (components/AsistenteBlue.tsx) avisa cuando baja y apunta en precio_avisado el
 // precio del que ya avisó (una vez por bajada). Sin la migración, la tabla no existe: se pregunta una vez por carga de la
 // tienda y se recuerda (sin repetir el 404), y la ficha no ofrece el interruptor.
 export type AvisoPrecio = { id: string; product_id: string; precio_inicial: number; precio_avisado: number | null; creado_en: string };
@@ -277,7 +277,7 @@ export function precioReferenciaAviso(a: Pick<AvisoPrecio, "precio_inicial" | "p
 // --- «Avisarme cuando haya otro» (dueño, 2026-11-16; migración 20261116100000_cancelacion_motivo_aviso.sql) ----------
 // Un pedido cancelado porque «El artículo ya no se encuentra disponible» ofrece en Mis pedidos (app/(tabs)/perfil.tsx) un
 // interruptor y el canal (en la app, por correo o las dos). Se guarda en avisos_reposicion (RLS: solo las suyas; se apaga,
-// no se borra) con el modelo del artículo (textoReposicion: «Xbox Series S») y Blue (components/Campanita.tsx) avisa en
+// no se borra) con el modelo del artículo (textoReposicion: «Xbox Series S») y Blue (components/AsistenteBlue.tsx) avisa en
 // la app cuando entra otro parecido. El correo aún no se manda (la tienda no tiene envío de correos propio): mientras
 // tanto Blue también avisa en la app a quien eligió «Por correo», y Administración lo dice.
 

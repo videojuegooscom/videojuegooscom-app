@@ -2,7 +2,7 @@
  * Archivo: app/admin/policies.tsx
  * Función: pantalla de administración de Políticas, en la dirección /admin/policies.
  * Para qué sirve: el administrador crea, edita, reordena, publica u oculta y borra las políticas (envíos, devoluciones, privacidad, términos…) y sus secciones, sin tocar código.
- * Conectado con: lib/supabase.ts (tabla policy_pages), lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; la página pública es app/politicas/[slug].tsx.
+ * Conectado con: lib/supabase.ts (tabla policy_pages), lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; la página pública es app/politicas/[slug].tsx.
  * Utilizado por: Expo Router (dirección /admin/policies, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Políticas» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -32,7 +32,7 @@
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, todo lo que se toca de
  *   44 px (también «volver») y los campos de 16 px y 48 de alto.
- * - Rediseño PANRED4 (tanda 4, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Inventario y
+ * - Rediseño PANRED4 (tanda 4, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos, Inventario y
  *   Cotizaciones): cifras que filtran (Total, Publicadas, Ocultas y «En el pie» con las 4 del pie de página), buscador
  *   de 16 px (título, slug o introducción), pastillas de 44 px con su recuento, filas compactas (título, etiqueta de
  *   color, introducción, dirección, secciones y si está en el pie) con el lápiz y la papelera a mano y, al tocar una, el
@@ -46,7 +46,7 @@
  *   "Políticas") y a la que se vuelve con la flecha de la cabecera.
  * - app/admin/_layout.tsx → registra esta ruta ("policies") dentro del
  *   Stack protegido de administración.
- * - components/admin/PanelUI.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (NO7, TM5 y
+ * - components/admin/PiezasPanelAdmin.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (NO7, TM5 y
  *   PANRED4).
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -96,7 +96,7 @@ import {
   RecuentoLista,
   fechaPanel,
   useDesplegables,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 
 const COLORS = {
   bg: "#FFFFFF",

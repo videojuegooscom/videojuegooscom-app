@@ -3,7 +3,7 @@
  * Función: pantalla del Blog, en la dirección /blog (admite ?open=<slug>).
  * Para qué sirve: el cliente lee artículos cortos (guías de compra, mantenimiento) que se despliegan al tocarlos.
  * Conectado con: lib/supabase.ts (tabla blog_posts, editada desde app/admin/blog.tsx), components/CabeceraMarca.tsx, components/TirarParaActualizar.tsx.
- * Utilizado por: Expo Router (dirección /blog); la enlazan components/SiteFooter.tsx (pie de página, con ?open=) y components/Barramagic.tsx (buscador).
+ * Utilizado por: Expo Router (dirección /blog); la enlazan components/PieDePagina.tsx (pie de página, con ?open=) y components/BarraBusqueda.tsx (buscador).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
  */

@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/chat-global.tsx
  * Función: pantalla «Foro» (pestaña del Foro), en la dirección /chat-global (admite ?tab= y ?noticia=).
  * Para qué sirve: el cliente lee noticias gaming y comenta, participa en el chat público en tiempo real y, con sesión, ve su bandeja privada de conversaciones con la tienda; Novedades y Torneos aún dicen «Próximamente».
- * Conectado con: lib/supabase.ts (tablas chat_messages, noticias_gaming, noticias_likes, noticias_comentarios, preferencias_usuario; Realtime), lib/analytics.ts, lib/loadingBus.ts, constants/theme.ts, components/PerfilPublico.tsx, SmartImage.tsx, components/marca/*; api/noticias-gaming.ts; app/chat/[chatId].tsx y app/noticias/[id].tsx (enlaces).
+ * Conectado con: lib/supabase.ts (tablas chat_messages, noticias_gaming, noticias_likes, noticias_comentarios, preferencias_usuario; Realtime), lib/analytics.ts, lib/loadingBus.ts, constants/theme.ts, components/PerfilPublico.tsx, ImagenInteligente.tsx, components/marca/*; api/noticias-gaming.ts; app/chat/[chatId].tsx y app/noticias/[id].tsx (enlaces).
  * Utilizado por: Expo Router (dirección /chat-global, pestaña de app/(tabs)/_layout.tsx); la abre también app/noticias/[id].tsx («Comentar en el Foro»).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, expo-image, expo-linear-gradient, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
@@ -21,7 +21,7 @@
  * (botón "Chat" de app/producto/[id].tsx), cada solicitud de "Vender ahora"
  * que se abrió sola con sesión iniciada (components/VenderAhoraModal.tsx,
  * get_or_create_sell_request_chat) y cualquier consulta general — ver
- * sql/product_chats.sql y components/ProductChatThread.tsx. No tiene nada
+ * sql/product_chats.sql y components/ConversacionProducto.tsx. No tiene nada
  * que ver con el Foro público: solo esa persona y los administradores ven
  * esos mensajes. Cada fila tiene su propio icono de papelera: borra la
  * conversación SOLO de esta bandeja (delete_chat_for_me); si el admin no la
@@ -103,7 +103,7 @@
  * - sql/chat_messages.sql → crea la tabla, el trigger que rellena el
  *   remitente y las políticas RLS (leer: todo el mundo; escribir: solo
  *   sesión iniciada) del Foro público.
- * - sql/product_chats.sql, components/ProductChatThread.tsx → la pestaña
+ * - sql/product_chats.sql, components/ConversacionProducto.tsx → la pestaña
  *   "Chat" (bandeja privada por producto).
  * - app/chat/[chatId].tsx → a donde lleva cada conversación de la bandeja.
  * - app/noticias/[id].tsx → página propia de cada noticia: «Abrir la noticia» en cada tarjeta y el
@@ -145,7 +145,7 @@ import {
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../../components/PerfilPublico";
-import SmartImage from "../../components/SmartImage";
+import SmartImage from "../../components/ImagenInteligente";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import { trackEvent } from "../../lib/analytics";
 import { markEnd, markStart } from "../../lib/loadingBus";
@@ -668,7 +668,7 @@ async function fetchReactionsForMessages(messageIds: string[]): Promise<Reaction
 const HUB_TAB_VALUES: HubTab[] = ["chat", "news", "novedades", "torneos", "privados"];
 
 // Marca de "ya lo he visto" para la pestaña Nuestras Novedades: mismo
-// número que NOVEDADES_CONTENT_VERSION en components/Campanita.tsx. Cuando
+// número que NOVEDADES_CONTENT_VERSION en components/AsistenteBlue.tsx. Cuando
 // el contenido de esta pestaña cambie de verdad, se sube el número ahí Y
 // aquí — así la campanita vuelve a avisar una vez a cada dispositivo que no
 // haya vuelto a entrar desde entonces.
@@ -741,7 +741,7 @@ async function guardarPreferencias(userId: string, cambios: Record<string, unkno
 
 export default function ChatGlobalScreen() {
   // Permite llegar directamente a una pestaña concreta, p. ej. desde la
-  // campanita (components/Campanita.tsx) con /chat-global?tab=privados, o a
+  // campanita (components/AsistenteBlue.tsx) con /chat-global?tab=privados, o a
   // una noticia concreta con ?noticia=<id>. Sin ?tab, se abre Noticias Gaming.
   const params = useLocalSearchParams<{ tab?: string; noticia?: string }>();
   const tabParam = typeof params.tab === "string" ? params.tab : "";
@@ -1207,7 +1207,7 @@ export default function ChatGlobalScreen() {
   }, []);
 
   // Al entrar en Nuestras Novedades se guarda la versión actual del
-  // contenido como "vista" — así la campanita (components/Campanita.tsx)
+  // contenido como "vista" — así la campanita (components/AsistenteBlue.tsx)
   // deja de avisar de esta pestaña hasta que el contenido cambie de verdad.
   useEffect(() => {
     if (activeTab !== "novedades") return;
@@ -3324,7 +3324,7 @@ function formatInboxDate(iso: string) {
 
 // Bandeja del cliente logueado: una fila por producto en el que ha escrito
 // (ver sql/product_chats.sql). Tocar una fila abre app/chat/[chatId].tsx,
-// donde vive la conversación de verdad (components/ProductChatThread.tsx).
+// donde vive la conversación de verdad (components/ConversacionProducto.tsx).
 function PrivateChatsInbox({
   isLoggedIn,
   onLoginPress,

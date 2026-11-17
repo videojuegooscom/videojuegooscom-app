@@ -3,7 +3,7 @@
  * Función: utilidad de «Lo que Blue sabe» (conocimiento del negocio escrito por el dueño).
  * Para qué sirve: define los temas que Blue propone al dueño y las funciones para guardar y listar sus respuestas, que luego usa Blue IA al contestar a los clientes.
  * Conectado con: lib/supabase.ts, tabla blue_conocimiento, api/blue-ia.ts (lee las respuestas).
- * Utilizado por: components/Campanita.tsx y app/admin/conocimiento.tsx.
+ * Utilizado por: components/AsistenteBlue.tsx y app/admin/conocimiento.tsx.
  * Dependencias: ninguna externa.
  * Estado: ACTIVO
  */
@@ -17,7 +17,7 @@
  * inventan datos del negocio (horarios, plazos, precios, condiciones).
  *
  * Conectado con:
- * - components/Campanita.tsx → Blue propone un tema en el panel de administración y recoge la
+ * - components/AsistenteBlue.tsx → Blue propone un tema en el panel de administración y recoge la
  *   respuesta en una ventana.
  * - app/admin/conocimiento.tsx → lista, edita y activa/desactiva lo que Blue sabe.
  */

@@ -2,7 +2,7 @@
  * Archivo: app/admin/categories.tsx
  * Función: pantalla de administración de categorías, en la dirección /admin/categories.
  * Para qué sirve: el administrador lista, crea, edita, activa/desactiva y borra las categorías de la tienda y sube hasta 3 fotos de portada por categoría.
- * Conectado con: lib/supabase.ts (tabla categories y almacenamiento product-media), components/PortadasCategoria.tsx, components/PerfilPublico.tsx (RecortarFoto), components/SmartImage.tsx, lib/admin/products.components.ts, products.utils.ts y products.constants.ts, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Conectado con: lib/supabase.ts (tabla categories y almacenamiento product-media), components/PortadasCategoria.tsx, components/PerfilPublico.tsx (RecortarFoto), components/ImagenInteligente.tsx, lib/admin/products.components.ts, products.utils.ts y products.constants.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/categories, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Categorías» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -35,7 +35,7 @@
  *   foto se vea más suave o más fuerte (10-100 %, columna
  *   "portada_opacidad"; sin valor, 55 %). Al guardar, Inicio se entera al
  *   momento (olvidarPortadasCategorias avisa a las pantallas abiertas).
- * - DISEÑO (2026-11-16, el de Usuarios y Pedidos; piezas de components/admin/PanelUI.tsx): buscador de
+ * - DISEÑO (2026-11-16, el de Usuarios y Pedidos; piezas de components/admin/PiezasPanelAdmin.tsx): buscador de
  *   16 px arriba; cifras que filtran (Categorías, Visibles, Ocultas, Con productos, Vacías, Sin portada; los
  *   productos de cada una se cuentan con una lectura de products: category_id e is_active); pastillas con
  *   su recuento; filas compactas (portada pequeña, nombre, etiqueta Visible / Oculta / Siempre en Inicio,
@@ -100,7 +100,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
-import SmartImage from "../../components/SmartImage";
+import SmartImage from "../../components/ImagenInteligente";
 import {
   CATEGORIA_SERVICIOS,
   MAX_PORTADAS,
@@ -146,7 +146,7 @@ import {
   RecuentoLista,
   useDesplegables,
   type IoniconName,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 import { CIERRE_TECLADO, pickMediaFilesWeb, reducirImagenWeb } from "../../lib/admin/products.utils";
 import { MEDIA_BUCKET } from "../../lib/admin/products.constants";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";

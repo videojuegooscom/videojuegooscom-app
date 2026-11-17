@@ -1,9 +1,9 @@
 /**
- * Archivo: components/ReviewModal.tsx
+ * Archivo: components/VentanaValoracion.tsx
  * Función: componente de ventanas de valoración y mejoras (reseña de la tienda, valoración de pedidos, cajita de ideas).
  * Para qué sirve: ReviewModal publica reseñas de 1 a 5 estrellas en store_reviews; MejorasModal recoge ideas de mejora; también exporta utilidades de valoración de pedidos (tocaValorarPedido, cargarValoracionesPedidos…).
- * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/envio.ts (tipo CambioEstadoPedido), components/ProductChatThread.tsx (abrirChatEquipo), constants/theme.ts, tabla store_reviews.
- * Utilizado por: components/Resenas.tsx, components/SiteFooter.tsx (MejorasModal), components/Campanita.tsx y pantallas de perfil, pedidos y chat.
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/envio.ts (tipo CambioEstadoPedido), components/ConversacionProducto.tsx (abrirChatEquipo), constants/theme.ts, tabla store_reviews.
+ * Utilizado por: components/Resenas.tsx, components/PieDePagina.tsx (MejorasModal), components/AsistenteBlue.tsx y pantallas de perfil, pedidos y chat.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
  */
@@ -50,7 +50,7 @@
  *   Administración → Usuarios lo cuenta (30 días).
  *
  * MEJORAS EN LA TIENDA (MejorasModal, dueño 2026-11-01): la misma ventana para que un cliente nos diga qué mejoraría.
- * Se abre desde Blue (Asistente, components/Campanita.tsx), el pie de página (components/SiteFooter.tsx) y Perfil →
+ * Se abre desde Blue (Asistente, components/AsistenteBlue.tsx), el pie de página (components/PieDePagina.tsx) y Perfil →
  * Mi cuenta (app/(tabs)/perfil.tsx), y solo envía con la sesión iniciada (si no, «Inicia sesión»). El texto (de 3 a
  * 500 letras) crece con lo escrito como el de la reseña; se guarda en la tabla mejoras_tienda (migración
  * 20261101200000_mejoras_tienda.sql) con desde dónde se envió; como mucho 5 al día por persona (lo dice la base de
@@ -69,7 +69,7 @@
  *
  * Conectado con:
  * - lib/supabase.ts → sesión actual + INSERT en "store_reviews", "mejoras_tienda" y "pedido_valoraciones".
- * - app/(tabs)/perfil.tsx (Mis pedidos), components/Campanita.tsx (Blue), app/admin/pedidos.tsx,
+ * - app/(tabs)/perfil.tsx (Mis pedidos), components/AsistenteBlue.tsx (Blue), app/admin/pedidos.tsx,
  *   app/admin/cliente/[userId].tsx y app/admin/analytics.tsx → valoraciones de los pedidos.
  * - components/Resenas.tsx → abre este modal y recibe la reseña publicada.
  */
@@ -91,7 +91,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
 import type { CambioEstadoPedido } from "../lib/envio";
-import { abrirChatEquipo } from "./ProductChatThread";
+import { abrirChatEquipo } from "./ConversacionProducto";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../constants/theme";
 
 const COLORS = {
@@ -717,7 +717,7 @@ export default function ReviewModal({
                         color: COLORS.text,
                         backgroundColor: COLORS.cardSoft,
                         // 16px mínimo: por debajo, el móvil hace zoom solo
-                        // al tocar la casilla (ver components/ProductChatThread.tsx).
+                        // al tocar la casilla (ver components/ConversacionProducto.tsx).
                         fontSize: 16,
                         textAlignVertical: "top",
                       }}

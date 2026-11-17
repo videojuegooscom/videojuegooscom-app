@@ -219,7 +219,7 @@
  *    acciones; cancelados y devueltos en gris con «Devuelto X €»; ?buscar=VZ-… lo abre ya desplegado; 360/390/1280 sin
  *    desbordar, táctiles de 44 px, letra de 13 px o más y sin errores. Se lanza con SOLO = PEDRED y en la pasada completa.
  *  - PANRED1) Rediseño de Administración → Categorías, Servicios (catálogo y solicitudes) y Tarifas de envío con el mismo
- *    estilo (components/admin/PanelUI.tsx): en las tres, cifras que filtran, buscador de 16 px, pastillas con su recuento,
+ *    estilo (components/admin/PiezasPanelAdmin.tsx): en las tres, cifras que filtran, buscador de 16 px, pastillas con su recuento,
  *    filas compactas con su etiqueta de color y, al tocarlas, el detalle por bloques con las acciones abajo («Abrir
  *    todas»); 360/390/1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px y sin errores. Se lanza
  *    con SOLO = PANRED1 y en la pasada completa.
@@ -392,7 +392,7 @@
  *    montarse ni salirse; ningún texto < 13 px salvo esas etiquetas y las de los filtros; ningún texto azul de marca de
  *    menos de 17 px; pestañas Mi cuenta / Mis seguimientos / Me gusta y «Preguntar por esto» de 44 px; y los 3 campos que
  *    hacían zoom en el iPhone a 16 px (buscador de Servicios, campos de «Mi perfil» y, en el código, el de la respuesta
- *    de Blue en components/Campanita.tsx).
+ *    de Blue en components/AsistenteBlue.tsx).
  *  - TM2) Tamaños comunes, grupo 2 (2026-11-12), a 360, 390 y 1280 px: el Foro (Noticias y Foro con un mensaje abierto)
  *    sin textos < 13 px y con todo lo que se toca de 44 × 44 px o más; en «Contratar servicio» y «Vender», los campos a
  *    16 px y 44 px de alto o más, los desplegables «Elegir» de 44 px, la nota de privacidad tocable en 44 px y la casilla
@@ -12427,11 +12427,11 @@ async function seccionTM() {
     ok(s.errores.length === 0 && p.errores.length === 0, `TM: Servicios y Mi perfil sin errores de JavaScript (${s.errores[0] ?? p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
-  // El de la respuesta de Blue (components/Campanita.tsx) solo sale con un tema de conocimiento pendiente: se mira en el
+  // El de la respuesta de Blue (components/AsistenteBlue.tsx) solo sale con un tema de conocimiento pendiente: se mira en el
   // código que su campo use CAMPO.letra y que CAMPO.letra sea 16.
   {
     const leer = (r) => readFileSync(new URL(`../${r}`, import.meta.url), "utf8");
-    const campanita = leer("components/Campanita.tsx");
+    const campanita = leer("components/AsistenteBlue.tsx");
     const tema = leer("constants/theme.ts");
     const campo = /placeholder="Escribe la respuesta real de la tienda"[\s\S]{0,700}?\/>/.exec(campanita)?.[0] ?? "";
     ok(/fontSize: CAMPO\.letra/.test(campo) && /CAMPO = \{\s*letra: 16,/.test(tema), "TM: el campo de la respuesta de Blue (Campanita) usa CAMPO.letra, que es 16 px");
@@ -13712,7 +13712,7 @@ async function seccionSES() {
 // ===== SES2) Sesión estable en el iPhone (dueño, 2026-11-14, mejora 1): con el reloj del dispositivo adelantado ~1 h, cada
 // token renovado (caducidad en la hora del servidor) parecía ya caducado y se renovaba en bucle hasta el 429, que borraba la
 // sesión. Aquí: con el reloj adelantado 1 h y el token vencido, al volver a la tienda no hay más de 2 renovaciones en 10 s y
-// la sesión sigue viva (y se mide «reloj desfasado»); un 429 de /token no cierra la sesión; Blue (components/Campanita.tsx)
+// la sesión sigue viva (y se mide «reloj desfasado»); un 429 de /token no cierra la sesión; Blue (components/AsistenteBlue.tsx)
 // no relee nada con cada TOKEN_REFRESHED; Administración → Usuarios cuenta las dos cosas. Sin fotos reales. =================
 async function seccionSES2() {
   const fila = { user_id: CLIENTE.id, nombre: "Ana García", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", foto_url: null, codigo_postal: null, localidad: null, direccion: null, piso: null, telefono: null };
@@ -17910,7 +17910,7 @@ async function seccionAVISOM() {
 }
 
 // ===== MOMB) Blue en momentos clave (mejora 12, 2026-11-15) =========================================================
-// Consejos de los primeros momentos (components/Campanita.tsx → ConsejoBlue): la cesta con artículos (3 pasos e «Ir a
+// Consejos de los primeros momentos (components/AsistenteBlue.tsx → ConsejoBlue): la cesta con artículos (3 pasos e «Ir a
 // pagar»), el catálogo, la ficha, el primer «Comparar» y la cuenta nueva; cada uno UNA vez por dispositivo (no se repite al
 // recargar), nunca dos a la vez (ni con un mensaje de Blue), sin tapar «Comprar ya» / «Añadir a la cesta», «Ir a pagar» ni
 // la barra de comparar; X de 44 px; «No volver a mostrar consejos» los apaga todos y deja los avisos de pedido; Analítica
@@ -18235,7 +18235,7 @@ async function seccionMOMB() {
 
 // ===== Fotos y vídeo de «Vender ahora» (obligatorios desde el 2026-11-16: de 7 a 10 fotos y un vídeo de 20 a 30 s) =====
 // Las usan CAMBC y VENFOT. Archivos falsos y pequeños (setFiles con buffers); la duración del vídeo se simula en la página:
-// components/SellRequestMedia.tsx la mide con un <video> oculto (onloadedmetadata + duration), así que se cambian «src» y
+// components/FotosVideoVenta.tsx la mide con un <video> oculto (onloadedmetadata + duration), así que se cambian «src» y
 // «duration» de HTMLMediaElement para que avise al momento con los segundos pedidos (0 = no se puede medir). Nada se sube:
 // rutasMediaVender apunta las subidas al almacén privado y las filas de sell_request_media (con `fallar`, las N primeras
 // subidas responden 500, como un corte de red).
@@ -18577,7 +18577,7 @@ async function seccionCAMBC() {
 }
 
 // ===== VENFOT) Fotos y vídeo obligatorios en «Vender ahora» y autorrelleno (dueño, 2026-11-16) =========================
-// components/VenderAhoraModal.tsx y components/SellRequestMedia.tsx: de 7 a 10 fotos y un vídeo de 20 a 30 s cuentan para
+// components/VenderAhoraModal.tsx y components/FotosVideoVenta.tsx: de 7 a 10 fotos y un vídeo de 20 a 30 s cuentan para
 // el % y sin ellos no se envía (al tocar con todo lo demás listo, dice qué falta y se mide vender_sin_media); un vídeo de
 // 15 s, de 35 s o sin duración medible se rechaza con su aviso; con 7 fotos y 25 s se envía y se suben 8 archivos; si la
 // subida falla, la confirmación lo dice y «Reintentar la subida» sube solo los que faltan. Con sesión se rellenan solos
@@ -21560,7 +21560,7 @@ async function seccionCANDIS() {
 }
 
 // ===== PANRED1) Rediseño de Administración → Categorías, Servicios y Tarifas de envío (2026-11-16), con el estilo de
-// Usuarios y de Pedidos (components/admin/PanelUI.tsx): en las tres, cifras, buscador de 16 px, pastillas con su recuento,
+// Usuarios y de Pedidos (components/admin/PiezasPanelAdmin.tsx): en las tres, cifras, buscador de 16 px, pastillas con su recuento,
 // filas compactas con su etiqueta de color, el detalle por bloques al tocar una fila (con las acciones abajo); 360, 390 y
 // 1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px y sin errores. Datos FICTICIOS. ===========
 async function seccionPANRED1() {
@@ -21861,7 +21861,7 @@ async function seccionPANRED1() {
 }
 
 // ===== PANRED2) Tanda 2 del rediseño (2026-11-16): Administración → Productos, Reservas con señal y Escaparate VeoAura con
-// el estilo de Usuarios, Pedidos y la tanda 1 (components/admin/PanelUI.tsx): cifras que filtran, buscador de 16 px,
+// el estilo de Usuarios, Pedidos y la tanda 1 (components/admin/PiezasPanelAdmin.tsx): cifras que filtran, buscador de 16 px,
 // pastillas con su recuento, filas compactas con miniatura y etiqueta de color, el detalle por bloques al tocar una fila
 // (con las acciones abajo) y los formularios por bloques; 360, 390 y 1280 sin desbordar, táctiles de 44 px, letra de 13 px
 // o más, campos de 16 px y sin errores. Datos FICTICIOS (nada llega a la base de datos real). ==========================
@@ -22165,7 +22165,7 @@ async function seccionPANRED2() {
 }
 
 // ===== PANRED3) Tanda 3 del rediseño (2026-11-16): Administración → Chats, Cotizaciones (solicitudes de venta) e
-// Inventario con el estilo de Usuarios, Pedidos y las tandas 1 y 2 (components/admin/PanelUI.tsx: FilaCifras, FilaLista y
+// Inventario con el estilo de Usuarios, Pedidos y las tandas 1 y 2 (components/admin/PiezasPanelAdmin.tsx: FilaCifras, FilaLista y
 // DetalleFila): cifras que filtran, buscador de 16 px, pastillas con su recuento, filas compactas con su etiqueta de color
 // y, al tocar una, el detalle por bloques con las acciones abajo (en Chats, el hilo); 360, 390 y 1280 sin desbordar,
 // táctiles de 44 px, letra de 13 px o más, campos de 16 px y sin errores. Datos FICTICIOS (nada llega a la base de datos
@@ -22502,7 +22502,7 @@ async function seccionPANRED3() {
 }
 
 // ===== PANRED4) Tanda 4 del rediseño (2026-11-16): Administración → Blog, Noticias Flash · Blue IA y Políticas con el
-// estilo de las tandas 1 a 3 (components/admin/PanelUI.tsx: FilaCifras, FilaLista, DetalleFila y BotonesFila): cifras que
+// estilo de las tandas 1 a 3 (components/admin/PiezasPanelAdmin.tsx: FilaCifras, FilaLista, DetalleFila y BotonesFila): cifras que
 // filtran, buscador de 16 px, pastillas con su recuento, filas compactas con su etiqueta de color, el lápiz y la papelera
 // en cada fila y, al tocar una, el detalle por bloques con publicar u ocultar abajo; el «+» flotante para crear (en
 // Noticias, que desaparece con 5); 360, 390 y 1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16
@@ -23043,7 +23043,7 @@ async function seccionUSUFOT() {
 
 // ===== PANRED5) Tanda 5 y última del rediseño (2026-11-16): Administración → inicio del panel, Centro De Aprendizajes,
 // «Lo que Blue sabe», Revisiones, Marca y SEO, Redes sociales y Visitas y métricas con el estilo de las tandas 1 a 4
-// (components/admin/PanelUI.tsx). Listas: cifras que filtran, buscador de 16 px, pastillas con su recuento, filas compactas
+// (components/admin/PiezasPanelAdmin.tsx). Listas: cifras que filtran, buscador de 16 px, pastillas con su recuento, filas compactas
 // con su etiqueta de color y el detalle por bloques con sus acciones abajo. Ajustes: cifras de estado arriba y bloques con
 // su título. Analítica: las cifras arriba y bloques limpios. Inicio: las cifras clave (que abren su apartado) y los
 // recuadros por grupos. 360, 390 y 1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px y sin

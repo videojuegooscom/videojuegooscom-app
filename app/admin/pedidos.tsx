@@ -2,7 +2,7 @@
  * Archivo: app/admin/pedidos.tsx
  * Función: pantalla de administración «Pedidos», en la dirección /admin/pedidos (admite ?buscar=).
  * Para qué sirve: el administrador ve los pedidos que los clientes confirman en el checkout, su pago, entrega y valoraciones, y cambia su estado (pendiente, confirmado, preparado, enviado, entregado, cancelado con motivo).
- * Conectado con: lib/supabase.ts (tablas pedidos y pedido_items, función crear_pedido), lib/envio.ts, lib/interaccion.ts, lib/openExternalLink.ts, components/AvisosMovil.tsx, components/ReviewModal.tsx, components/marca/CargaMarca.tsx, constants/theme.ts; api/factura.ts y api/pago.ts.
+ * Conectado con: lib/supabase.ts (tablas pedidos y pedido_items, función crear_pedido), lib/envio.ts, lib/interaccion.ts, lib/openExternalLink.ts, components/AvisosMovil.tsx, components/VentanaValoracion.tsx, components/marca/CargaMarca.tsx, constants/theme.ts; api/factura.ts y api/pago.ts.
  * Utilizado por: Expo Router (dirección /admin/pedidos, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Pedidos» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -142,7 +142,7 @@ import {
 } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
 import AvisosMovil from "../../components/AvisosMovil";
-import { ValoracionPedidoAdmin, cargarValoracionesPedidos, entregadoEnDe, type ValoracionPedido } from "../../components/ReviewModal";
+import { ValoracionPedidoAdmin, cargarValoracionesPedidos, entregadoEnDe, type ValoracionPedido } from "../../components/VentanaValoracion";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
