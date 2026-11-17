@@ -78,6 +78,11 @@
  * ?editar=<id> (mejora 10, 2026-11-15): «Editar en Productos» desde Administración → Chats abre ya el formulario de ese
  * producto (una sola vez, en cuanto llega la lista).
  *
+ * «Para alquilar» (alquiler, fase 2, 2026-11-17; mientras VeoAura no tenga su botón): en el detalle de un artículo, el
+ * primer toque pide el coste (opcional) y el segundo lo pasa a products.modo 'alquiler' y a la categoría «Alquílalo ahora»,
+ * y crea su fila en alquiler_unidades con la categoría de antes (categoria_anterior_id, migración 20261117120000). Su
+ * etiqueta es «Para alquilar»; «Pasar a la venta» está en app/admin/alquileres.tsx. Sin la columna modo no se ofrece.
+ *
  * Scroll: cabecera fija y compacta (AdminHeader) y, debajo, un único
  * ScrollView (flex 1) con margen final de 48 px + zona segura. El modal de
  * alta/edición se desplaza entero (también con el teclado abierto en iOS).
@@ -441,6 +446,7 @@ function cumpleExtra(p: ProductRow, f: FiltroExtra) {
 function estadoProducto(p: ProductRow): { texto: string; tono: Tono; vendido?: boolean } {
   if (p.vendido) return { texto: p.vendido.referencia ? `Vendido (pedido ${p.vendido.referencia})` : "Vendido", tono: "indigo", vendido: true };
   if (p.reservado_hasta) return { texto: "Reservado", tono: "turquesa" };
+  if (p.alquiler) return { texto: "Para alquilar", tono: "turquesa" };
   if (!p.is_active) return { texto: "Oculto", tono: "gris" };
   if (p.status === "PUBLISHED") return { texto: "A la venta", tono: "verde" };
   if (p.status === "REVIEW") return { texto: "Por revisar", tono: "azul" };
@@ -479,6 +485,8 @@ const ProductListItem = React.memo(function ProductListItem({
   onMarkSold,
   onDelete,
   onToggleActive,
+  supportsAlquiler,
+  onParaAlquilar,
   uploadStatus,
 }: {
   item: ProductListItemData;
@@ -493,6 +501,9 @@ const ProductListItem = React.memo(function ProductListItem({
   onMarkSold: (p: ProductRow) => void;
   onDelete: (p: ProductRow) => void;
   onToggleActive: (p: ProductRow) => void;
+  // «Para alquilar» (alquiler, fase 2): solo con la columna products.modo. Devuelve el error a enseñar o null.
+  supportsAlquiler: boolean;
+  onParaAlquilar: (p: ProductRow, coste: string) => Promise<string | null>;
   // Presente mientras las fotos/vídeo de ESTE producto se están subiendo en
   // segundo plano (ver runBackgroundMediaSync en el componente de pantalla).
   // "error" solo se rellena si la subida falla — en ese caso ya no está
@@ -506,6 +517,27 @@ const ProductListItem = React.memo(function ProductListItem({
   const imageCount = p.media.filter((m) => getRowKind(m) === "image").length;
   const hasVideo = p.media.some((m) => getRowKind(m) === "video");
   const isUploading = !!uploadStatus && !uploadStatus.error;
+  // «Para alquilar»: el primer toque abre el coste (opcional) y pide confirmar; el segundo lo pasa.
+  const [alquilerAbierto, setAlquilerAbierto] = useState(false);
+  const [costeAlquiler, setCosteAlquiler] = useState("");
+  const [alquilerMsg, setAlquilerMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
+  const [pasandoAlquiler, setPasandoAlquiler] = useState(false);
+  const paraAlquilar = async () => {
+    if (!alquilerAbierto) {
+      setAlquilerAbierto(true);
+      setAlquilerMsg(null);
+      return;
+    }
+    setPasandoAlquiler(true);
+    const error = await onParaAlquilar(p, costeAlquiler);
+    setPasandoAlquiler(false);
+    if (error && !/^Ya es de alquiler/.test(error)) {
+      setAlquilerMsg({ tipo: "error", texto: error });
+      return;
+    }
+    setAlquilerAbierto(false);
+    setAlquilerMsg(error ? { tipo: "error", texto: error } : { tipo: "ok", texto: "Hecho: ya no se vende y pasa a «Alquílalo ahora»." });
+  };
 
   return (
     <View
@@ -709,7 +741,44 @@ const ProductListItem = React.memo(function ProductListItem({
             ) : null}
             <IconButton icon="pricetag-outline" label={`Marcar ${p.title} como vendido`} onPress={() => onMarkSold(p)} />
             <IconButton icon="trash-outline" label={`Borrar ${p.title}`} variant="danger" onPress={() => onDelete(p)} disabled={isUploading} />
+            {supportsAlquiler && !p.alquiler && !p.vendido ? (
+              <AccionTexto
+                nativeID={`producto-para-alquilar-${p.id}`}
+                icono="repeat-outline"
+                texto={pasandoAlquiler ? "Pasando a alquiler…" : alquilerAbierto ? "Toca otra vez para pasarlo a alquiler" : "Para alquilar"}
+                disabled={pasandoAlquiler}
+                onPress={paraAlquilar}
+              />
+            ) : null}
           </View>
+          {/* «Para alquilar»: tras el primer toque, el coste (opcional, solo para ti) y qué va a pasar. */}
+          {supportsAlquiler && !p.alquiler && alquilerAbierto ? (
+            <View nativeID={`producto-alquiler-panel-${p.id}`} style={{ gap: 8, borderRadius: 14, backgroundColor: COLORS.accent2, padding: 12 }}>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Coste de la unidad (opcional, solo lo ves tú)</Text>
+              <TextInput
+                nativeID={`producto-alquiler-coste-${p.id}`}
+                value={costeAlquiler}
+                onChangeText={(v) => setCosteAlquiler(v.replace(/[^0-9.,]/g, "").slice(0, 10))}
+                keyboardType="decimal-pad"
+                placeholder="Sin poner"
+                placeholderTextColor={COLORS.muted}
+                accessibilityLabel="Coste de la unidad de alquiler"
+                style={{ minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: "#FFFFFF", paddingHorizontal: 12, color: COLORS.text, fontSize: 16, fontWeight: "600" }}
+              />
+              <Detalle nativeID={`producto-alquiler-ayuda-${p.id}`}>
+                Pasa a la categoría «Alquílalo ahora» y deja de venderse. Se guarda su categoría de ahora para devolverlo a ella con «Pasar a la venta» en Administración → Alquileres.
+              </Detalle>
+              <AccionTexto nativeID={`producto-alquiler-descartar-${p.id}`} icono="close-outline" color={COLORS.muted} texto="Descartar" onPress={() => setAlquilerAbierto(false)} />
+            </View>
+          ) : null}
+          {p.alquiler ? (
+            <Detalle nativeID={`producto-alquiler-info-${p.id}`}>Unidad de alquiler: sus precios, su estado y «Pasar a la venta» están en Administración → Alquileres.</Detalle>
+          ) : null}
+          {alquilerMsg ? (
+            <Text nativeID={`producto-alquiler-mensaje-${p.id}`} style={{ color: alquilerMsg.tipo === "ok" ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+              {alquilerMsg.texto}
+            </Text>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -745,6 +814,8 @@ export default function AdminProducts() {
   const [supportsSoloMano, setSupportsSoloMano] = useState(false);
   // ¿Existen products.revisado y garantia_meses? (migración 20261114140000; sin ellas no se enseña ni se guarda).
   const [supportsRevisado, setSupportsRevisado] = useState(false);
+  // ¿Existe products.modo? (alquiler, migración 20261117100000): sin ella no se ofrece «Para alquilar».
+  const [supportsAlquiler, setSupportsAlquiler] = useState(false);
   // Filtro «Revisados» (mejora 4): todos, solo los revisados o los que aún no.
   const [revisadoFilter, setRevisadoFilter] = useState<"ALL" | "SI" | "NO">("ALL");
   // Más filtros (rediseño PANRED2): destacados, vendidos, reservados, sin fotos y los del envío (peso, solo en mano).
@@ -1118,8 +1189,20 @@ export default function AdminProducts() {
         }
       }
 
+      // Unidades de alquiler (products.modo, migración 20261117100000; fase 2): solo si la columna existe (fila de muestra).
+      const deAlquiler = new Set<string>();
+      let conModo = false;
+      if (filaMuestra && "modo" in filaMuestra) {
+        const modoRes = await supabase.from("products").select("id,modo").eq("modo", "alquiler");
+        if (!modoRes.error && Array.isArray(modoRes.data)) {
+          conModo = true;
+          for (const r of modoRes.data as { id: string; modo?: unknown }[]) if (r.modo === "alquiler") deAlquiler.add(String(r.id));
+        }
+      }
+
       const merged = productsData.map((item) => ({
         ...item,
+        ...(deAlquiler.has(item.id) ? { alquiler: true } : {}),
         ...(vendidos.has(item.id) ? { vendido: vendidos.get(item.id) } : {}),
         ...(reservados.has(item.id) ? { reservado_hasta: reservados.get(item.id) } : {}),
         ...(avisosVeoaura.has(item.id) ? { veoaura: avisosVeoaura.get(item.id) } : {}),
@@ -1136,6 +1219,7 @@ export default function AdminProducts() {
       setSupportsPesoEstimado(conEstimado);
       setSupportsSoloMano(conSoloMano);
       setSupportsRevisado(conRevisado);
+      setSupportsAlquiler(conModo);
       setSupportsProductMedia(supportsMedia);
       // Sin «Reparación / Limpieza»: solo guarda la portada del recuadro de Inicio que lleva a Servicios (no lleva productos).
       setCategories(((Array.isArray(catsRes.data) ? catsRes.data : []) as CategoryRow[]).filter((c) => !esCategoriaServicios(c.slug)));
@@ -1834,6 +1918,34 @@ export default function AdminProducts() {
     }
   }, []);
 
+  // «Para alquilar» (alquiler, fase 2; mientras VeoAura no tenga su botón): el artículo pasa a products.modo 'alquiler' y a
+  // la categoría «Alquílalo ahora», y se crea su fila en alquiler_unidades con el coste (opcional) y la categoría de antes
+  // (para devolverlo a ella con «Pasar a la venta» en Alquileres). Devuelve el error que hay que enseñar o null.
+  const categoriasRef = useRef<CategoryRow[]>([]);
+  useEffect(() => {
+    categoriasRef.current = categories;
+  }, [categories]);
+  const pasarAAlquiler = useCallback(async (p: ProductRow, costeTexto: string): Promise<string | null> => {
+    const limpio = costeTexto.trim().replace(/\s/g, "").replace(",", ".");
+    const coste = limpio ? (/^\d{1,7}(\.\d{1,2})?$/.test(limpio) ? Number(limpio) : NaN) : null;
+    if (Number.isNaN(coste)) return "El coste no es un importe válido (por ejemplo, 310 o 310,50).";
+    if (!p.price_eur || p.price_eur <= 0) return "Pon antes el precio de venta: los precios del alquiler salen de él.";
+    const cat = categoriasRef.current.find((c) => c.slug === "alquilalo-ahora");
+    if (!cat) return "Falta la categoría «Alquílalo ahora»: aplica la migración del alquiler.";
+    const a = await supabase.from("products").update({ modo: "alquiler", category_id: cat.id }).eq("id", p.id);
+    if (a.error) return "No se ha podido pasar a alquiler. Inténtalo de nuevo.";
+    const fila: Record<string, unknown> = { product_id: p.id, categoria_anterior_id: p.category_id };
+    if (coste !== null) fila.coste_eur = coste;
+    let b = await supabase.from("alquiler_unidades").upsert(fila, { onConflict: "product_id" });
+    // Sin la migración de la fase 2 (categoria_anterior_id), se guarda sin ella: al pasarlo a la venta se elige la categoría.
+    if (b.error && /categoria_anterior_id/.test(String(b.error.message ?? ""))) {
+      delete fila.categoria_anterior_id;
+      b = await supabase.from("alquiler_unidades").upsert(fila, { onConflict: "product_id" });
+    }
+    setItems((prev) => prev.map((x) => (x.id === p.id ? { ...x, alquiler: true, category_id: cat.id } : x)));
+    return b.error ? "Ya es de alquiler, pero no se ha podido guardar el coste: ponlo en Administración → Alquileres." : null;
+  }, []);
+
   const toggleFeaturedHome = useCallback(
     async (p: ProductRow) => {
       if (!supportsFeaturedHome) {
@@ -2076,6 +2188,8 @@ export default function AdminProducts() {
                     onMarkSold={setMarkSoldTarget}
                     onDelete={askRemove}
                     onToggleActive={toggleActive}
+                    supportsAlquiler={supportsAlquiler}
+                    onParaAlquilar={pasarAAlquiler}
                     uploadStatus={bgUploads[p.id]}
                   />
                 ))}
@@ -2501,17 +2615,24 @@ export default function AdminProducts() {
                 </View>
               </View>
 
-              <SelectorIOS
-                nativeID="producto-categoria"
-                label="Categoría"
-                value={categoryId ?? ""}
-                onChange={(v) => setCategoryId(v || null)}
-                placeholder="Sin categoría"
-                options={[
-                  { value: "", label: "Sin categoría" },
-                  ...activeCategories.map((c) => ({ value: c.id, label: c.name })),
-                ]}
-              />
+              {/* Una unidad de alquiler va siempre en «Alquílalo ahora»: su categoría se cambia al pasarla a la venta. */}
+              {editing?.alquiler ? (
+                <Text nativeID="producto-categoria-alquiler" style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                  Categoría: «Alquílalo ahora» (unidad de alquiler). Para volver a venderla, usa «Pasar a la venta» en Administración → Alquileres.
+                </Text>
+              ) : (
+                <SelectorIOS
+                  nativeID="producto-categoria"
+                  label="Categoría"
+                  value={categoryId ?? ""}
+                  onChange={(v) => setCategoryId(v || null)}
+                  placeholder="Sin categoría"
+                  options={[
+                    { value: "", label: "Sin categoría" },
+                    ...activeCategories.map((c) => ({ value: c.id, label: c.name })),
+                  ]}
+                />
+              )}
 
               <View style={{ flexDirection: "row", gap: 10 }}>
                 <View

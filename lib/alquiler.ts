@@ -16,8 +16,13 @@
  *   (rellenarContratoAlquiler) y las notas internas que impiden activar el alquiler (notasInternasAlquiler; la misma regla
  *   que el disparador alquiler_ajustes_validar).
  *
- * Conectado con: app/admin/alquileres.tsx, supabase/migrations/20261117100000_alquiler_base.sql, docs/puente-veoaura-alquiler.md
- * y pruebas/perfil-datos.mjs (sección ALQ1). Copia el patrón de lib/reservas.ts (BORRADOR_CONDICIONES_RESERVA).
+ * - Fase 2 (el día a día en Administración): sumarMeses (fin previsto y renovaciones), mesesContratados, mesesAlRecoger (lo
+ *   que suma la unidad al recogerla, descontando lo que sumó la anterior si hubo cambio de unidad), estadoUnidad (Libre,
+ *   Reservada, Alquilada, Por recoger, En revisión o «Toca venderla» al llegar al máximo de meses), recargoDeAlquiler,
+ *   validarDescuentoFianza (motivo obligatorio y nunca más que lo que queda de la fianza) y fianzaADevolver.
+ *
+ * Conectado con: app/admin/alquileres.tsx, app/admin/analytics.tsx, supabase/migrations/20261117100000_alquiler_base.sql y
+ * 20261117120000_alquiler_fase2.sql, docs/puente-veoaura-alquiler.md y pruebas/perfil-datos.mjs (secciones ALQ1 y ALQ2). Copia el patrón de lib/reservas.ts (BORRADOR_CONDICIONES_RESERVA).
  */
 import { eurosReserva, fechaReserva } from "./reservas";
 
@@ -274,6 +279,106 @@ export function eurosAlquiler(n: number): string {
   const c = cents(Number.isFinite(n) ? n : 0);
   // Con espacio de no separación delante de «€»: el importe nunca se parte en dos líneas.
   return c % 100 === 0 ? `${(c / 100).toLocaleString("es-ES")} €` : eurosReserva(c / 100).replace(/ €$/, " €");
+}
+
+// --- Fase 2: el día a día en Administración (unidades y alquileres) --------------------------------------------------------
+const DIA_MS = 86_400_000;
+const MES_MEDIO_DIAS = 30.4375;
+
+/** La fecha de dentro de `meses` meses (el mismo día; si ese mes no lo tiene, el último: 31 ene + 1 = 28 o 29 feb). */
+export function sumarMeses(fecha: string | number | Date, meses: number): string {
+  const t = new Date(fecha).getTime();
+  if (!Number.isFinite(t)) return "";
+  const d = new Date(t);
+  const dia = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + Math.trunc(meses));
+  const ultimo = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(dia, ultimo));
+  return d.toISOString();
+}
+
+/** Los meses contratados entre el inicio y el fin previsto (plan más renovaciones): 3 de 17 nov a 17 feb. */
+export function mesesContratados(inicio: string | null | undefined, fin: string | null | undefined): number {
+  const a = inicio ? Date.parse(inicio) : NaN;
+  const b = fin ? Date.parse(fin) : NaN;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return 0;
+  return Math.round((b - a) / DIA_MS / MES_MEDIO_DIAS);
+}
+
+/** Los meses que han pasado de verdad (con dos decimales), p. ej. hasta el cambio de unidad del mes 3. */
+export function mesesTranscurridos(inicio: string | null | undefined, hasta: string | number | null | undefined): number {
+  const a = inicio ? Date.parse(inicio) : NaN;
+  const b = typeof hasta === "number" ? hasta : hasta ? Date.parse(hasta) : NaN;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return 0;
+  return Math.round(((b - a) / DIA_MS / MES_MEDIO_DIAS) * 100) / 100;
+}
+
+/** Días que quedan hasta el fin previsto (por días empezados); 0 si ya ha pasado. */
+export function diasRestantes(fin: string | null | undefined, ahora: number = Date.now()): number {
+  const t = fin ? Date.parse(fin) : NaN;
+  if (!Number.isFinite(t) || t <= ahora) return 0;
+  return Math.ceil((t - ahora) / DIA_MS);
+}
+
+/**
+ * Los meses que suma la unidad al recogerla: los contratados (plan y renovaciones) menos los que ya sumó la unidad
+ * anterior si hubo cambio de unidad (los que pasaron hasta el cambio).
+ */
+export function mesesAlRecoger(a: { inicio_en: string | null; fin_previsto_en: string | null; cambio_unidad_en: string | null }): number {
+  const total = mesesContratados(a.inicio_en, a.fin_previsto_en);
+  const antes = a.cambio_unidad_en ? mesesTranscurridos(a.inicio_en, a.cambio_unidad_en) : 0;
+  return Math.max(0, Math.round((total - antes) * 100) / 100);
+}
+
+export type EstadoUnidad = "libre" | "reservada" | "alquilada" | "por_recoger" | "revision" | "vender";
+export const ESTADOS_UNIDAD: Record<EstadoUnidad, string> = {
+  libre: "Libre",
+  reservada: "Reservada",
+  alquilada: "Alquilada",
+  por_recoger: "Por recoger",
+  revision: "En revisión",
+  vender: "Toca venderla",
+};
+
+/** El estado de una unidad: lo que diga su alquiler en curso; sin él, «Toca venderla» al llegar al máximo de meses o «Libre». */
+export function estadoUnidad(enCurso: { estado: string } | null | undefined, mesesAlquilada: number, mesesMax: number): EstadoUnidad {
+  if (enCurso) {
+    if (enCurso.estado === "activo") return "alquilada";
+    if (enCurso.estado === "por_recoger") return "por_recoger";
+    if (enCurso.estado === "revision") return "revision";
+    if (enCurso.estado === "reservado" || enCurso.estado === "pendiente_pago") return "reservada";
+  }
+  return mesesMax > 0 && mesesAlquilada >= mesesMax ? "vender" : "libre";
+}
+
+/** El recargo de un alquiler: días de retraso hasta la devolución (o hasta hoy), con la cortesía y como mucho la fianza. */
+export function recargoDeAlquiler(
+  a: { fin_previsto_en: string | null; devuelto_en: string | null; fianza_eur: number },
+  ajustes: { recargo_dia_eur: number; cortesia_dias: number },
+  ahora: number = Date.now()
+): { dias: number; importe: number } {
+  if (!a.fin_previsto_en) return { dias: 0, importe: 0 };
+  const hasta = a.devuelto_en ? Date.parse(a.devuelto_en) : ahora;
+  const dias = diasRetraso(a.fin_previsto_en, Number.isFinite(hasta) ? hasta : ahora);
+  return { dias, importe: recargoRetraso(dias, ajustes.recargo_dia_eur, ajustes.cortesia_dias, a.fianza_eur) };
+}
+
+/**
+ * Comprueba un descuento de la fianza: importe mayor que 0 y, junto al recargo ya cobrado, nunca más que la fianza; el
+ * motivo, obligatorio (lo verá el cliente). Devuelve el error o null.
+ */
+export function validarDescuentoFianza(importe: number | null, motivo: string, fianza: number, recargo: number): string | null {
+  if (importe === null || !Number.isFinite(importe) || importe <= 0) return "Escribe el importe que se descuenta de la fianza.";
+  const queda = Math.max(0, cents(fianza) - cents(recargo || 0)) / 100;
+  if (cents(importe) > cents(queda)) return `El descuento no puede pasar de lo que queda de la fianza (${eurosAlquiler(queda)}).`;
+  if (motivo.replace(/\s+/g, " ").trim().length < 3) return "Escribe el motivo del descuento: lo verá el cliente.";
+  return null;
+}
+
+/** Lo que queda de la fianza para devolver: la fianza menos el recargo y el descuento. */
+export function fianzaADevolver(fianza: number, recargo: number, descuento: number): number {
+  return Math.max(0, cents(fianza) - cents(recargo || 0) - cents(descuento || 0)) / 100;
 }
 
 /** Lee un número escrito con coma o punto («54,90», «10.5»); vacío = null; mal escrito = NaN. */

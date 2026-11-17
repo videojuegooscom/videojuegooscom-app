@@ -5,6 +5,8 @@
  * Categoría → Producto → Reseñas, con "Scroll" como señal de enganche
  * aparte), un calendario de crecimiento (visitantes por día) filtrable por
  * fechas, y un ranking de las categorías y productos más vistos.
+ * Bloque «Alquiler» (fase 2 del alquiler, 2026-11-17): unidades, ocupación, ingresos del mes, fianzas retenidas y
+ * renovaciones, solo números (lib/alquiler.ts y app/admin/alquileres.tsx; sección ALQ2 de pruebas/perfil-datos.mjs).
  *
  * Cómo funciona:
  * - Todo sale de la tabla analytics_events (que rellena lib/analytics.ts
@@ -144,6 +146,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import { supabase } from "../../lib/supabase";
 import { cargarAjustesReparacionEnvio } from "../../lib/envio";
+import { eurosAlquiler, mesesContratados } from "../../lib/alquiler";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { AdminHeader, AdminNotice } from "../../lib/admin/products.components";
 import { Chip, Cifra, Detalle, FilaCifras, FilaPastillas, PANEL } from "../../components/admin/PanelUI";
@@ -1096,6 +1099,53 @@ export default function AdminAnalytics() {
       }
       const cuenta = (n: string) => (data as { event_name: string }[]).filter((f) => f.event_name === n).length;
       setCambioCesta({ mostrado: cuenta("cambio_cesta_mostrado"), tocado: cuenta("cambio_cesta_tocado"), enviados: cuenta("cambio_cesta_enviado") });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Alquiler (fase 2, 2026-11-17; apagado para el cliente): unidades, ocupación (% de unidades alquiladas), ingresos de
+  // alquiler del mes (registro alquiler_pagos, migración 20261117120000; sin él, lo pagado en los alquileres empezados este
+  // mes), fianzas retenidas (cobradas y aún sin devolver) y alquileres renovados. Solo números, sin datos de nadie.
+  const [alquilerCifras, setAlquilerCifras] = useState<{ unidades: number; ocupacion: number; ingresos: number; fianzas: number; nFianzas: number; renovados: number } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const [un, al, pa] = await Promise.all([
+          // Solo el recuento (sin descargar filas): las unidades de alquiler.
+          supabase.from("products").select("id", { count: "exact", head: true }).eq("modo", "alquiler"),
+          supabase.from("alquileres").select("product_id,estado,plan_meses,inicio_en,fin_previsto_en,fianza_estado,fianza_eur,recargo_eur,fianza_descuento_eur,pagado_alquiler_eur").limit(5000),
+          supabase.from("alquiler_pagos").select("concepto,importe_eur,creado_en").limit(5000),
+        ]);
+        if (!vivo) return;
+        if (un.error || al.error) {
+          setAlquilerCifras(null);
+          return;
+        }
+        const unidades = un.count ?? 0;
+        const filas = (al.data ?? []) as { product_id: string | null; estado: string; plan_meses: number; inicio_en: string | null; fin_previsto_en: string | null; fianza_estado: string; fianza_eur: number; recargo_eur: number; fianza_descuento_eur: number; pagado_alquiler_eur: number }[];
+        // Un solo alquiler en curso por unidad (lo asegura la base de datos): los activos y por recoger son las alquiladas.
+        const alquiladas = new Set(filas.filter((a) => (a.estado === "activo" || a.estado === "por_recoger") && a.product_id).map((a) => a.product_id));
+        const d = new Date();
+        const desde = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+        const c = (n: unknown) => Math.round((Number(n) || 0) * 100);
+        const ingresos = !pa.error
+          ? ((pa.data ?? []) as { concepto: string; importe_eur: number; creado_en: string }[]).filter((p) => (p.concepto === "alquiler" || p.concepto === "renovacion") && Date.parse(p.creado_en) >= desde).reduce((s, p) => s + c(p.importe_eur), 0)
+          : filas.filter((a) => a.inicio_en && Date.parse(a.inicio_en) >= desde).reduce((s, a) => s + c(a.pagado_alquiler_eur), 0);
+        const retenidas = filas.filter((a) => a.fianza_estado === "cobrada");
+        setAlquilerCifras({
+          unidades,
+          ocupacion: unidades ? Math.min(100, Math.round((alquiladas.size / unidades) * 100)) : 0,
+          ingresos: ingresos / 100,
+          fianzas: retenidas.reduce((s, a) => s + c(a.fianza_eur) - c(a.recargo_eur) - c(a.fianza_descuento_eur), 0) / 100,
+          nFianzas: retenidas.length,
+          renovados: filas.filter((a) => mesesContratados(a.inicio_en, a.fin_previsto_en) > Number(a.plan_meses)).length,
+        });
+      } catch {
+        if (vivo) setAlquilerCifras(null);
+      }
     })();
     return () => {
       vivo = false;
@@ -2586,6 +2636,24 @@ export default function AdminAnalytics() {
                 <View nativeID="analitica-cambio-cesta" style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10 }}>
                   <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                     Mostrado {cambioCesta.mostrado} · tocado {cambioCesta.tocado} · enviados {cambioCesta.enviados}
+                  </Text>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Alquiler"
+              subtitle="Unidades de alquiler, ocupación (unidades alquiladas ahora), ingresos de alquiler de este mes, fianzas que tienes cobradas y aún sin devolver y alquileres renovados. Solo números; el detalle está en Administración → Alquileres."
+            >
+              {!alquilerCifras ? (
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se han podido cargar los datos del alquiler.</Text>
+              ) : (
+                <View nativeID="analitica-alquiler" style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, gap: 4 }}>
+                  <Text nativeID="analitica-alquiler-unidades" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                    Unidades {alquilerCifras.unidades} · ocupación {alquilerCifras.ocupacion} % · ingresos del mes {eurosAlquiler(alquilerCifras.ingresos)}
+                  </Text>
+                  <Text nativeID="analitica-alquiler-fianzas" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                    Fianzas retenidas {eurosAlquiler(alquilerCifras.fianzas)} ({alquilerCifras.nFianzas}) · renovaciones {alquilerCifras.renovados}
                   </Text>
                 </View>
               )}

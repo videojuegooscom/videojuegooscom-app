@@ -261,6 +261,14 @@
  *    «Revisado por mi gestor» ni con notas internas, «Cargar el borrador», «Guardar ajustes» y una unidad con sus precios a
  *    mano y su coste; 360/390/1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px, sin errores y
  *    con su control. Datos FICTICIOS. Se lanza con SOLO = ALQ1 y en la pasada completa.
+ *  - ALQ2) Alquiler, fase 2 (sigue APAGADO para el cliente): Productos → «Para alquilar» (segundo toque, coste opcional, la
+ *    categoría de antes; sin la migración de la fase 2, sin ella) y Alquileres → «Pasar a la venta»; las cifras (unidades,
+ *    libres, alquiladas, «Toca venderla», ocupación e ingresos del mes), el estado de cada unidad y «Toca venderla» a los 3
+ *    meses; la lista de alquileres con pastillas, buscador y el detalle por bloques; cada acción (pagado, entregado,
+ *    renovar, cambio de unidad, recogida, recogido, recargo, descontar, devolver, vendido, cerrar y cancelar) con segundo
+ *    toque y mandando SOLO sus columnas; descontar exige motivo y no pasa de la fianza; recargo 5 días = 12 € y tope 150 €;
+ *    compra 550 − 139 + 50 = 461 €; el bloque «Alquiler» de Analítica; 360/390/1280 sin desbordes, 44 px, 13 px y su
+ *    control. Datos FICTICIOS. Se lanza con SOLO = ALQ2 y en la pasada completa.
  *  - FS) Ficha de servicio con el formato de la de producto (galería, visor con zoom, botones iguales, pestañas,
  *    «Volver atrás», sin bloques de más) y su uso en Administración → Analítica, en el móvil y en el ordenador.
  *
@@ -1772,6 +1780,9 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (metodo === "GET" || metodo === "HEAD") {
       // Administración → Analítica mira con «*» en una fila si products ya tiene «revisado» (mejora 4): sin fila, no sale.
       if (url.pathname.endsWith("/rest/v1/products") && url.searchParams.get("select") === "*" && url.searchParams.get("limit") === "1") return json([]);
+      // Alquiler (fase 2): sin la prueba ALQ1/ALQ2, ninguna unidad ni alquiler (Analítica los cuenta), sin ir a la base real.
+      if (url.pathname.endsWith("/rest/v1/products") && url.searchParams.get("modo") === "eq.alquiler") return json([], 200, { "content-range": "*/0" });
+      if (/\/rest\/v1\/(alquileres|alquiler_unidades|alquiler_pagos)$/.test(url.pathname)) return json([], 200, { "content-range": "*/0" });
       if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|product_chats|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento|pedido_estados|avisos_precio|avisos_reposicion|admin_avisos_suscripciones|admin_avisos_registro|reservas)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
       }
@@ -15110,7 +15121,8 @@ async function seccionFCONF() {
     const p = await pagina(ctx, "/admin/analytics");
     await p.locator("#analitica-ficha-producto").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(400);
-    ok((await p.locator("#analitica-ficha-revisados").count()) === 0 && !(estado.consultasConfianza ?? []).some((c) => c.startsWith("HEAD")), "FCONF: sin la columna, Analítica no cuenta revisados (ni lo intenta)");
+    // (El recuento de unidades de alquiler, modo=eq.alquiler, es del bloque «Alquiler» de ALQ2, no de los revisados.)
+    ok((await p.locator("#analitica-ficha-revisados").count()) === 0 && !(estado.consultasConfianza ?? []).some((c) => c.startsWith("HEAD") && !/modo=eq\.alquiler/.test(c)), "FCONF: sin la columna, Analítica no cuenta revisados (ni lo intenta)");
     await ctx.close();
   }
 
@@ -18981,6 +18993,8 @@ async function seccionALQ1() {
       }
       return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(rs.unidades ?? []) });
     });
+    // Fotos de las unidades (fase 2): ninguna, sin ir al almacén real.
+    await ctx.route("**/rest/v1/product_media*", (r) => (r.request().method() === "OPTIONS" ? r.fallback() : r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: "[]" })));
   };
 
   for (const { nombre, vista } of VISTAS) {
@@ -18994,7 +19008,8 @@ async function seccionALQ1() {
     ok((await texto(p, "#alquiler-aviso-apagado")) === "El alquiler está apagado: los clientes no ven nada", `ALQ1 (${nombre}): arriba, el aviso de apagado (${await texto(p, "#alquiler-aviso-apagado")})`);
     ok(/^Desactivado/.test(await texto(p, "#alquiler-estado")), `ALQ1 (${nombre}): empieza DESACTIVADO (${await texto(p, "#alquiler-estado")})`);
     const cifras = await texto(p, "#alquiler-cifras");
-    ok(/0 Alquileres en curso/.test(cifras) && /0 Alquileres en total/.test(cifras) && /0 Unidades de alquiler/.test(cifras), `ALQ1 (${nombre}): las cifras a 0 (${cifras})`);
+    // Desde la fase 2 (ALQ2): unidades, libres, alquiladas, «Toca venderla», ocupación e ingresos del mes.
+    ok(/0 Unidades de alquiler/.test(cifras) && /0 Libres/.test(cifras) && /0 Alquiladas/.test(cifras) && /0 Toca venderla/.test(cifras) && /0 % Ocupación/.test(cifras) && /0 € Ingresos del mes/.test(cifras), `ALQ1 (${nombre}): las cifras a 0 (${cifras})`);
     const ej = [];
     for (const m of [1, 2, 3, 4]) ej.push(await texto(p, `#alquiler-ejemplo-${m}`));
     ok(JSON.stringify(ej) === JSON.stringify(["54,90 €", "99 €", "139 €", "179 €"]), `ALQ1 (${nombre}): con 550 €, la tabla de ejemplo da 54,90 / 99 / 139 / 179 € (${ej.join(" / ")})`);
@@ -19094,6 +19109,556 @@ async function seccionALQ1() {
     ok(p.errores.length === 0, `ALQ1 (${nombre}): con una unidad, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
+}
+
+// ===== ALQ2) Alquiler de artículos, fase 2 (dueño, 2026-11-17): la Administración completa de unidades y alquileres =====
+// SIGUE APAGADO para el cliente. Productos → «Para alquilar» (segundo toque, coste opcional, la categoría de antes; sin la
+// migración de la fase 2, sin ella) y la ficha de edición de una unidad. Alquileres: las cifras (unidades, libres,
+// alquiladas, «Toca venderla», ocupación e ingresos del mes), el estado de cada unidad («Toca venderla» a los 3 meses),
+// «Pasar a la venta» (a su categoría de antes; no con un alquiler en curso); la lista con pastillas, buscador y el detalle
+// por bloques (cliente, alquiler con el recargo calculado, fianza, compra tras alquiler y contrato); cada acción con segundo
+// toque mandando SOLO sus columnas (como PEDRED); descontar exige motivo y no pasa de la fianza; recargo de 5 días = 12 € y
+// tope 150 €; compra 550 − 139 + 50 = 461 €. Analítica → «Alquiler». 360/390/1280 sin desbordes, táctiles de 44 px, letra
+// de 13 px o más, campos de 16 px y su control. Tablas simuladas: nada llega a la base de datos real. ======================
+async function seccionALQ2() {
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const DIA = 86_400_000;
+  const AHORA = Date.now();
+  const iso = (t) => new Date(t).toISOString();
+  // La misma cuenta que sumarMeses de lib/alquiler.ts (el mismo día; si el mes no lo tiene, el último).
+  const masMeses = (fecha, meses) => {
+    const d = new Date(fecha);
+    const dia = d.getUTCDate();
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() + meses);
+    const ultimo = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    d.setUTCDate(Math.min(dia, ultimo));
+    return d.toISOString();
+  };
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+  const AJUSTES = {
+    id: 1, activo: false, pct_1_mes: 10, pct_2_meses: 18, pct_3_meses: 25, pct_4_meses: 33, fianza_eur: 150, fianza_modo: "entrega",
+    recargo_dia_eur: 3, cortesia_dias: 1, plus_compra_eur: 50, meses_max_unidad: 3, texto_contrato: null, contrato_revisado: false,
+  };
+  const CAT = { ps5: "ca000000-0000-4000-8000-0000000000a1", xbox: "ca000000-0000-4000-8000-0000000000a2", ns: "ca000000-0000-4000-8000-0000000000a3", alq: "ca000000-0000-4000-8000-0000000000a9" };
+  const CATEGORIAS = () => [
+    { id: CAT.ps5, name: "PlayStation 5", slug: "playstation-5", sort_order: 1, is_active: true, image_url: null, imagenes: [] },
+    { id: CAT.xbox, name: "Xbox", slug: "xbox", sort_order: 2, is_active: true, image_url: null, imagenes: [] },
+    { id: CAT.ns, name: "Nintendo Switch", slug: "nintendo-switch", sort_order: 3, is_active: true, image_url: null, imagenes: [] },
+    { id: CAT.alq, name: "Alquílalo ahora", slug: "alquilalo-ahora", sort_order: 9, is_active: false, image_url: null, imagenes: [] },
+  ];
+  const U = (n) => `a2000000-0000-4000-8000-00000000000${n}`;
+  const A = (n) => `a2a00000-0000-4000-8000-00000000000${n}`;
+  const C1 = "c2000000-0000-4000-8000-000000000001";
+  const C2 = "c2000000-0000-4000-8000-000000000002";
+  const unidad = (n, title, price = 550) => ({ id: U(n), title, price_eur: price, alquiler_precios: null, is_active: true, status: "PUBLISHED", category_id: CAT.alq, modo: "alquiler" });
+  const UNIDADES = () => [
+    unidad(1, "PS5 Slim · unidad 1"),
+    unidad(2, "PS5 Slim · unidad 2"),
+    unidad(3, "Xbox Series X · unidad 1", 450),
+    unidad(4, "PS5 Slim · unidad 3"),
+    unidad(5, "PS5 Slim · unidad 4"),
+    unidad(6, "PS5 Slim · unidad 5"),
+    unidad(7, "PS5 Slim · unidad 6"),
+  ];
+  const DATOS = () => [
+    { product_id: U(1), coste_eur: 300, meses_alquilada: 0, categoria_anterior_id: CAT.ps5 },
+    { product_id: U(2), coste_eur: null, meses_alquilada: 0, categoria_anterior_id: null },
+    { product_id: U(3), coste_eur: 280, meses_alquilada: 3, categoria_anterior_id: CAT.xbox },
+    { product_id: U(4), coste_eur: 310, meses_alquilada: 1, categoria_anterior_id: CAT.ps5 },
+    { product_id: U(5), coste_eur: null, meses_alquilada: 1, categoria_anterior_id: CAT.ps5 },
+    { product_id: U(6), coste_eur: null, meses_alquilada: 2, categoria_anterior_id: null },
+    { product_id: U(7), coste_eur: null, meses_alquilada: 0, categoria_anterior_id: null },
+  ];
+  const HUELLA = "ab".repeat(32);
+  const alq = (n, user, prod, plan, estado, extra = {}) => ({
+    id: A(n), user_id: user, product_id: prod, producto_titulo: UNIDADES().find((u) => u.id === prod)?.title ?? null, plan_meses: plan, estado,
+    precio_venta_eur: 550, precio_plan_eur: { 1: 54.9, 2: 99, 3: 139, 4: 179 }[plan], pagado_alquiler_eur: 0, fianza_eur: 150, fianza_modo: "entrega",
+    fianza_estado: "pendiente", fianza_descuento_eur: 0, fianza_descuento_motivo: null, recargo_eur: 0, inicio_en: null, fin_previsto_en: null, devuelto_en: null,
+    cambio_unidad_en: null, cambio_product_id: null, compra_eur: null, comprado_en: null, pago_modo: null, pago_referencia: null, contrato_hash: HUELLA,
+    contrato_aceptado_en: iso(AHORA - 40 * DIA), creado_en: iso(AHORA - 40 * DIA), ...extra,
+  });
+  const ini2 = iso(AHORA - 30 * DIA);
+  const fin3 = iso(AHORA - 5 * DIA + 2 * 3600000);
+  const dev4 = iso(AHORA - DIA);
+  const fin4 = iso(AHORA - 6 * DIA + 2 * 3600000);
+  const fin9 = iso(AHORA - 81 * DIA + 2 * 3600000);
+  const ini5 = iso(AHORA - 120 * DIA);
+  const ALQUILERES = () => [
+    alq(1, C1, U(1), 3, "reservado"),
+    alq(2, C2, U(4), 4, "activo", { pagado_alquiler_eur: 179, fianza_estado: "cobrada", inicio_en: ini2, fin_previsto_en: masMeses(ini2, 4), pago_modo: "real", pago_referencia: "pi_123" }),
+    alq(3, C1, U(5), 3, "por_recoger", { pagado_alquiler_eur: 139, fianza_estado: "cobrada", inicio_en: masMeses(fin3, -3), fin_previsto_en: fin3, pago_modo: "efectivo" }),
+    alq(4, C2, U(6), 1, "revision", { pagado_alquiler_eur: 54.9, fianza_estado: "cobrada", inicio_en: masMeses(fin4, -1), fin_previsto_en: fin4, devuelto_en: dev4 }),
+    alq(5, C1, U(2), 1, "cerrado", { pagado_alquiler_eur: 153.9, fianza_estado: "devuelta", inicio_en: ini5, fin_previsto_en: masMeses(ini5, 3), devuelto_en: masMeses(ini5, 3) }),
+    alq(6, C2, U(2), 2, "cancelado"),
+    alq(9, C2, U(7), 2, "revision", { pagado_alquiler_eur: 99, fianza_estado: "cobrada", inicio_en: masMeses(fin9, -2), fin_previsto_en: fin9, devuelto_en: dev4 }),
+  ];
+  const PAGOS = () => [
+    { alquiler_id: A(2), concepto: "alquiler", importe_eur: 179, creado_en: iso(AHORA) },
+    { alquiler_id: A(5), concepto: "renovacion", importe_eur: 99, creado_en: "2026-08-01T10:00:00Z" },
+  ];
+  const PERFILES = [
+    { user_id: C1, nombre: "Ana Gómez", usuario: "ana", telefono: "600111222" },
+    { user_id: C2, nombre: "Luis Pérez", usuario: "luis", telefono: "600333444" },
+  ];
+  const CONTRATO = "Contrato de alquiler de PS5 Slim · unidad 1 durante 3 meses por 139,00 €, con una fianza de 150,00 €.";
+
+  const limpio = (t) => String(t ?? "").replace(/\p{Co}/gu, "").replace(/\s+/g, " ").trim();
+  const texto = async (p, sel) => limpio(await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => ""));
+  const alto = (p, sel) => p.locator(sel).first().evaluate((e) => Math.round(e.getBoundingClientRect().height)).catch(() => 0);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !(await cond()); i++) await p.waitForTimeout(250);
+  };
+  const claves = (o) => Object.keys(o ?? {}).sort().join(",");
+  // Letra < 13 px, táctiles < 44 × 44 (los más externos), campos de menos de 16 px y el ancho (como ALQ1).
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily)) continue;
+        if (parseFloat(cs.fontSize) < 13) pequenos.push(`${t.slice(0, 30)} ${cs.fontSize}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[tabindex="0"]';
+      const deBlue = (el) => !!el.closest("#blue-flotante, #blue-mensaje") || /Blue/.test(el.getAttribute("aria-label") ?? "");
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && !deBlue(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      const campos = [...document.querySelectorAll("input,textarea")].filter((el) => !["checkbox", "radio", "file", "range", "hidden"].includes(el.type) && visible(el));
+      const camposChicos = campos.filter((el) => parseFloat(getComputedStyle(el).fontSize) < 16).map((el) => `${el.id || el.placeholder || el.tagName} ${getComputedStyle(el).fontSize}`);
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, campos: campos.length, camposChicos: camposChicos.slice(0, 8), ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    });
+  const comprobarDiseno = async (p, nombre, momento) => {
+    const m = await medir(p);
+    ok(m.ancho <= m.v + 1, `ALQ2 (${nombre}): ${momento}, la página no se sale por los lados (${m.ancho}/${m.v})`);
+    ok(m.n >= 5 && !m.chicos.length, `ALQ2 (${nombre}): ${momento}, todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+    ok(!m.pequenos.length, `ALQ2 (${nombre}): ${momento}, ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+    ok(m.campos >= 1 && !m.camposChicos.length, `ALQ2 (${nombre}): ${momento}, los campos a 16 px (${m.campos} campos; ${m.camposChicos.join(" | ") || "ninguno pequeño"})`);
+  };
+  // El control: un recuadro de 2000 px y una letra de 10 px puestos a propósito TIENEN que detectarse.
+  const control = async (p, nombre) => {
+    await p.evaluate(() => {
+      const d = document.createElement("div");
+      d.id = "alq2-control";
+      d.style.cssText = "width:2000px;height:24px;font-size:10px;position:relative";
+      d.textContent = "Control ALQ2";
+      document.body.appendChild(d);
+    });
+    const m = await medir(p);
+    await p.evaluate(() => document.getElementById("alq2-control")?.remove());
+    const despues = await medir(p);
+    ok(m.ancho > m.v + 1 && m.pequenos.some((t) => /Control ALQ2/.test(t)) && despues.ancho <= despues.v + 1, `ALQ2 (${nombre}): el control falla cuando debe (desborde ${m.ancho}/${m.v} y letra de 10 px detectados; sin ellos, ${despues.ancho}/${despues.v})`);
+  };
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `ALQ2: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+  const respuesta = (r, datos, status = 200) => r.fulfill({ status, contentType: "application/json", headers: CORS, body: JSON.stringify(datos) });
+  // Las tablas del alquiler, como la base de datos (lo que se manda se apunta; nada va a ninguna base de datos real).
+  const simular = async (ctx, rs) => {
+    await ctx.route("**/rest/v1/alquiler_ajustes*", (r) => (r.request().method() === "OPTIONS" ? r.fallback() : respuesta(r, rs.ajustes)));
+    await ctx.route("**/rest/v1/alquileres*", (r) => {
+      const q = r.request();
+      const url = new URL(q.url());
+      if (q.method() === "OPTIONS") return r.fallback();
+      if (q.method() === "PATCH") {
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        const cuerpo = JSON.parse(q.postData() ?? "{}");
+        rs.cambios.push({ tabla: "alquileres", id, cuerpo });
+        rs.alquileres = rs.alquileres.map((a) => (a.id === id ? { ...a, ...cuerpo } : a));
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+      if (url.searchParams.get("select") === "contrato_texto") return respuesta(r, { contrato_texto: CONTRATO });
+      return respuesta(r, rs.alquileres);
+    });
+    for (const tabla of ["alquiler_unidades", "alquiler_pagos"]) {
+      await ctx.route(`**/rest/v1/${tabla}*`, (r) => {
+        const q = r.request();
+        if (q.method() === "OPTIONS") return r.fallback();
+        if (q.method() !== "GET") {
+          const cuerpo = JSON.parse(q.postData() ?? "{}");
+          // Sin la migración de la fase 2: categoria_anterior_id no existe (PGRST204, como PostgREST).
+          if (tabla === "alquiler_unidades" && rs.sinFase2 && "categoria_anterior_id" in cuerpo) {
+            rs.fallidos = (rs.fallidos ?? 0) + 1;
+            return respuesta(r, { code: "PGRST204", message: "Could not find the 'categoria_anterior_id' column of 'alquiler_unidades' in the schema cache" }, 400);
+          }
+          rs.escritos.push({ tabla, metodo: q.method(), cuerpo });
+          return r.fulfill({ status: 201, headers: CORS, body: "" });
+        }
+        return respuesta(r, tabla === "alquiler_unidades" ? rs.datos : rs.pagos);
+      });
+    }
+    await ctx.route("**/rest/v1/products*", (r) => {
+      const q = r.request();
+      const url = new URL(q.url());
+      if (q.method() === "OPTIONS" || !(url.searchParams.get("modo") === "eq.alquiler" || (q.method() === "PATCH" && url.searchParams.get("id")))) return r.fallback();
+      if (q.method() === "PATCH") {
+        rs.cambios.push({ tabla: "products", id: (url.searchParams.get("id") ?? "").replace(/^eq\./, ""), cuerpo: JSON.parse(q.postData() ?? "{}") });
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+      // Analítica solo cuenta (HEAD, sin filas), como PostgREST con count=exact.
+      if (q.method() === "HEAD") return r.fulfill({ status: 200, headers: { ...CORS, "content-range": `*/${rs.unidades.length}`, "access-control-expose-headers": "*" }, body: "" });
+      return respuesta(r, rs.unidades);
+    });
+    await ctx.route("**/rest/v1/product_media*", (r) => (r.request().method() === "OPTIONS" ? r.fallback() : respuesta(r, [])));
+    await ctx.route("**/rest/v1/perfiles_cliente*", (r) => {
+      const q = r.request();
+      if (q.method() !== "GET" || !/user_id=in\./.test(q.url())) return r.fallback();
+      return respuesta(r, PERFILES);
+    });
+    await ctx.route("**/rest/v1/pedidos*", (r) => {
+      const q = r.request();
+      if (q.method() !== "GET" || new URL(q.url()).searchParams.get("select") !== "user_id,nombre,telefono,email") return r.fallback();
+      return respuesta(r, [{ user_id: C1, nombre: null, telefono: null, email: "ana@example.com" }]);
+    });
+  };
+  const nuevo = () => ({ ajustes: { ...AJUSTES }, unidades: UNIDADES(), datos: DATOS(), alquileres: ALQUILERES(), pagos: PAGOS(), cambios: [], escritos: [] });
+
+  // --- Alquileres: cifras, unidades, lista y detalle (360, 390 y 1280); las acciones, en 390 ---
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`Alquileres ${nombre}`, async () => {
+      const rs = nuevo();
+      const ctx = await contexto(navegador, ADMIN, "admin", { filas: perfilAdmin, guardados: [], categorias: CATEGORIAS() }, vista);
+      await simular(ctx, rs);
+      const p = await pagina(ctx, "/admin/alquileres");
+      const sale = await p.locator(`#alquiler-fila-${A(1)}`).waitFor({ timeout: 40000 }).then(() => true, () => false);
+      ok(sale, `ALQ2 (${nombre}): se abre Alquileres con su lista`);
+      await p.waitForTimeout(500);
+      ok((await texto(p, "#alquiler-aviso-apagado")) === "El alquiler está apagado: los clientes no ven nada", `ALQ2 (${nombre}): sigue el aviso de apagado`);
+      const cifras = await texto(p, "#alquiler-cifras");
+      ok(/7 Unidades de alquiler/.test(cifras) && /1 Libres/.test(cifras) && /2 Alquiladas/.test(cifras) && /1 Toca venderla/.test(cifras) && /29 % Ocupación/.test(cifras) && /179 € Ingresos del mes/.test(cifras), `ALQ2 (${nombre}): las cifras (unidades, libres, alquiladas, «Toca venderla», ocupación e ingresos del mes) (${cifras})`);
+      // Unidades: el estado de cada una.
+      const est = [];
+      for (const n of [1, 2, 3, 4, 5, 6, 7]) est.push(await texto(p, `#alquiler-unidad-estado-${U(n)}`));
+      ok(est[0] === "Reservada" && est[1] === "Libre" && est[2] === "Toca venderla" && /^Alquilada hasta el \d{1,2} [a-z]+/.test(est[3]) && est[4] === "Por recoger" && est[5] === "En revisión" && est[6] === "En revisión", `ALQ2 (${nombre}): el estado de cada unidad (${est.join(" | ")})`);
+      ok(/^3 de 3 meses · Ganado 0 € · Coste 280 € · Publicada$/.test(await texto(p, `#alquiler-unidad-datos-${U(3)}`)) && /^1 de 3 meses · Ganado 179 € · Coste 310 € · Publicada$/.test(await texto(p, `#alquiler-unidad-datos-${U(4)}`)), `ALQ2 (${nombre}): meses, lo ganado y el coste de cada unidad (${await texto(p, `#alquiler-unidad-datos-${U(3)}`)} | ${await texto(p, `#alquiler-unidad-datos-${U(4)}`)})`);
+      ok(/Venta 550 € · 1 m 54,90 € · 2 m 99 € · 3 m 139 € · 4 m 179 €/.test(await texto(p, `#alquiler-unidad-${U(1)}`)) && /Venta 450 € · 1 m 44,90 € · 2 m 80,90 € · 3 m 109 € · 4 m 149 €/.test(await texto(p, `#alquiler-unidad-${U(3)}`)), `ALQ2 (${nombre}): los 4 precios del plan de cada unidad (${await texto(p, `#alquiler-unidad-${U(3)}`)})`);
+      // Lista de alquileres: pastillas con su recuento, filas compactas.
+      const pas = [];
+      for (const k of ["todos", "reservados", "activos", "por_recoger", "revision", "cerrados", "cancelados"]) pas.push(await texto(p, `#alquiler-pastilla-${k}`));
+      ok(pas.join(" · ") === "Todos (7) · Reservados (1) · Activos (1) · Por recoger (1) · En revisión (2) · Cerrados (1) · Cancelados (1)", `ALQ2 (${nombre}): las pastillas por estado con su recuento (${pas.join(" · ")})`);
+      ok((await alto(p, "#alquiler-pastilla-activos")) >= 44, `ALQ2 (${nombre}): las pastillas miden 44 px`);
+      const f3 = await texto(p, `#alquiler-${A(3)}`);
+      ok(/^Ana Gómez Por recoger PS5 Slim · unidad 4 · 3 meses · .+ → .+ 5 días de retraso 139 € Fianza 150 € · cobrada$/.test(f3), `ALQ2 (${nombre}): la fila dice cliente, estado, unidad, plan, fechas, retraso, importe y fianza (${f3})`);
+      ok(/^Quedan \d+ días$/.test(await texto(p, `#alquiler-plazo-${A(2)}`)) && /^Luis Pérez Activo PS5 Slim · unidad 3 · 4 meses/.test(await texto(p, `#alquiler-${A(2)}`)), `ALQ2 (${nombre}): el activo dice los días que quedan (${await texto(p, `#alquiler-plazo-${A(2)}`)})`);
+      ok((await p.locator('[id^="alquiler-detalle-"]').count()) === 0, `ALQ2 (${nombre}): las filas salen plegadas`);
+      await capturar(p, `ALQ2-lista-${nombre}`);
+      // Detalle por bloques del que va con retraso.
+      await p.locator(`#alquiler-fila-${A(3)}`).click();
+      await p.waitForTimeout(300);
+      const titulos = await p.evaluate((id) => [...document.querySelectorAll(`#alquiler-detalle-${id} [id^="alquiler-bloque-"]`)].map((b) => b.id.replace(/^alquiler-bloque-/, "").replace(/-[0-9a-f-]+$/, "")), A(3));
+      ok(titulos.join(",") === "cliente,alquiler,fianza,compra,contrato", `ALQ2 (${nombre}): el detalle por bloques (Cliente, Alquiler, Fianza, Compra tras alquiler y Contrato) (${titulos.join(",")})`);
+      const cli = await texto(p, `#alquiler-bloque-cliente-${A(3)}`);
+      ok(/Ana Gómez/.test(cli) && /600111222 · ana@example\.com/.test(cli) && /Ver ficha del cliente/.test(cli), `ALQ2 (${nombre}): el cliente con su contacto y su ficha, como en Pedidos (${cli})`);
+      ok((await texto(p, `#alquiler-recargo-calculado-${A(3)}`)) === "Recargo calculado: 12 € (5 días de retraso)", `ALQ2 (${nombre}): 5 días de retraso = 12 € de recargo (3 €/día y 1 de cortesía) (${await texto(p, `#alquiler-recargo-calculado-${A(3)}`)})`);
+      ok((await texto(p, `#alquiler-compra-${A(3)}`)) === "Si lo compra hoy: 550 − 139 + 50 = 461 €", `ALQ2 (${nombre}): la compra tras el alquiler, 550 − 139 + 50 = 461 € (${await texto(p, `#alquiler-compra-${A(3)}`)})`);
+      ok(/Huella SHA-256: (ab){32}/.test(await texto(p, `#alquiler-huella-${A(3)}`)) && /Fianza Importe: 150 € \(sin IVA\) Cómo se cobra: En efectivo o Bizum en la entrega Estado: cobrada Por devolver: 150 €/.test(await texto(p, `#alquiler-bloque-fianza-${A(3)}`)), `ALQ2 (${nombre}): la fianza y la huella del contrato (${await texto(p, `#alquiler-bloque-fianza-${A(3)}`)})`);
+      const acc = await texto(p, `#alquiler-acciones-${A(3)}`);
+      ok(acc === "Marcar recogido Renovar Vendido al cliente", `ALQ2 (${nombre}): por recoger, sus acciones (${acc})`);
+      await comprobarDiseno(p, nombre, "con un alquiler abierto");
+      await control(p, nombre);
+      await capturar(p, `ALQ2-detalle-${nombre}`);
+      // El tope: 80 días de retraso darían 237 €, pero como mucho la fianza.
+      await p.locator(`#alquiler-fila-${A(9)}`).click();
+      await p.waitForTimeout(300);
+      ok((await texto(p, `#alquiler-recargo-calculado-${A(9)}`)) === "Recargo calculado: 150 € (80 días de retraso)", `ALQ2 (${nombre}): con 80 días de retraso, el recargo se queda en la fianza (150 €) (${await texto(p, `#alquiler-recargo-calculado-${A(9)}`)})`);
+      // Unidad abierta (la que toca vender).
+      await p.locator(`#alquiler-unidad-fila-${U(3)}`).click();
+      await p.waitForTimeout(300);
+      ok(/Ha llegado al máximo de meses/.test(await texto(p, `#alquiler-unidad-detalle-${U(3)}`)) && /Resultado \(ganado − coste\): -280 €/.test(await texto(p, `#alquiler-unidad-detalle-${U(3)}`)), `ALQ2 (${nombre}): «Toca venderla» lo explica en su detalle`);
+      await comprobarDiseno(p, nombre, "con una unidad abierta");
+      await p.locator(`#alquiler-unidad-${U(3)}`).scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `ALQ2-unidad-${nombre}`);
+
+      if (nombre === "390") {
+        const cambiosDe = (id) => rs.cambios.filter((c) => c.tabla === "alquileres" && c.id === id);
+        const ultimo = (id) => cambiosDe(id).at(-1)?.cuerpo ?? {};
+        const escritos = (tabla) => rs.escritos.filter((e) => e.tabla === tabla);
+        const tocar = async (accion, id) => {
+          await p.locator(`#alquiler-accion-${accion}-${id}`).click();
+          await p.waitForTimeout(250);
+        };
+        const msg = (id) => texto(p, `#alquiler-accion-mensaje-${id}`);
+        // Pastillas y buscador.
+        await p.locator("#alquiler-pastilla-activos").click();
+        await p.waitForTimeout(250);
+        ok((await p.locator('[id^="alquiler-fila-"]').count()) === 1 && (await p.locator(`#alquiler-fila-${A(2)}`).count()) === 1, "ALQ2: la pastilla «Activos» deja solo el activo");
+        await p.locator("#alquiler-pastilla-todos").click();
+        await p.locator("#alquiler-buscar").fill("luis");
+        await p.waitForTimeout(250);
+        ok((await p.locator('[id^="alquiler-fila-"]').count()) === 4 && (await texto(p, "#alquiler-recuento")) === "4 de 7 alquileres", `ALQ2: el buscador encuentra los de Luis Pérez (${await texto(p, "#alquiler-recuento")})`);
+        await p.locator("#alquiler-buscar").fill("");
+        await p.waitForTimeout(250);
+
+        // A1 (reservado): «Cancelar» pide un segundo toque y «Descartar» no manda nada.
+        await p.locator(`#alquiler-fila-${A(1)}`).click();
+        await p.waitForTimeout(250);
+        ok((await texto(p, `#alquiler-acciones-${A(1)}`)) === "Marcar pagado Cancelar", `ALQ2: reservado sin pagar, sus acciones (${await texto(p, `#alquiler-acciones-${A(1)}`)})`);
+        await tocar("cancelar", A(1));
+        ok((await texto(p, `#alquiler-accion-cancelar-${A(1)}`)) === "Toca otra vez para cancelar el alquiler" && !cambiosDe(A(1)).length, "ALQ2: «Cancelar», el primer toque solo pide confirmar");
+        await p.locator(`#alquiler-descartar-${A(1)}`).click();
+        await p.waitForTimeout(200);
+        ok((await texto(p, `#alquiler-accion-cancelar-${A(1)}`)) === "Cancelar" && !cambiosDe(A(1)).length, "ALQ2: «Descartar» lo deja como estaba sin mandar nada");
+        // «Marcar pagado»: sin elegir cómo, no; con Stripe, la referencia; con Bizum, sí.
+        await tocar("pagado", A(1));
+        ok((await p.locator(`#alquiler-panel-pagado-${A(1)}`).count()) === 1 && !cambiosDe(A(1)).length, "ALQ2: «Marcar pagado», el primer toque abre cómo se cobró sin mandar nada");
+        await tocar("pagado", A(1));
+        ok(/Elige cómo se ha cobrado/.test(await msg(A(1))) && !cambiosDe(A(1)).length, `ALQ2: sin elegir cómo se cobró, no se apunta (${await msg(A(1))})`);
+        await p.locator(`#alquiler-cobro-stripe-${A(1)}`).click();
+        await tocar("pagado", A(1));
+        ok(/referencia del pago de Stripe/.test(await msg(A(1))) && !cambiosDe(A(1)).length, `ALQ2: con Stripe, pide la referencia (${await msg(A(1))})`);
+        await p.locator(`#alquiler-cobro-bizum-${A(1)}`).click();
+        await tocar("pagado", A(1));
+        await esperar(p, async () => cambiosDe(A(1)).length > 0);
+        const pg = ultimo(A(1));
+        ok(claves(pg) === "pagado_alquiler_eur,pago_modo,pago_referencia" && pg.pagado_alquiler_eur === 139 && pg.pago_modo === "bizum" && pg.pago_referencia === null, `ALQ2: «Marcar pagado» manda SOLO lo pagado, cómo y la referencia (${JSON.stringify(pg)})`);
+        await esperar(p, async () => escritos("alquiler_pagos").length > 0);
+        const pago1 = escritos("alquiler_pagos")[0]?.cuerpo ?? {};
+        ok(pago1.alquiler_id === A(1) && pago1.concepto === "alquiler" && pago1.meses === 3 && pago1.importe_eur === 139 && pago1.modo === "bizum" && claves(pago1) === "alquiler_id,concepto,importe_eur,meses,modo,referencia", `ALQ2: y lo apunta en el registro de cobros (${JSON.stringify(pago1)})`);
+        // «Marcar entregado»: activo, con el inicio y el fin según el plan; la fianza, cobrada.
+        ok((await texto(p, `#alquiler-acciones-${A(1)}`)).startsWith("Marcar entregado"), `ALQ2: ya pagado, toca «Marcar entregado» (${await texto(p, `#alquiler-acciones-${A(1)}`)})`);
+        await tocar("entregado", A(1));
+        ok(/queda como cobrada en la entrega/.test(await texto(p, `#alquiler-panel-entregado-${A(1)}`)), "ALQ2: «Marcar entregado» avisa de la fianza");
+        await tocar("entregado", A(1));
+        await esperar(p, async () => cambiosDe(A(1)).length > 1);
+        const en = ultimo(A(1));
+        const diasPlan = (Date.parse(en.fin_previsto_en) - Date.parse(en.inicio_en)) / DIA;
+        ok(claves(en) === "estado,fianza_estado,fin_previsto_en,inicio_en" && en.estado === "activo" && en.fianza_estado === "cobrada" && Math.abs(Date.parse(en.inicio_en) - Date.now()) < 120000 && diasPlan >= 89 && diasPlan <= 92, `ALQ2: «Marcar entregado» pone activo, el inicio y el fin a 3 meses y la fianza cobrada (${JSON.stringify(en)})`);
+        // Contrato: la copia aceptada.
+        await p.locator(`#alquiler-ver-contrato-${A(1)}`).click();
+        await p.waitForTimeout(400);
+        ok((await texto(p, `#alquiler-contrato-copia-${A(1)}`)) === CONTRATO, `ALQ2: «Ver la copia aceptada» trae el contrato (${await texto(p, `#alquiler-contrato-copia-${A(1)}`)})`);
+        await p.locator(`#alquiler-fila-${A(1)}`).click();
+
+        // A2 (activo, plan de 4 meses): renovar, cambio de unidad, recogida y recogido.
+        await p.locator(`#alquiler-fila-${A(2)}`).click();
+        await p.waitForTimeout(250);
+        ok((await texto(p, `#alquiler-acciones-${A(2)}`)) === "Renovar Cambio de unidad Pedir la recogida Vendido al cliente", `ALQ2: activo de 4 meses, sus acciones (${await texto(p, `#alquiler-acciones-${A(2)}`)})`);
+        const finAntes = rs.alquileres.find((a) => a.id === A(2)).fin_previsto_en;
+        await tocar("renovar", A(2));
+        ok((await p.locator(`#alquiler-importe-${A(2)}`).inputValue()) === "54,9", `ALQ2: «Renovar» propone el precio del plan (1 mes = 54,90 €)`);
+        await p.locator(`#alquiler-renovar-2-${A(2)}`).click();
+        ok((await p.locator(`#alquiler-importe-${A(2)}`).inputValue()) === "99", "ALQ2: con 2 meses, 99 €");
+        await p.locator(`#alquiler-cobro-efectivo-${A(2)}`).click();
+        await tocar("renovar", A(2));
+        await esperar(p, async () => cambiosDe(A(2)).length > 0);
+        const rn = ultimo(A(2));
+        ok(claves(rn) === "fin_previsto_en,pagado_alquiler_eur,pago_modo,pago_referencia" && rn.fin_previsto_en === masMeses(finAntes, 2) && rn.pagado_alquiler_eur === 278 && rn.pago_modo === "efectivo", `ALQ2: «Renovar» suma 2 meses al fin previsto y 99 € a lo pagado (${JSON.stringify(rn)})`);
+        await esperar(p, async () => escritos("alquiler_pagos").length > 1);
+        const pago2 = escritos("alquiler_pagos")[1]?.cuerpo ?? {};
+        ok(pago2.concepto === "renovacion" && pago2.meses === 2 && pago2.importe_eur === 99 && pago2.modo === "efectivo", `ALQ2: la renovación, en el registro de cobros (${JSON.stringify(pago2)})`);
+        await tocar("cambio", A(2));
+        ok((await p.locator(`#alquiler-cambio-unidad-${U(2)}-${A(2)}`).count()) === 1 && (await p.locator(`[id^="alquiler-cambio-unidad-"][id$="-${A(2)}"]`).count()) === 1, "ALQ2: «Cambio de unidad» ofrece solo las unidades libres (no la que toca vender)");
+        await tocar("cambio", A(2));
+        await esperar(p, async () => cambiosDe(A(2)).length > 1);
+        const cb = ultimo(A(2));
+        ok(claves(cb) === "cambio_product_id,cambio_unidad_en,product_id,producto_titulo" && cb.product_id === U(2) && cb.cambio_product_id === U(4) && cb.producto_titulo === "PS5 Slim · unidad 2", `ALQ2: «Cambio de unidad» guarda la nueva, la devuelta y la hora (${JSON.stringify(cb)})`);
+        await esperar(p, async () => escritos("alquiler_unidades").length > 0);
+        const mu = escritos("alquiler_unidades")[0]?.cuerpo ?? {};
+        ok(claves(mu) === "meses_alquilada,product_id" && mu.product_id === U(4) && mu.meses_alquilada > 1.9 && mu.meses_alquilada < 2.1, `ALQ2: la unidad devuelta suma el mes que ha estado alquilada (${JSON.stringify(mu)})`);
+        await tocar("recogida", A(2));
+        await tocar("recogida", A(2));
+        await esperar(p, async () => cambiosDe(A(2)).length > 2);
+        ok(JSON.stringify(ultimo(A(2))) === JSON.stringify({ estado: "por_recoger" }), `ALQ2: «Pedir la recogida» manda solo el estado (${JSON.stringify(ultimo(A(2)))})`);
+        await tocar("recogido", A(2));
+        await tocar("recogido", A(2));
+        await esperar(p, async () => cambiosDe(A(2)).length > 3);
+        const rc = ultimo(A(2));
+        ok(claves(rc) === "devuelto_en,estado" && rc.estado === "revision", `ALQ2: «Marcar recogido» pone en revisión con la hora (${JSON.stringify(rc)})`);
+        await esperar(p, async () => escritos("alquiler_unidades").length > 1);
+        const mu2 = escritos("alquiler_unidades")[1]?.cuerpo ?? {};
+        ok(mu2.product_id === U(2) && mu2.meses_alquilada > 4.9 && mu2.meses_alquilada < 5.1, `ALQ2: y la unidad nueva suma sus meses (6 contratados menos el que tuvo la otra) (${JSON.stringify(mu2)})`);
+        await p.locator(`#alquiler-fila-${A(2)}`).click();
+
+        // «Pasar a la venta» de una unidad con un alquiler en curso: no.
+        await p.locator(`#alquiler-unidad-fila-${U(5)}`).click();
+        await p.waitForTimeout(250);
+        await p.locator(`#alquiler-unidad-venta-${U(5)}`).click();
+        await p.waitForTimeout(200);
+        await p.locator(`#alquiler-unidad-venta-${U(5)}`).click();
+        await p.waitForTimeout(300);
+        ok(/Tiene un alquiler en curso/.test(await texto(p, `#alquiler-unidad-mensaje-${U(5)}`)) && !rs.cambios.some((c) => c.tabla === "products"), `ALQ2: una unidad con un alquiler en curso no se pasa a la venta (${await texto(p, `#alquiler-unidad-mensaje-${U(5)}`)})`);
+        await p.locator(`#alquiler-unidad-fila-${U(5)}`).click();
+
+        // A3 (por recoger): «Vendido al cliente» por 461 €.
+        await tocar("vendido", A(3));
+        ok(/550 − 139 \+ 50 = 461 €/.test(await texto(p, `#alquiler-panel-vendido-${A(3)}`)), `ALQ2: «Vendido al cliente» enseña la cuenta (${await texto(p, `#alquiler-panel-vendido-${A(3)}`)})`);
+        await tocar("vendido", A(3));
+        ok(/Elige cómo se ha cobrado/.test(await msg(A(3))) && !cambiosDe(A(3)).length, "ALQ2: sin elegir cómo se cobró, no se vende");
+        await p.locator(`#alquiler-cobro-efectivo-${A(3)}`).click();
+        await tocar("vendido", A(3));
+        await esperar(p, async () => cambiosDe(A(3)).length > 0 && rs.cambios.some((c) => c.tabla === "products"));
+        const vd = ultimo(A(3));
+        const pr = rs.cambios.find((c) => c.tabla === "products") ?? {};
+        ok(claves(vd) === "compra_eur,comprado_en,estado,fianza_estado" && vd.compra_eur === 461 && vd.estado === "cerrado" && vd.fianza_estado === "devuelta", `ALQ2: «Vendido al cliente» guarda la compra (461 €) y cierra (${JSON.stringify(vd)})`);
+        ok(pr.id === U(5) && claves(pr.cuerpo) === "category_id,is_active,modo,vendido_en" && pr.cuerpo.is_active === false && pr.cuerpo.modo === "venta" && pr.cuerpo.category_id === CAT.ps5 && !!pr.cuerpo.vendido_en, `ALQ2: y el artículo pasa a vendido como las ventas (${JSON.stringify(pr)})`);
+        await esperar(p, async () => escritos("alquiler_pagos").some((e) => e.cuerpo.concepto === "compra"));
+        ok(escritos("alquiler_pagos").some((e) => e.cuerpo.concepto === "compra" && e.cuerpo.importe_eur === 461 && e.cuerpo.modo === "efectivo"), "ALQ2: la compra, en el registro de cobros");
+        ok((await p.locator(`#alquiler-unidad-${U(5)}`).count()) === 0, "ALQ2: la unidad vendida sale de la lista de unidades");
+
+        // A4 (en revisión, 5 días de retraso): recargo, descuento con motivo y cerrar.
+        await p.locator(`#alquiler-fila-${A(4)}`).click();
+        await p.waitForTimeout(250);
+        ok((await texto(p, `#alquiler-acciones-${A(4)}`)) === "Cobrar recargo Devolver fianza Descontar de la fianza", `ALQ2: en revisión con retraso, sus acciones (${await texto(p, `#alquiler-acciones-${A(4)}`)})`);
+        await tocar("recargo", A(4));
+        ok((await p.locator(`#alquiler-importe-${A(4)}`).inputValue()) === "12" && /5 días de retraso/.test(await texto(p, `#alquiler-panel-recargo-${A(4)}`)), "ALQ2: «Cobrar recargo» propone los 12 € calculados");
+        await tocar("recargo", A(4));
+        await esperar(p, async () => cambiosDe(A(4)).length > 0);
+        ok(JSON.stringify(ultimo(A(4))) === JSON.stringify({ recargo_eur: 12 }), `ALQ2: «Cobrar recargo» manda solo el recargo (${JSON.stringify(ultimo(A(4)))})`);
+        await esperar(p, async () => escritos("alquiler_pagos").some((e) => e.cuerpo.concepto === "recargo"));
+        ok(escritos("alquiler_pagos").some((e) => e.cuerpo.concepto === "recargo" && e.cuerpo.importe_eur === 12 && e.cuerpo.modo === "fianza"), "ALQ2: el recargo, en el registro (cobrado de la fianza)");
+        ok((await texto(p, `#alquiler-acciones-${A(4)}`)).startsWith("Devolver fianza Descontar de la fianza"), "ALQ2: cobrado el recargo, ya no se ofrece otra vez");
+        await tocar("descontar", A(4));
+        ok((await texto(p, `#alquiler-motivo-ayuda-${A(4)}`)) === "Lo verá el cliente: escríbelo de forma clara y profesional.", "ALQ2: el motivo lleva su ayuda «Lo verá el cliente…»");
+        await p.locator(`#alquiler-importe-${A(4)}`).fill("200");
+        await p.locator(`#alquiler-motivo-${A(4)}`).fill("Falta el cable HDMI original.");
+        await tocar("descontar", A(4));
+        ok(/no puede pasar de lo que queda de la fianza \(138 €\)/.test(await msg(A(4))) && cambiosDe(A(4)).length === 1, `ALQ2: el descuento no pasa de lo que queda de la fianza (${await msg(A(4))})`);
+        await p.locator(`#alquiler-importe-${A(4)}`).fill("20");
+        await p.locator(`#alquiler-motivo-${A(4)}`).fill("  ");
+        await tocar("descontar", A(4));
+        ok(/Escribe el motivo del descuento: lo verá el cliente/.test(await msg(A(4))) && cambiosDe(A(4)).length === 1, `ALQ2: sin motivo no se descuenta (${await msg(A(4))})`);
+        await capturar(p, "ALQ2-descontar-390");
+        await comprobarDiseno(p, "390", "con el descuento de la fianza abierto");
+        await p.locator(`#alquiler-motivo-${A(4)}`).fill("Falta el cable HDMI original.");
+        await tocar("descontar", A(4));
+        await esperar(p, async () => cambiosDe(A(4)).length > 1);
+        const ds = ultimo(A(4));
+        ok(claves(ds) === "fianza_descuento_eur,fianza_descuento_motivo,fianza_estado" && ds.fianza_descuento_eur === 20 && ds.fianza_descuento_motivo === "Falta el cable HDMI original." && ds.fianza_estado === "descontada", `ALQ2: «Descontar de la fianza» manda el importe, el motivo y el estado (${JSON.stringify(ds)})`);
+        ok(/Se devuelven 118 €/.test(await msg(A(4))), `ALQ2: y dice lo que se devuelve (150 − 12 − 20 = 118 €) (${await msg(A(4))})`);
+        ok((await texto(p, `#alquiler-acciones-${A(4)}`)).startsWith("Cerrar"), "ALQ2: con la fianza resuelta, toca «Cerrar»");
+        await tocar("cerrar", A(4));
+        await tocar("cerrar", A(4));
+        await esperar(p, async () => cambiosDe(A(4)).length > 2);
+        ok(JSON.stringify(ultimo(A(4))) === JSON.stringify({ estado: "cerrado" }), "ALQ2: «Cerrar» manda solo el estado");
+        await p.locator(`#alquiler-fila-${A(4)}`).click();
+
+        // A9 (en revisión): «Devolver fianza».
+        await tocar("devolver", A(9));
+        ok((await texto(p, `#alquiler-accion-devolver-${A(9)}`)) === "Toca otra vez para devolver 150 €" && !cambiosDe(A(9)).length, "ALQ2: «Devolver fianza» pide confirmar con el importe");
+        await tocar("devolver", A(9));
+        await esperar(p, async () => cambiosDe(A(9)).length > 0);
+        ok(JSON.stringify(ultimo(A(9))) === JSON.stringify({ fianza_estado: "devuelta" }), `ALQ2: «Devolver fianza» manda solo su estado (${JSON.stringify(ultimo(A(9)))})`);
+
+        // «Pasar a la venta» de la que toca vender: a su categoría de antes (Xbox).
+        await p.locator(`#alquiler-unidad-venta-${U(3)}`).click();
+        await p.waitForTimeout(250);
+        // La elegida, con el fondo azul claro de las pastillas activas (#EAF6FD).
+        const fondoChip = (id) => p.locator(id).first().evaluate((e) => getComputedStyle(e).backgroundColor).catch(() => "");
+        ok((await fondoChip(`#alquiler-unidad-categoria-${CAT.xbox}-${U(3)}`)) === "rgb(234, 246, 253)" && (await fondoChip(`#alquiler-unidad-categoria-${CAT.ps5}-${U(3)}`)) !== "rgb(234, 246, 253)" && (await p.locator(`#alquiler-unidad-categoria-${CAT.alq}-${U(3)}`).count()) === 0, "ALQ2: «Pasar a la venta» marca su categoría de antes (y no ofrece «Alquílalo ahora»)");
+        await capturar(p, "ALQ2-pasar-venta-390");
+        await p.locator(`#alquiler-unidad-venta-${U(3)}`).click();
+        await esperar(p, async () => rs.cambios.filter((c) => c.tabla === "products").length > 1);
+        const pv = rs.cambios.filter((c) => c.tabla === "products").at(-1) ?? {};
+        ok(pv.id === U(3) && JSON.stringify(pv.cuerpo) === JSON.stringify({ modo: "venta", category_id: CAT.xbox }), `ALQ2: «Pasar a la venta» vuelve a venta en su categoría (${JSON.stringify(pv)})`);
+        await p.waitForTimeout(300);
+        ok((await p.locator(`#alquiler-unidad-${U(3)}`).count()) === 0 && /ya está a la venta en Xbox/.test(await texto(p, "#alquiler-unidades-aviso")), `ALQ2: y sale de las unidades con su aviso (${await texto(p, "#alquiler-unidades-aviso")})`);
+        // Nada más: cada acción ha mandado lo suyo y ninguna fila se ha borrado.
+        ok(rs.cambios.filter((c) => c.tabla === "alquileres").length === 11, `ALQ2: 11 cambios de alquileres, ni uno más (${rs.cambios.filter((c) => c.tabla === "alquileres").length})`);
+      }
+      ok(p.errores.length === 0, `ALQ2 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
+  // --- Productos: «Para alquilar» y la ficha de una unidad ---
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`Productos ${nombre}`, async () => {
+      const P1 = "a2b00000-0000-4000-8000-000000000001";
+      const P2 = "a2b00000-0000-4000-8000-000000000002";
+      const prod = (id, title, extra) => ({
+        id, title, description: "Revisado y limpio.", price_eur: 300, status: "PUBLISHED", is_active: true, category_id: CAT.ns, condition: "GOOD", reference: null, is_featured_home: false,
+        created_at: "2026-11-01T10:00:00Z", updated_at: "2026-11-10T10:00:00Z", modo: "venta", ...extra,
+      });
+      const rs = { cambios: [], escritos: [], sinFase2: nombre === "1280" };
+      const estado = { guardados: [], filas: [], categorias: CATEGORIAS(), productosAdmin: [prod(P1, "Nintendo Switch OLED"), prod(P2, "PS5 Slim de alquiler", { price_eur: 550, category_id: CAT.alq, modo: "alquiler" })] };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      await ctx.route("**/rest/v1/alquiler_unidades*", (r) => {
+        const q = r.request();
+        if (q.method() === "OPTIONS") return r.fallback();
+        const cuerpo = JSON.parse(q.postData() ?? "{}");
+        if (rs.sinFase2 && "categoria_anterior_id" in cuerpo) {
+          rs.fallidos = (rs.fallidos ?? 0) + 1;
+          return respuesta(r, { code: "PGRST204", message: "Could not find the 'categoria_anterior_id' column of 'alquiler_unidades' in the schema cache" }, 400);
+        }
+        rs.escritos.push({ metodo: q.method(), cuerpo });
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      });
+      const p = await pagina(ctx, "/admin/products");
+      await p.locator(`#producto-fila-${P1}`).waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      ok((await texto(p, `#producto-estado-${P2}`)) === "Para alquilar" && (await texto(p, `#producto-estado-${P1}`)) === "A la venta", `ALQ2 (${nombre}): Productos, la unidad de alquiler con su etiqueta «Para alquilar» (${await texto(p, `#producto-estado-${P2}`)})`);
+      await p.locator(`#producto-fila-${P2}`).click();
+      await p.waitForTimeout(250);
+      ok((await p.locator(`#producto-para-alquilar-${P2}`).count()) === 0 && /Unidad de alquiler: sus precios, su estado y «Pasar a la venta» están en Administración → Alquileres/.test(await texto(p, `#producto-alquiler-info-${P2}`)), `ALQ2 (${nombre}): Productos, una unidad no ofrece «Para alquilar» y dice dónde se gestiona`);
+      await p.locator(`#producto-fila-${P2}`).click();
+      await p.locator(`#producto-fila-${P1}`).click();
+      await p.waitForTimeout(250);
+      ok((await alto(p, `#producto-para-alquilar-${P1}`)) >= 44 && (await texto(p, `#producto-para-alquilar-${P1}`)) === "Para alquilar", `ALQ2 (${nombre}): Productos, «Para alquilar» en las acciones, de 44 px`);
+      await p.locator(`#producto-para-alquilar-${P1}`).click();
+      await p.waitForTimeout(250);
+      ok((await p.locator(`#producto-alquiler-panel-${P1}`).count()) === 1 && (await texto(p, `#producto-para-alquilar-${P1}`)) === "Toca otra vez para pasarlo a alquiler" && !(estado.productosCambiados ?? []).length, "ALQ2: «Para alquilar», el primer toque pide el coste y confirmar, sin mandar nada");
+      await comprobarDiseno(p, nombre, "Productos con «Para alquilar» abierto");
+      await capturar(p, `ALQ2-productos-${nombre}`);
+      await p.locator(`#producto-alquiler-coste-${P1}`).fill("250");
+      await p.locator(`#producto-para-alquilar-${P1}`).click();
+      await esperar(p, async () => (estado.productosCambiados ?? []).length > 0 && rs.escritos.length > 0);
+      const c = (estado.productosCambiados ?? [])[0] ?? {};
+      ok(c.id === P1 && JSON.stringify(c.cuerpo) === JSON.stringify({ modo: "alquiler", category_id: CAT.alq }), `ALQ2 (${nombre}): «Para alquilar» pasa el artículo a alquiler y a «Alquílalo ahora» (${JSON.stringify(c)})`);
+      const e = rs.escritos[0]?.cuerpo ?? {};
+      if (rs.sinFase2) {
+        ok(rs.fallidos === 1 && JSON.stringify(e) === JSON.stringify({ product_id: P1, coste_eur: 250 }), `ALQ2 (${nombre}): sin la migración de la fase 2, crea la unidad sin la categoría de antes (${rs.fallidos} intento fallido; ${JSON.stringify(e)})`);
+      } else {
+        ok(JSON.stringify(e) === JSON.stringify({ product_id: P1, categoria_anterior_id: CAT.ns, coste_eur: 250 }), `ALQ2 (${nombre}): y crea su unidad con el coste y la categoría de antes (${JSON.stringify(e)})`);
+      }
+      await p.waitForTimeout(300);
+      ok((await texto(p, `#producto-estado-${P1}`)) === "Para alquilar" && /ya no se vende/.test(await texto(p, `#producto-alquiler-mensaje-${P1}`)) && (await p.locator(`#producto-para-alquilar-${P1}`).count()) === 0, `ALQ2 (${nombre}): queda «Para alquilar» y lo confirma (${await texto(p, `#producto-alquiler-mensaje-${P1}`)})`);
+      if (nombre === "390") {
+        // La ficha de edición de una unidad: su categoría fija y dónde se devuelve a la venta.
+        await p.locator(`[aria-label="Editar PS5 Slim de alquiler"]`).first().click();
+        await p.waitForTimeout(500);
+        ok(/«Alquílalo ahora» \(unidad de alquiler\)/.test(await texto(p, "#producto-categoria-alquiler")) && (await p.locator("#producto-categoria").count()) === 0, "ALQ2: la ficha de edición de una unidad dice su categoría y dónde pasarla a la venta");
+        await capturar(p, "ALQ2-productos-ficha-390");
+      }
+      ok(p.errores.length === 0, `ALQ2 (${nombre}): Productos sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
+  // --- Analítica: el bloque «Alquiler» (solo números) ---
+  await bloque("Analítica", async () => {
+    const rs = nuevo();
+    const ctx = await contexto(navegador, ADMIN, "admin", { filas: perfilAdmin, guardados: [], embudo: [], eventos: [] }, {});
+    await simular(ctx, rs);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-alquiler").waitFor({ timeout: 40000 }).catch(() => {});
+    const t1 = await texto(p, "#analitica-alquiler-unidades");
+    const t2 = await texto(p, "#analitica-alquiler-fianzas");
+    ok(t1 === "Unidades 7 · ocupación 29 % · ingresos del mes 179 €" && t2 === "Fianzas retenidas 600 € (4) · renovaciones 1", `ALQ2: Analítica, el bloque «Alquiler» (${t1} | ${t2})`);
+    await p.locator("#analitica-alquiler").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "ALQ2-analitica-390");
+    ok(p.errores.length === 0, `ALQ2: Analítica sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
 }
 
 // ===== RESEN) Reservar con señal (mejora 14, 2026-11-15) ==============================================================
@@ -19995,7 +20560,10 @@ async function seccionVENDP() {
         ok(rep.length === 1 && JSON.stringify(rep[0].ids) === JSON.stringify([MANDO]) && JSON.stringify(rep[0].cuerpo) === JSON.stringify({ is_active: true, vendido_en: null, vendido_pedido_id: null }), `VENDP3: vuelve a la venta solo ese artículo (${JSON.stringify(rep)})`);
         ok(/Artículo otra vez a la venta/.test(await texto(p, "#pedido-accion-mensaje-203")) && (await p.locator("#pedido-reponer-203").count()) === 0, `VENDP3: lo confirma y el botón desaparece (${await texto(p, "#pedido-accion-mensaje-203")})`);
         // Cancelar un pedido pagado: sus artículos NO vuelven solos a la venta; lo dice y ofrece el botón.
+        // Desde 2026-11-16 (PR #292) cancelar exige elegir el motivo antes del segundo toque.
         await p.locator("#pedido-cancelar-204").click();
+        await p.waitForTimeout(200);
+        await p.locator("#pedido-motivo-204-0").click();
         await p.waitForTimeout(200);
         await p.locator("#pedido-cancelar-204").click();
         await p.waitForTimeout(800);
@@ -23185,6 +23753,7 @@ try {
   if (SOLO === "FRANJ") await seccionFRANJ();
   if (SOLO === "RESEN") await seccionRESEN();
   if (SOLO === "ALQ1") await seccionALQ1();
+  if (SOLO === "ALQ2") await seccionALQ2();
   if (SOLO === "AVISOM") await seccionAVISOM();
   if (SOLO === "CHATP") await seccionCHATP();
   if (SOLO === "VALOR") await seccionVALOR();
@@ -24315,6 +24884,7 @@ try {
   await seccionCANDIS();
   await seccionVENFOT();
   await seccionALQ1();
+  await seccionALQ2();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
