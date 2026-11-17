@@ -29,9 +29,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ContratarServicioModal from "../../components/ContratarServicioModal";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import CargaMarca from "../../components/marca/CargaMarca";
-import { fetchService, fotoDeOpcion } from "../servicio/[id]";
+import { leerServicio, fotoDeOpcion } from "../servicio/[id]";
 
-type ServicioCargado = NonNullable<Awaited<ReturnType<typeof fetchService>>>;
+type ServicioCargado = NonNullable<Awaited<ReturnType<typeof leerServicio>>>;
 
 function volver(id: string) {
   try {
@@ -61,7 +61,7 @@ export default function ContratarServicioScreen() {
       return;
     }
     setEstado("cargando");
-    fetchService(id)
+    leerServicio(id)
       .then((s) => {
         if (!vivo) return;
         setServicio(s);

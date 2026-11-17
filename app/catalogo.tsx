@@ -133,12 +133,12 @@ const COLORS = {
 };
 
 /** Productos por página (consulta con .range()). */
-const PAGE_SIZE = 24;
+const TAMANO_PAGINA_CATALOGO = 24;
 
 /** Solo lo que pinta la tarjeta (antes se pedían joins y columnas de más). */
-const PRODUCT_COLUMNS = "id,title,description,price_eur,status,images";
+const COLUMNAS_PRODUCTO_CATALOGO = "id,title,description,price_eur,status,images";
 
-type UiFilter = "ALL" | "PUBLICADA" | "LISTA" | "REVISAR";
+type FiltroVista = "ALL" | "PUBLICADA" | "LISTA" | "REVISAR";
 type UiStatus = "PUBLICADA" | "LISTA" | "REVISAR";
 type DbStatus = "DRAFT" | "PUBLISHED" | "REVIEW";
 
@@ -180,9 +180,9 @@ type Product = {
   imageUrl: string | null;
 };
 
-type ListFilters = {
+type FiltrosLista = {
   adminFlag: boolean;
-  statusFilter: UiFilter;
+  statusFilter: FiltroVista;
   categoryId: string | null;
   condition: FiltroEstadoCatalogo;
   /** 1–1000 (1 = sin mínimo; 1000 = «1000 € o más», sin tope). */
@@ -213,21 +213,21 @@ function mapDbStatusToUi(s: DbStatus): UiStatus {
   return "REVISAR";
 }
 
-function uiFilterToDb(f: UiFilter): DbStatus | null {
+function filtroVistaABase(f: FiltroVista): DbStatus | null {
   if (f === "PUBLICADA") return "PUBLISHED";
   if (f === "LISTA") return "DRAFT";
   if (f === "REVISAR") return "REVIEW";
   return null;
 }
 
-function adminStatusLabel(s: UiStatus) {
+function textoEstadoAdmin(s: UiStatus) {
   if (s === "PUBLICADA") return "Publicada";
   if (s === "LISTA") return "Lista";
   return "Por revisar";
 }
 
 // Color del texto del estado interno (solo lo ve el administrador).
-function adminStatusColor(s: UiStatus) {
+function colorEstadoAdmin(s: UiStatus) {
   if (s === "PUBLICADA") return "#15803D";
   if (s === "LISTA") return "#92660B";
   return "#B91C1C";
@@ -245,7 +245,7 @@ function smartBack() {
   replaceRoute("/" as Href);
 }
 
-function legacyCatLabel(raw?: string) {
+function nombreCategoriaAntigua(raw?: string) {
   if (!raw) return undefined;
   const legacyMap: Record<string, string> = {
     c1: "Nintendo Switch",
@@ -262,14 +262,14 @@ function legacyCatLabel(raw?: string) {
   return legacyMap[raw];
 }
 
-function calcColumns(width: number) {
+function calcularColumnas(width: number) {
   if (width >= 1320) return 4;
   if (width >= 980) return 3;
   if (width >= 680) return 2;
   return 1;
 }
 
-function resolveCategory(rawCat: string | undefined, cats: CategoryRow[]) {
+function resolverCategoria(rawCat: string | undefined, cats: CategoryRow[]) {
   if (!rawCat) return undefined;
   return cats.find((c) => c.slug === rawCat) ?? cats.find((c) => c.id === rawCat);
 }
@@ -319,7 +319,7 @@ async function detectAdmin(): Promise<boolean> {
   }
 }
 
-async function fetchCategoriesSafe(adminFlag: boolean): Promise<CategoryRow[]> {
+async function leerCategoriasCatalogo(adminFlag: boolean): Promise<CategoryRow[]> {
   const consultar = (columnas: string) =>
     supabase
       .from("categories")
@@ -344,21 +344,21 @@ async function fetchCategoriesSafe(adminFlag: boolean): Promise<CategoryRow[]> {
  * Una página de productos con TODOS los filtros y el orden aplicados en la
  * consulta (así .range() y el total son correctos).
  */
-async function fetchProductsPage(
-  f: ListFilters,
+async function leerPaginaProductos(
+  f: FiltrosLista,
   offset: number
 ): Promise<{ rows: ProductDbRow[]; total: number | null; busqueda?: InfoBusqueda }> {
   // Con texto: búsqueda tolerante en el índice ligero (components/BarraBusqueda.tsx) y luego solo esa página de filas.
   if (f.queryText) {
-    const porIndice = await fetchProductsPageBuscando(f, offset);
+    const porIndice = await leerPaginaProductosBuscando(f, offset);
     if (porIndice) return porIndice;
   }
-  let query = supabase.from("products").select(PRODUCT_COLUMNS, { count: "exact" });
+  let query = supabase.from("products").select(COLUMNAS_PRODUCTO_CATALOGO, { count: "exact" });
 
   if (!f.adminFlag) {
     query = query.eq("is_active", true).eq("status", "PUBLISHED");
   } else {
-    const dbStatus = uiFilterToDb(f.statusFilter);
+    const dbStatus = filtroVistaABase(f.statusFilter);
     if (dbStatus) query = query.eq("status", dbStatus);
   }
 
@@ -394,7 +394,7 @@ async function fetchProductsPage(
   // Desempate estable para que la paginación no repita ni salte productos.
   query = query.order("created_at", { ascending: false }).order("id", { ascending: true });
 
-  const { data, error, count } = await query.range(offset, offset + PAGE_SIZE - 1);
+  const { data, error, count } = await query.range(offset, offset + TAMANO_PAGINA_CATALOGO - 1);
   if (error) throw error;
 
   return { rows: asArray<ProductDbRow>(data), total: typeof count === "number" ? count : null };
@@ -416,13 +416,13 @@ function ordenarIndice(lista: ProductoIndice[], sort: ClaveOrden): ProductoIndic
  * sinónimos, plurales y errores de escritura, ordena por relevancia y pide a Supabase SOLO las 24 filas de esa página.
  * null = el índice no se ha podido cargar (se busca como antes).
  */
-async function fetchProductsPageBuscando(
-  f: ListFilters,
+async function leerPaginaProductosBuscando(
+  f: FiltrosLista,
   offset: number
 ): Promise<{ rows: ProductDbRow[]; total: number; busqueda: InfoBusqueda } | null> {
   const indice = await cargarIndiceBusqueda(f.adminFlag);
   if (!indice) return null;
-  const dbStatus = f.adminFlag ? uiFilterToDb(f.statusFilter) : null;
+  const dbStatus = f.adminFlag ? filtroVistaABase(f.statusFilter) : null;
   const usados: readonly string[] = ESTADOS_USADO;
   const lista = indice.productos.filter(
     (p) =>
@@ -433,10 +433,10 @@ async function fetchProductsPageBuscando(
       (f.priceMax >= PRECIO_MAX || p.precio <= f.priceMax)
   );
   const r = buscarProductos(ordenarIndice(lista, f.sort), f.queryText);
-  const ids = r.productos.slice(offset, offset + PAGE_SIZE).map((p) => p.id);
+  const ids = r.productos.slice(offset, offset + TAMANO_PAGINA_CATALOGO).map((p) => p.id);
   let rows: ProductDbRow[] = [];
   if (ids.length) {
-    const { data, error } = await supabase.from("products").select(PRODUCT_COLUMNS).in("id", ids);
+    const { data, error } = await supabase.from("products").select(COLUMNAS_PRODUCTO_CATALOGO).in("id", ids);
     if (error) throw error;
     const porId = new Map(asArray<ProductDbRow>(data).map((row) => [row.id, row]));
     rows = ids.map((id) => porId.get(id)).filter((row): row is ProductDbRow => !!row);
@@ -445,7 +445,7 @@ async function fetchProductsPageBuscando(
 }
 
 /** Fotos (solo imágenes) de los productos de UNA página (máx. 24 ids). */
-async function fetchCoverMap(productIds: string[]) {
+async function leerMapaPortadas(productIds: string[]) {
   const map = new Map<string, ProductMediaRow[]>();
   if (!productIds.length) return map;
 
@@ -474,7 +474,7 @@ async function fetchCoverMap(productIds: string[]) {
   return map;
 }
 
-function mapRows(rows: ProductDbRow[], mediaMap: Map<string, ProductMediaRow[]>): Product[] {
+function convertirFilasCatalogo(rows: ProductDbRow[], mediaMap: Map<string, ProductMediaRow[]>): Product[] {
   return rows.map((row) => ({
     id: row.id,
     title: String(row.title ?? ""),
@@ -514,7 +514,7 @@ export default function CatalogoScreen() {
   const [hasMore, setHasMore] = useState(false);
 
   // Filtros
-  const [filter, setFilter] = useState<UiFilter>("ALL");
+  const [filter, setFilter] = useState<FiltroVista>("ALL");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   // Estado y precio viven en la dirección (?estado=bueno&precio_min=20&precio_max=300): se pueden compartir y no se
   // pierden al volver atrás (mejora 3, 2026-11-14).
@@ -596,10 +596,10 @@ export default function CatalogoScreen() {
   // Móvil: 1 producto se ve grande; con 2 o más, rejilla de 2 columnas.
   const cols = useMemo(() => {
     if (isMobile) return items.length > 1 ? 2 : 1;
-    return calcColumns(widthSafe);
+    return calcularColumnas(widthSafe);
   }, [isMobile, items.length, widthSafe]);
 
-  const effectiveFilter: UiFilter = isAdmin ? filter : "PUBLICADA";
+  const effectiveFilter: FiltroVista = isAdmin ? filter : "PUBLICADA";
 
   const selectedCategory = useMemo(
     () => categories.find((c) => c.id === categoryId),
@@ -615,13 +615,13 @@ export default function CatalogoScreen() {
 
   const pageTitle = useMemo(() => {
     if (selectedCategory?.name) return selectedCategory.name;
-    if (!ready && rawCat) return legacyCatLabel(rawCat) ?? "Catálogo";
+    if (!ready && rawCat) return nombreCategoriaAntigua(rawCat) ?? "Catálogo";
     return "Catálogo";
   }, [selectedCategory, ready, rawCat]);
 
   // Dentro de una categoría (se entró con ?cat=, p. ej. desde Inicio): los filtros son los de esa categoría
   // (sin «Plataforma») y «Quitar filtros» no la quita (dueño, 2026-11-07).
-  const categoriaDeUrl = useMemo(() => (rawCat ? resolveCategory(rawCat, categories)?.id ?? null : null), [rawCat, categories]);
+  const categoriaDeUrl = useMemo(() => (rawCat ? resolverCategoria(rawCat, categories)?.id ?? null : null), [rawCat, categories]);
   const enCategoria = !!categoriaDeUrl && categoryId === categoriaDeUrl;
 
   // Lo que hay en la categoría (estados y tramos de precio) para no ofrecer filtros sin productos.
@@ -693,8 +693,8 @@ export default function CatalogoScreen() {
           comparar={{ id: p.id, titulo: p.title, precio: p.priceEUR, imagen: p.imageUrl }}
           extra={
             isAdmin ? (
-              <Text style={{ color: adminStatusColor(p.status), fontWeight: "800", fontSize: 11.5, marginTop: 4, textAlign: "center" }}>
-                {adminStatusLabel(p.status)}
+              <Text style={{ color: colorEstadoAdmin(p.status), fontWeight: "800", fontSize: 11.5, marginTop: 4, textAlign: "center" }}>
+                {textoEstadoAdmin(p.status)}
               </Text>
             ) : null
           }
@@ -708,7 +708,7 @@ export default function CatalogoScreen() {
     if (items.length > 0) medirCargaPantalla("catalogo");
   }, [items.length]);
 
-  const currentFilters: ListFilters = useMemo(
+  const currentFilters: FiltrosLista = useMemo(
     () => ({
       adminFlag: isAdmin,
       statusFilter: effectiveFilter,
@@ -723,21 +723,21 @@ export default function CatalogoScreen() {
   );
 
   // Primera página con los filtros actuales (sustituye la lista).
-  const loadFirstPage = useCallback(async (f: ListFilters) => {
+  const loadFirstPage = useCallback(async (f: FiltrosLista) => {
     const seq = ++reqSeqRef.current;
     loadingMoreRef.current = false;
     setLoadingMore(false);
     setRefreshing(true);
     setErr(null);
     try {
-      const { rows, total: count, busqueda } = await fetchProductsPage(f, 0);
+      const { rows, total: count, busqueda } = await leerPaginaProductos(f, 0);
       if (seq !== reqSeqRef.current) return;
-      const mediaMap = await fetchCoverMap(rows.map((r) => r.id));
+      const mediaMap = await leerMapaPortadas(rows.map((r) => r.id));
       if (seq !== reqSeqRef.current) return;
 
-      setItems(mapRows(rows, mediaMap));
+      setItems(convertirFilasCatalogo(rows, mediaMap));
       setTotal(count);
-      setHasMore(count !== null ? rows.length < count : rows.length === PAGE_SIZE);
+      setHasMore(count !== null ? rows.length < count : rows.length === TAMANO_PAGINA_CATALOGO);
       setInfoBusqueda(f.queryText && busqueda ? busqueda : null);
       // Analítica propia (Administración → Analítica → Búsquedas): lo buscado (normalizado), cuántos resultados y si
       // hizo falta un sinónimo o una corrección. Una vez por texto (no con cada cambio de filtro).
@@ -772,17 +772,17 @@ export default function CatalogoScreen() {
     setLoadingMore(true);
     const seq = reqSeqRef.current;
     try {
-      const { rows, total: count } = await fetchProductsPage(currentFilters, items.length);
+      const { rows, total: count } = await leerPaginaProductos(currentFilters, items.length);
       if (seq !== reqSeqRef.current) return;
-      const mediaMap = await fetchCoverMap(rows.map((r) => r.id));
+      const mediaMap = await leerMapaPortadas(rows.map((r) => r.id));
       if (seq !== reqSeqRef.current) return;
 
       const seen = new Set(items.map((p) => p.id));
-      const next = [...items, ...mapRows(rows, mediaMap).filter((p) => !seen.has(p.id))];
+      const next = [...items, ...convertirFilasCatalogo(rows, mediaMap).filter((p) => !seen.has(p.id))];
       setItems(next);
       setTotal(count);
       setHasMore(
-        rows.length > 0 && (count !== null ? next.length < count : rows.length === PAGE_SIZE)
+        rows.length > 0 && (count !== null ? next.length < count : rows.length === TAMANO_PAGINA_CATALOGO)
       );
     } catch (e) {
       if (seq !== reqSeqRef.current) return;
@@ -805,13 +805,13 @@ export default function CatalogoScreen() {
       const adminFlag = await detectAdmin();
       let cats: CategoryRow[] = [];
       try {
-        cats = await fetchCategoriesSafe(adminFlag);
+        cats = await leerCategoriasCatalogo(adminFlag);
       } catch (e) {
         console.error("Error cargando categorías:", e);
       }
       setIsAdmin(adminFlag);
       setCategories(cats);
-      setCategoryId(resolveCategory(rawCat, cats)?.id ?? null);
+      setCategoryId(resolverCategoria(rawCat, cats)?.id ?? null);
       setReady(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -828,7 +828,7 @@ export default function CatalogoScreen() {
   useEffect(() => {
     if (prevRawCatRef.current === rawCat) return;
     prevRawCatRef.current = rawCat;
-    setCategoryId(resolveCategory(rawCat, categories)?.id ?? null);
+    setCategoryId(resolverCategoria(rawCat, categories)?.id ?? null);
   }, [rawCat, categories]);
 
   useEffect(() => {
@@ -894,7 +894,7 @@ export default function CatalogoScreen() {
       quitar: quitarYMedir("precio", () => router.setParams({ precio_min: undefined, precio_max: undefined })),
     });
   }
-  if (isAdmin && filter !== "ALL") chipsActivos.push({ clave: "interno", texto: `Estado interno: ${adminStatusLabel(filter)}`, quitar: () => setFilter("ALL") });
+  if (isAdmin && filter !== "ALL") chipsActivos.push({ clave: "interno", texto: `Estado interno: ${textoEstadoAdmin(filter)}`, quitar: () => setFilter("ALL") });
 
   // Teclado del buscador (ordenador): flechas para elegir una sugerencia, Intro la abre y Escape las cierra.
   function teclaBuscador(e: NativeSyntheticEvent<TextInputKeyPressEventData>) {

@@ -75,7 +75,7 @@ type Policy = { title: string; intro: string; sections: PolicySection[] };
 // Mismo contenido que tenía esta pantalla antes del panel de administración:
 // se usa solo si Supabase falla o la política aún no existe en la base de
 // datos, para que la página nunca aparezca vacía o rota.
-const FALLBACK_POLICIES: Record<string, Policy> = {
+const POLITICAS_DE_RESERVA: Record<string, Policy> = {
   envios: {
     title: "Política de envíos",
     intro:
@@ -313,7 +313,7 @@ function normalizeSections(value: unknown): PolicySection[] {
     .filter((s): s is PolicySection => s !== null);
 }
 
-async function fetchPolicySafe(slug: string): Promise<Policy | null> {
+async function leerPolitica(slug: string): Promise<Policy | null> {
   if (!slug) return null;
 
   try {
@@ -361,9 +361,9 @@ export default function PoliticaScreen() {
     ultimaRecarga.current = recarga;
     if (!porRecarga) setLoading(true);
 
-    fetchPolicySafe(slug).then((fromDb) => {
+    leerPolitica(slug).then((fromDb) => {
       if (!alive) return;
-      setPolicy(fromDb ?? FALLBACK_POLICIES[slug] ?? null);
+      setPolicy(fromDb ?? POLITICAS_DE_RESERVA[slug] ?? null);
       setLoading(false);
     });
 

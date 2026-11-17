@@ -177,3 +177,22 @@ guardadas (`LIKED_PRODUCTS_KEY` → `CLAVE_ME_GUSTA_PRODUCTOS`) cambian de nombr
 | `normalizeMediaKind` · `getMediaKind` · `getMediaDuration` · `getMediaPublicUrl` · `getPrimaryMedia` | `normalizarTipoArchivo` · `tipoDeArchivo` · `duracionDeArchivo` · `urlPublicaDeArchivo` · `archivoPrincipal` |
 | `extFromName` · `safeFileName` · `buildMediaPath` · `getVideoDurationSeconds` | `extensionDelNombre` · `nombreArchivoSeguro` · `rutaDeArchivo` · `segundosDeVideo` |
 | `SkippedPickedFile` · `PickMediaResult` · `pickMediaFilesWeb` | `ArchivoDescartado` · `ResultadoElegirArchivos` · `elegirFotosVideoWeb` |
+
+Tanda 3, zona pantallas de la tienda (2026-11-17): 40 símbolos propios de catálogo, Inicio, servicio, blog y políticas
+(118 usos en 7 archivos). No se tocan checkout, perfil, reset-password ni _layout (zonas delicadas). Las ayudas copiadas en
+varias pantallas (`fmtEUR`, `asArray`, `pushRoute`, `firstImageFromAnyRow`, `isMissingRelationError`…) se dejan para la
+tanda 4 (unificar copias idénticas).
+
+| Antes | Después |
+|---|---|
+| `PAGE_SIZE` · `PRODUCT_COLUMNS` · `UiFilter` · `ListFilters` · `uiFilterToDb` | `TAMANO_PAGINA_CATALOGO` · `COLUMNAS_PRODUCTO_CATALOGO` · `FiltroVista` · `FiltrosLista` · `filtroVistaABase` |
+| `adminStatusLabel` · `adminStatusColor` · `legacyCatLabel` · `calcColumns` · `resolveCategory` | `textoEstadoAdmin` · `colorEstadoAdmin` · `nombreCategoriaAntigua` · `calcularColumnas` · `resolverCategoria` |
+| `fetchCategoriesSafe` · `fetchProductsPage` · `fetchProductsPageBuscando` · `fetchCoverMap` · `mapRows` | `leerCategoriasCatalogo` · `leerPaginaProductos` · `leerPaginaProductosBuscando` · `leerMapaPortadas` · `convertirFilasCatalogo` |
+| `HOME_FAQ` · `HOME_CATEGORIES` · `SEARCH_LAYOUT` · `TRUST_INFO` | `PREGUNTAS_INICIO` · `CATEGORIAS_INICIO` · `MEDIDAS_BUSCADOR` · `DATOS_CONFIANZA` |
+| `FeaturedProduct` · `HomeCategory` · `SearchSnapPosition` · `TrustInfoItem` | `ProductoDestacado` · `CategoriaInicio` · `PosicionBuscador` · `DatoConfianza` |
+| `fetchFeaturedProductSafe` · `fetchProductMediaRowsSafe` | `leerProductoDestacado` · `leerArchivosProductoDestacado` |
+| `FaqItem` · `TrustInfoRow` · `InfoPopModal` · `SecondaryButton` · `CategoryCard` | `PreguntaFrecuente` · `FilaConfianza` · `VentanaInformacion` · `BotonSecundario` · `TarjetaCategoria` |
+| `FeaturedMediaCarousel` · `FeaturedOfferCard` · `HomeScreen` | `CarruselOfertaDestacada` · `TarjetaOfertaDestacada` · `PantallaInicio` |
+| `fetchResenas` · `fetchService` | `leerResenasServicio` · `leerServicio` |
+| `FALLBACK_ARTICLES` · `fetchBlogPostsSafe` · `ArticleCard` | `ARTICULOS_DE_RESERVA` · `leerArticulosBlog` · `TarjetaArticulo` |
+| `FALLBACK_POLICIES` · `fetchPolicySafe` | `POLITICAS_DE_RESERVA` · `leerPolitica` |
