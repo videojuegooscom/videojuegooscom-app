@@ -2,7 +2,7 @@
  * Archivo: app/catalogo.tsx
  * Función: pantalla de catálogo de productos, en la dirección /catalogo (admite ?cat=, ?query=, ?estado=, ?precio_min=, ?precio_max=).
  * Para qué sirve: el cliente busca, filtra y ordena los productos de la tienda (y el administrador ve además el estado interno) en una rejilla paginada.
- * Conectado con: lib/supabase.ts (tablas products, categories, product_media, profiles), lib/analiticaPropia.ts, components/BarraBusqueda.tsx (buscador), FiltrosCatalogo.tsx, CarruselProductosCategoria.tsx, PortadasCategoria.tsx, AsistenteBlue.tsx, TirarParaActualizar.tsx, CabeceraMarca.tsx, components/marca/*, constants/theme.ts.
+ * Conectado con: lib/supabase.ts (tablas products, categories, product_media, profiles), lib/analiticaPropia.ts, components/BarraBusqueda.tsx (buscador), FiltrosCatalogo.tsx, CarruselProductosCategoria.tsx, PortadasCategoria.tsx, AsistenteBlue.tsx, TirarParaActualizar.tsx, CabeceraMarca.tsx, components/marca/*, constants/temaTienda.ts.
  * Utilizado por: Expo Router (dirección /catalogo); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx, app/(tabs)/blue-ia.tsx, app/checkout.tsx, app/comparar.tsx, app/producto/[id].tsx, app/quienes-somos.tsx, app/noticias/[id].tsx, components/BarraBusqueda.tsx, PieDePagina.tsx y AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -92,7 +92,7 @@ import Barramagic, {
   useSugerenciasProductos,
   type ProductoIndice,
 } from "../components/BarraBusqueda";
-import { colorTextoAzul } from "../constants/theme";
+import { colorTextoAzul } from "../constants/temaTienda";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";

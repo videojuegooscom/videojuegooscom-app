@@ -2,7 +2,7 @@
  * Archivo: app/admin/blog.tsx
  * Función: pantalla de administración del Blog, en la dirección /admin/blog.
  * Para qué sirve: el administrador crea, edita, publica o pasa a borrador, reordena y borra los artículos que se leen en la página pública /blog.
- * Conectado con: lib/supabase.ts (tabla blog_posts), lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; la página pública es app/blog/index.tsx.
+ * Conectado con: lib/supabase.ts (tabla blog_posts), lib/admin/productos.componentes.tsx, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx; la página pública es app/blog/index.tsx.
  * Utilizado por: Expo Router (dirección /admin/blog, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Blog» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -25,7 +25,7 @@
  * - «Publicar» / «Pasar a borrador» alterna entre status "PUBLISHED" y "DRAFT"
  *   con un cambio optimista en la lista (se revierte si Supabase falla),
  *   igual que toggleActive() en app/admin/categories.tsx.
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, todo lo que se toca de
  *   44 px (también «volver») y los campos de 16 px y 48 de alto.
  * - Rediseño PANRED4 (tanda 4, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos, Inventario y
@@ -70,7 +70,7 @@ import {
   IconButton,
   PieVentana,
 } from "../../lib/admin/productos.componentes";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
   AccionTexto,
   Bloque,

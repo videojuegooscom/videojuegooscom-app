@@ -2,7 +2,7 @@
  * Archivo: components/Resenas.tsx
  * Función: componente del bloque de reseñas de la pantalla de inicio.
  * Para qué sirve: muestra la valoración media real, el botón «Dejar una reseña» y las últimas reseñas publicadas, leyendo store_reviews.
- * Conectado con: lib/supabase.ts, components/PerfilPublico.tsx (perfilesPublicos), VentanaValoracion.tsx, ImagenInteligente.tsx, TirarParaActualizar.tsx (useRecarga), constants/theme.ts, tabla store_reviews.
+ * Conectado con: lib/supabase.ts, components/PerfilPublico.tsx (perfilesPublicos), VentanaValoracion.tsx, ImagenInteligente.tsx, TirarParaActualizar.tsx (useRecarga), constants/temaTienda.ts, tabla store_reviews.
  * Utilizado por: app/(tabs)/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -36,7 +36,7 @@
  * components/PerfilPublico.tsx: solo esos dos datos); si aún no tiene usuario, su nombre y la inicial.
  *
  * Tamaños (2026-11-12, grupo 3): letra mínima 13 (antes 9-12), gris a 0,72, estrellas con más contraste y «Dejar una
- * reseña» con 44 px de alto y texto en el azul de texto #0A78B4 (constants/theme.ts; prueba TM3).
+ * reseña» con 44 px de alto y texto en el azul de texto #0A78B4 (constants/temaTienda.ts; prueba TM3).
  *
  * Conectado con:
  * - lib/supabase.ts → lee "store_reviews" y "product_sales".
@@ -47,7 +47,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { supabase } from "../lib/supabase";
-import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 import { perfilesPublicos, type PerfilForo } from "./PerfilPublico";
 import ReviewModal, { type PublishedReview } from "./VentanaValoracion";
 import SmartImage from "./ImagenInteligente";

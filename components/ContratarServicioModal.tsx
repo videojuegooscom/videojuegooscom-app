@@ -2,7 +2,7 @@
  * Archivo: components/ContratarServicioModal.tsx
  * Función: componente del formulario «Contratar servicio ahora».
  * Para qué sirve: recoge los datos del cliente y de la opción de servicio elegida (incluida la reparación por envío) y guarda la solicitud en Supabase.
- * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/envio.ts, lib/admin/productos.componentes.tsx (SelectorIOS), components/BotonAtrasAlcance.tsx, CabeceraMarca.tsx, ImagenInteligente.tsx, VenderAhoraModal.tsx (campos), constants/theme.ts, tabla service_requests.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/envio.ts, lib/admin/productos.componentes.tsx (SelectorIOS), components/BotonAtrasAlcance.tsx, CabeceraMarca.tsx, ImagenInteligente.tsx, VenderAhoraModal.tsx (campos), constants/temaTienda.ts, tabla service_requests.
  * Utilizado por: app/servicio/[id].tsx y app/contratar/[id].tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -60,7 +60,7 @@
  *   tapa ningún campo (antes, «Dirección»). Texto azul pequeño en #0A78B4.
  *
  * Conectado con:
- * - constants/theme.ts → TAMANOS, TACTIL y COLORES_TEXTO.
+ * - constants/temaTienda.ts → TAMANOS, TACTIL y COLORES_TEXTO.
  * - components/BotonAtrasAlcance.tsx → BotonAtrasFlotante (el botón de volver).
  * - pruebas/perfil-datos.mjs (secciones CS y TM2) → lo comprueban.
  * - sql/service_requests.sql, supabase/migrations/20261108230000_servicios_opciones.sql y
@@ -74,7 +74,7 @@ import { Animated, Modal, Pressable, ScrollView, Text, TextInput, View, useWindo
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analiticaPropia";
 import {

@@ -2,7 +2,7 @@
  * Archivo: components/ui/collapsible.tsx
  * Función: componente de bloque plegable (plantilla de Expo).
  * Para qué sirve: sección que se despliega al pulsar su título, con flecha que rota; no se usa en la tienda.
- * Conectado con: components/themed-text.tsx, components/themed-view.tsx, components/ui/icon-symbol.tsx, constants/theme.ts (Colors), hooks/use-color-scheme.ts.
+ * Conectado con: components/themed-text.tsx, components/themed-view.tsx, components/ui/icon-symbol.tsx, constants/temaTienda.ts (Colors), hooks/use-color-scheme.ts.
  * Utilizado por: ningún archivo (comprobado con grep en app, components, lib y hooks).
  * Dependencias: react, react-native.
  * Estado: CANDIDATO_A_ELIMINAR (ningún archivo lo importa; resto de la plantilla de Expo).
@@ -14,7 +14,7 @@
  *
  * Cómo funciona: guarda isOpen en estado local y muestra/oculta children
  * dentro de una ThemedView al pulsar el título; el icono usa los colores
- * de constants/theme.ts según el tema claro/oscuro.
+ * de constants/temaTienda.ts según el tema claro/oscuro.
  *
  * Conectado con: de momento no se usa en ninguna pantalla de app/; queda
  * disponible como componente reutilizable para secciones tipo FAQ o "ver más".
@@ -25,7 +25,7 @@ import { StyleSheet, TouchableOpacity } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
+import { Colors } from '@/constants/temaTienda';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export function Collapsible({ children, title }: PropsWithChildren & { title: string }) {

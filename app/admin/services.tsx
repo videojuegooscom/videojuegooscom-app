@@ -2,7 +2,7 @@
  * Archivo: app/admin/services.tsx
  * Función: pantalla de administración de servicios, en la dirección /admin/services.
  * Para qué sirve: el administrador gestiona el catálogo de servicios (reparación, limpieza, mantenimiento: opciones, precios, fotos) y las solicitudes de «Contratar servicio ahora», incluida la reparación por envío.
- * Conectado con: lib/supabase.ts (tablas services, service_media y service_requests), lib/envio.ts, lib/abrirEnlaceExterno.ts, components/ContratarServicioModal.tsx, VisorFotos.tsx, ImagenInteligente.tsx, marca/CargaMarca.tsx, app/servicios.tsx (enlaceVideo, esEnlaceCorto), lib/admin/productos.*, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tablas services, service_media y service_requests), lib/envio.ts, lib/abrirEnlaceExterno.ts, components/ContratarServicioModal.tsx, VisorFotos.tsx, ImagenInteligente.tsx, marca/CargaMarca.tsx, app/servicios.tsx (enlaceVideo, esEnlaceCorto), lib/admin/productos.*, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/services, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Servicios» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -92,7 +92,7 @@
  *     las acciones («Escribir al cliente» por WhatsApp si dejó teléfono, «Pasar a» otro estado y borrar).
  *     «Abrir todas» las despliega. Abajo, «Más datos de las solicitudes» (cobros y números de seguimiento).
  *   Prueba PANRED1 (y P, CS, RS, SV, VP, AF, RE2, RE3, TM4, CAMPOS16).
- * - Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px (12 solo en
+ * - Tamaños del móvil (grupo 4, 2026-11-12; constants/temaTienda.ts): ningún texto de menos de 13 px (12 solo en
  *   la insignia «Portada/Usar» de las fotos), grises desde COLORES_TEXTO.secundario, texto azul pequeño en
  *   azulTexto y botones, filtros y volver de 44 px como mínimo (los contadores salen de StatCard).
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
@@ -140,7 +140,7 @@ import {
   useDesplegables,
   type Tono,
 } from "../../components/admin/PiezasPanelAdmin";
-import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
   AdminHeader,
   AdminNotice,

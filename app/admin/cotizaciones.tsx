@@ -2,7 +2,7 @@
  * Archivo: app/admin/cotizaciones.tsx
  * Función: pantalla de administración «Cotizaciones», en la dirección /admin/cotizaciones.
  * Para qué sirve: el administrador revisa las solicitudes de venta que los clientes envían con «Vender ahora» (datos, fotos y vídeo), cambia su estado (nuevo, revisado, contactado, descartado) y las borra.
- * Conectado con: lib/supabase.ts (tablas sell_requests y sell_request_media, bucket privado sell-request-media), components/FotosVideoVenta.tsx, components/VenderAhoraModal.tsx, lib/admin/productos.componentes.tsx y productos.utilidades.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tablas sell_requests y sell_request_media, bucket privado sell-request-media), components/FotosVideoVenta.tsx, components/VenderAhoraModal.tsx, lib/admin/productos.componentes.tsx y productos.utilidades.ts, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/cotizaciones, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Cotizaciones» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -69,7 +69,7 @@
  * final 48 px + zona segura). El precio esperado, si el cliente escribió solo un número, se muestra como el resto de
  * precios (150,00€).
  *
- * Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ * Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de menos de 13 px, grises
  * desde COLORES_TEXTO.secundario, botones y filtros de 44 px y el buscador de 16 px y 48 de alto.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -88,7 +88,7 @@ import {
   PieVentana,
 } from "../../lib/admin/productos.componentes";
 import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "../../lib/admin/productos.utilidades";
-import { COLORES_TEXTO, colorTextoAzul, TAMANOS } from "../../constants/theme";
+import { COLORES_TEXTO, colorTextoAzul, TAMANOS } from "../../constants/temaTienda";
 import { leerMarcaCambioCesta } from "../../components/VenderAhoraModal";
 import {
   AccionTexto,

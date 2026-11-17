@@ -2,7 +2,7 @@
  * Archivo: app/admin/policies.tsx
  * Función: pantalla de administración de Políticas, en la dirección /admin/policies.
  * Para qué sirve: el administrador crea, edita, reordena, publica u oculta y borra las políticas (envíos, devoluciones, privacidad, términos…) y sus secciones, sin tocar código.
- * Conectado con: lib/supabase.ts (tabla policy_pages), lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; la página pública es app/politicas/[slug].tsx.
+ * Conectado con: lib/supabase.ts (tabla policy_pages), lib/admin/productos.componentes.tsx, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx; la página pública es app/politicas/[slug].tsx.
  * Utilizado por: Expo Router (dirección /admin/policies, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Políticas» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -29,7 +29,7 @@
  *   al guardar se descartan las secciones que queden vacías.
  * - toggleActive() aplica un cambio optimista en la lista y lo revierte si
  *   Supabase devuelve error, igual que en app/admin/categories.tsx.
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, todo lo que se toca de
  *   44 px (también «volver») y los campos de 16 px y 48 de alto.
  * - Rediseño PANRED4 (tanda 4, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos, Inventario y
@@ -75,7 +75,7 @@ import {
   IconButton,
   PieVentana,
 } from "../../lib/admin/productos.componentes";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
   AccionTexto,
   Bloque,

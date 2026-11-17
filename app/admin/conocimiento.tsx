@@ -2,7 +2,7 @@
  * Archivo: app/admin/conocimiento.tsx
  * Función: pantalla de administración «Lo que Blue sabe de la tienda», en la dirección /admin/conocimiento.
  * Para qué sirve: el dueño escribe respuestas reales (horario, envíos, garantía, pagos…) que Blue IA usa al contestar a los clientes; también contesta a los temas que Blue le propone.
- * Conectado con: lib/supabase.ts (tabla blue_conocimiento), lib/conocimiento.ts, lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; components/AsistenteBlue.tsx propone temas y api/blue-ia.ts las usa.
+ * Conectado con: lib/supabase.ts (tabla blue_conocimiento), lib/conocimiento.ts, lib/admin/productos.componentes.tsx, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx; components/AsistenteBlue.tsx propone temas y api/blue-ia.ts las usa.
  * Utilizado por: Expo Router (dirección /admin/conocimiento, protegida por app/admin/_layout.tsx); la enlaza la tarjeta correspondiente de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -21,7 +21,7 @@
  *   uno se abre el formulario con la pregunta de Blue. La respuesta la escribe siempre el dueño:
  *   la app nunca inventa datos del negocio.
  * - Activar/desactivar y borrar: igual que Noticias Flash (cambio optimista, borrado con aviso).
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px,
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de menos de 13 px,
  *   grises desde COLORES_TEXTO.secundario, texto azul pequeño en azulTexto, todo lo que se toca de
  *   44 px y los campos de 16 px y 48 de alto.
  * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Blog y Noticias Flash): cifras que
@@ -53,7 +53,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { AdminHeader, AdminLoading, AdminNotice, BotonFlotante, EmptyState, IconButton, PieVentana } from "../../lib/admin/productos.componentes";
 import { guardarConocimiento, TEMAS_CONOCIMIENTO, type ItemConocimiento } from "../../lib/conocimiento";
-import { CAMPO, COLORES_TEXTO, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TAMANOS } from "../../constants/temaTienda";
 import {
   AccionTexto,
   Bloque,

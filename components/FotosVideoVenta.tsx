@@ -2,7 +2,7 @@
  * Archivo: components/FotosVideoVenta.tsx
  * Función: componente y utilidades de las fotos y el vídeo del formulario «Vender ahora».
  * Para qué sirve: valida, convierte (HEIC a JPEG) y sube a Supabase Storage las fotos y el vídeo que adjunta un cliente a su solicitud de venta, y ofrece el selector visual (SellMediaPicker) y los enlaces firmados para que el administrador los vea o los descargue.
- * Conectado con: constants/theme.ts (TAMANOS, TACTIL, COLORES_TEXTO), lib/supabase.ts, tablas sell_request_media y sell_requests, bucket privado de Storage sell-request-media.
+ * Conectado con: constants/temaTienda.ts (TAMANOS, TACTIL, COLORES_TEXTO), lib/supabase.ts, tablas sell_request_media y sell_requests, bucket privado de Storage sell-request-media.
  * Utilizado por: components/VenderAhoraModal.tsx y app/admin/cotizaciones.tsx.
  * Dependencias: react, react-native, @expo/vector-icons, heic2any (conversión HEIC, ver Notas).
  * Estado: ACTIVO
@@ -48,7 +48,7 @@
  *   táctil (TACTIL); letra mínima 13 (TAMANOS) y gris COLORES_TEXTO.
  *
  * Conectado con:
- * - constants/theme.ts → TAMANOS, TACTIL y COLORES_TEXTO.
+ * - constants/temaTienda.ts → TAMANOS, TACTIL y COLORES_TEXTO.
  * - components/VenderAhoraModal.tsx → usa <SellMediaPicker> en el
  *   formulario y llama a uploadSellRequestMedia() al enviar.
  * - app/admin/cotizaciones.tsx → llama a downloadSellRequestMedia() por
@@ -59,7 +59,7 @@
 import React, { useState } from "react";
 import { Image, Linking, Platform, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 import { supabase } from "../lib/supabase";
 
 export const SELL_MEDIA_BUCKET = "sell-request-media";

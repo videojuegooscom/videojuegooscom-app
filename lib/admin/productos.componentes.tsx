@@ -2,7 +2,7 @@
  * Archivo: lib/admin/productos.componentes.tsx
  * Función: componentes visuales reutilizables del panel de administración (y selector iOS).
  * Para qué sirve: cabecera de pantalla, avisos, estados vacíos, botones, filtros, miniaturas de media, pestañas con gesto y selector tipo iOS que comparten todas las pantallas del panel y algunos formularios públicos.
- * Conectado con: components/marca/CargaMarca.tsx, lib/admin/productos.constantes.ts, productos.tipos.ts, productos.utilidades.ts, constants/theme.ts.
+ * Conectado con: components/marca/CargaMarca.tsx, lib/admin/productos.constantes.ts, productos.tipos.ts, productos.utilidades.ts, constants/temaTienda.ts.
  * Utilizado por: casi todas las pantallas de app/admin (products, services, categories, analytics, reservas, etc.), app/servicio/[id].tsx y components/ContratarServicioModal.tsx.
  * Dependencias: react, react-native, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -41,7 +41,7 @@
  *   cotizaciones.tsx e index.tsx → usan AdminHeader, PrimaryButton,
  *   AdminNotice, EmptyState y StatCard para que todas las pestañas del
  *   panel se vean iguales.
- * - Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): la flecha de volver de AdminHeader, los
+ * - Tamaños del móvil (grupo 4, 2026-11-12; constants/temaTienda.ts): la flecha de volver de AdminHeader, los
  *   filtros (FilterPill) y los chips (ChipButton) miden 44 px como mínimo; ningún texto baja de 13 px
  *   (tampoco las insignias IMAGEN/VÍDEO, a 13 desde el rediseño PANRED2) y el texto azul pequeño usa COLORS.accentText.
  */
@@ -51,7 +51,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { COLORS } from "./productos.constantes";
-import { TACTIL, TAMANOS } from "../../constants/theme";
+import { TACTIL, TAMANOS } from "../../constants/temaTienda";
 import type { LocalPickedMedia, ProductMediaRow, ProductMediaKind } from "./productos.tipos";
 import { smartBackAdminHome } from "./productos.utilidades";
 

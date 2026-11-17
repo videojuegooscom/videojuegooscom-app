@@ -2,7 +2,7 @@
  * Archivo: app/admin/index.tsx
  * Función: pantalla de inicio del panel de administración, en la dirección /admin.
  * Para qué sirve: el administrador ve las cifras de lo nuevo (pedidos, chats, solicitudes, cotizaciones) y una rejilla de accesos agrupados a todas las secciones del panel, con contadores de novedades.
- * Conectado con: lib/admin/productos.componentes.tsx (AdminHeader), lib/admin/productos.utilidades.ts (leerPanelVistos), lib/supabase.ts (recuentos de novedades en varias tablas), constants/theme.ts, components/AvisosMovil.tsx, components/admin/PiezasPanelAdmin.tsx; enlaza a todas las pantallas app/admin/*.tsx.
+ * Conectado con: lib/admin/productos.componentes.tsx (AdminHeader), lib/admin/productos.utilidades.ts (leerPanelVistos), lib/supabase.ts (recuentos de novedades en varias tablas), constants/temaTienda.ts, components/AvisosMovil.tsx, components/admin/PiezasPanelAdmin.tsx; enlaza a todas las pantallas app/admin/*.tsx.
  * Utilizado por: Expo Router (dirección /admin, protegida por app/admin/_layout.tsx); la abre el botón «Panel de control» de app/(tabs)/perfil.tsx.
  * Dependencias: react, react-native, react-native-safe-area-context, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -50,7 +50,7 @@
  * la tienda— y título centrado); el subtítulo y la rejilla van debajo, en
  * un único ScrollView (flex 1, margen final 48 px + zona segura).
  *
- * Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): título de cada recuadro a 15 px, número rojo
+ * Tamaños del móvil (grupo 4, 2026-11-12; constants/temaTienda.ts): título de cada recuadro a 15 px, número rojo
  * a 13 px (letra blanca sobre el azul de marca: se queda, son botones grandes) y «Volver a la tienda» de 44 px.
  *
  * Avisos en este móvil (dueño, 2026-11-15): encima de la rejilla, la tarjeta corta de components/AvisosMovil.tsx (estado,
@@ -90,7 +90,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { AdminHeader } from "../../lib/admin/productos.componentes";
 import { leerPanelVistos, type SeccionConNovedades } from "../../lib/admin/productos.utilidades";
 import { supabase } from "../../lib/supabase";
-import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import AvisosMovil from "../../components/AvisosMovil";
 import { Cifra, FilaCifras, Seccion } from "../../components/admin/PiezasPanelAdmin";
 

@@ -2,7 +2,7 @@
  * Archivo: app/comparar.tsx
  * Función: pantalla «Comparar productos», en la dirección /comparar (admite ?ids=a,b,c).
  * Para qué sirve: el cliente ve uno al lado del otro hasta 3 productos (precio, estado, categoría, entrega estimada, revisión y garantía si constan) y los añade a la cesta o los quita.
- * Conectado con: components/CarruselProductosCategoria.tsx (lista de comparados), components/BarraBusqueda.tsx (portadas), components/CabeceraMarca.tsx, components/marca/*, components/ImagenInteligente.tsx, components/PerfilPublico.tsx, lib/supabase.ts (tabla products, perfil del cliente), lib/envio.ts (entrega estimada), lib/analiticaPropia.ts, constants/theme.ts.
+ * Conectado con: components/CarruselProductosCategoria.tsx (lista de comparados), components/BarraBusqueda.tsx (portadas), components/CabeceraMarca.tsx, components/marca/*, components/ImagenInteligente.tsx, components/PerfilPublico.tsx, lib/supabase.ts (tabla products, perfil del cliente), lib/envio.ts (entrega estimada), lib/analiticaPropia.ts, constants/temaTienda.ts.
  * Utilizado por: Expo Router (dirección /comparar); lo abre BarraComparar (components/CarruselProductosCategoria.tsx, montada en app/_layout.tsx) desde el Catálogo (app/catalogo.tsx) y las fichas (app/producto/[id].tsx).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -48,7 +48,7 @@ import { direccionesDeFila } from "../components/PerfilPublico";
 import { filaPerfilCliente, supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analiticaPropia";
 import { cargarTarifas, entregaEstimada, limpiarCodigoPostal, tipoEntregaPorCodigo, type ZonaEnvio } from "../lib/envio";
-import { COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../constants/theme";
+import { COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../constants/temaTienda";
 
 const COLORS = {
   bg: "#FFFFFF",

@@ -2,7 +2,7 @@
  * Archivo: app/admin/marca-seo.tsx
  * Función: pantalla de administración «Marca y SEO», en la dirección /admin/marca-seo.
  * Para qué sirve: el administrador sube el logo de la tienda y edita el título y la descripción que Google y el navegador muestran, sin tocar código.
- * Conectado con: lib/supabase.ts (tabla site_settings y bucket de Storage site-assets), lib/admin/productos.componentes.tsx, components/ImagenInteligente.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; components/EtiquetasCabeceraWeb.tsx lee esos mismos datos.
+ * Conectado con: lib/supabase.ts (tabla site_settings y bucket de Storage site-assets), lib/admin/productos.componentes.tsx, components/ImagenInteligente.tsx, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx; components/EtiquetasCabeceraWeb.tsx lee esos mismos datos.
  * Utilizado por: Expo Router (dirección /admin/marca-seo, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Marca y SEO» de app/admin/index.tsx.
  * Dependencias: react, react-native, @expo/vector-icons.
  * Estado: ACTIVO
@@ -45,7 +45,7 @@
  * - app/admin/index.tsx → tarjeta "Marca y SEO" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("marca-seo") en el Stack.
  * - components/admin/PiezasPanelAdmin.tsx → piezas comunes; pruebas/perfil-datos.mjs (TM5 y PANRED5).
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario, todo lo que se toca de 44 px y los campos de 16 px y 48 de alto.
  */
 import React, { useCallback, useEffect, useState } from "react";
@@ -66,7 +66,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { AdminHeader, AdminLoading, AdminNotice, IconButton } from "../../lib/admin/productos.componentes";
 import SmartImage from "../../components/ImagenInteligente";
-import { CAMPO, TAMANOS } from "../../constants/theme";
+import { CAMPO, TAMANOS } from "../../constants/temaTienda";
 import { BloqueFormulario, Cifra, Detalle, FilaCifras, PANEL } from "../../components/admin/PiezasPanelAdmin";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el

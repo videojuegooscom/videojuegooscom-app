@@ -2,7 +2,7 @@
  * Archivo: app/admin/pedidos.tsx
  * Función: pantalla de administración «Pedidos», en la dirección /admin/pedidos (admite ?buscar=).
  * Para qué sirve: el administrador ve los pedidos que los clientes confirman en el checkout, su pago, entrega y valoraciones, y cambia su estado (pendiente, confirmado, preparado, enviado, entregado, cancelado con motivo).
- * Conectado con: lib/supabase.ts (tablas pedidos y pedido_items, función crear_pedido), lib/envio.ts, lib/interaccion.ts, lib/abrirEnlaceExterno.ts, components/AvisosMovil.tsx, components/VentanaValoracion.tsx, components/marca/CargaMarca.tsx, constants/theme.ts; api/factura.ts y api/pago.ts.
+ * Conectado con: lib/supabase.ts (tablas pedidos y pedido_items, función crear_pedido), lib/envio.ts, lib/interaccion.ts, lib/abrirEnlaceExterno.ts, components/AvisosMovil.tsx, components/VentanaValoracion.tsx, components/marca/CargaMarca.tsx, constants/temaTienda.ts; api/factura.ts y api/pago.ts.
  * Utilizado por: Expo Router (dirección /admin/pedidos, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Pedidos» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -15,7 +15,7 @@
  * entregado, o cancelado).
  *
  * DISEÑO (dueño, 2026-11-15: «lo veo todo muy confuso»; el mismo de Usuarios y participación, app/admin/users.tsx, con
- * los tamaños de constants/theme.ts: letra mínima 13, táctiles de 44 px, campos de 16 px):
+ * los tamaños de constants/temaTienda.ts: letra mínima 13, táctiles de 44 px, campos de 16 px):
  * 1) Arriba, «Avisos en este móvil · activos / no activos», plegable y discreto (components/AvisosMovil.tsx).
  * 2) El buscador (16 px; referencia VZ-…, número interno, nombre, correo o teléfono; ?buscar= en la URL).
  * 3) Cifras en tarjetas que filtran al tocarlas: Hoy, Por pagar, Por preparar, Reparto de hoy, Doble venta, Devueltos e
@@ -40,7 +40,7 @@
  * Tamaños del móvil (grupo 4, 2026-11-12): ningún texto de menos de 13 px, grises no más claros que
  * COLORES_TEXTO.secundario, texto azul pequeño en azulTexto y todo lo que se toca (filtros, botones de
  * estado, volver, «Escribir al cliente») de 44 px como mínimo y con 8 px entre botones, para no cambiar
- * el estado de un pedido sin querer (constants/theme.ts; prueba TM4 de pruebas/perfil-datos.mjs).
+ * el estado de un pedido sin querer (constants/temaTienda.ts; prueba TM4 de pruebas/perfil-datos.mjs).
  *
  * Desde la ficha del cliente (dueño, 2026-11-13): «Ver en Pedidos» abre esta pantalla con ?buscar=<correo> y el
  * buscador sale ya relleno con ese correo (solo sus pedidos); el botón de borrar lo vacía. Cada pedido con cuenta lleva
@@ -143,7 +143,7 @@ import {
 import CargaMarca from "../../components/marca/CargaMarca";
 import AvisosMovil from "../../components/AvisosMovil";
 import { ValoracionPedidoAdmin, cargarValoracionesPedidos, entregadoEnDe, type ValoracionPedido } from "../../components/VentanaValoracion";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 type Ancho = number | `${number}%`;

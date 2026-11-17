@@ -2,7 +2,7 @@
  * Archivo: app/admin/alquileres.tsx
  * Función: pantalla de administración «Alquileres», en la dirección /admin/alquileres.
  * Para qué sirve: el administrador gestiona el alquiler de artículos (unidades, alquileres, pagos, entrega, renovación, recogida, fianza, recargo) y sus ajustes. Está apagado: los clientes no ven nada.
- * Conectado con: lib/supabase.ts (tablas de alquiler como alquiler_pagos), lib/alquiler.ts, lib/envio.ts, lib/admin/productos.componentes.tsx, constants/theme.ts, components/marca/CargaMarca.tsx, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tablas de alquiler como alquiler_pagos), lib/alquiler.ts, lib/envio.ts, lib/admin/productos.componentes.tsx, constants/temaTienda.ts, components/marca/CargaMarca.tsx, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/alquileres, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Alquileres» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -44,7 +44,7 @@
  *   de ejemplo de 550 € (54,90 €, 99 €, 139 € y 179 €), la fianza y su modo de cobro, el recargo y los días de cortesía, el
  *   «plus» de la compra (550 − 139 + 50 = 461 €), los meses por unidad, el contrato con «Cargar el borrador» y «Revisado por
  *   mi gestor» (se desmarca sola al cambiar el texto).
- * - Tamaños de constants/theme.ts: todo lo que se toca de 44 px, campos de 16 px, ninguna letra de menos de 13 px.
+ * - Tamaños de constants/temaTienda.ts: todo lo que se toca de 44 px, campos de 16 px, ninguna letra de menos de 13 px.
  *
  * Conectado con: app/admin/index.tsx (recuadro «Alquileres»), app/admin/_layout.tsx (ruta), app/admin/products.tsx («Para
  * alquilar»), app/admin/cliente/[userId].tsx (ficha del cliente), app/admin/analytics.tsx (bloque «Alquiler»),
@@ -57,7 +57,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { AdminHeader, AdminLoading } from "../../lib/admin/productos.componentes";
 import { esCategoriaServicios } from "../../components/PortadasCategoria";
 import {

@@ -2,7 +2,7 @@
  * Archivo: components/BarraBusqueda.tsx
  * Función: componente de la barra de búsqueda de la tienda (píldora con lupa y acceso a Blue IA) y su lógica de índice.
  * Para qué sirve: barra de búsqueda quieta y flotante, sugerencias, índice de productos, efecto Siri del texto y utilidades de búsqueda que reutiliza Blue.
- * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, constants/theme.ts, components/ImagenInteligente.tsx.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, constants/temaTienda.ts, components/ImagenInteligente.tsx.
  * Utilizado por: app/catalogo.tsx, app/(tabs)/index.tsx, app/comparar.tsx, app/quienes-somos.tsx, app/admin/analytics.tsx, components/AsistenteBlue.tsx y components/CarruselProductosCategoria.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -109,7 +109,7 @@ import {
 } from "react-native";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analiticaPropia";
-import { colorTextoAzul } from "../constants/theme";
+import { colorTextoAzul } from "../constants/temaTienda";
 import SmartImage from "./ImagenInteligente";
 
 const COLORS = {

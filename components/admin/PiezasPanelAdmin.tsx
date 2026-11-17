@@ -2,7 +2,7 @@
  * Archivo: components/admin/PiezasPanelAdmin.tsx
  * Función: componentes visuales comunes del panel de Administración.
  * Para qué sirve: tarjetas de cifras que filtran, buscador, pastillas de filtro, secciones, filas compactas y botones con el diseño de «Usuarios» y «Pedidos», para que todas las pantallas del panel se vean igual.
- * Conectado con: constants/theme.ts (CAMPO, COLORES_TEXTO, TACTIL, TAMANOS).
+ * Conectado con: constants/temaTienda.ts (CAMPO, COLORES_TEXTO, TACTIL, TAMANOS).
  * Utilizado por: app/admin/categories.tsx, services.tsx, envios.tsx, products.tsx, reservas.tsx, escaparate.tsx, chats.tsx, cotizaciones.tsx, inventario.tsx, blog.tsx, flash-news.tsx, policies.tsx, index.tsx, aprendizajes.tsx, conocimiento.tsx, auditorias.tsx, marca-seo.tsx, redes-sociales.tsx y analytics.tsx.
  * Dependencias: react, react-native, @expo/vector-icons.
  * Estado: ACTIVO
@@ -14,7 +14,7 @@
  * pastillas de filtro de 44 px con su recuento (en el móvil, en una fila deslizable), secciones con icono y título,
  * filas compactas con su etiqueta de color, bloques del detalle y acciones de texto con icono.
  *
- * Tamaños (constants/theme.ts): ninguna letra de menos de 13 px, todo lo que se toca de 44 px y a 8 px de lo de al lado,
+ * Tamaños (constants/temaTienda.ts): ninguna letra de menos de 13 px, todo lo que se toca de 44 px y a 8 px de lo de al lado,
  * campos de 16 px y 48 de alto; grises desde COLORES_TEXTO.secundario y el azul de texto (#0A78B4) en la letra azul de
  * menos de 17 px.
  *
@@ -30,7 +30,7 @@
 import React from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 
 export type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 export type Ancho = number | `${number}%`;

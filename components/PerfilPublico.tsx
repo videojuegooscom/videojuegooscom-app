@@ -2,7 +2,7 @@
  * Archivo: components/PerfilPublico.tsx
  * Función: componente de «Mi perfil» del cliente y de la obligación de completarlo.
  * Para qué sirve: formulario del perfil (usuario, foto, nombre, país, edad, direcciones de envío, teléfono, seguridad de la cuenta), pantalla obligatoria de completar perfil (PerfilObligatorio) y utilidades para el Foro (perfilesPublicos, datosDeFila).
- * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/admin/productos.utilidades.ts, components/marca/CargaMarca.tsx, components/ImagenInteligente.tsx, constants/theme.ts, tabla perfiles y función perfiles_publicos.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/admin/productos.utilidades.ts, components/marca/CargaMarca.tsx, components/ImagenInteligente.tsx, constants/temaTienda.ts, tabla perfiles y función perfiles_publicos.
  * Utilizado por: app/(tabs)/perfil.tsx, app/_layout.tsx, app/checkout.tsx, app/producto/[id].tsx, app/(tabs)/chat-global.tsx, app/admin/users.tsx, app/admin/cliente/[userId].tsx, components/VenderAhoraModal.tsx, components/Resenas.tsx y components/AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -21,7 +21,7 @@
  *   perfil» / «Deshacer». Al final, abierta o plegada, los botones de la cuenta («Cerrar sesión» y, al administrador,
  *   «Panel de control»), que le pasa la pantalla en `cuenta`. Campos compactos, redondeados y centrados con ✓ verde cuando
  *   están bien; desplegables con ⌃⌄ (los nativos del móvil, invisibles encima del campo). Letra de los campos: 16 px
- *   (CAMPO.letra de constants/theme.ts), para que el iPhone no haga zoom al escribir; las cajas tienen los márgenes
+ *   (CAMPO.letra de constants/temaTienda.ts), para que el iPhone no haga zoom al escribir; las cajas tienen los márgenes
  *   justos para que, a 360 px, «Provincia» o «Zaragoza» quepan enteras en media fila.
  *   «Dirección de envío» (opcional, solo en Mi cuenta, dueño 2026-11-02, «como en Amazon»): código postal (5 cifras en
  *   España; la provincia se reconoce por sus dos primeras cifras, se pone sola si faltaba y se avisa si no es la del
@@ -63,7 +63,7 @@
  * Conectado con: app/(tabs)/perfil.tsx, app/_layout.tsx, app/(tabs)/chat-global.tsx, components/Resenas.tsx,
  * components/AsistenteBlue.tsx, app/checkout.tsx, app/admin/cliente/[userId].tsx y app/admin/categories.tsx (RecortarFoto).
  * Usa lib/supabase.ts (tabla perfiles_cliente, función perfiles_publicos, almacén «avatares»), lib/analiticaPropia.ts,
- * lib/admin/productos.utilidades.ts, components/ImagenInteligente.tsx, components/marca/CargaMarca.tsx y constants/theme.ts (CAMPO).
+ * lib/admin/productos.utilidades.ts, components/ImagenInteligente.tsx, components/marca/CargaMarca.tsx y constants/temaTienda.ts (CAMPO).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
@@ -87,7 +87,7 @@ import { trackEvent } from "../lib/analiticaPropia";
 import { pickMediaFilesWeb, reducirImagenWeb } from "../lib/admin/productos.utilidades";
 import CargaMarca from "./marca/CargaMarca";
 import SmartImage from "./ImagenInteligente";
-import { CAMPO, TACTIL, colorTextoAzul } from "../constants/theme";
+import { CAMPO, TACTIL, colorTextoAzul } from "../constants/temaTienda";
 
 const P = {
   text: "#0B2138",
@@ -589,7 +589,7 @@ const ESTILO_NATIVO_INVISIBLE = {
   fontSize: 16,
 };
 
-// 16 px (CAMPO.letra de constants/theme.ts): con menos, Safari del iPhone hace zoom al escribir en los campos.
+// 16 px (CAMPO.letra de constants/temaTienda.ts): con menos, Safari del iPhone hace zoom al escribir en los campos.
 const ESTILO_TEXTO_PERFIL = { textAlign: "center" as const, fontSize: CAMPO.letra, fontWeight: "800" as const, color: P.text };
 
 // Foto redonda (o silueta si no hay).

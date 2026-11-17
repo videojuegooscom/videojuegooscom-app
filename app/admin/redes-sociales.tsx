@@ -2,7 +2,7 @@
  * Archivo: app/admin/redes-sociales.tsx
  * Función: pantalla de administración «Redes sociales», en la dirección /admin/redes-sociales.
  * Para qué sirve: el administrador pone el enlace de cada red o plataforma (Instagram, TikTok, WhatsApp…), elige cuáles están activas y en qué orden, el título del bloque y los seguidores que se ven junto al logo.
- * Conectado con: lib/supabase.ts (tablas social_links y site_settings), components/EnlacesRedesSociales.tsx (formatearSeguidores; lo que se ve en la tienda), lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/blue-ia.ts usa las redes activas.
+ * Conectado con: lib/supabase.ts (tablas social_links y site_settings), components/EnlacesRedesSociales.tsx (formatearSeguidores; lo que se ve en la tienda), lib/admin/productos.componentes.tsx, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx; api/blue-ia.ts usa las redes activas.
  * Utilizado por: Expo Router (dirección /admin/redes-sociales, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Redes sociales» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -86,7 +86,7 @@
  *   las recomiende cuando encaje en la conversación.
  * - app/admin/index.tsx → tarjeta "Redes sociales" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("redes-sociales") en el Stack.
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario, todo lo que se toca (también las flechas de orden) de 44 px
  *   separado 8 y los campos de 16 px y 48 de alto.
  */
@@ -109,7 +109,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { AdminHeader, AdminLoading, AdminNotice } from "../../lib/admin/productos.componentes";
 import { formatearSeguidores } from "../../components/EnlacesRedesSociales";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { BloqueFormulario, Cifra, Detalle, EtiquetaColor, FilaCifras, Seccion } from "../../components/admin/PiezasPanelAdmin";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, incluido el que hace

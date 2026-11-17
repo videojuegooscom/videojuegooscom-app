@@ -2,7 +2,7 @@
  * Archivo: components/VenderAhoraModal.tsx
  * Función: componente del formulario «Vender ahora» (página Vender).
  * Para qué sirve: recoge los datos de contacto y del artículo (con fotos y vídeo obligatorios) y guarda la solicitud de venta en Supabase; exporta además campos reutilizables (FieldInput, FieldLabel, SelectField, IsMobileContext).
- * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/notificaciones.ts, components/FotosVideoVenta.tsx, components/PerfilPublico.tsx (datosDeFila), CabeceraMarca.tsx, constants/theme.ts, tabla sell_requests.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/notificaciones.ts, components/FotosVideoVenta.tsx, components/PerfilPublico.tsx (datosDeFila), CabeceraMarca.tsx, constants/temaTienda.ts, tabla sell_requests.
  * Utilizado por: app/vender.tsx, app/(tabs)/index.tsx, app/(tabs)/cesta.tsx, app/(tabs)/chat-global.tsx y components/ContratarServicioModal.tsx (campos).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -124,7 +124,7 @@
  *   empiezan a la misma altura y los recuadros quedan alineados abajo.
  *
  * Conectado con:
- * - constants/theme.ts → TAMANOS, TACTIL, CAMPO y COLORES_TEXTO.
+ * - constants/temaTienda.ts → TAMANOS, TACTIL, CAMPO y COLORES_TEXTO.
  * - pruebas/perfil-datos.mjs (sección TM2) → comprueba esos tamaños.
  * - lib/supabase.ts → cliente usado para el INSERT.
  * - app/(tabs)/index.tsx → abre este modal desde el botón "Vender ahora".
@@ -150,7 +150,7 @@ import {
 import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 import { supabase } from "../lib/supabase";
 import { leerOrigenVender, marcarOrigenVender, trackEvent } from "../lib/analiticaPropia";
 import CabeceraMarca from "./CabeceraMarca";

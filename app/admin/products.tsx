@@ -2,7 +2,7 @@
  * Archivo: app/admin/products.tsx
  * Función: pantalla de administración de productos, en la dirección /admin/products.
  * Para qué sirve: el administrador lista, filtra, busca, crea, edita, publica u oculta, destaca y borra productos del catálogo, con sus fotos y vídeo, peso, reserva y venta a clientes.
- * Conectado con: lib/supabase.ts (tablas products y product_media, bucket de Storage de fotos), lib/envio.ts, components/PortadasCategoria.tsx, lib/admin/productos.componentes.tsx, productos.constantes.ts, productos.tipos.ts y productos.utilidades.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tablas products y product_media, bucket de Storage de fotos), lib/envio.ts, components/PortadasCategoria.tsx, lib/admin/productos.componentes.tsx, productos.constantes.ts, productos.tipos.ts y productos.utilidades.ts, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/products, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Productos» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -82,7 +82,7 @@
  * una, el detalle por bloques (Venta, Ficha, Envío y VeoAura) con las acciones abajo. El formulario va por bloques.
  * Antes eran fichas en rejilla (2 por fila en el móvil).
  *
- * Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px, grises desde
+ * Tamaños del móvil (grupo 4, 2026-11-12; constants/temaTienda.ts): ningún texto de menos de 13 px, grises desde
  * COLORS.muted (= COLORES_TEXTO.secundario) y filtros, chips y volver de 44 px (lib/admin/productos.componentes.tsx).
  *
  * ?editar=<id> (mejora 10, 2026-11-15): «Editar en Productos» desde Administración → Chats abre ya el formulario de ese
@@ -118,7 +118,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { fmtKg, PESO_SIN_DATO_KG } from "../../lib/envio";
-import { TACTIL, TAMANOS } from "../../constants/theme";
+import { TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { esCategoriaServicios } from "../../components/PortadasCategoria";
 import {
   AccionTexto,

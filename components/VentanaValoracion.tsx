@@ -2,7 +2,7 @@
  * Archivo: components/VentanaValoracion.tsx
  * Función: componente de ventanas de valoración y mejoras (reseña de la tienda, valoración de pedidos, cajita de ideas).
  * Para qué sirve: ReviewModal publica reseñas de 1 a 5 estrellas en store_reviews; MejorasModal recoge ideas de mejora; también exporta utilidades de valoración de pedidos (tocaValorarPedido, cargarValoracionesPedidos…).
- * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/envio.ts (tipo CambioEstadoPedido), components/ConversacionProducto.tsx (abrirChatEquipo), constants/theme.ts, tabla store_reviews.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/envio.ts (tipo CambioEstadoPedido), components/ConversacionProducto.tsx (abrirChatEquipo), constants/temaTienda.ts, tabla store_reviews.
  * Utilizado por: components/Resenas.tsx, components/PieDePagina.tsx (MejorasModal), components/AsistenteBlue.tsx y pantallas de perfil, pedidos y chat.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -92,7 +92,7 @@ import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analiticaPropia";
 import type { CambioEstadoPedido } from "../lib/envio";
 import { abrirChatEquipo } from "./ConversacionProducto";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../constants/temaTienda";
 
 const COLORS = {
   bg2: "#F4F9FD",

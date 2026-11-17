@@ -28,7 +28,7 @@ app/_layout.tsx | Layout raíz: carga de marca y Stack de rutas | PantallaCargaM
 app/+html.tsx | Plantilla HTML de la exportación web (SEO, JSON-LD, noscript) | scripts/inject-seo-html.js, EtiquetasCabeceraWeb, lib/barraPestanas, lib/horarioAtencion | Expo Router (al exportar) | ACTIVO
 app/+not-found.tsx | Página 404 | components/marca/MarcaAnimada | Expo Router (direcciones inexistentes) | ACTIVO
 app/modal.tsx | Modal de ejemplo de la plantilla de Expo (/modal) | themed-view, themed-text | Solo registrada en app/_layout.tsx; nadie la abre | CANDIDATO_A_ELIMINAR
-app/(tabs)/_layout.tsx | Barra de pestañas inferior | lib/estadoCarga, EfectoPensando, constants/theme | Expo Router (grupo (tabs)) | ACTIVO
+app/(tabs)/_layout.tsx | Barra de pestañas inferior | lib/estadoCarga, EfectoPensando, constants/temaTienda | Expo Router (grupo (tabs)) | ACTIVO
 app/(tabs)/index.tsx | Inicio (/) | Supabase products y categorías, BarraBusqueda, CarruselProductosCategoria, PortadasCategoria, Resenas, PieDePagina, EnlacesRedesSociales | Expo Router (/), pestaña Inicio | ACTIVO
 app/(tabs)/cesta.tsx | Cesta (/cesta) | Supabase products, lib/envio, lib/reservas, CarruselProductosCategoria, PieDePagina | Expo Router; producto y comparar (?add=) | ACTIVO
 app/(tabs)/chat-global.tsx | Foro, noticias y bandeja privada (/chat-global) | Supabase chat_messages, noticias_gaming, noticias_likes, noticias_comentarios; api/noticias-gaming; PerfilPublico | Expo Router; noticias/[id] | ACTIVO
@@ -78,12 +78,12 @@ app/admin/users.tsx | Usuarios y participación (/admin/users) | Supabase usuari
 components/  · Piezas visuales reutilizables
 -----------------------------------------------------------------------------
 components/AvisosMovil.tsx | Tarjeta «Avisos en este móvil» del panel | lib/notificaciones, lib/supabase, api/pago, public/sw-avisos.js | admin/pedidos, admin/index | ACTIVO
-components/BarraBusqueda.tsx | Barra de búsqueda de la tienda e índice de productos | lib/supabase, lib/analiticaPropia, ImagenInteligente, constants/theme | catálogo, Inicio, comparar, quiénes somos, admin/analytics, AsistenteBlue, CarruselProductosCategoria | ACTIVO
+components/BarraBusqueda.tsx | Barra de búsqueda de la tienda e índice de productos | lib/supabase, lib/analiticaPropia, ImagenInteligente, constants/temaTienda | catálogo, Inicio, comparar, quiénes somos, admin/analytics, AsistenteBlue, CarruselProductosCategoria | ACTIVO
 components/BotonAtrasAlcance.tsx | Botón «Volver» flotante al alcance del pulgar | CarruselProductosCategoria | app/_layout, ContratarServicioModal | ACTIVO
 components/PantallaCargaMarca.tsx | Pantalla de bienvenida y de carga | MarcaAnimada, EfectoPensando | app/_layout | ACTIVO
-components/CabeceraMarca.tsx | Barra superior con «Volver» y el nombre de la tienda | constants/theme | catálogo, servicios, fichas, blog, políticas, checkout, chat, comparar, formularios | ACTIVO
+components/CabeceraMarca.tsx | Barra superior con «Volver» y el nombre de la tienda | constants/temaTienda | catálogo, servicios, fichas, blog, políticas, checkout, chat, comparar, formularios | ACTIVO
 components/AsistenteBlue.tsx | Blue, la asistente flotante (guía, avisos y panel) | lib/supabase, analiticaPropia, interaccion, conocimiento, notificaciones, envio; api/blue-ia | app/_layout | ACTIVO
-components/FiltrosCatalogo.tsx | Filtros y orden del catálogo | lib/analiticaPropia, constants/theme | app/catalogo | ACTIVO
+components/FiltrosCatalogo.tsx | Filtros y orden del catálogo | lib/analiticaPropia, constants/temaTienda | app/catalogo | ACTIVO
 components/CarruselProductosCategoria.tsx | Carrusel de productos y barra de comparar | lib/supabase, analiticaPropia, ImagenInteligente, TirarParaActualizar, BarraBusqueda | app/_layout, catálogo, comparar, producto, Inicio, perfil, cesta, AsistenteBlue, BotonAtrasAlcance | ACTIVO
 components/ContratarServicioModal.tsx | Formulario «Contratar servicio» | lib/supabase, analiticaPropia, envio, productos.componentes, BotonAtrasAlcance, CabeceraMarca, VenderAhoraModal; tabla service_requests | servicio/[id], contratar/[id] | ACTIVO
 components/AvisoAnaliticaCookies.tsx | Aviso de consentimiento de analítica | lib/analiticaPropia, lib/barraPestanas | app/_layout | ACTIVO
@@ -93,7 +93,7 @@ components/PortadasCategoria.tsx | Carrusel de portadas de una categoría | Imag
 components/ConversacionProducto.tsx | Chat privado cliente-tienda | lib/supabase, analiticaPropia, productos.utilidades, ImagenInteligente; tabla product_chats | chat/[chatId], admin/chats, VentanaValoracion | ACTIVO
 components/Resenas.tsx | Bloque de reseñas de Inicio | lib/supabase, PerfilPublico, VentanaValoracion, ImagenInteligente; tabla store_reviews | Inicio | ACTIVO
 components/VentanaValoracion.tsx | Ventanas de reseña, mejoras y valoración de pedidos | lib/supabase, analiticaPropia, envio, ConversacionProducto; tabla store_reviews | Resenas, PieDePagina, AsistenteBlue, perfil, pedidos | ACTIVO
-components/FotosVideoVenta.tsx | Fotos y vídeo de «Vender ahora» (selector, subida y descarga) | constants/theme, lib/supabase; tabla sell_request_media, almacén sell-request-media | VenderAhoraModal, admin/cotizaciones | ACTIVO
+components/FotosVideoVenta.tsx | Fotos y vídeo de «Vender ahora» (selector, subida y descarga) | constants/temaTienda, lib/supabase; tabla sell_request_media, almacén sell-request-media | VenderAhoraModal, admin/cotizaciones | ACTIVO
 components/PieDePagina.tsx | Pie de página de la tienda | EnlacesRedesSociales, MarcaAnimada, VentanaValoracion | Inicio, perfil, cesta, quiénes somos, noticias | ACTIVO
 components/EtiquetasCabeceraWeb.tsx | Título, descripción y favicon del navegador | lib/supabase; tabla site_settings | app/_layout | ACTIVO
 components/ImagenInteligente.tsx | Imagen remota con caché y fundido | lib/estadoCarga, expo-image | casi todas las pantallas con fotos | ACTIVO
@@ -101,7 +101,7 @@ components/EnlacesRedesSociales.tsx | Bloque «Síguenos» con las redes sociale
 components/TirarParaActualizar.tsx | Gesto de deslizar para actualizar (useRecarga) | MarcaAnimada, lib/estadoCarga | app/_layout, AsistenteBlue, CarruselProductosCategoria, Resenas, pantallas | ACTIVO
 components/VenderAhoraModal.tsx | Formulario «Vender ahora» | lib/supabase, analiticaPropia, notificaciones, FotosVideoVenta, PerfilPublico; tabla sell_requests | vender, Inicio, cesta, Foro, ContratarServicioModal | ACTIVO
 components/EfectoPensando.tsx | Efecto «Pensando» (marco luminoso de carga) | lib/estadoCarga | app/_layout, app/(tabs)/_layout, PantallaCargaMarca | ACTIVO
-components/admin/PiezasPanelAdmin.tsx | Piezas comunes del panel de Administración | constants/theme | casi todo app/admin | ACTIVO
+components/admin/PiezasPanelAdmin.tsx | Piezas comunes del panel de Administración | constants/temaTienda | casi todo app/admin | ACTIVO
 components/marca/CargaMarca.tsx | Indicador «cargando» con la mascota | MarcaAnimada | casi todas las pantallas | ACTIVO
 components/marca/MarcaAnimada.tsx | Logo y mascotas animadas | assets/brand | PantallaCargaMarca, CargaMarca, PieDePagina, AsistenteBlue, TirarParaActualizar | ACTIVO
 components/external-link.tsx | Enlace externo (plantilla de Expo) | expo-router, expo-web-browser | Nadie | CANDIDATO_A_ELIMINAR
@@ -131,16 +131,16 @@ lib/reservas.ts | Reservas de artículos (cesta y reserva con señal) | lib/inte
 lib/barraPestanas.ts | Medidas de la barra de pestañas | react-native-safe-area-context | app/(tabs)/_layout, Inicio, AvisoAnaliticaCookies | ACTIVO
 lib/admin/productos.tipos.ts | Tipos de la administración de productos | — | admin/products, admin/services, productos.utilidades, productos.componentes | ACTIVO
 lib/admin/productos.utilidades.ts | Utilidades de productos, fotos y vídeo del panel | lib/supabase, productos.tipos | admin, producto, Inicio, PerfilPublico, ConversacionProducto, AsistenteBlue | ACTIVO
-lib/admin/productos.componentes.tsx | Componentes comunes del panel y selector iOS | CargaMarca, productos.constantes, productos.tipos, productos.utilidades, constants/theme | casi todo app/admin, servicio, ContratarServicioModal | ACTIVO
-lib/admin/productos.constantes.ts | Límites de subida, errores y paleta del panel | constants/theme | admin/products, admin/services, admin/categories, productos.componentes | ACTIVO
+lib/admin/productos.componentes.tsx | Componentes comunes del panel y selector iOS | CargaMarca, productos.constantes, productos.tipos, productos.utilidades, constants/temaTienda | casi todo app/admin, servicio, ContratarServicioModal | ACTIVO
+lib/admin/productos.constantes.ts | Límites de subida, errores y paleta del panel | constants/temaTienda | admin/products, admin/services, admin/categories, productos.componentes | ACTIVO
 
 -----------------------------------------------------------------------------
 constants/ y hooks/
 -----------------------------------------------------------------------------
-constants/theme.ts | Tamaños, zonas táctiles, campos y colores de texto comunes | react-native | casi todas las pantallas y componentes | ACTIVO (Colors y Fonts solo los usan candidatos)
+constants/temaTienda.ts | Tamaños, zonas táctiles, campos y colores de texto comunes | react-native | casi todas las pantallas y componentes | ACTIVO (Colors y Fonts solo los usan candidatos)
 hooks/use-color-scheme.ts | Tema claro u oscuro, versión nativa (plantilla de Expo) | react-native | solo candidatos | CANDIDATO_A_ELIMINAR
 hooks/use-color-scheme.web.ts | Tema claro u oscuro, versión web (plantilla de Expo) | react-native | solo candidatos | CANDIDATO_A_ELIMINAR
-hooks/use-theme-color.ts | Color según el tema (plantilla de Expo) | constants/theme, use-color-scheme | solo candidatos | CANDIDATO_A_ELIMINAR
+hooks/use-theme-color.ts | Color según el tema (plantilla de Expo) | constants/temaTienda, use-color-scheme | solo candidatos | CANDIDATO_A_ELIMINAR
 
 -----------------------------------------------------------------------------
 api/  · Funciones de servidor en Vercel (12, el máximo del plan). Su nombre ES la dirección /api/…: no se renombran.
