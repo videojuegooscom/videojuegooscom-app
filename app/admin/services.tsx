@@ -142,22 +142,22 @@ import {
 } from "../../components/admin/PiezasPanelAdmin";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
-  AdminHeader,
-  AdminNotice,
+  CabeceraPanel,
+  AvisoPanel,
   BarraSeleccionFotos,
   BotonFlotante,
-  EmptyState,
-  IconButton,
+  EstadoVacioPanel,
+  BotonIconoPanel,
   MarcaSeleccion,
   PestanasPanel,
   PieVentana,
-  PrimaryButton,
+  BotonPrincipalPanel,
   SelectorIOS,
   useGestoPestanas,
   useSeleccionFotos,
 } from "../../lib/admin/productos.componentes";
-import { ERRORS, MAX_IMAGES, MEDIA_BUCKET } from "../../lib/admin/productos.constantes";
-import type { LocalPickedMedia } from "../../lib/admin/productos.tipos";
+import { ERRORES_PANEL, MAX_FOTOS_PRODUCTO, CUBO_ARCHIVOS_PRODUCTO } from "../../lib/admin/productos.constantes";
+import type { ArchivoElegidoLocal } from "../../lib/admin/productos.tipos";
 import {
   CIERRE_TECLADO,
   rutaDeArchivo,
@@ -646,7 +646,7 @@ function EditorVideosServicios({ isMobile }: { isMobile: boolean }) {
       {filas === null ? (
         <CargaMarca texto="Cargando vídeos…" />
       ) : falta ? (
-        <AdminNotice tone="warning" text="Para guardar vídeos falta aplicar en la base de datos la migración 20261109130000_servicios_videos." />
+        <AvisoPanel tone="warning" text="Para guardar vídeos falta aplicar en la base de datos la migración 20261109130000_servicios_videos." />
       ) : (
         <>
           {filas.map((f, i) => {
@@ -670,7 +670,7 @@ function EditorVideosServicios({ isMobile }: { isMobile: boolean }) {
                     autoCorrect={false}
                     style={{ ...estiloCampo, flex: 1, width: 0, minWidth: 0 }}
                   />
-                  <IconButton
+                  <BotonIconoPanel
                     icon="trash-outline"
                     label={`Quitar el vídeo ${i + 1}`}
                     variant="danger"
@@ -702,7 +702,7 @@ function EditorVideosServicios({ isMobile }: { isMobile: boolean }) {
           </View>
         </>
       )}
-      {aviso ? <AdminNotice tone={aviso.tono} text={aviso.texto} /> : null}
+      {aviso ? <AvisoPanel tone={aviso.tono} text={aviso.texto} /> : null}
     </View>
   );
 }
@@ -1330,7 +1330,7 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
             />
           </View>
           {faltan.length ? (
-            <AdminNotice tone="warning" text={`Para activarla falta: ${faltan.join(" · ")}.`} />
+            <AvisoPanel tone="warning" text={`Para activarla falta: ${faltan.join(" · ")}.`} />
           ) : null}
           <TextField label="Dirección del taller (a dónde lo envía el cliente)" value={form.direccion} onChangeText={set("direccion")} placeholder="Nombre, calle, número, código postal y ciudad" multiline />
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
@@ -1380,7 +1380,7 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
           <View style={{ alignItems: "center" }}>
             <ChipButton label={guardando ? "Guardando…" : "Guardar ajustes"} variant="primary" icon="checkmark" disabled={guardando} isMobile={isMobile} onPress={guardar} />
           </View>
-          {msg ? <AdminNotice tone={msg.tono} text={msg.texto} /> : null}
+          {msg ? <AvisoPanel tone={msg.tono} text={msg.texto} /> : null}
         </View>
       ) : null}
     </View>
@@ -1506,7 +1506,7 @@ export default function AdminServices() {
   const [isActive, setIsActive] = useState(true);
   const [existingMedia, setExistingMedia] = useState<ServiceMediaRow[]>([]);
   const [removedMedia, setRemovedMedia] = useState<ServiceMediaRow[]>([]);
-  const [newMedia, setNewMedia] = useState<LocalPickedMedia[]>([]);
+  const [newMedia, setNewMedia] = useState<ArchivoElegidoLocal[]>([]);
   const [coverId, setCoverId] = useState<string | null>(null);
   // Opciones del servicio en el formulario (precio como texto, con coma: «77,97»).
   // foto: la dirección de una foto ya guardada del servicio o `nueva:<id>` de una que se sube al guardar (dueño,
@@ -1613,8 +1613,8 @@ export default function AdminServices() {
           } añadir (${skipped.map((s) => s.name).join(", ")}).`
         : "";
 
-      if (totalAfter > MAX_IMAGES) {
-        setModalErr(`${ERRORS.MAX_IMAGES}${skippedNote ? ` ${skippedNote}` : ""}`);
+      if (totalAfter > MAX_FOTOS_PRODUCTO) {
+        setModalErr(`${ERRORES_PANEL.MAX_IMAGES}${skippedNote ? ` ${skippedNote}` : ""}`);
         return [];
       }
 
@@ -1626,7 +1626,7 @@ export default function AdminServices() {
       if (skippedNote) setModalErr(skippedNote);
       return images;
     } catch (e: any) {
-      setModalErr(e?.message ?? ERRORS.GENERIC_UPLOAD);
+      setModalErr(e?.message ?? ERRORES_PANEL.GENERIC_UPLOAD);
       return [];
     } finally {
       setPicking(false);
@@ -1704,14 +1704,14 @@ export default function AdminServices() {
       const item = newMedia[i];
       const storagePath = `services/${rutaDeArchivo(serviceId, item, startIndex + i)}`;
 
-      const uploadRes = await supabase.storage.from(MEDIA_BUCKET).upload(storagePath, item.file, {
+      const uploadRes = await supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).upload(storagePath, item.file, {
         cacheControl: "3600",
         upsert: false,
         contentType: item.mimeType || undefined,
       });
       if (uploadRes.error) throw uploadRes.error;
 
-      const { data: publicData } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath);
+      const { data: publicData } = supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).getPublicUrl(storagePath);
       const publicUrl = publicData?.publicUrl ?? "";
       if (publicUrl) subidas[item.id] = publicUrl;
 
@@ -1737,7 +1737,7 @@ export default function AdminServices() {
     const paths = removedMedia.map((m) => m.storage_path).filter(Boolean) as string[];
     const ids = removedMedia.map((m) => m.id);
     if (paths.length) {
-      const storageDelete = await supabase.storage.from(MEDIA_BUCKET).remove(paths);
+      const storageDelete = await supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).remove(paths);
       if (storageDelete.error) throw storageDelete.error;
     }
     const dbDelete = await supabase.from("service_media").delete().in("id", ids);
@@ -1895,7 +1895,7 @@ export default function AdminServices() {
     try {
       const paths = deleteTarget.media.map((m) => m.storage_path).filter(Boolean) as string[];
       if (paths.length) {
-        await supabase.storage.from(MEDIA_BUCKET).remove(paths);
+        await supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).remove(paths);
       }
       const { error } = await supabase.from("services").delete().eq("id", deleteTarget.id);
       if (error) throw error;
@@ -2349,7 +2349,7 @@ export default function AdminServices() {
                 .map((s) => (
                   <ChipButton key={s} label={REQUEST_STATUS_LABEL[s]} onPress={() => setRequestStatus(r.id, s)} isMobile={isMobile} variant={s === "descartado" ? "danger" : "ghost"} />
                 ))}
-              <IconButton icon="trash-outline" label="Borrar la solicitud" variant="danger" onPress={() => setDeleteRequestTarget(r)} />
+              <BotonIconoPanel icon="trash-outline" label="Borrar la solicitud" variant="danger" onPress={() => setDeleteRequestTarget(r)} />
             </View>
           </View>
         ) : null}
@@ -2392,7 +2392,7 @@ export default function AdminServices() {
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual
           en todo el panel. Pestañas y contenido van en un solo scroll. */}
-      <AdminHeader title="Servicios" isMobile={isMobile} maxWidth={1160} />
+      <CabeceraPanel title="Servicios" isMobile={isMobile} maxWidth={1160} />
 
       <ScrollView
         style={{ flex: 1 }}
@@ -2419,7 +2419,7 @@ export default function AdminServices() {
             {/* El buscador (16 px) arriba de las cifras, como en Usuarios y Pedidos. */}
             <Buscador nativeID="servicios-buscar" valor={search} onCambiar={setSearch} placeholder="Buscar por título o descripción" etiqueta="Buscar servicios por título o descripción" />
 
-            {avisoPrecio ? <AdminNotice tone="warning" text={avisoPrecio} /> : null}
+            {avisoPrecio ? <AvisoPanel tone="warning" text={avisoPrecio} /> : null}
 
             {/* Las cuatro cifras en una sola fila, también en el móvil (dueño, 2026-11-03); tocarlas filtra la lista. */}
             <View nativeID="servicios-contadores" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
@@ -2450,7 +2450,7 @@ export default function AdminServices() {
             ) : filteredServices.length === 0 && services.length ? (
               <ListaVacia nativeID="servicios-vacio" icono="construct-outline" titulo="No hay servicios en esta lista." texto="Prueba a borrar el buscador o a elegir «Todos»." />
             ) : filteredServices.length === 0 ? (
-              <EmptyState
+              <EstadoVacioPanel
                 icon="construct-outline"
                 title="Todavía no hay servicios"
                 text="Crea el primero (por ejemplo «Reparación de pantalla» o «Limpieza interna») para que aparezca en la categoría «Reparación/Limpieza» de Inicio."
@@ -2522,8 +2522,8 @@ export default function AdminServices() {
                         </View>
                       </View>
 
-                      <IconButton icon="create-outline" label={`Editar ${s.title || "el servicio"}`} variant="primary" onPress={() => openEdit(s)} />
-                      <IconButton icon="trash-outline" label={`Borrar ${s.title || "el servicio"}`} variant="danger" onPress={() => setDeleteTarget(s)} />
+                      <BotonIconoPanel icon="create-outline" label={`Editar ${s.title || "el servicio"}`} variant="primary" onPress={() => openEdit(s)} />
+                      <BotonIconoPanel icon="trash-outline" label={`Borrar ${s.title || "el servicio"}`} variant="danger" onPress={() => setDeleteTarget(s)} />
                     </View>
                   );
                 })}
@@ -2714,7 +2714,7 @@ export default function AdminServices() {
             ) : visiblesSol.length === 0 && requests.length ? (
               <ListaVacia nativeID="solicitudes-vacio" icono="document-text-outline" titulo="No hay solicitudes en esta lista." texto="Prueba a borrar el buscador o a elegir «Todas»." />
             ) : visiblesSol.length === 0 ? (
-              <EmptyState
+              <EstadoVacioPanel
                 icon="document-text-outline"
                 title="Sin solicitudes todavía"
                 text="Aquí aparecerán los clientes que pulsen «Contratar servicio ahora» en la ficha de un servicio."
@@ -2948,7 +2948,7 @@ export default function AdminServices() {
                           textAlign: "center",
                         }}
                       />
-                      <IconButton
+                      <BotonIconoPanel
                         icon="trash-outline"
                         label={`Quitar la opción ${o.nombre || i + 1}`}
                         variant="danger"
@@ -3053,7 +3053,7 @@ export default function AdminServices() {
 
               <View style={{ gap: 8, alignItems: "center" }}>
                 <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
-                  Fotos ({existingMedia.length + newMedia.length}/{MAX_IMAGES})
+                  Fotos ({existingMedia.length + newMedia.length}/{MAX_FOTOS_PRODUCTO})
                 </Text>
 
                 {/* Quitar varias a la vez (dueño, 2026-11-04). */}
@@ -3173,14 +3173,14 @@ export default function AdminServices() {
                 ) : null}
               </View>
 
-              {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
+              {!!modalErr && <AvisoPanel tone="danger" text={modalErr} />}
             </ScrollView>
 
             {/* Abajo y siempre a la vista: el botón principal y, a su derecha, la X para cerrar. */}
             <View style={{ padding: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.border }}>
               <PieVentana nativeID="servicio-ventana-pie" onCerrar={closeModal}>
                 <View style={{ flex: 1 }}>
-                  <PrimaryButton
+                  <BotonPrincipalPanel
                     label={saving ? "Guardando…" : editing ? "Guardar cambios" : "Crear servicio"}
                     onPress={save}
                     disabled={saving}

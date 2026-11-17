@@ -52,7 +52,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { AdminHeader, AdminLoading, AdminNotice, BotonFlotante, EmptyState, IconButton, PieVentana } from "../../lib/admin/productos.componentes";
+import { CabeceraPanel, CargandoPanel, AvisoPanel, BotonFlotante, EstadoVacioPanel, BotonIconoPanel, PieVentana } from "../../lib/admin/productos.componentes";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
   AccionTexto,
@@ -311,10 +311,10 @@ export default function AdminAprendizajes() {
       <StatusBar barStyle="dark-content" />
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. */}
-      <AdminHeader title="Centro De Aprendizajes" isMobile={isMobile} />
+      <CabeceraPanel title="Centro De Aprendizajes" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando lecciones…" />
+        <CargandoPanel texto="Cargando lecciones…" />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
@@ -372,11 +372,11 @@ export default function AdminAprendizajes() {
               </FilaPastillas>
             </View>
 
-            {!!msg && <AdminNotice tone={msg.type === "ok" ? "success" : "danger"} text={msg.text} />}
+            {!!msg && <AvisoPanel tone={msg.type === "ok" ? "success" : "danger"} text={msg.text} />}
 
             {loadErr ? (
               <View style={{ gap: 4, alignItems: "center" }}>
-                <AdminNotice tone="danger" text={loadErr} />
+                <AvisoPanel tone="danger" text={loadErr} />
                 <AccionTexto nativeID="aprendizajes-reintentar" icono="refresh-outline" texto="Reintentar" onPress={load} />
               </View>
             ) : (
@@ -394,7 +394,7 @@ export default function AdminAprendizajes() {
                   items.length && hayFiltro ? (
                     <ListaVacia nativeID="aprendizajes-vacio" icono="school-outline" titulo="No hay lecciones para este filtro." texto="Prueba a borrar el buscador o a elegir «Todas»." />
                   ) : (
-                    <EmptyState icon="school-outline" title="Aún no hay lecciones." text="Cada vez que corrijas algo a Claude, guárdalo con el «+» para que no vuelva a pasar." />
+                    <EstadoVacioPanel icon="school-outline" title="Aún no hay lecciones." text="Cada vez que corrijas algo a Claude, guárdalo con el «+» para que no vuelva a pasar." />
                   )
                 ) : (
                   <View nativeID="aprendizajes-lista">
@@ -428,7 +428,7 @@ export default function AdminAprendizajes() {
                           }
                           derecha={
                             <BotonesFila>
-                              <IconButton icon="create-outline" label={`Editar la lección ${a.titulo}`} variant="primary" onPress={() => editar(a)} />
+                              <BotonIconoPanel icon="create-outline" label={`Editar la lección ${a.titulo}`} variant="primary" onPress={() => editar(a)} />
                             </BotonesFila>
                           }
                         >
@@ -553,7 +553,7 @@ export default function AdminAprendizajes() {
                 style={[inputStyle, { minHeight: 56, textAlignVertical: "top" }]}
               />
 
-              {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
+              {!!modalErr && <AvisoPanel tone="danger" text={modalErr} />}
 
               {/* «Guardar» y, a su derecha, la X para cerrar (dueño, 2026-11-04). */}
               <PieVentana onCerrar={() => setOpen(false)}>

@@ -35,7 +35,7 @@ import { ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-na
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { AdminHeader, AdminLoading, AdminNotice, EmptyState } from "../../lib/admin/productos.componentes";
+import { CabeceraPanel, CargandoPanel, AvisoPanel, EstadoVacioPanel } from "../../lib/admin/productos.componentes";
 import { TAMANOS } from "../../constants/temaTienda";
 import {
   Bloque,
@@ -148,10 +148,10 @@ export default function AdminAuditorias() {
   return (
     <View style={{ flex: 1, backgroundColor: PANEL.bg }}>
       <StatusBar barStyle="dark-content" />
-      <AdminHeader title="Revisiones" isMobile={isMobile} />
+      <CabeceraPanel title="Revisiones" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando…" />
+        <CargandoPanel texto="Cargando…" />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
@@ -189,7 +189,7 @@ export default function AdminAuditorias() {
               Aquí queda apuntado cuándo se hizo, qué se miró y qué se encontró. La revisión automática solo lee: no cambia nada.
             </Detalle>
 
-            {!!err && <AdminNotice tone="danger" text={err} />}
+            {!!err && <AvisoPanel tone="danger" text={err} />}
 
             {/* 2) Buscador y pastillas con su recuento. */}
             <View style={{ gap: 12 }}>
@@ -221,7 +221,7 @@ export default function AdminAuditorias() {
                 filas.length && hayFiltro ? (
                   <ListaVacia nativeID="revisiones-vacio" icono="clipboard-outline" titulo="No hay revisiones para este filtro." texto="Prueba a borrar el buscador o a elegir «Todas»." />
                 ) : err ? null : (
-                  <EmptyState icon="clipboard-outline" title="Todavía no hay ninguna revisión." text="La primera aparecerá el próximo día 1 o 15." />
+                  <EstadoVacioPanel icon="clipboard-outline" title="Todavía no hay ninguna revisión." text="La primera aparecerá el próximo día 1 o 15." />
                 )
               ) : (
                 <View nativeID="revisiones-lista">

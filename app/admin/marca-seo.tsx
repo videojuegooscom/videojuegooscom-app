@@ -64,7 +64,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { AdminHeader, AdminLoading, AdminNotice, IconButton } from "../../lib/admin/productos.componentes";
+import { CabeceraPanel, CargandoPanel, AvisoPanel, BotonIconoPanel } from "../../lib/admin/productos.componentes";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import { CAMPO, TAMANOS } from "../../constants/temaTienda";
 import { BloqueFormulario, Cifra, Detalle, FilaCifras, PANEL } from "../../components/admin/PiezasPanelAdmin";
@@ -349,10 +349,10 @@ export default function AdminMarcaSeo() {
       <StatusBar barStyle="dark-content" />
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. */}
-      <AdminHeader title="Marca y SEO" isMobile={isMobile} />
+      <CabeceraPanel title="Marca y SEO" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando…" />
+        <CargandoPanel texto="Cargando…" />
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView
@@ -386,7 +386,7 @@ export default function AdminMarcaSeo() {
 
               <Detalle>El logo y el texto que se ven al buscar la tienda en Google, y en la pestaña del navegador.</Detalle>
 
-              {!!loadErr && <AdminNotice tone="danger" text={loadErr} />}
+              {!!loadErr && <AvisoPanel tone="danger" text={loadErr} />}
 
               <View style={{ flexDirection: isMobile ? "column" : "row", alignItems: "flex-start", gap: isMobile ? 18 : 16 }}>
                 {/* 2) Logo de la tienda. */}
@@ -457,7 +457,7 @@ export default function AdminMarcaSeo() {
                         removingLogo ? (
                           <ActivityIndicator size="small" color={PANEL.danger} />
                         ) : (
-                          <IconButton icon="trash-outline" label="Quitar el logo" variant="danger" onPress={handleRemoveLogo} />
+                          <BotonIconoPanel icon="trash-outline" label="Quitar el logo" variant="danger" onPress={handleRemoveLogo} />
                         )
                       ) : null}
                     </View>

@@ -42,7 +42,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
-import { AdminHeader, AdminLoading } from "../../lib/admin/productos.componentes";
+import { CabeceraPanel, CargandoPanel } from "../../lib/admin/productos.componentes";
 import {
   AccionTexto,
   Bloque,
@@ -714,10 +714,10 @@ export default function AdminReservas() {
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
-      <AdminHeader title="Reservas con señal" isMobile={isMobile} />
+      <CabeceraPanel title="Reservas con señal" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando…" />
+        <CargandoPanel texto="Cargando…" />
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView

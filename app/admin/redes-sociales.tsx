@@ -107,7 +107,7 @@ import {
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { AdminHeader, AdminLoading, AdminNotice } from "../../lib/admin/productos.componentes";
+import { CabeceraPanel, CargandoPanel, AvisoPanel } from "../../lib/admin/productos.componentes";
 import { formatearSeguidores } from "../../components/EnlacesRedesSociales";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { BloqueFormulario, Cifra, Detalle, EtiquetaColor, FilaCifras, Seccion } from "../../components/admin/PiezasPanelAdmin";
@@ -424,10 +424,10 @@ export default function AdminRedesSociales() {
       <StatusBar barStyle="dark-content" />
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. */}
-      <AdminHeader title="Redes sociales" isMobile={isMobile} />
+      <CabeceraPanel title="Redes sociales" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando…" />
+        <CargandoPanel texto="Cargando…" />
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView
@@ -466,7 +466,7 @@ export default function AdminRedesSociales() {
               </Detalle>
             </View>
 
-            {!!loadErr && <AdminNotice tone="danger" text={loadErr} />}
+            {!!loadErr && <AvisoPanel tone="danger" text={loadErr} />}
 
             <View style={{ flexDirection: isMobile ? "column" : "row", alignItems: "flex-start", gap: isMobile ? 18 : 16 }}>
             <View style={{ width: isMobile ? "100%" : undefined, flex: isMobile ? undefined : 1, minWidth: 0 }}>
@@ -702,7 +702,7 @@ export default function AdminRedesSociales() {
             </View>
             </Seccion>
 
-            {!!msg && <AdminNotice tone={msg.type === "ok" ? "success" : "danger"} text={msg.text} />}
+            {!!msg && <AvisoPanel tone={msg.type === "ok" ? "success" : "danger"} text={msg.text} />}
 
             <Pressable
               onPress={handleSave}

@@ -66,14 +66,14 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import {
-  AdminHeader,
-  AdminLoading,
-  AdminNotice,
+  CabeceraPanel,
+  CargandoPanel,
+  AvisoPanel,
   BotonFlotante,
-  EmptyState,
-  IconButton,
+  EstadoVacioPanel,
+  BotonIconoPanel,
   PieVentana,
-  PrimaryButton,
+  BotonPrincipalPanel,
 } from "../../lib/admin/productos.componentes";
 import { CIERRE_TECLADO } from "../../lib/admin/productos.utilidades";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
@@ -470,10 +470,10 @@ export default function Inventario() {
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual
           en todo el panel. Lo demás va en un solo scroll. */}
-      <AdminHeader title="Inventario" isMobile={isMobile} />
+      <CabeceraPanel title="Inventario" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando inventario…" />
+        <CargandoPanel texto="Cargando inventario…" />
       ) : (
       <ScrollView
         style={{ flex: 1 }}
@@ -522,10 +522,10 @@ export default function Inventario() {
             </FilaPastillas>
           </View>
 
-          {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
+          {!!screenErr && <AvisoPanel tone="danger" text={screenErr} />}
 
           {tableMissing && (
-            <AdminNotice
+            <AvisoPanel
               tone="warning"
               title="Falta crear la tabla de inventario en Supabase."
               text="Ejecuta el archivo sql/inventory_items.sql una vez en el SQL Editor de tu proyecto de Supabase y recarga esta pantalla."
@@ -546,7 +546,7 @@ export default function Inventario() {
                 items.length ? (
                   <ListaVacia nativeID="inventario-vacio" icono="cube-outline" titulo="No hay artículos en esta lista." texto="Prueba a borrar el buscador o a elegir «Todos»." />
                 ) : (
-                  <EmptyState icon="cube-outline" title="No hay artículos para este filtro." text="Crea tu primer artículo de inventario con el «+» para empezar a llevar el control." />
+                  <EstadoVacioPanel icon="cube-outline" title="No hay artículos para este filtro." text="Crea tu primer artículo de inventario con el «+» para empezar a llevar el control." />
                 )
               ) : (
                 <View nativeID="inventario-lista">
@@ -569,7 +569,7 @@ export default function Inventario() {
                         // Las notas, en una línea (enteras en el detalle).
                         lineasSubtitulo={1}
                         etiquetas={<Etiqueta nativeID={`inventario-actualizado-${i.id}`} icon="time-outline" color={COLORS.muted} texto={`Actualizado: ${fechaFila(i.updated_at)}`} />}
-                        derecha={<IconButton icon="create-outline" label={`Editar ${i.code} ${i.title}`} variant="primary" onPress={() => openEdit(i)} />}
+                        derecha={<BotonIconoPanel icon="create-outline" label={`Editar ${i.code} ${i.title}`} variant="primary" onPress={() => openEdit(i)} />}
                       >
                         <DetalleFila
                           nativeID={`inventario-detalle-${i.id}`}
@@ -579,7 +579,7 @@ export default function Inventario() {
                               {STATUS_ORDER.filter((s) => s !== i.status).map((s) => (
                                 <AccionTexto key={s} nativeID={`inventario-pasar-${s}-${i.id}`} icono={STATUS_ICONO[s]} texto={STATUS_ACCION[s]} onPress={() => cambiarEstado(i, s)} />
                               ))}
-                              <IconButton icon="trash-outline" label={`Borrar ${i.code} ${i.title}`} variant="danger" onPress={() => askRemove(i)} />
+                              <BotonIconoPanel icon="trash-outline" label={`Borrar ${i.code} ${i.title}`} variant="danger" onPress={() => askRemove(i)} />
                             </>
                           }
                         >
@@ -719,7 +719,7 @@ export default function Inventario() {
                 </View>
               </View>
 
-              {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
+              {!!modalErr && <AvisoPanel tone="danger" text={modalErr} />}
 
               {/* La acción principal y, a su derecha, la X para cerrar (dueño, 2026-11-04). */}
               <View style={{ marginTop: 4 }}>
@@ -730,7 +730,7 @@ export default function Inventario() {
                   }}
                 >
                   <View style={{ flex: 1 }}>
-                    <PrimaryButton
+                    <BotonPrincipalPanel
                       label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear artículo"}
                       onPress={save}
                       disabled={saving}

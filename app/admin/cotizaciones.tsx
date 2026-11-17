@@ -82,12 +82,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { MIN_SELL_IMAGES, downloadSellRequestMedia, enlacesSellRequestMedia, type FilaArchivoVenta } from "../../components/FotosVideoVenta";
 import {
-  AdminHeader,
-  AdminLoading,
-  AdminNotice,
-  ChipButton,
-  EmptyState,
-  IconButton,
+  CabeceraPanel,
+  CargandoPanel,
+  AvisoPanel,
+  BotonChipPanel,
+  EstadoVacioPanel,
+  BotonIconoPanel,
   PieVentana,
 } from "../../lib/admin/productos.componentes";
 import { CIERRE_TECLADO, formatearEurosPanel, precioSeguro } from "../../lib/admin/productos.utilidades";
@@ -533,10 +533,10 @@ export default function AdminCotizaciones() {
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual
           en todo el panel. Lo demás va en un solo scroll. */}
-      <AdminHeader title="Solicitudes de venta" isMobile={isMobile} maxWidth={1160} />
+      <CabeceraPanel title="Solicitudes de venta" isMobile={isMobile} maxWidth={1160} />
 
       {loading ? (
-        <AdminLoading texto="Cargando solicitudes…" />
+        <CargandoPanel texto="Cargando solicitudes…" />
       ) : (
       <ScrollView
         style={{ flex: 1 }}
@@ -596,8 +596,8 @@ export default function AdminCotizaciones() {
             </FilaPastillas>
           </View>
 
-          {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
-          {!!mediaErr && <AdminNotice tone="danger" text={mediaErr} />}
+          {!!screenErr && <AvisoPanel tone="danger" text={screenErr} />}
+          {!!mediaErr && <AvisoPanel tone="danger" text={mediaErr} />}
 
           {/* 3) Cuántas salen, «Abrir todas» y las filas compactas. */}
           <View style={{ gap: 4 }}>
@@ -613,7 +613,7 @@ export default function AdminCotizaciones() {
               items.length && hayFiltro ? (
                 <ListaVacia nativeID="cotizaciones-vacio" icono="document-text-outline" titulo="No hay solicitudes para este filtro." texto="Prueba a borrar el buscador o a elegir «Todas»." />
               ) : (
-                <EmptyState
+                <EstadoVacioPanel
                   icon="document-text-outline"
                   title="No hay solicitudes para este filtro."
                   text="En cuanto un cliente envíe el formulario de «Vender ahora» aparecerá aquí."
@@ -673,7 +673,7 @@ export default function AdminCotizaciones() {
                             {r.status !== "descartado" ? (
                               <AccionTexto nativeID={`cotizacion-descartar-${r.id}`} icono="close-circle-outline" texto="Descartar" color={COLORS.text} disabled={isBusy} onPress={() => setStatus(r, "descartado")} />
                             ) : null}
-                            <IconButton icon="trash-outline" label="Borrar la solicitud" variant="danger" disabled={isBusy} onPress={() => askRemove(r)} />
+                            <BotonIconoPanel icon="trash-outline" label="Borrar la solicitud" variant="danger" disabled={isBusy} onPress={() => askRemove(r)} />
                           </>
                         }
                       >
@@ -797,7 +797,7 @@ export default function AdminCotizaciones() {
             <View style={{ marginTop: 6 }}>
               <PieVentana onCerrar={() => setConfirmDelete(null)}>
                 <View style={{ flex: 1 }}>
-                  <ChipButton label="Sí, borrar" variant="danger" onPress={removeConfirmed} isMobile={isMobile} fullWidth />
+                  <BotonChipPanel label="Sí, borrar" variant="danger" onPress={removeConfirmed} isMobile={isMobile} fullWidth />
                 </View>
               </PieVentana>
             </View>

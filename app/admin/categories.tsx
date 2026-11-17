@@ -122,14 +122,14 @@ import {
 } from "../../components/PortadasCategoria";
 import { RecortarFoto } from "../../components/PerfilPublico";
 import {
-  AdminHeader,
-  AdminLoading,
-  AdminNotice,
+  CabeceraPanel,
+  CargandoPanel,
+  AvisoPanel,
   BotonFlotante,
-  EmptyState,
-  IconButton,
+  EstadoVacioPanel,
+  BotonIconoPanel,
   PieVentana,
-  PrimaryButton,
+  BotonPrincipalPanel,
 } from "../../lib/admin/productos.componentes";
 import {
   AccionTexto,
@@ -148,7 +148,7 @@ import {
   type NombreIconoPanel,
 } from "../../components/admin/PiezasPanelAdmin";
 import { CIERRE_TECLADO, elegirFotosVideoWeb, reducirImagenWeb } from "../../lib/admin/productos.utilidades";
-import { MEDIA_BUCKET } from "../../lib/admin/productos.constantes";
+import { CUBO_ARCHIVOS_PRODUCTO } from "../../lib/admin/productos.constantes";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 
 // «−» y «+» de cuánto se ve la foto: de 10 en 10, para que cada toque se note (la barra va de 5 en 5).
@@ -562,10 +562,10 @@ export default function AdminCategories() {
   async function subirArchivo(archivo: File, prefijo = ""): Promise<string> {
     const ruta = `categorias/${prefijo}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extensionDe(archivo.type)}`;
     const { error } = await supabase.storage
-      .from(MEDIA_BUCKET)
+      .from(CUBO_ARCHIVOS_PRODUCTO)
       .upload(ruta, archivo, { cacheControl: "31536000", upsert: false, contentType: archivo.type || undefined });
     if (error) throw error;
-    const { data } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(ruta);
+    const { data } = supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).getPublicUrl(ruta);
     if (!data?.publicUrl) throw new Error("sin dirección");
     return data.publicUrl;
   }
@@ -856,10 +856,10 @@ export default function AdminCategories() {
           en todo el panel. Subtítulo, estadísticas, buscador y lista van en
           un solo scroll (antes eran fijos arriba y en el móvil dejaban la
           lista en una franja mínima). */}
-      <AdminHeader title="Categorías" isMobile={isMobile} />
+      <CabeceraPanel title="Categorías" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando categorías…" />
+        <CargandoPanel texto="Cargando categorías…" />
       ) : (
       <ScrollView
         style={{ flex: 1 }}
@@ -921,10 +921,10 @@ export default function AdminCategories() {
             ))}
           </FilaPastillas>
 
-          {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
+          {!!screenErr && <AvisoPanel tone="danger" text={screenErr} />}
 
           {!supportsImageUrl && (
-            <AdminNotice
+            <AvisoPanel
               tone="warning"
               text="La imagen por URL no está disponible todavía para las categorías. El resto del panel sigue funcionando con normalidad."
             />
@@ -944,7 +944,7 @@ export default function AdminCategories() {
             items.length ? (
               <ListaVacia nativeID="categorias-vacio" icono="folder-open-outline" titulo="No hay categorías en esta lista." texto="Prueba a borrar el buscador o a elegir «Todas»." />
             ) : (
-              <EmptyState
+              <EstadoVacioPanel
                 icon="folder-open-outline"
                 title="No hay categorías para este filtro."
                 text="Crea tu primera categoría para empezar a organizar el catálogo."
@@ -1020,7 +1020,7 @@ export default function AdminCategories() {
                     <Ionicons name={abierta ? "chevron-up" : "chevron-down"} size={18} color={COLORS.muted} />
                   </Pressable>
                   {/* Editar: el lápiz, siempre a mano (icono de 44 px, con su nombre para el lector de pantalla). */}
-                  <IconButton icon="create-outline" label={`Editar ${c.name}`} variant="primary" onPress={() => openEdit(c)} />
+                  <BotonIconoPanel icon="create-outline" label={`Editar ${c.name}`} variant="primary" onPress={() => openEdit(c)} />
                 </View>
 
                 {abierta ? (
@@ -1092,7 +1092,7 @@ export default function AdminCategories() {
                         onPress={() => openEdit(c)}
                       />
                       {!servicios ? (
-                        <IconButton icon="trash-outline" label={`Borrar ${c.name}`} variant="danger" onPress={() => askRemove(c)} />
+                        <BotonIconoPanel icon="trash-outline" label={`Borrar ${c.name}`} variant="danger" onPress={() => askRemove(c)} />
                       ) : null}
                     </View>
                   </View>
@@ -1384,9 +1384,9 @@ export default function AdminCategories() {
                     )}
                   </View>
 
-                  {!!avisoPortadas && <AdminNotice tone="warning" text={avisoPortadas} />}
+                  {!!avisoPortadas && <AvisoPanel tone="warning" text={avisoPortadas} />}
                   {!supportsEncuadre && maxPortadas > 0 ? (
-                    <AdminNotice
+                    <AvisoPanel
                       tone="warning"
                       text="El encuadre para Inicio se podrá usar en cuanto se active su parte en la base de datos; mientras, Inicio recorta las fotos por el centro."
                     />
@@ -1462,7 +1462,7 @@ export default function AdminCategories() {
                         Menos: la foto se ve más suave. Más: la foto se ve más fuerte.
                       </Text>
                       {!supportsOpacidad ? (
-                        <AdminNotice
+                        <AvisoPanel
                           tone="warning"
                           text={`Se podrá guardar en cuanto se active su parte en la base de datos; mientras, en Inicio sale al ${OPACIDAD_PORTADA_DEFECTO} %.`}
                         />
@@ -1564,7 +1564,7 @@ export default function AdminCategories() {
                               </Pressable>
                             );
                           })}
-                          <PrimaryButton
+                          <BotonPrincipalPanel
                             label={copiando ? "Copiando…" : copiarA.length ? `Aplicar a ${copiarA.length} ${copiarA.length === 1 ? "categoría" : "categorías"}` : "Elige a cuáles"}
                             onPress={aplicarAOtras}
                             disabled={copiando || !copiarA.length}
@@ -1575,11 +1575,11 @@ export default function AdminCategories() {
                   </View>
                 ) : null}
                 {avisoCopiar ? (
-                  <AdminNotice tone={/^Copiado/.test(avisoCopiar) ? "success" : "warning"} text={avisoCopiar} />
+                  <AvisoPanel tone={/^Copiado/.test(avisoCopiar) ? "success" : "warning"} text={avisoCopiar} />
                 ) : null}
               </View>
 
-              {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
+              {!!modalErr && <AvisoPanel tone="danger" text={modalErr} />}
 
               {/* La acción principal y, a su derecha, la X para cerrar (dueño, 2026-11-04). */}
               <View style={{ marginTop: 4 }}>
@@ -1590,7 +1590,7 @@ export default function AdminCategories() {
                   }}
                 >
                   <View style={{ flex: 1 }}>
-                    <PrimaryButton
+                    <BotonPrincipalPanel
                       label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear categoría"}
                       onPress={save}
                       disabled={saving}

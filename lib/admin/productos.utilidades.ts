@@ -36,11 +36,11 @@ import { router } from "expo-router";
 import { Platform } from "react-native";
 import { supabase } from "../supabase";
 import type {
-  LocalPickedMedia,
-  ProductCondition,
-  ProductMediaKind,
-  ProductMediaRow,
-  ProductStatus,
+  ArchivoElegidoLocal,
+  CondicionProductoPanel,
+  TipoArchivoProductoPanel,
+  FilaArchivoProductoPanel,
+  EstadoProductoPanel,
 } from "./productos.tipos";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el
@@ -158,13 +158,13 @@ export function precioSeguro(v: string, fallback = 0) {
   return Math.round(n * 100) / 100;
 }
 
-export function textoEstadoPanel(s: ProductStatus) {
+export function textoEstadoPanel(s: EstadoProductoPanel) {
   if (s === "PUBLISHED") return "Publicado";
   if (s === "REVIEW") return "Por revisar";
   return "Borrador";
 }
 
-export function textoCondicionProducto(c: ProductCondition) {
+export function textoCondicionProducto(c: CondicionProductoPanel) {
   if (c === "NEW") return "Nuevo";
   if (c === "LIKE_NEW") return "Como nuevo";
   if (c === "GOOD") return "Bueno";
@@ -184,7 +184,7 @@ export function volverAlPanel() {
   router.replace("/admin");
 }
 
-export function aspectoEstadoProducto(status: ProductStatus, palette: any) {
+export function aspectoEstadoProducto(status: EstadoProductoPanel, palette: any) {
   if (status === "PUBLISHED") {
     return {
       text: "Publicado",
@@ -206,31 +206,31 @@ export function aspectoEstadoProducto(status: ProductStatus, palette: any) {
   };
 }
 
-export function normalizarTipoArchivo(value: unknown): ProductMediaKind | null {
+export function normalizarTipoArchivo(value: unknown): TipoArchivoProductoPanel | null {
   const v = String(value ?? "").trim().toLowerCase();
   if (v === "image") return "image";
   if (v === "video") return "video";
   return null;
 }
 
-export function tipoDeArchivo(media: Pick<ProductMediaRow, "kind" | "media_type">) {
+export function tipoDeArchivo(media: Pick<FilaArchivoProductoPanel, "kind" | "media_type">) {
   return normalizarTipoArchivo(media.kind ?? media.media_type);
 }
 
 export function duracionDeArchivo(
-  media: Pick<ProductMediaRow, "duration_seconds" | "duration_sec">
+  media: Pick<FilaArchivoProductoPanel, "duration_seconds" | "duration_sec">
 ) {
   const raw = media.duration_seconds ?? media.duration_sec;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export function urlPublicaDeArchivo(media: Pick<ProductMediaRow, "public_url">) {
+export function urlPublicaDeArchivo(media: Pick<FilaArchivoProductoPanel, "public_url">) {
   const url = String(media.public_url ?? "").trim();
   return url || null;
 }
 
-export function archivoPrincipal(media: ProductMediaRow[]) {
+export function archivoPrincipal(media: FilaArchivoProductoPanel[]) {
   if (!media?.length) return null;
 
   return (
@@ -257,7 +257,7 @@ export function nombreArchivoSeguro(name: string) {
     .replace(/^-|-$/g, "");
 }
 
-export function rutaDeArchivo(productId: string, item: LocalPickedMedia, index: number) {
+export function rutaDeArchivo(productId: string, item: ArchivoElegidoLocal, index: number) {
   const fallbackExt = item.kind === "video" ? "mp4" : "jpg";
   const ext = extensionDelNombre(item.name, fallbackExt);
   const stamp = Date.now();
@@ -466,7 +466,7 @@ async function normalizePickedFile(file: File): Promise<File> {
 export type ArchivoDescartado = { name: string; reason: string };
 
 export type ResultadoElegirArchivos = {
-  items: LocalPickedMedia[];
+  items: ArchivoElegidoLocal[];
   // Archivos que el usuario seleccionó pero que NO se pudieron procesar
   // (formato no soportado, HEIC sin convertir, etc.). Antes, un solo
   // archivo problemático dentro de una selección múltiple (por ejemplo 1
@@ -534,7 +534,7 @@ export async function elegirFotosVideoWeb(opciones?: { soloImagenes?: boolean })
         return;
       }
 
-      const out: LocalPickedMedia[] = [];
+      const out: ArchivoElegidoLocal[] = [];
       const skipped: ArchivoDescartado[] = [];
 
       for (const originalFile of originalFiles) {
@@ -556,7 +556,7 @@ export async function elegirFotosVideoWeb(opciones?: { soloImagenes?: boolean })
 
           const isVideo = mimeType.startsWith("video/");
           if (isVideo && soloImagenes) throw new Error("Aquí solo se pueden subir fotos.");
-          const kind: ProductMediaKind = isVideo ? "video" : "image";
+          const kind: TipoArchivoProductoPanel = isVideo ? "video" : "image";
 
           let durationSeconds: number | null = null;
           if (isVideo) {

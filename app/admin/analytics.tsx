@@ -157,7 +157,7 @@ import { supabase } from "../../lib/supabase";
 import { cargarAjustesReparacionEnvio } from "../../lib/envio";
 import { eurosAlquiler, mesesContratados } from "../../lib/alquiler";
 import CargaMarca from "../../components/marca/CargaMarca";
-import { AdminHeader, AdminNotice } from "../../lib/admin/productos.componentes";
+import { CabeceraPanel, AvisoPanel } from "../../lib/admin/productos.componentes";
 import { Chip, Cifra, Detalle, FilaCifras, FilaPastillas, PANEL } from "../../components/admin/PiezasPanelAdmin";
 
 const COLORS = {
@@ -1763,7 +1763,7 @@ export default function AdminAnalytics() {
 
       {/* Cabecera fija y compacta (volver al panel + título centrado). El filtro de fechas
           va dentro del scroll: fijo arriba ocupaba casi media pantalla del móvil. */}
-      <AdminHeader title="Visitas y métricas" isMobile={isMobile} />
+      <CabeceraPanel title="Visitas y métricas" isMobile={isMobile} />
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView
@@ -1874,7 +1874,7 @@ export default function AdminAnalytics() {
             </Text>
           </View>
 
-          {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
+          {!!screenErr && <AvisoPanel tone="danger" text={screenErr} />}
 
           {/* Al cambiar el rango solo se recargan los datos: el filtro sigue a la vista. */}
           {loading ? (

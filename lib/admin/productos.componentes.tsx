@@ -52,20 +52,20 @@ import { Ionicons } from "@expo/vector-icons";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { COLORS } from "./productos.constantes";
 import { TACTIL, TAMANOS } from "../../constants/temaTienda";
-import type { LocalPickedMedia, ProductMediaRow, ProductMediaKind } from "./productos.tipos";
+import type { ArchivoElegidoLocal, FilaArchivoProductoPanel, TipoArchivoProductoPanel } from "./productos.tipos";
 import { volverAlPanel } from "./productos.utilidades";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 // Azul de los botones principales: el mismo de "Comprar ya" en la ficha y
 // del botón de pago. El azul de marca (#1EA7E8) sigue en acentos y chips.
-export const PRIMARY_BUTTON = "#1EA7E8";
+export const BOTON_PRINCIPAL_PANEL = "#1EA7E8";
 
 // Cabecera común de cada pestaña del panel, igual que en el resto de
 // pantallas de app/admin: franja fija y compacta con la flecha para volver
 // (a la izquierda) y el título centrado. Va FUERA del ScrollView; lo demás
 // (subtítulo, contadores, buscador, lista) va dentro del scroll.
-export function AdminHeader({
+export function CabeceraPanel({
   title,
   isMobile,
   maxWidth = 1040,
@@ -129,12 +129,12 @@ export function AdminHeader({
 }
 
 // Texto de presentación bajo la cabecera (primera línea dentro del scroll).
-export function AdminIntro({ text }: { text: string }) {
+export function IntroPanel({ text }: { text: string }) {
   return <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>{text}</Text>;
 }
 
 // Estado de carga a pantalla completa bajo la cabecera: la mascota centrada.
-export function AdminLoading({ texto }: { texto: string }) {
+export function CargandoPanel({ texto }: { texto: string }) {
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
       <CargaMarca texto={texto} />
@@ -143,7 +143,7 @@ export function AdminLoading({ texto }: { texto: string }) {
 }
 
 // Botón principal (crear, guardar...): azul de botón, texto blanco centrado.
-export function PrimaryButton({
+export function BotonPrincipalPanel({
   label,
   onPress,
   disabled,
@@ -169,7 +169,7 @@ export function PrimaryButton({
         paddingHorizontal: 18,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: PRIMARY_BUTTON,
+        backgroundColor: BOTON_PRINCIPAL_PANEL,
         opacity: disabled ? 0.6 : pressed ? 0.9 : 1,
       })}
     >
@@ -181,7 +181,7 @@ export function PrimaryButton({
 }
 
 // Aviso de error / advertencia / éxito, con el texto centrado.
-export function AdminNotice({
+export function AvisoPanel({
   tone,
   title,
   text,
@@ -207,7 +207,7 @@ export function AdminNotice({
 }
 
 // Estado vacío de una lista: icono, título y explicación, todo centrado.
-export function EmptyState({
+export function EstadoVacioPanel({
   icon,
   title,
   text,
@@ -227,16 +227,16 @@ export function EmptyState({
   );
 }
 
-type MediaLike = ProductMediaRow | LocalPickedMedia;
+type MediaLike = FilaArchivoProductoPanel | ArchivoElegidoLocal;
 
-function normalizeMediaKind(value: unknown): ProductMediaKind | null {
+function normalizeMediaKind(value: unknown): TipoArchivoProductoPanel | null {
   const v = String(value ?? "").trim().toLowerCase();
   if (v === "image") return "image";
   if (v === "video") return "video";
   return null;
 }
 
-function getMediaKind(media: MediaLike): ProductMediaKind | null {
+function getMediaKind(media: MediaLike): TipoArchivoProductoPanel | null {
   if ("file" in media) return media.kind;
   return normalizeMediaKind(media.kind ?? media.media_type);
 }
@@ -274,7 +274,7 @@ function formatDuration(seconds: number | null) {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
-export function SectionTitle({
+export function TituloSeccionPanel({
   title,
   subtitle,
   isMobile,
@@ -311,7 +311,7 @@ export function SectionTitle({
   );
 }
 
-export function StatCard({
+export function TarjetaCifraPanel({
   label,
   value,
   icon,
@@ -515,7 +515,7 @@ export function useGestoPestanas<T extends string>(pestanas: readonly T[], actua
   return { ref, panHandlers: responder.panHandlers, desliz };
 }
 
-export function ChipButton({
+export function BotonChipPanel({
   label,
   onPress,
   variant,
@@ -584,7 +584,7 @@ export function ChipButton({
 // Botón de acción solo con icono (petición del dueño, 2026-11-01: en el panel, los botones que puedan ser un icono, con
 // icono): 44 × 44 para el pulgar, el nombre para los lectores de pantalla y, en el ordenador, al pasar el ratón. Sin
 // burbuja alrededor (dueño, 2026-11-04): solo el icono, con el color de lo que hace (azul, verde, rojo o el del texto).
-export function IconButton({
+export function BotonIconoPanel({
   icon,
   label,
   onPress,
@@ -679,7 +679,7 @@ export function BotonFlotante({
         width: 58,
         height: 58,
         borderRadius: 29,
-        backgroundColor: PRIMARY_BUTTON,
+        backgroundColor: BOTON_PRINCIPAL_PANEL,
         alignItems: "center",
         justifyContent: "center",
         shadowColor: "#0B2138",
@@ -696,7 +696,7 @@ export function BotonFlotante({
   );
 }
 
-export function FilterPill({
+export function PastillaFiltroPanel({
   label,
   active,
   onPress,
@@ -736,7 +736,7 @@ export function FilterPill({
   );
 }
 
-export function MediaThumb({
+export function MiniaturaArchivoPanel({
   media,
   isMobile,
   onRemove,
@@ -744,7 +744,7 @@ export function MediaThumb({
   elegida,
   onAlternar,
 }: {
-  media: ProductMediaRow | LocalPickedMedia;
+  media: FilaArchivoProductoPanel | ArchivoElegidoLocal;
   isMobile?: boolean;
   onRemove?: () => void;
   // Modo «Seleccionar varias» (useSeleccionFotos): la miniatura entera se toca para elegirla.
@@ -906,7 +906,7 @@ export function MediaThumb({
 
         {!!onRemove && !seleccionando && (
           <View style={{ alignItems: "center", marginTop: 2 }}>
-            <IconButton
+            <BotonIconoPanel
               icon="trash-outline"
               label={kind === "video" ? "Quitar el vídeo" : "Quitar la foto"}
               variant="danger"
@@ -1022,7 +1022,7 @@ export function BarraSeleccionFotos({
             {elegidas === 0 ? "Quitar" : `Quitar (${elegidas})`}
           </Text>
         </Pressable>
-        <IconButton icon="close" label="Dejar de seleccionar" onPress={onTerminar} />
+        <BotonIconoPanel icon="close" label="Dejar de seleccionar" onPress={onTerminar} />
       </View>
     </View>
   );

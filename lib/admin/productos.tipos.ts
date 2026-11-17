@@ -24,7 +24,7 @@
  * - lib/admin/productos.utilidades.ts → usa varios de estos tipos en
  *   sus funciones auxiliares (fmtEUR, labelStatus, labelCond, etc.).
  */
-export type CategoryRow = {
+export type FilaCategoriaPanel = {
   id: string;
   name: string;
   slug: string;
@@ -32,17 +32,17 @@ export type CategoryRow = {
   is_active: boolean;
 };
 
-export type ProductStatus = "DRAFT" | "PUBLISHED" | "REVIEW";
-export type ProductCondition = "NEW" | "LIKE_NEW" | "GOOD" | "FAIR" | "PARTS";
-export type ProductMediaKind = "image" | "video";
+export type EstadoProductoPanel = "DRAFT" | "PUBLISHED" | "REVIEW";
+export type CondicionProductoPanel = "NEW" | "LIKE_NEW" | "GOOD" | "FAIR" | "PARTS";
+export type TipoArchivoProductoPanel = "image" | "video";
 
-export type ProductMediaRow = {
+export type FilaArchivoProductoPanel = {
   id: string;
   product_id: string;
 
   // esquema híbrido actual
-  kind?: ProductMediaKind | null;
-  media_type?: ProductMediaKind | null;
+  kind?: TipoArchivoProductoPanel | null;
+  media_type?: TipoArchivoProductoPanel | null;
 
   storage_path?: string | null;
   public_url?: string | null;
@@ -59,13 +59,13 @@ export type ProductMediaRow = {
   created_at?: string | null;
 };
 
-export type ProductRow = {
+export type FilaProductoPanel = {
   id: string;
   title: string;
   description: string | null;
   price_eur: number | null;
-  status: ProductStatus;
-  condition: ProductCondition;
+  status: EstadoProductoPanel;
+  condition: CondicionProductoPanel;
   category_id: string | null;
   is_active: boolean;
   created_at: string;
@@ -95,15 +95,15 @@ export type ProductRow = {
   // Unidad de alquiler (products.modo = 'alquiler', migración 20261117100000; fase 2 del alquiler): se gestiona en
   // Administración → Alquileres. undefined = de venta o sin la columna.
   alquiler?: boolean;
-  media: ProductMediaRow[];
+  media: FilaArchivoProductoPanel[];
 };
 
-export type StatusFilter = "ALL" | ProductStatus;
-export type VisibilityFilter = "ALL" | "VISIBLE" | "HIDDEN";
+export type FiltroEstadoProductos = "ALL" | EstadoProductoPanel;
+export type FiltroVisibilidadProductos = "ALL" | "VISIBLE" | "HIDDEN";
 
-export type LocalPickedMedia = {
+export type ArchivoElegidoLocal = {
   id: string;
-  kind: ProductMediaKind;
+  kind: TipoArchivoProductoPanel;
   file: File;
   name: string;
   mimeType: string;
@@ -119,25 +119,25 @@ export type LocalPickedMedia = {
   isCoverCandidate?: boolean;
 };
 
-export type ProductFormState = {
+export type EstadoFormularioProducto = {
   title: string;
   desc: string;
   price: string;
-  status: ProductStatus;
-  condition: ProductCondition;
+  status: EstadoProductoPanel;
+  condition: CondicionProductoPanel;
   categoryId: string | null;
   isActive: boolean;
   isFeaturedHome: boolean;
 };
 
-export type ProductStats = {
+export type CifrasProductosPanel = {
   total: number;
   published: number;
   visible: number;
   featured: number;
 };
 
-export type ProductMediaCounts = {
+export type RecuentoArchivosProducto = {
   images: number;
   videos: number;
 };
