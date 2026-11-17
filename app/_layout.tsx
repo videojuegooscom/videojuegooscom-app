@@ -376,7 +376,7 @@ export default function RootLayout() {
   if (bootLoading) {
     // Esta es la versión que se genera de antemano (HTML estático): lleva ya el título de la
     // tienda para que el <title> no salga vacío para Google y los lectores de enlaces. Cuando
-    // la tienda arranca, SiteHead pone el título de «Marca y SEO» y el de cada página.
+    // la tienda arranca, EtiquetasCabeceraWeb pone el título de «Marca y SEO» y el de cada página.
     // (La misma estructura que la de abajo: la bienvenida no se vuelve a montar al entrar.)
     return (
       <View style={{ flex: 1 }}>

@@ -12,7 +12,7 @@
  * Qué hace: el índice de noticias en /noticias (dueño, 2026-11-09: que Google encuentre las noticias). Título principal
  * «Noticias de consolas, videojuegos y tecnología», filtros por categoría (chips) y las 30 últimas noticias publicadas,
  * cada una en una tarjeta (foto solo si el servidor la comprobó, categoría y fecha, título y resumen corto) que es un
- * enlace de verdad (<a href>) a su página /noticias/<id>. Diseño de la tienda (CabeceraMarca, colores, SmartImage,
+ * enlace de verdad (<a href>) a su página /noticias/<id>. Diseño de la tienda (CabeceraMarca, colores, ImagenInteligente,
  * CargaMarca). Título y descripción para Google: components/EtiquetasCabeceraWeb.tsx (PAGINAS["/noticias"]).
  *
  * Analítica propia: «Noticias: índice visto» (Administración → Analítica, #analitica-noticias-organicas).

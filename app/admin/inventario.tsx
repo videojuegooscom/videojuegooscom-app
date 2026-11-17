@@ -47,7 +47,7 @@
  * - sql/inventory_items.sql → crea la tabla y sus políticas (solo admin).
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
  *   "Inventario") y a la que se vuelve con el botón de la cabecera.
- * - lib/admin/productos.componentes.tsx → AdminHeader, PrimaryButton, AdminNotice, EmptyState, BotonFlotante.
+ * - lib/admin/productos.componentes.tsx → CabeceraPanel, BotonPrincipalPanel, AvisoPanel, EstadoVacioPanel, BotonFlotante.
  * - components/admin/PiezasPanelAdmin.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (TM5 y PANRED3).
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";

@@ -77,8 +77,8 @@
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
  *   "Categorías") y a la que se vuelve con el botón de la cabecera.
- * - lib/admin/productos.componentes.tsx → AdminHeader, StatCard,
- *   PrimaryButton, AdminNotice y EmptyState (mismo diseño en todo el panel).
+ * - lib/admin/productos.componentes.tsx → CabeceraPanel, TarjetaCifraPanel,
+ *   BotonPrincipalPanel, AvisoPanel y EstadoVacioPanel (mismo diseño en todo el panel).
  * - app/admin/products.tsx → los productos usan estas categorías
  *   (category_id) para clasificarse en el catálogo público.
  */

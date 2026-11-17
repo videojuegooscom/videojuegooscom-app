@@ -26,7 +26,7 @@
  * tienda, resumen sin JavaScript) va aparte en app/+html.tsx y public/llms.txt, que deben decir lo mismo.
  *
  * El dueño quiere salir en Google al buscar «Daniel Gutiérrez» (2026-11-03): su nombre va en el título y la
- * descripción (SiteHead), como encabezado en «Quién está detrás» y como ficha Person en app/+html.tsx. La página se
+ * descripción (EtiquetasCabeceraWeb), como encabezado en «Quién está detrás» y como ficha Person en app/+html.tsx. La página se
  * enlaza también desde Inicio y desde entrar/crear cuenta; visitas y procedencia, en Administración → Analítica.
  *
  * Conectado con: components/EtiquetasCabeceraWeb.tsx (título y descripción), components/PieDePagina.tsx y

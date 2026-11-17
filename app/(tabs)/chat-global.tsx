@@ -4875,7 +4875,7 @@ function HuecoFoto({ brillo }: { brillo: boolean }) {
 }
 
 // Avisa a la barra de carga global (lib/estadoCarga) mientras la foto se
-// descarga, igual que SmartImage.
+// descarga, igual que ImagenInteligente.
 function useAvisoCargaFoto(activo: boolean, clave: string) {
   useEffect(() => {
     if (!activo) return;

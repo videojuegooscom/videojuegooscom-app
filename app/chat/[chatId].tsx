@@ -2,7 +2,7 @@
  * Archivo: app/chat/[chatId].tsx
  * Función: pantalla de una conversación privada con la tienda, en la dirección /chat/<chatId> (admite ?borrador=).
  * Para qué sirve: el cliente (con sesión iniciada) escribe y lee mensajes del equipo sobre un producto, una venta o atención general.
- * Conectado con: components/ConversacionProducto.tsx (mensajes y tiempo real), components/CabeceraMarca.tsx, lib/supabase.ts (comprobación de sesión; las tablas del chat, product_chats, las usa ProductChatThread).
+ * Conectado con: components/ConversacionProducto.tsx (mensajes y tiempo real), components/CabeceraMarca.tsx, lib/supabase.ts (comprobación de sesión; las tablas del chat, product_chats, las usa ConversacionProducto).
  * Utilizado por: Expo Router (dirección /chat/<chatId>); la abren abrirChatEquipo y abrirChatProducto (components/ConversacionProducto.tsx), app/(tabs)/chat-global.tsx, app/(tabs)/index.tsx, app/catalogo.tsx y components/VenderAhoraModal.tsx.
  * Dependencias: react, react-native, expo-router.
  * Estado: ACTIVO
@@ -22,7 +22,7 @@
  * la propia RLS de sql/product_chats.sql hace que no vea mensajes — aquí
  * solo se comprueba que haya sesión, el resto lo filtra la base de datos.
  * Si el cliente borra la conversación (icono de papelera dentro de
- * ProductChatThread), onDeleted vuelve a la pantalla anterior.
+ * ConversacionProducto), onDeleted vuelve a la pantalla anterior.
  *
  * Conectado con:
  * - components/ConversacionProducto.tsx → mensajes, envío, tiempo real.

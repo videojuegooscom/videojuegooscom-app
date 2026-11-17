@@ -887,7 +887,7 @@ function posicionFija(enInicio: boolean) {
 // escondido (scroll, un botón debajo, el visor de fotos) ni con su panel abierto. Antes se quedaban hasta tocar la X.
 const MENSAJE_VISIBLE_MS = 12000;
 // Cómo acaba cada mensaje (tarjeta «Blue flotante» de Analítica): «tocado», «cerrado con la X» o «se cierra solo». Los del
-// panel del dueño no cuentan; trackEvent ya respeta a quien rechazó la analítica.
+// panel del dueño no cuentan; medirEvento ya respeta a quien rechazó la analítica.
 function contarMensaje(b: Bocadillo, como: "tocado" | "cerrado con la X" | "se cierra solo") {
   if (b.panel) return;
   void medirEvento("blue_mensaje", `Blue: mensaje ${como}`, { metadata: { tipo: b.id.split(":")[0] } });
@@ -900,7 +900,7 @@ function contarMensaje(b: Bocadillo, como: "tocado" | "cerrado con la X" | "se c
 }
 
 // Analítica propia (Administración → Analítica, tarjeta «Blue flotante»): en qué pantalla se abre Blue. Solo en la tienda
-// (el dueño en el panel no cuenta); trackEvent ya respeta a quien rechazó la analítica.
+// (el dueño en el panel no cuenta); medirEvento ya respeta a quien rechazó la analítica.
 function contarBlueAbierto(pathname: string) {
   const donde = pathname === "/" ? "Inicio" : pathname.startsWith("/producto/") ? "la ficha de producto" : pathname.startsWith("/servicio/") ? "la ficha de servicio" : null;
   if (donde) void medirEvento("blue_flotante_abierto", `Blue flotante: abierto en ${donde}`, { metadata: { pantalla: donde } });

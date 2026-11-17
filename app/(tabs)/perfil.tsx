@@ -1539,7 +1539,7 @@ export default function PerfilScreen() {
               </Animated.View>
 
               <CarruselProductosCategoria />
-              {/* Las redes sociales ya salen en el pie de página (SiteFooter): no se repiten. */}
+              {/* Las redes sociales ya salen en el pie de página (PieDePagina): no se repiten. */}
             </View>
 
             <PieDePagina sidePadding={pagePadding} />

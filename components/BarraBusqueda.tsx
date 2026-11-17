@@ -14,28 +14,28 @@
  * FloatingSearchBar.tsx, que ya no existe, para no confundirse sobre dónde
  * tocar cada cosa). Exporta dos cosas:
  *
- * - `Barramagic` (export por defecto): la píldora en sí (icono de lupa +
+ * - `BarraBusqueda` (export por defecto): la píldora en sí (icono de lupa +
  *   texto/campo + botón ✨ de acceso a Blue IA). Es la pieza visual y se usa
  *   quieta, dentro del scroll normal de una pantalla — así la usa
  *   app/catalogo.tsx.
- * - `FloatingBarramagic` (export con nombre): la misma píldora pero flotando
+ * - `BarraBusquedaFlotante` (export con nombre): la misma píldora pero flotando
  *   encima del contenido, arrastrable verticalmente y que se "engancha"
  *   (snap) arriba o abajo, más el ocultado suave al hacer scroll. Así la usa
  *   app/(tabs)/index.tsx (Inicio).
  *
- * Cómo funciona `Barramagic`: tiene dos modos —
+ * Cómo funciona `BarraBusqueda`: tiene dos modos —
  * - mode="input" (por defecto): un TextInput real y controlado
  *   (value/onChangeText/onSubmit), con una "x" para borrar cuando hay texto
  *   escrito. Busca de verdad en la pantalla que la usa (no navega a otro
  *   sitio).
  * - mode="link": no es editable — es un botón que, al tocarlo, llama a
- *   onPress. FloatingBarramagic solo lo usa si se le pasa onPress (el modo
+ *   onPress. BarraBusquedaFlotante solo lo usa si se le pasa onPress (el modo
  *   antiguo de Inicio, que llevaba al catálogo: se tocaba la barra y no se
  *   podía escribir en ella).
  * En ambos modos, el botón de la derecha (✨) lleva a /blue-ia salvo que se
  * pase onPressAi con otra acción.
  *
- * Buscador de Inicio (2026-10): FloatingBarramagic es ahora un buscador REAL.
+ * Buscador de Inicio (2026-10): BarraBusquedaFlotante es ahora un buscador REAL.
  * Se escribe en la propia barra y, con 2 letras o más, sale un panel con los
  * productos que encajan (título, foto entera y precio) y, un poco más abajo,
  * las SECCIONES de la tienda que encajan con lo escrito («Blog», «Inicio de
@@ -63,7 +63,7 @@
  * busqueda_sugerencia_tocada (texto normalizado; si parece un correo o un
  * teléfono no se guarda), que resume Administración → Analítica.
  *
- * Cómo funciona `FloatingBarramagic`: usa Animated + PanResponder para el
+ * Cómo funciona `BarraBusquedaFlotante`: usa Animated + PanResponder para el
  * arrastre y el efecto muelle (spring) al soltar, y mide la altura real del
  * teclado/viewport en web para no tapar contenido. La prop "hidden" (la
  * controla la pantalla que la use, normalmente según la dirección del
@@ -73,9 +73,9 @@
  * intercepta toques.
  *
  * Conectado con:
- * - app/(tabs)/index.tsx → usa FloatingBarramagic sobre la pantalla de
+ * - app/(tabs)/index.tsx → usa BarraBusquedaFlotante sobre la pantalla de
  *   inicio.
- * - app/catalogo.tsx → usa Barramagic (modo "input") dentro del scroll.
+ * - app/catalogo.tsx → usa BarraBusqueda (modo "input") dentro del scroll.
  *
  * Septiembre (legibilidad en móvil): en pantallas estrechas, el icono de
  * lupa + los espacios fijos dejaban muy poco ancho real al campo de texto,

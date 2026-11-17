@@ -1086,7 +1086,7 @@ export default function CestaScreen() {
           <BotonBlueElegir conArticulos={items.length > 0} />
 
           <CarruselProductosCategoria />
-          {/* Las redes sociales ya salen en el pie de página (SiteFooter): no se repiten. */}
+          {/* Las redes sociales ya salen en el pie de página (PieDePagina): no se repiten. */}
           </View>
 
           <PieDePagina sidePadding={16} />

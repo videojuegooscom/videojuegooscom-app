@@ -223,7 +223,7 @@ export function enlaceRedSocial(platform: PlataformaSocial, raw: string): string
 function openSocialLink(href: string) {
   try {
     // Síncrono a propósito: el truco de "abrir en Chrome" de
-    // openExternalLink() cambia la ubicación de la pestaña, y eso solo
+    // abrirEnlaceExterno() cambia la ubicación de la pestaña, y eso solo
     // funciona de forma fiable si ocurre dentro del mismo toque del usuario
     // (sin ningún `await` de por medio que lo retrase).
     abrirEnlaceExterno(href);

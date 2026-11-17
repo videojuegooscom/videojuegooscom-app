@@ -1,7 +1,7 @@
 /**
  * Archivo: components/FotosVideoVenta.tsx
  * Función: componente y utilidades de las fotos y el vídeo del formulario «Vender ahora».
- * Para qué sirve: valida, convierte (HEIC a JPEG) y sube a Supabase Storage las fotos y el vídeo que adjunta un cliente a su solicitud de venta, y ofrece el selector visual (SellMediaPicker) y los enlaces firmados para que el administrador los vea o los descargue.
+ * Para qué sirve: valida, convierte (HEIC a JPEG) y sube a Supabase Storage las fotos y el vídeo que adjunta un cliente a su solicitud de venta, y ofrece el selector visual (FotosVideoVenta) y los enlaces firmados para que el administrador los vea o los descargue.
  * Conectado con: constants/temaTienda.ts (TAMANOS, TACTIL, COLORES_TEXTO), lib/supabase.ts, tablas sell_request_media y sell_requests, bucket privado de Storage sell-request-media.
  * Utilizado por: components/VenderAhoraModal.tsx y app/admin/cotizaciones.tsx.
  * Dependencias: react, react-native, @expo/vector-icons, heic2any (conversión HEIC, ver Notas).
@@ -16,7 +16,7 @@
  * 7 a 10 fotos y 1 vídeo de 20 a 30 segundos y hasta 60 MB; un vídeo cuya
  * duración no se puede medir se rechaza con un aviso), en un único archivo: tipos, límites, conversión HEIC
  * (fotos de iPhone), subida a Supabase Storage, descarga individual para el
- * admin, y el propio selector visual (SellMediaPicker) que se inserta en el
+ * admin, y el propio selector visual (FotosVideoVenta) que se inserta en el
  * formulario.
  *
  * Cómo funciona:
@@ -49,7 +49,7 @@
  *
  * Conectado con:
  * - constants/temaTienda.ts → TAMANOS, TACTIL y COLORES_TEXTO.
- * - components/VenderAhoraModal.tsx → usa <SellMediaPicker> en el
+ * - components/VenderAhoraModal.tsx → usa <FotosVideoVenta> en el
  *   formulario y llama a uploadSellRequestMedia() al enviar.
  * - app/admin/cotizaciones.tsx → llama a downloadSellRequestMedia() por
  *   cada archivo listado de "sell_request_media".

@@ -1,9 +1,9 @@
 /**
  * Archivo: components/VentanaValoracion.tsx
  * Función: componente de ventanas de valoración y mejoras (reseña de la tienda, valoración de pedidos, cajita de ideas).
- * Para qué sirve: ReviewModal publica reseñas de 1 a 5 estrellas en store_reviews; MejorasModal recoge ideas de mejora; también exporta utilidades de valoración de pedidos (tocaValorarPedido, cargarValoracionesPedidos…).
+ * Para qué sirve: VentanaValoracion publica reseñas de 1 a 5 estrellas en store_reviews; VentanaMejoras recoge ideas de mejora; también exporta utilidades de valoración de pedidos (tocaValorarPedido, cargarValoracionesPedidos…).
  * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/envio.ts (tipo CambioEstadoPedido), components/ConversacionProducto.tsx (abrirChatEquipo), constants/temaTienda.ts, tabla store_reviews.
- * Utilizado por: components/Resenas.tsx, components/PieDePagina.tsx (MejorasModal), components/AsistenteBlue.tsx y pantallas de perfil, pedidos y chat.
+ * Utilizado por: components/Resenas.tsx, components/PieDePagina.tsx (VentanaMejoras), components/AsistenteBlue.tsx y pantallas de perfil, pedidos y chat.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
  */

@@ -45,7 +45,7 @@
  * mensajes para cuando se cierre. No usa ninguna librería nueva: los gestos son PanResponder de React Native.
  *
  * Conectado con: app/producto/[id].tsx, app/servicio/[id].tsx, app/admin/services.tsx y components/AsistenteBlue.tsx
- * (lo usan); usa components/ImagenInteligente.tsx (las fotos) y lib/analiticaPropia.ts (trackEvent).
+ * (lo usan); usa components/ImagenInteligente.tsx (las fotos) y lib/analiticaPropia.ts (medirEvento).
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PanResponder, Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
