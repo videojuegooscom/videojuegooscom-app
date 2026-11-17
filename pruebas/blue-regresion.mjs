@@ -241,9 +241,11 @@ async function revisarPagina(ctx, t, ruta, etiqueta, espera = 6000) {
   }
   // La ficha de producto saca un mensaje de Blue pasados unos segundos: se espera a que esté a la
   // vista, porque es el caso en que el mensaje (y no solo Blue) podía tapar «Comprar ya».
+  // Desde los «momentos de Blue» (mejora 12, 2026-11-15) lo que Blue dice en la ficha es una tarjeta de consejo
+  // (#blue-consejo) en vez del mensaje junto a Blue (#blue-mensaje): vale cualquiera de los dos.
   let conMensaje = false;
   if (ruta.startsWith("/producto/")) {
-    conMensaje = await p.waitForSelector("#blue-mensaje", { timeout: 25000 }).then(() => true).catch(() => false);
+    conMensaje = await p.waitForSelector("#blue-mensaje, #blue-consejo", { timeout: 25000 }).then(() => true).catch(() => false);
   }
   await p.waitForTimeout(espera); // Blue se aparta cada 1,2 s: dejarlo asentarse
   const m = await p.evaluate(medirTapados);
@@ -255,7 +257,21 @@ async function revisarPagina(ctx, t, ruta, etiqueta, espera = 6000) {
     return;
   }
   comprobadas++;
-  if (conMensaje && (await p.evaluate(() => !!document.getElementById("blue-mensaje")))) fichasConMensaje++;
+  if (conMensaje && (await p.evaluate(() => !!document.getElementById("blue-mensaje") || !!document.getElementById("blue-consejo")))) fichasConMensaje++;
+  // La tarjeta de consejo va aparte de Blue: tampoco puede tapar «Comprar ya» ni «Añadir a la cesta» de la ficha.
+  if (ruta.startsWith("/producto/")) {
+    const tapaConsejo = await p.evaluate(() => {
+      const tarjeta = document.getElementById("blue-consejo");
+      if (!tarjeta) return [];
+      return ["ficha-comprar-ya", "ficha-anadir-cesta"].filter((id) => {
+        const r = document.getElementById(id)?.getBoundingClientRect();
+        if (!r || r.width < 4 || r.bottom <= 0 || r.top >= window.innerHeight) return false;
+        const tope = document.elementFromPoint(r.left + r.width / 2, Math.min(r.top + r.height / 2, window.innerHeight - 1));
+        return !!tope && tarjeta.contains(tope);
+      });
+    });
+    ok(tapaConsejo.length === 0, `${etiqueta} ${t.nombre} ${ruta}: la tarjeta de consejo de Blue no tapa «Comprar ya» ni «Añadir a la cesta»${tapaConsejo.length ? ` (tapa: ${tapaConsejo.join(", ")})` : ""}`);
+  }
   // En las fichas, ni Blue ni su mensaje tapan un botón (el mensaje sale en la cabecera, encima de nada que se toque). En
   // Inicio, lo que quede bajo su mensaje (a su izquierda, hasta que se cierra con la X) se apunta aparte.
   const enFicha = /^\/(producto|servicio)\//.test(ruta);

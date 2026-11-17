@@ -4141,10 +4141,12 @@ const PASOS_GUIA: PasoGuia[] = [
     seccion: "producto",
     // «Añadir» reserva el artículo 15 minutos (lib/reservas.ts); «Comprar ya» lleva directo a pedir, con sesión.
     texto: "«Añadir» lo reserva 15 minutos. «Comprar ya» va directo a pedir.",
-    objetivo: ['[aria-label^="Añadir "]', '[aria-label^="Comprar ya "]'],
+    // Por su id: «Añadir … a la cesta» también lo llevan las tarjetas del carrusel de debajo de la ficha y, si asomaban,
+    // el recuadro las incluía (app/producto/[id].tsx: ficha-anadir-cesta y ficha-comprar-ya).
+    objetivo: ["#ficha-anadir-cesta", "#ficha-comprar-ya"],
     // ?guia=1: la ficha no suma una visita ni un evento de analítica por esta demostración.
     ruta: "/producto/{producto}?guia=1",
-    desplazar: '[aria-label^="Comprar ya "]',
+    desplazar: "#ficha-comprar-ya",
     soloConProducto: true,
     compacta: true,
   },

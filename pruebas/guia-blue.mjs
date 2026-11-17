@@ -739,12 +739,23 @@ try {
     if (titulo === "Un artículo") {
       const url = new URL(p.url());
       ok(/^\/producto\//.test(url.pathname) && url.searchParams.get("guia") === "1", `Un artículo: la guía enseña la ficha de un artículo sin contar visita (${url.pathname}${url.search})`);
-      const anadir = await rect(p.locator('[aria-label^="Añadir "]'));
-      const comprar = await rect(p.locator('[aria-label^="Comprar ya "]'));
-      const aroA = await rect(p.locator("#guia-aro"));
+      // Los botones de la ficha por su id: «Añadir … a la cesta» también lo llevan las tarjetas del carrusel de abajo
+      // (CarruselProductosCategoria), y el primero de la página no siempre es el de la ficha.
+      // La guía desplaza la ficha hasta «Comprar ya» y el recuadro la sigue: se mide hasta que se asienta (como «Filtros»).
+      let anadir = null;
+      let comprar = null;
+      let aroA = null;
+      let rodeaA = false;
+      for (let k = 0; k < 14 && !rodeaA; k++) {
+        anadir = await rect(p.locator("#ficha-anadir-cesta"));
+        comprar = await rect(p.locator("#ficha-comprar-ya"));
+        aroA = await rect(p.locator("#guia-aro"));
+        rodeaA = !!anadir && !!comprar && !!aroA && aroA.x <= Math.min(anadir.x, comprar.x) + 2 && aroA.x + aroA.width >= Math.max(anadir.x + anadir.width, comprar.x + comprar.width) - 2 && aroA.y <= Math.min(anadir.y, comprar.y) + 2 && aroA.y + aroA.height >= Math.max(anadir.y + anadir.height, comprar.y + comprar.height) - 2;
+        if (!rodeaA) await p.waitForTimeout(300);
+      }
       if (anadir && comprar) {
-        ok(!!aroA && aroA.x <= Math.min(anadir.x, comprar.x) + 2 && aroA.x + aroA.width >= Math.max(anadir.x + anadir.width, comprar.x + comprar.width) - 2 && aroA.y <= Math.min(anadir.y, comprar.y) + 2,
-          "Un artículo: el recuadro rodea «Añadir a la cesta» y «Comprar ya»");
+        ok(rodeaA,
+          `Un artículo: el recuadro rodea «Añadir a la cesta» y «Comprar ya» (recuadro ${aroA ? [aroA.x, aroA.y, aroA.width, aroA.height].map(Math.round).join(",") : "—"} · añadir ${[anadir.x, anadir.y, anadir.width, anadir.height].map(Math.round).join(",")} · comprar ${[comprar.x, comprar.y, comprar.width, comprar.height].map(Math.round).join(",")})`);
       } else {
         info("Un artículo: este artículo no muestra «Añadir» y «Comprar ya» (reservado por otro cliente o ya vendido): no hay botones que enmarcar");
       }
