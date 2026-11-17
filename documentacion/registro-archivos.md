@@ -10,6 +10,10 @@ El índice completo de todos los archivos está en `estructura_proyecto.txt` (ra
 |---|---|---|---|
 | 2026-11-17 | `estructura_proyecto.txt` | Índice de todos los archivos: función, conexiones, quién los usa y estado | 1 |
 | 2026-11-17 | `documentacion/registro-archivos.md` | Este registro | 1 |
+| 2026-11-17 | `scripts/renombrar-simbolos.mjs` | Renombrar símbolos con el motor de TypeScript | 3 |
+| 2026-11-17 | `scripts/mover-declaraciones.mjs` | Partir un archivo moviendo declaraciones enteras con el motor de TypeScript | 6 |
+| 2026-11-17 | `components/foro/PiezasForo.tsx` | Piezas comunes del Foro, separadas de `app/(tabs)/chat-global.tsx` (449 líneas) | 6 |
+| 2026-11-17 | `components/foro/NoticiasForo.tsx` | Pestaña «Noticias Gaming» del Foro, separada de `app/(tabs)/chat-global.tsx` (2.115 líneas) | 6 |
 
 ## Candidatos a eliminar
 
