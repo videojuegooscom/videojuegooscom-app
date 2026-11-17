@@ -1,6 +1,14 @@
 /**
- * app/(tabs)/blue-ia.tsx
- *
+ * Archivo: app/(tabs)/blue-ia.tsx
+ * Función: pantalla «Blue IA» (pestaña del asistente), en la dirección /blue-ia (admite ?q=, ?producto=, ?servicio=, ?pedido=, ?reparacion=, ?tema=).
+ * Para qué sirve: el cliente conversa con el asistente de la tienda, que responde con datos reales del catálogo, enlaza a páginas útiles, enseña facturas y pasa la conversación al equipo cuando hace falta.
+ * Conectado con: api/blue-ia.ts (respuestas), api/factura.ts (descarga de facturas), lib/supabase.ts (tablas blue_ia_conversaciones, blue_ia_mensajes, pedidos y facturas), lib/analytics.ts, lib/horarioAtencion.ts, lib/openExternalLink.ts, components/ProductChatThread.tsx (abrirChatEquipo), components/marca/MarcaAnimada.tsx.
+ * Utilizado por: Expo Router (dirección /blue-ia, pestaña de app/(tabs)/_layout.tsx); la abren app/(tabs)/index.tsx (preguntas frecuentes), app/(tabs)/cesta.tsx («Blue, ayúdame a elegir»), app/servicio/[id].tsx y app/producto/[id].tsx (preguntar) y components/Campanita.tsx.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons, expo-linear-gradient, @react-native-async-storage/async-storage.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla "Blue IA", el asistente de la tienda. Ahora es una
  * conversación de pantalla completa, estilo ChatGPT, con el mismo lenguaje
  * visual que usa "Chat Global" (app/(tabs)/chat-global.tsx): los mensajes

@@ -1,5 +1,14 @@
-// app/servicio/[id].tsx
 /**
+ * Archivo: app/servicio/[id].tsx
+ * Función: ficha de un servicio (reparación, limpieza, mantenimiento), en la dirección /servicio/<id>.
+ * Para qué sirve: el cliente ve fotos, precio, opciones, reseñas y «me gusta» del servicio, pregunta por él o pasa a contratarlo.
+ * Conectado con: lib/supabase.ts (tablas services, service_media, store_reviews), lib/interaccion.ts (me gusta y visitas; api/interaccion.ts), lib/analytics.ts, constants/theme.ts, lib/admin/products.components.ts, components/ContratarServicioModal.tsx, ImageLightbox.tsx, SmartImage.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*, app/producto/[id].tsx (FichaProducto).
+ * Utilizado por: Expo Router (dirección /servicio/<id>); la enlazan app/servicios.tsx, app/contratar/[id].tsx, components/ContratarServicioModal.tsx; exporta fetchService, fotoDeOpcion y faltaColumna que usan app/contratar/[id].tsx y app/noticias/*.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: ficha de un SERVICIO individual (reparación, limpieza,
  * mantenimiento...) con el MISMO formato que la ficha de producto
  * (app/producto/[id].tsx, petición del dueño 2026-11-03): título y subtítulo,

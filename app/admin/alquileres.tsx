@@ -1,5 +1,14 @@
-// app/admin/alquileres.tsx
 /**
+ * Archivo: app/admin/alquileres.tsx
+ * Función: pantalla de administración «Alquileres», en la dirección /admin/alquileres.
+ * Para qué sirve: el administrador gestiona el alquiler de artículos (unidades, alquileres, pagos, entrega, renovación, recogida, fianza, recargo) y sus ajustes. Está apagado: los clientes no ven nada.
+ * Conectado con: lib/supabase.ts (tablas de alquiler como alquiler_pagos), lib/alquiler.ts, lib/envio.ts, lib/admin/products.components.ts, constants/theme.ts, components/marca/CargaMarca.tsx, components/admin/PanelUI.tsx.
+ * Utilizado por: Expo Router (dirección /admin/alquileres, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Alquileres» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: Administración → «Alquileres» (dueño, 2026-11-17; FASES 1 y 2). Alquiler de artículos solo en Zaragoza, con
  * planes de 1, 2, 3 y 4 meses (IVA incluido), fianza sin IVA, recargo por retraso y «Alquílalo y, si te gusta, cómpralo».
  * APAGADO: los clientes no ven nada (no hay pantallas de cliente). La contabilidad y las facturas las lleva VeoAura (la

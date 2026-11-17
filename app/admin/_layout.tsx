@@ -1,5 +1,14 @@
-// app/admin/_layout.tsx
 /**
+ * Archivo: app/admin/_layout.tsx
+ * Función: layout «guardián» de todas las rutas /admin (Expo Router).
+ * Para qué sirve: antes de mostrar cualquier pantalla de administración comprueba que hay sesión y rol admin; si no, redirige a /perfil o a /. Además marca como vistas las secciones con novedades del panel.
+ * Conectado con: lib/supabase.ts (supabase.auth y tabla profiles, columna role), lib/admin/products.utils.ts (marcarPanelVisto), components/marca/CargaMarca.tsx; las pantallas hijas app/admin/*.tsx.
+ * Utilizado por: Expo Router (envuelve todas las direcciones /admin/…); lo registra app/_layout.tsx como ruta «admin».
+ * Dependencias: react, react-native, expo-router.
+ * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño
+ */
+/**
+ * Notas:
  * Qué hace: layout "guardián" de todas las rutas /admin. Antes de mostrar
  * cualquier pantalla de administración comprueba que hay sesión y que el
  * rol es "admin"; si no, redirige fuera del panel. Mientras comprueba (o

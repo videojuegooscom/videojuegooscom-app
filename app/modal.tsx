@@ -1,4 +1,14 @@
 /**
+ * Archivo: app/modal.tsx
+ * Función: pantalla modal de ejemplo de la plantilla de Expo Router, en la dirección /modal.
+ * Para qué sirve: no se usa en la tienda; es la plantilla por defecto que quedó registrada.
+ * Conectado con: components/themed-view.tsx y components/themed-text.tsx; no llama a Supabase ni a api/.
+ * Utilizado por: solo app/_layout.tsx (la registra como Stack.Screen "modal"); ningún botón ni enlace la abre.
+ * Dependencias: expo-router, react-native.
+ * Estado: CANDIDATO_A_ELIMINAR (plantilla de Expo que nadie abre ni enlaza; solo está registrada en app/_layout.tsx)
+ */
+/**
+ * Notas:
  * Qué hace: pantalla modal de ejemplo (plantilla por defecto de Expo
  * Router), registrada como ruta "modal" con presentation:"modal" en
  * app/_layout.tsx. De momento no se abre desde ningún botón de la app.

@@ -1,5 +1,14 @@
-// app/admin/envios.tsx
 /**
+ * Archivo: app/admin/envios.tsx
+ * Función: pantalla de administración «Tarifas de envío», en la dirección /admin/envios.
+ * Para qué sirve: el administrador edita a mano los precios de envío por zona y código postal, «gratis desde» y si se envía a cada zona; la tienda sigue calculando el envío sola con esas tarifas.
+ * Conectado con: lib/supabase.ts (tablas de tarifas de envío, migración 20261104210000_tarifas_envio.sql), lib/envio.ts, components/marca/CargaMarca.tsx, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Utilizado por: Expo Router (dirección /admin/envios, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Tarifas de envío» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: Administración → «Tarifas de envío» (dueño, 2026-11-04: «poder editar las tarifas de envío manualmente,
  * pero que siga haciéndose automáticamente; que pueda hacerse de ambas maneras sin problemas»).
  *

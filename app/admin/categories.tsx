@@ -1,5 +1,14 @@
-// app/admin/categories.tsx
 /**
+ * Archivo: app/admin/categories.tsx
+ * Función: pantalla de administración de categorías, en la dirección /admin/categories.
+ * Para qué sirve: el administrador lista, crea, edita, activa/desactiva y borra las categorías de la tienda y sube hasta 3 fotos de portada por categoría.
+ * Conectado con: lib/supabase.ts (tabla categories y almacenamiento product-media), components/PortadasCategoria.tsx, components/PerfilPublico.tsx (RecortarFoto), components/SmartImage.tsx, lib/admin/products.components.ts, products.utils.ts y products.constants.ts, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Utilizado por: Expo Router (dirección /admin/categories, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Categorías» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración de categorías. Lista, crea, edita,
  * activa/desactiva y borra las categorías que estructuran la navegación
  * comercial de la tienda (por ejemplo "PlayStation 5", "Xbox", "PC Gaming").

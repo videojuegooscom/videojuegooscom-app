@@ -1,5 +1,14 @@
-// app/admin/aprendizajes.tsx
 /**
+ * Archivo: app/admin/aprendizajes.tsx
+ * Función: pantalla de administración «Centro De Aprendizajes», en la dirección /admin/aprendizajes.
+ * Para qué sirve: el administrador guarda, edita, activa o desactiva las lecciones y correcciones que debe aplicar Claude (textos, diseño, reglas del negocio, código), para no repetirlas.
+ * Conectado con: lib/supabase.ts (tabla aprendizajes), lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; CLAUDE.md obliga a Claude a consultar esa tabla.
+ * Utilizado por: Expo Router (dirección /admin/aprendizajes, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Centro De Aprendizajes» de app/admin/index.tsx.
+ * Dependencias: react, react-native, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración "Centro De Aprendizajes". Aquí el administrador
  * guarda cada corrección que le hace a Claude (cómo quiere los textos, el diseño, las
  * reglas del negocio, el código…), para que no tenga que repetirla.

@@ -1,5 +1,14 @@
-// app/admin/flash-news.tsx
 /**
+ * Archivo: app/admin/flash-news.tsx
+ * Función: pantalla de administración «Noticias Flash · Blue IA», en la dirección /admin/flash-news.
+ * Para qué sirve: el administrador crea hasta 5 avisos cortos con color y duración, los ordena, activa o borra; Blue IA los muestra a los clientes en su bocadillo.
+ * Conectado con: lib/supabase.ts (tabla flash_news), lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; los muestra components/Campanita.tsx.
+ * Utilizado por: Expo Router (dirección /admin/flash-news, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Noticias Flash» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración de "Noticias Flash · Blue IA". Estos
  * mensajes ya no van en una franja superior: los usa Blue IA, el asistente
  * flotante de la tienda, que los muestra como avisos en su bocadillo y los

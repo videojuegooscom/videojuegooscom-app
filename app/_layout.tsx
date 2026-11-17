@@ -1,5 +1,14 @@
-// app/app/_layout.tsx
 /**
+ * Archivo: app/_layout.tsx
+ * Función: layout raíz de toda la app (Expo Router): pantalla de carga de marca y Stack con todas las rutas de nivel superior.
+ * Para qué sirve: arranca la tienda para el cliente, monta una sola vez los elementos globales (campanita, aviso de cookies, perfil obligatorio, barra de comparar, barra de carga), registra el dispositivo, mide la analítica de arranque y recarga sola la web si hay versión nueva.
+ * Conectado con: components/BrandLoadingScreen.tsx, Campanita.tsx, CategoryProductsShelf.tsx (BarraComparar), CookieConsentBanner.tsx, lineapensadoraefectosiri.tsx, PerfilPublico.tsx (PerfilObligatorio), SiteHead.tsx, TirarParaActualizar.tsx, BotonAtrasAlcance.tsx; lib/analytics.ts; lib/supabase.ts (supabase, registrarDispositivo, alIncidenciaDeSesion; tabla cliente_dispositivos).
+ * Utilizado por: Expo Router (es el layout raíz de todas las direcciones); envuelve a app/(tabs)/_layout.tsx y a todas las pantallas.
+ * Dependencias: react, react-native, expo-router, expo-router/head, expo-font, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: layout raíz de toda la app (Expo Router). Muestra una pantalla
  * de carga de marca al arrancar y luego monta el Stack de navegación con
  * todas las rutas de nivel superior.

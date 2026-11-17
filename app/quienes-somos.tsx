@@ -1,5 +1,14 @@
-// app/quienes-somos.tsx
 /**
+ * Archivo: app/quienes-somos.tsx
+ * Función: página «Quiénes somos», en la dirección /quienes-somos.
+ * Para qué sirve: el cliente conoce quién está detrás de la tienda, su historia, cómo se revisa cada consola, entregas y horario, con botones para dar el siguiente paso.
+ * Conectado con: components/CabeceraMarca.tsx, lib/analytics.ts (evento quienes_somos_visto); mismos datos que app/+html.tsx, public/llms.txt y lib/horarioAtencion.ts; no llama a Supabase.
+ * Utilizado por: Expo Router (dirección /quienes-somos); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, components/SiteFooter.tsx y components/Barramagic.tsx.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: página «Quiénes somos»: quién está detrás de la tienda, su historia, qué hacemos, cómo revisamos cada
  * consola, por qué elegirnos, cómo compramos en persona, entregas y horario, con botones para dar el siguiente paso.
  *

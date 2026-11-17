@@ -1,5 +1,14 @@
-// app/admin/conocimiento.tsx
 /**
+ * Archivo: app/admin/conocimiento.tsx
+ * Función: pantalla de administración «Lo que Blue sabe de la tienda», en la dirección /admin/conocimiento.
+ * Para qué sirve: el dueño escribe respuestas reales (horario, envíos, garantía, pagos…) que Blue IA usa al contestar a los clientes; también contesta a los temas que Blue le propone.
+ * Conectado con: lib/supabase.ts (tabla blue_conocimiento), lib/conocimiento.ts, lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; components/Campanita.tsx propone temas y api/blue-ia.ts las usa.
+ * Utilizado por: Expo Router (dirección /admin/conocimiento, protegida por app/admin/_layout.tsx); la enlaza la tarjeta correspondiente de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración de «Lo que Blue sabe de la tienda». Aquí el dueño
  * escribe respuestas reales (horario, plazos de envío, garantía, pagos…) y Blue IA las usa al
  * contestar a los clientes con más precisión. Blue, desde el panel, le propone temas a lo largo

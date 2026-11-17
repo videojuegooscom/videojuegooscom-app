@@ -1,5 +1,14 @@
-// app/admin/analytics.tsx
 /**
+ * Archivo: app/admin/analytics.tsx
+ * Función: pantalla de administración «Visitas y métricas» (analítica propia), en la dirección /admin/analytics.
+ * Para qué sirve: el administrador mide visitas, recorrido del cliente, búsquedas, pagos, reparaciones, alquiler y el uso de cada función nueva de la tienda, solo con datos agregados y respetando a quien rechazó la analítica.
+ * Conectado con: lib/supabase.ts (tabla analytics_events y funciones SQL analytics_*), lib/envio.ts, lib/alquiler.ts, constants/theme.ts, components/marca/CargaMarca.tsx, lib/admin/products.components.ts, components/admin/PanelUI.tsx; los eventos los escribe lib/analytics.ts desde casi todas las pantallas.
+ * Utilizado por: Expo Router (dirección /admin/analytics, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Visitas y métricas» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: panel de métricas de visitas del panel de administración. Muestra
  * cuántas personas visitan la tienda, el recorrido que hacen (Inicio →
  * Categoría → Producto → Reseñas, con "Scroll" como señal de enganche

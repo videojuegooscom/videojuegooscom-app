@@ -1,5 +1,14 @@
-// app/+not-found.tsx
 /**
+ * Archivo: app/+not-found.tsx
+ * Función: pantalla de error 404 para direcciones que no existen (Expo Router la muestra sola).
+ * Para qué sirve: el cliente que llega a un enlace roto ve la mascota, un texto breve y un botón para volver a la portada.
+ * Conectado con: components/marca/MarcaAnimada.tsx; no llama a Supabase ni a api/.
+ * Utilizado por: Expo Router (cualquier dirección sin pantalla); ningún archivo la importa.
+ * Dependencias: react, react-native, expo-router.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: página para direcciones que no existen (Expo Router la usa sola).
  * Mascota del taller animada, un texto breve y un botón para volver a la portada.
  * Sobria y centrada, con la paleta de la tienda.

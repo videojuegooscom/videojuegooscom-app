@@ -1,6 +1,14 @@
 /**
- * app/(tabs)/chat-global.tsx
- *
+ * Archivo: app/(tabs)/chat-global.tsx
+ * Función: pantalla «Foro» (pestaña del Foro), en la dirección /chat-global (admite ?tab= y ?noticia=).
+ * Para qué sirve: el cliente lee noticias gaming y comenta, participa en el chat público en tiempo real y, con sesión, ve su bandeja privada de conversaciones con la tienda; Novedades y Torneos aún dicen «Próximamente».
+ * Conectado con: lib/supabase.ts (tablas chat_messages, noticias_gaming, noticias_likes, noticias_comentarios, preferencias_usuario; Realtime), lib/analytics.ts, lib/loadingBus.ts, constants/theme.ts, components/PerfilPublico.tsx, SmartImage.tsx, components/marca/*; api/noticias-gaming.ts; app/chat/[chatId].tsx y app/noticias/[id].tsx (enlaces).
+ * Utilizado por: Expo Router (dirección /chat-global, pestaña de app/(tabs)/_layout.tsx); la abre también app/noticias/[id].tsx («Comentar en el Foro»).
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons, expo-image, expo-linear-gradient, @react-native-async-storage/async-storage.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: "Foro" (antes "Chat"), un hub social de la tienda con 5
  * pestañas: Foro, Noticias, Novedades, Torneos y Chat. La pestaña Foro
  * muestra los mensajes reales de la comunidad en tiempo real y un cuadro

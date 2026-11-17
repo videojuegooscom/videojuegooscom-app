@@ -1,5 +1,14 @@
-// app/admin/policies.tsx
 /**
+ * Archivo: app/admin/policies.tsx
+ * Función: pantalla de administración de Políticas, en la dirección /admin/policies.
+ * Para qué sirve: el administrador crea, edita, reordena, publica u oculta y borra las políticas (envíos, devoluciones, privacidad, términos…) y sus secciones, sin tocar código.
+ * Conectado con: lib/supabase.ts (tabla policy_pages), lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; la página pública es app/politicas/[slug].tsx.
+ * Utilizado por: Expo Router (dirección /admin/policies, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Políticas» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración de las páginas de "Políticas"
  * (Envíos, Devoluciones, Privacidad, Términos y condiciones...) que se
  * muestran en app/politicas/[slug].tsx. Permite crear, editar, reordenar,

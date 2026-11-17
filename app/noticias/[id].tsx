@@ -1,5 +1,14 @@
-// app/noticias/[id].tsx
 /**
+ * Archivo: app/noticias/[id].tsx
+ * Función: pantalla de una noticia, en la dirección /noticias/<id>.
+ * Para qué sirve: el cliente (y Google) lee una noticia de consolas y videojuegos con resumen, puntos clave, fuente y enlace para comentar en el Foro; pone su propio título y datos SEO en el head.
+ * Conectado con: lib/supabase.ts (tabla noticias_gaming; la llena api/noticias-gaming.ts), lib/analytics.ts, components/SiteHead.tsx (upsertMeta, upsertLink), SmartImage, CabeceraMarca, TirarParaActualizar y components/marca/*, app/servicio/[id].tsx (faltaColumna).
+ * Utilizado por: Expo Router (dirección /noticias/<id>); la enlazan app/noticias/index.tsx (que además importa funciones de aquí) y app/(tabs)/chat-global.tsx (Foro).
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: la página PROPIA de cada noticia (dueño, 2026-11-09: atraer visitas desde Google con las noticias), en
  * /noticias/<id>, con el diseño de la tienda (CabeceraMarca, colores, SmartImage, CargaMarca). Enseña la categoría y la
  * fecha, el título como encabezado principal (h1), la foto principal (solo si el servidor comprobó las fotos:

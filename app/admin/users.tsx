@@ -1,5 +1,14 @@
-// app/admin/users.tsx
 /**
+ * Archivo: app/admin/users.tsx
+ * Función: pantalla de administración «Usuarios y participación», en la dirección /admin/users.
+ * Para qué sirve: el administrador lista y busca a los clientes registrados, ve su participación (Foro, chats, reseñas), ideas de mejora, seguridad de cuentas y moderación del Foro, y entra a la ficha de cada cliente.
+ * Conectado con: lib/supabase.ts (usuarios, perfiles, foro, chats, reseñas y eventos de analítica), lib/envio.ts, components/ReviewModal.tsx, components/PerfilPublico.tsx, components/SmartImage.tsx, components/marca/CargaMarca.tsx, constants/theme.ts.
+ * Utilizado por: Expo Router (dirección /admin/users, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Usuarios» de app/admin/index.tsx y abre app/admin/cliente/[userId].tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración "Usuarios y participación". Lista los
  * usuarios registrados en la app (con su email, perfil, fecha de alta y última
  * conexión) y cuánto participan: mensajes en el Foro, chats de producto que han

@@ -1,6 +1,14 @@
 /**
- * app/catalogo.tsx
- *
+ * Archivo: app/catalogo.tsx
+ * Función: pantalla de catálogo de productos, en la dirección /catalogo (admite ?cat=, ?query=, ?estado=, ?precio_min=, ?precio_max=).
+ * Para qué sirve: el cliente busca, filtra y ordena los productos de la tienda (y el administrador ve además el estado interno) en una rejilla paginada.
+ * Conectado con: lib/supabase.ts (tablas products, categories, product_media, profiles), lib/analytics.ts, components/Barramagic.tsx (buscador), CatalogFilters.tsx, CategoryProductsShelf.tsx, PortadasCategoria.tsx, Campanita.tsx, TirarParaActualizar.tsx, CabeceraMarca.tsx, components/marca/*, constants/theme.ts.
+ * Utilizado por: Expo Router (dirección /catalogo); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx, app/(tabs)/blue-ia.tsx, app/checkout.tsx, app/comparar.tsx, app/producto/[id].tsx, app/quienes-somos.tsx, app/noticias/[id].tsx, components/Barramagic.tsx, SiteFooter.tsx y Campanita.tsx.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de catálogo público (y vista interna para admins).
  * Carga productos y categorías desde Supabase, permite buscar, filtrar por
  * plataforma/categoría, estado (Nuevo / Segunda mano y condición detallada),

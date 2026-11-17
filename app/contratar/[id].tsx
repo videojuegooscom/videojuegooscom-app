@@ -1,5 +1,14 @@
-// app/contratar/[id].tsx
 /**
+ * Archivo: app/contratar/[id].tsx
+ * Función: pantalla «Contratar servicio», en la dirección /contratar/<id> (admite ?opcion=).
+ * Para qué sirve: el cliente rellena el formulario para contratar un servicio concreto, con el resumen del servicio (foto, opción y precio) arriba.
+ * Conectado con: components/ContratarServicioModal.tsx (formulario; guarda en la tabla service_requests), CabeceraMarca.tsx, components/marca/CargaMarca.tsx, app/servicio/[id].tsx (fetchService, fotoDeOpcion).
+ * Utilizado por: Expo Router (dirección /contratar/<id>); la abre app/servicio/[id].tsx con «Contratar servicio ahora».
+ * Dependencias: react, react-native, expo-router, react-native-safe-area-context.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: página «Contratar servicio» (dueño, 2026-11-09: «quiero que el pop que aparece al darle a "Contratar
  * servicio ahora" sea una página y que tenga nuestro diseño»). Es el formulario de siempre
  * (components/ContratarServicioModal.tsx) como página completa, igual que «Vender ahora» (app/vender.tsx): la cabecera

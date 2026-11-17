@@ -1,5 +1,14 @@
-// app/(tabs)/_layout.tsx
 /**
+ * Archivo: app/(tabs)/_layout.tsx
+ * Función: layout de la barra de pestañas inferior (Inicio, Perfil, Cesta, Foro, Blue IA) de la tienda.
+ * Para qué sirve: el cliente se mueve entre las cinco pantallas principales con una barra compacta; un triple toque recarga la pestaña y el icono activo brilla mientras hay algo cargando.
+ * Conectado con: lib/loadingBus.ts (estado de carga), components/lineapensadoraefectosiri.tsx (BrilloIconoSeccion), constants/theme.ts, lib/tabBar.ts (altura de la barra); no llama a Supabase ni a api/.
+ * Utilizado por: Expo Router (layout del grupo (tabs), registrado en app/_layout.tsx); contiene index, perfil, cesta, chat-global y blue-ia.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-navigation/native, @react-navigation/bottom-tabs.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: layout de la barra de pestañas inferior (Inicio, Perfil,
  * Cesta, Foro, Blue IA). Define iconos, colores y comportamiento de la
  * tab bar para las 5 pantallas principales de la app.

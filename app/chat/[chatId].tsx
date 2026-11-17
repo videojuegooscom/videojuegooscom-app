@@ -1,6 +1,14 @@
 /**
- * app/chat/[chatId].tsx
- *
+ * Archivo: app/chat/[chatId].tsx
+ * Función: pantalla de una conversación privada con la tienda, en la dirección /chat/<chatId> (admite ?borrador=).
+ * Para qué sirve: el cliente (con sesión iniciada) escribe y lee mensajes del equipo sobre un producto, una venta o atención general.
+ * Conectado con: components/ProductChatThread.tsx (mensajes y tiempo real), components/CabeceraMarca.tsx, lib/supabase.ts (comprobación de sesión; las tablas del chat, product_chats, las usa ProductChatThread).
+ * Utilizado por: Expo Router (dirección /chat/<chatId>); la abren abrirChatEquipo y abrirChatProducto (components/ProductChatThread.tsx), app/(tabs)/chat-global.tsx, app/(tabs)/index.tsx, app/catalogo.tsx y components/VenderAhoraModal.tsx.
+ * Dependencias: react, react-native, expo-router.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla del cliente para una conversación privada con la
  * tienda: de un producto, de una venta o general ("Atención al cliente").
  * La abre abrirChatEquipo (components/ProductChatThread.tsx) desde Blue IA
