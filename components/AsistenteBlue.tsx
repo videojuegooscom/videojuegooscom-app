@@ -221,7 +221,7 @@ import { suscribirVisorFotos, visorFotosAbierto } from "./VisorFotos";
 import { VentanaMejoras, VALORACION_ESPERA_MS, cargarValoracionesPedidos, entregadoEnDe, tocaValorarPedido } from "./VentanaValoracion";
 import { useAlturaBarraComparar, useComparar } from "./CarruselProductosCategoria";
 import { CAMPO, COLORES_TEXTO, colorTextoAzul, TACTIL, TAMANOS } from "../constants/temaTienda";
-import { cargarAjustesReparacionEnvio, cargarHistorialPedidos } from "../lib/envio";
+import { cargarAjustesReparacionEnvio, cargarHistorialPedidos, formatearEuros } from "../lib/envio";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -609,14 +609,6 @@ function sitioConsejo(alto: number): { top: number } | null {
   for (const r of cajas) if (r.bottom < vh * 0.3) techo = Math.max(techo, r.bottom + 8);
   if (techo + alto < vh - 12 && !cruza(techo)) return { top: Math.round(techo) };
   return null;
-}
-
-// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
-function fmtEUR(value: number) {
-  const v = Number(value);
-  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
-  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 // Quien escucha cambios de «Avísame cuando llegue» (el catálogo crea avisos y Blue los relee).
@@ -2177,7 +2169,7 @@ export default function AsistenteBlue() {
       if (!b) return;
       yaDicho.add(`ap:${b.id}:${b.ahora}`);
       const titulo = b.title.length > 48 ? `${b.title.slice(0, 47).trimEnd()}…` : b.title;
-      decir({ id: `ap:${b.id}:${b.ahora}`, texto: `Ha bajado de precio: ${titulo}, ahora ${fmtEUR(b.ahora)}`, accion: "ruta", ruta: `/producto/${b.id}` });
+      decir({ id: `ap:${b.id}:${b.ahora}`, texto: `Ha bajado de precio: ${titulo}, ahora ${formatearEuros(b.ahora)}`, accion: "ruta", ruta: `/producto/${b.id}` });
     })();
     return () => {
       vivo = false;
@@ -3440,7 +3432,7 @@ export default function AsistenteBlue() {
                       <Aviso
                         icono={l.reposicion ? "notifications-outline" : "checkmark-done-outline"}
                         key={l.aviso.id}
-                        titulo={`${l.reposicion ? `Ya tenemos otro «${l.aviso.texto}»` : `Ha llegado lo que buscabas («${l.aviso.texto}»)`}: ${l.productos[0].title} · ${fmtEUR(l.productos[0].price)}${
+                        titulo={`${l.reposicion ? `Ya tenemos otro «${l.aviso.texto}»` : `Ha llegado lo que buscabas («${l.aviso.texto}»)`}: ${l.productos[0].title} · ${formatearEuros(l.productos[0].price)}${
                           l.productos.length > 1 ? ` y ${l.productos.length - 1} más` : ""
                         }`}
                         accion="Ver"
@@ -3451,7 +3443,7 @@ export default function AsistenteBlue() {
                       <Aviso
                         icono="trending-down-outline"
                         key={b.id}
-                        titulo={`Ha bajado de precio: ${b.title} · antes ${fmtEUR(b.antes)}, ahora ${fmtEUR(b.ahora)}`}
+                        titulo={`Ha bajado de precio: ${b.title} · antes ${formatearEuros(b.antes)}, ahora ${formatearEuros(b.ahora)}`}
                         accion="Ver"
                         onPress={() => verBajada(b)}
                       />

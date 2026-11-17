@@ -88,7 +88,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { CabeceraPanel } from "../../lib/admin/productos.componentes";
-import { leerPanelVistos, type SeccionConNovedades } from "../../lib/admin/productos.utilidades";
+import { leerPanelVistos, sombraSuave, type SeccionConNovedades } from "../../lib/admin/productos.utilidades";
 import { supabase } from "../../lib/supabase";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import AvisosMovil from "../../components/AvisosMovil";
@@ -120,19 +120,6 @@ const COLORS = {
 
 // Ancho máximo centrado para pantallas grandes (web/tablet); en móvil ocupa el 100%.
 const columnStyle = { width: "100%", maxWidth: 1040, alignSelf: "center" } as const;
-
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.24,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Novedades de cada recuadro: solo lo que llega de fuera (clientes, VeoAura o la revisión automática) desde la última vez
@@ -291,7 +278,7 @@ function CardButton({
             transitionProperty: "transform, opacity, box-shadow",
             transitionDuration: "160ms",
             transitionTimingFunction: "ease-out",
-            ...softShadow(),
+            ...sombraSuave(),
           } as any)
       }
     >

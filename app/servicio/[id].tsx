@@ -72,6 +72,7 @@ import { supabase } from "../../lib/supabase";
 import { TAMANOS } from "../../constants/temaTienda";
 import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, CLAVE_ME_GUSTA_SERVICIOS, meGustaLocales } from "../../lib/interaccion";
 import { medirEvento } from "../../lib/analiticaPropia";
+import { formatearEuros } from "../../lib/envio";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
 import { SelectorIOS } from "../../lib/admin/productos.componentes";
 import VisorFotos, { type FotoVisor } from "../../components/VisorFotos";
@@ -99,14 +100,6 @@ const COLORS = {
 
 const SIN_DESCRIPCION_SERVICIO =
   "Todavía no hay una descripción disponible para este servicio. Aun así, puedes preguntarnos por su alcance, tiempo estimado o garantía con «Preguntar por este servicio».";
-
-// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
-function fmtEUR(n: number) {
-  const v = Number(n);
-  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
-  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
-}
 
 function smartBack() {
   try {
@@ -312,8 +305,8 @@ export default function ServicioScreen() {
         ? [
             { etiqueta: "Tipo", valor: "Reparación / Limpieza" },
             ...(s.modalidades.length
-              ? s.modalidades.map((m) => ({ etiqueta: m.nombre, valor: fmtEUR(m.precio_eur) }))
-              : [{ etiqueta: "Precio", valor: fmtEUR(s.priceEUR) }]),
+              ? s.modalidades.map((m) => ({ etiqueta: m.nombre, valor: formatearEuros(m.precio_eur) }))
+              : [{ etiqueta: "Precio", valor: formatearEuros(s.priceEUR) }]),
             { etiqueta: "Contratación", valor: "Disponible ahora" },
           ]
         : [],
@@ -430,7 +423,7 @@ export default function ServicioScreen() {
 
     if (Platform.OS !== "web") {
       try {
-        await Share.share({ title: s.title, message: `${s.title} · ${fmtEUR(s.priceEUR)} · ${url}`, url });
+        await Share.share({ title: s.title, message: `${s.title} · ${formatearEuros(s.priceEUR)} · ${url}`, url });
       } catch {
         // cancelado
       }
@@ -757,7 +750,7 @@ export default function ServicioScreen() {
                       textAlign: "center",
                     }}
                   >
-                    {fmtEUR(precioVisible)}
+                    {formatearEuros(precioVisible)}
                   </Text>
 
                   {/* Opciones del servicio (Básica, Completa…): el desplegable del propio móvil (en el iPhone, la rueda
@@ -770,7 +763,7 @@ export default function ServicioScreen() {
                         centrado
                         value={modalidad}
                         onChange={elegirModalidad}
-                        options={s.modalidades.map((m) => ({ value: m.nombre, label: `${m.nombre} · ${fmtEUR(m.precio_eur)}` }))}
+                        options={s.modalidades.map((m) => ({ value: m.nombre, label: `${m.nombre} · ${formatearEuros(m.precio_eur)}` }))}
                       />
                     </View>
                   ) : null}

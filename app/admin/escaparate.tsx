@@ -48,6 +48,7 @@ import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import { formatearEuros } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { CabeceraPanel } from "../../lib/admin/productos.componentes";
@@ -166,14 +167,6 @@ function tonoProducto(estado: Salida["estado"]): Tono {
 
 function textoEvento(s: Salida) {
   return s.evento === "pedido" ? "Pedido" : s.evento === "pedido_anulado" ? "Pedido cancelado" : "Pedido entregado · ficha del cliente (nombre, correo y teléfono)";
-}
-
-// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
-function fmtEUR(value: number) {
-  const v = Number(value);
-  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
-  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 function fmtFechaHora(iso: string | null) {
@@ -510,7 +503,7 @@ export default function AdminEscaparate() {
                                 <Dato etiqueta="Qué es">{textoEvento(s)}</Dato>
                                 {numero ? <Dato etiqueta="Nº de pedido">{`#${numero}`}</Dato> : null}
                                 <Dato etiqueta="Fecha">{fmtFechaHora(s.creado_en)}</Dato>
-                                {art ? <Dato etiqueta="Precio">{fmtEUR(Number(art.price_eur ?? 0))}</Dato> : null}
+                                {art ? <Dato etiqueta="Precio">{formatearEuros(Number(art.price_eur ?? 0))}</Dato> : null}
                               </Bloque>
                             </View>
                             <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 18 }}>
@@ -580,12 +573,12 @@ export default function AdminEscaparate() {
                             icono="pricetag-outline"
                             titulo={a.title}
                             estado={est}
-                            linea={`${fmtEUR(Number(a.price_eur ?? 0))} · ${Number(a.view_count ?? 0)} visitas · ${Number(a.like_count ?? 0)} me gusta`}
+                            linea={`${formatearEuros(Number(a.price_eur ?? 0))} · ${Number(a.view_count ?? 0)} visitas · ${Number(a.like_count ?? 0)} me gusta`}
                             {...fila(`articulo-${a.id}`)}
                           >
                             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                               <Bloque icono="stats-chart-outline" titulo="En la tienda" ancho={isMobile ? "100%" : "45%"}>
-                                <Dato etiqueta="Precio">{fmtEUR(Number(a.price_eur ?? 0))}</Dato>
+                                <Dato etiqueta="Precio">{formatearEuros(Number(a.price_eur ?? 0))}</Dato>
                                 <Dato etiqueta="Visitas">{String(Number(a.view_count ?? 0))}</Dato>
                                 <Dato etiqueta="Me gusta">{String(Number(a.like_count ?? 0))}</Dato>
                               </Bloque>

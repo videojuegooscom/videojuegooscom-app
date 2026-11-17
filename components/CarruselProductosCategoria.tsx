@@ -106,6 +106,7 @@ import { useRecarga } from "./TirarParaActualizar";
 import { cargarIndiceBusqueda, palabrasBusqueda, portadasDeProductos, type ProductoIndice } from "./BarraBusqueda";
 import { supabase } from "../lib/supabase";
 import { medirEvento } from "../lib/analiticaPropia";
+import { formatearEuros } from "../lib/envio";
 import { colorTextoAzul, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 
 const COLORS = {
@@ -169,14 +170,6 @@ type ProductMediaRow = {
   is_cover?: boolean | null;
 };
 
-// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
-function fmtEUR(value: number) {
-  const v = Number(value);
-  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
-  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
-}
-
 // --- Tarjeta y rejilla de las listas de la tienda (Catálogo y Servicios) --------------------------------------------
 // Mismo diseño que las tarjetas de este estante (las de Inicio): fondo suave sin borde, foto entera sobre blanco, título
 // completo y precio en azul de marca. Sin etiquetas ni botones decorativos: toda la tarjeta es el enlace. «extra» es lo
@@ -209,7 +202,7 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
     <Pressable
       onPress={onPress}
       accessibilityRole="link"
-      accessibilityLabel={`${titulo}, ${fmtEUR(precioEUR)}`}
+      accessibilityLabel={`${titulo}, ${formatearEuros(precioEUR)}`}
       style={({ pressed }) => ({
         opacity: pressed ? 0.9 : 1,
         borderRadius: 16,
@@ -264,7 +257,7 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
       </Text>
 
       <Text style={{ color: colorTextoAzul(compact ? 16 : 18), fontWeight: "900", fontSize: compact ? 16 : 18, marginTop: 4, textAlign: "center" }}>
-        {fmtEUR(precioEUR)}
+        {formatearEuros(precioEUR)}
       </Text>
 
       {extra}
@@ -652,7 +645,7 @@ export default function CarruselProductosCategoria({
               key={p.id}
               nativeID={nativeID ? `${nativeID}-${p.id}` : undefined}
               accessibilityRole="link"
-              accessibilityLabel={`${p.title}, ${fmtEUR(p.priceEUR)}`}
+              accessibilityLabel={`${p.title}, ${formatearEuros(p.priceEUR)}`}
               onPress={() => {
                 onTocar?.(p.id, i + 1);
                 router.push(`/producto/${p.id}` as Href);
@@ -712,7 +705,7 @@ export default function CarruselProductosCategoria({
                   textAlign: "center",
                 }}
               >
-                {fmtEUR(p.priceEUR)}
+                {formatearEuros(p.priceEUR)}
               </Text>
             </Pressable>
             );
@@ -993,7 +986,7 @@ export function CompletaTuCompra({
               router.push(`/producto/${p.id}` as Href);
             }}
             accessibilityRole="link"
-            accessibilityLabel={`${p.title}, ${fmtEUR(p.priceEUR)}`}
+            accessibilityLabel={`${p.title}, ${formatearEuros(p.priceEUR)}`}
             style={({ pressed }) => ({ flex: 1, minWidth: 0, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6, opacity: pressed ? 0.7 : 1 })}
           >
             <View style={{ width: enCesta ? 56 : 44, height: enCesta ? 56 : 44, borderRadius: 10, overflow: "hidden", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
@@ -1007,7 +1000,7 @@ export function CompletaTuCompra({
               <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 17 }}>
                 {p.title}
               </Text>
-              <Text style={{ color: colorTextoAzul(14), fontWeight: "900", fontSize: 14, marginTop: 2 }}>{fmtEUR(p.priceEUR)}</Text>
+              <Text style={{ color: colorTextoAzul(14), fontWeight: "900", fontSize: 14, marginTop: 2 }}>{formatearEuros(p.priceEUR)}</Text>
             </View>
           </Pressable>
           {enCesta && onAnadir ? (

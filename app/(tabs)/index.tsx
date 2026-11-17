@@ -128,6 +128,7 @@ import { supabase } from "../../lib/supabase";
 import { sinEmojis } from "../../lib/admin/productos.utilidades";
 import { medirCargaPantalla, medirEvento, medirEventoEspaciado } from "../../lib/analiticaPropia";
 import { useMargenInferiorBarraPestanas } from "../../lib/barraPestanas";
+import { formatearEuros } from "../../lib/envio";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -332,14 +333,6 @@ function clampText(value: string, max = 400) {
   if (!text) return "";
   if (text.length <= max) return text;
   return `${text.slice(0, max - 1).trimEnd()}…`;
-}
-
-// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
-function fmtEUR(value: number) {
-  const v = Number(value);
-  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
-  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 function softShadow() {
@@ -1514,7 +1507,7 @@ function TarjetaOfertaDestacada({
                 textAlign: "center",
               }}
             >
-              {fmtEUR(item.priceEUR)}
+              {formatearEuros(item.priceEUR)}
             </Text>
           </View>
 

@@ -53,7 +53,6 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
@@ -87,6 +86,7 @@ import {
   type TramoEnvio,
   type ZonaEnvio,
 } from "../../lib/envio";
+import { volverAlPanel } from "../../lib/admin/productos.utilidades";
 
 // "on-drag" en web cierra el teclado con cualquier desplazamiento (también el del navegador al enfocar un campo).
 const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
@@ -111,18 +111,6 @@ const MIGRACION = "supabase/migrations/20261104210000_tarifas_envio.sql";
 // (migración 20261107120000_envio_por_kilos): «hasta X kg, Y €», como la tabla de Correos.
 type TramoBorrador = { kg: string; precio: string };
 type Borrador = { nombre: string; codigos: string; precio: string; gratisDesde: string; activa: boolean; tramos: TramoBorrador[] };
-
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
 
 function fmtEUR(n: number) {
   const cents = Math.round((Number.isFinite(n) ? n : 0) * 100);
@@ -512,7 +500,7 @@ export default function AdminEnvios() {
       >
         <View style={{ width: "100%", maxWidth: 960, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
-            onPress={smartBackAdminHome}
+            onPress={volverAlPanel}
             accessibilityRole="button"
             accessibilityLabel="Volver al panel"
             hitSlop={8}

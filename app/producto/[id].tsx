@@ -179,6 +179,7 @@ import {
   cargarAjustesFranjas,
   cargarTarifas,
   entregaEstimada,
+  formatearEuros,
   limpiarCodigoPostal,
   tipoEntregaPorCodigo,
   type TipoEntregaEstimada,
@@ -373,14 +374,6 @@ function replaceRoute(route: Href) {
 
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
-}
-
-// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
-function fmtEUR(n: number) {
-  const v = Number(n);
-  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
-  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 function mapDbStatusToUi(s: DbStatus): UiStatus {
@@ -1247,7 +1240,7 @@ export default function ProductoScreen() {
 
     if (Platform.OS !== "web") {
       try {
-        await Share.share({ title: p.title, message: `${p.title} · ${fmtEUR(p.priceEUR)} · ${url}`, url });
+        await Share.share({ title: p.title, message: `${p.title} · ${formatearEuros(p.priceEUR)} · ${url}`, url });
       } catch {
         // El usuario canceló el share nativo: no hay nada que hacer.
       }
@@ -1258,7 +1251,7 @@ export default function ProductoScreen() {
 
     if (nav?.share) {
       try {
-        await nav.share({ title: p.title, text: `${p.title} · ${fmtEUR(p.priceEUR)}`, url });
+        await nav.share({ title: p.title, text: `${p.title} · ${formatearEuros(p.priceEUR)}`, url });
       } catch {
         // El usuario canceló el share del navegador: no hay nada que hacer.
       }
@@ -1734,7 +1727,7 @@ export default function ProductoScreen() {
                     textAlign: "center",
                   }}
                 >
-                  {fmtEUR(p.priceEUR)}
+                  {formatearEuros(p.priceEUR)}
                 </Text>
 
                 {/* «Revisado por nuestro equipo» y la garantía: SOLO si el dueño lo ha marcado en este producto. */}
