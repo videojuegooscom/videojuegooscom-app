@@ -102,8 +102,8 @@ import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
-import { openExternalLink } from "../lib/abrirEnlaceExterno";
-import { trackEvent } from "../lib/analiticaPropia";
+import { abrirEnlaceExterno } from "../lib/abrirEnlaceExterno";
+import { medirEvento } from "../lib/analiticaPropia";
 
 export type PlataformaSocial =
   | "instagram"
@@ -226,7 +226,7 @@ function openSocialLink(href: string) {
     // openExternalLink() cambia la ubicación de la pestaña, y eso solo
     // funciona de forma fiable si ocurre dentro del mismo toque del usuario
     // (sin ningún `await` de por medio que lo retrase).
-    openExternalLink(href);
+    abrirEnlaceExterno(href);
   } catch {
     // Silencioso: si el enlace no se puede abrir (dato mal escrito por el
     // admin, o el dispositivo no tiene con qué abrirlo), no rompemos nada.
@@ -295,7 +295,7 @@ export function RedJuntoAlLogo({ fila, estrecho }: { fila: FilaRedLogo; estrecho
     <Pressable
       nativeID={`inicio-${fila.platform}`}
       onPress={() => {
-        void trackEvent("redes_inicio", `Inicio: ${fila.label} junto al logo`, { metadata: { red: fila.platform } });
+        void medirEvento("redes_inicio", `Inicio: ${fila.label} junto al logo`, { metadata: { red: fila.platform } });
         openSocialLink(fila.href);
       }}
       accessibilityRole="link"

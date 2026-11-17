@@ -119,7 +119,7 @@ import {
   cargarDatosEnvio,
   cargarTarifas,
   esZonaMismoDia,
-  fmtKg,
+  formatearKg,
   hayEnviosDePago,
   limpiarCodigoPostal,
   opcionesFranja,
@@ -129,7 +129,7 @@ import {
 } from "../lib/envio";
 import { olvidarFilaPerfil, supabase } from "../lib/supabase";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
-import { trackEvent } from "../lib/analiticaPropia";
+import { medirEvento } from "../lib/analiticaPropia";
 import { CAMPO, TACTIL } from "../constants/temaTienda";
 import {
   ETIQUETAS_DIRECCION,
@@ -341,7 +341,7 @@ async function irAlPagoConTarjeta(
     if (r.ok && d?.pagado) return "pagado";
     // Artículo único que otro cliente acaba de pagar (api/pago.ts no abre Stripe): no se cobra nada.
     if (r.status === 409 && /acaba de vender/.test(String(d?.error ?? ""))) {
-      trackEvent("pago_articulo_vendido", "Pago: artículo ya vendido", { path: "/checkout", metadata: { momento: "pago" } });
+      medirEvento("pago_articulo_vendido", "Pago: artículo ya vendido", { path: "/checkout", metadata: { momento: "pago" } });
       return { aviso: AVISO_VENDIDO };
     }
     if (r.ok && typeof d?.url === "string" && /^https:\/\/checkout\.stripe\.com\//.test(d.url)) {
@@ -824,13 +824,13 @@ export default function CheckoutScreen() {
         restoCestaRef.current = resto;
         setCompraRapida({ resto: resto.length });
         setItems([rapido]);
-        trackEvent("comprar_ya", "Comprar ya: pago directo", { path: "/checkout", metadata: { resto: resto.length } });
+        medirEvento("comprar_ya", "Comprar ya: pago directo", { path: "/checkout", metadata: { resto: resto.length } });
       } else {
         restoCestaRef.current = null;
         setItems(stored);
       }
       if (stored.length) {
-        trackEvent("begin_checkout", "Inicio de compra", {
+        medirEvento("begin_checkout", "Inicio de compra", {
           path: "/checkout",
           metadata: rapido
             ? { items: 1, total: rapido.priceEUR * rapido.qty, comprarYa: true }
@@ -874,7 +874,7 @@ export default function CheckoutScreen() {
         if (p.telefono) {
           setPhone((v) => v || p.telefono);
           setTelDesdePerfil(true);
-          trackEvent("pago_telefono_perfil", "Pago: teléfono del perfil usado", { path: "/checkout" });
+          medirEvento("pago_telefono_perfil", "Pago: teléfono del perfil usado", { path: "/checkout" });
         }
         // Hasta 3 direcciones (columna direcciones; sin ella, null): se rellena con la predeterminada (la misma que las
         // columnas de siempre) y, con 2 o más, se puede elegir otra con un toque.
@@ -888,7 +888,7 @@ export default function CheckoutScreen() {
           setPostalCode((v) => v || dir.codigoPostal);
           if (dir.localidad) setCity((v) => v || dir.localidad);
           setDesdePerfil(true);
-          trackEvent("pago_direccion_perfil", "Pago: dirección del perfil", { path: "/checkout" });
+          medirEvento("pago_direccion_perfil", "Pago: dirección del perfil", { path: "/checkout" });
         }
       } catch {
         // sin datos: se escriben a mano, como siempre
@@ -933,7 +933,7 @@ export default function CheckoutScreen() {
     if (r?.pagado) {
       // Se cuenta una sola vez: al recargar esta página ya no hay pago pendiente guardado.
       if (pendiente) {
-        trackEvent("pago_tarjeta_ok", "Pagado online", { path: "/checkout", metadata: { numero, modo: sesion.startsWith("cs_live_") ? "real" : "prueba" } });
+        medirEvento("pago_tarjeta_ok", "Pagado online", { path: "/checkout", metadata: { numero, modo: sesion.startsWith("cs_live_") ? "real" : "prueba" } });
         try {
           await AsyncStorage.removeItem(PAGO_PENDIENTE_KEY);
         } catch {
@@ -991,7 +991,7 @@ export default function CheckoutScreen() {
     setAvisoPago(null);
     setRedirigiendo(true);
     pagoEnCursoRef.current = { numero: pedidoHecho.numero, clave: pedidoHecho.clave ?? null };
-    const medido = trackEvent("pago_tarjeta", "Pago online", { path: "/checkout", metadata: { numero: pedidoHecho.numero, modo: pagoTarjeta.modo, reintento: true } });
+    const medido = medirEvento("pago_tarjeta", "Pago online", { path: "/checkout", metadata: { numero: pedidoHecho.numero, modo: pagoTarjeta.modo, reintento: true } });
     const r = await irAlPagoConTarjeta(pedidoHecho.numero, pedidoHecho.clave ?? null, medido);
     if (r === "redirigiendo") return;
     setRedirigiendo(false);
@@ -1085,7 +1085,7 @@ export default function CheckoutScreen() {
       // Cada artículo es una unidad: si otro cliente acaba de pagarlo, se dice claro y no se cobra nada.
       if (vendidoYa) {
         setErr(AVISO_VENDIDO);
-        trackEvent("pago_articulo_vendido", "Pago: artículo ya vendido", { path: "/checkout", metadata: { momento: "pedido", items: items.length } });
+        medirEvento("pago_articulo_vendido", "Pago: artículo ya vendido", { path: "/checkout", metadata: { momento: "pedido", items: items.length } });
         return;
       }
       // «Guardar en mi perfil»: con el pedido ya registrado, el teléfono escrito aquí pasa a su perfil (si no tenía uno; si
@@ -1097,7 +1097,7 @@ export default function CheckoutScreen() {
           olvidarFilaPerfil();
           if (!error) {
             setPerfilTel((t) => ({ ...t, valor: nuevoTel }));
-            await trackEvent("perfil_telefono_guardado", "Perfil: teléfono guardado", { path: "/checkout", metadata: { nuevo: true, desde: "pago" } });
+            await medirEvento("perfil_telefono_guardado", "Perfil: teléfono guardado", { path: "/checkout", metadata: { nuevo: true, desde: "pago" } });
           }
         } catch {
           // sin guardar en el perfil: el pedido sigue adelante
@@ -1105,7 +1105,7 @@ export default function CheckoutScreen() {
       }
       // Dirección usada en el pago: de las guardadas (cuál, sin la dirección) o, con «Guardar en mi perfil», una nueva.
       if (numero && direccionCoincide) {
-        trackEvent("pago_direccion_guardada", "Pago: dirección guardada usada", {
+        medirEvento("pago_direccion_guardada", "Pago: dirección guardada usada", {
           path: "/checkout",
           metadata: { etiqueta: direccionCoincide.etiqueta, predeterminada: direccionCoincide.predeterminada, elegida: direccionTocada, guardadas: perfilDir.lista?.length ?? 0 },
         });
@@ -1131,7 +1131,7 @@ export default function CheckoutScreen() {
           if (!error) {
             const total = (lista?.length ?? 0) + 1;
             setPerfilDir((d) => ({ ...d, lista: d.lista ? [...d.lista, nueva] : d.lista, tieneUna: true }));
-            await trackEvent("perfil_direccion_guardada", "Perfil: dirección guardada", { path: "/checkout", metadata: { nueva: true, desde: "pago", direcciones: total } });
+            await medirEvento("perfil_direccion_guardada", "Perfil: dirección guardada", { path: "/checkout", metadata: { nueva: true, desde: "pago", direcciones: total } });
           }
         } catch {
           // sin guardar en el perfil: el pedido sigue adelante
@@ -1150,7 +1150,7 @@ export default function CheckoutScreen() {
       const tarjeta = conTarjeta && pagoTarjeta.disponible && !!numero && Platform.OS === "web";
       let medidoPedido: Promise<unknown> = Promise.resolve();
       if (!repetido) {
-        medidoPedido = trackEvent("order_whatsapp", "Pedido por WhatsApp", {
+        medidoPedido = medirEvento("order_whatsapp", "Pedido por WhatsApp", {
           path: "/checkout",
           metadata: { numero, total, items: items.length, entrega, envio: shipping, zona: envio.zona?.zona ?? null, tarjeta },
         });
@@ -1160,7 +1160,7 @@ export default function CheckoutScreen() {
       if (numero && conFranja && opcionElegida) {
         await guardarFranjaDelPedido(numero, claveCompra, opcionElegida.franja, opcionElegida.fecha);
         if (!repetido) {
-          trackEvent("entrega_franja_elegida", "Entrega: franja elegida", {
+          medirEvento("entrega_franja_elegida", "Entrega: franja elegida", {
             path: "/checkout",
             metadata: {
               franja: opcionElegida.franja,
@@ -1181,7 +1181,7 @@ export default function CheckoutScreen() {
       // 3) Con tarjeta: a la página de pago de Stripe (con el total que pone el servidor). Si no se puede abrir, el pedido
       //    ya está guardado y la confirmación ofrece volver a intentarlo o hablarlo por el chat.
       if (tarjeta && numero) {
-        const medidoPago = trackEvent("pago_tarjeta", "Pago online", { path: "/checkout", metadata: { numero, total, modo: pagoTarjeta.modo } });
+        const medidoPago = medirEvento("pago_tarjeta", "Pago online", { path: "/checkout", metadata: { numero, total, modo: pagoTarjeta.modo } });
         setRedirigiendo(true);
         setItems([]);
         pagoEnCursoRef.current = { numero, clave: claveCompra };
@@ -1514,7 +1514,7 @@ export default function CheckoutScreen() {
               ) : !faltaCodigo && entrega === "envio" && envio.zona?.tramos && shipping > 0 ? (
                 // Correos cobra por kilos: se dice el peso con el que se ha calculado.
                 <Text nativeID="pago-envio-peso" style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center" }}>
-                  Con Correos, según el peso del pedido: {fmtKg(pesoKg)} con embalaje
+                  Con Correos, según el peso del pedido: {formatearKg(pesoKg)} con embalaje
                 </Text>
               ) : null}
               <Row nativeID="pago-total" label="Total" value={fmtEUR(total)} strong />

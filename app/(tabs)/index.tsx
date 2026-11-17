@@ -126,8 +126,8 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { supabase } from "../../lib/supabase";
 import { sinEmojis } from "../../lib/admin/productos.utilidades";
-import { medirCargaPantalla, trackEvent, trackEventThrottled } from "../../lib/analiticaPropia";
-import { useTabBarBottomInset } from "../../lib/barraPestanas";
+import { medirCargaPantalla, medirEvento, medirEventoEspaciado } from "../../lib/analiticaPropia";
+import { useMargenInferiorBarraPestanas } from "../../lib/barraPestanas";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -1611,7 +1611,7 @@ function EsqueletoOferta({ isDesktopish, isWide, isMobile }: { isDesktopish: boo
 export default function HomeScreen() {
   // La barra de pestañas crece con la zona segura del iPhone (lib/barraPestanas.ts): lo que flota
   // justo encima (buscador y "volver arriba") se desplaza lo mismo para no quedar tapado.
-  const tabBarInset = useTabBarBottomInset();
+  const tabBarInset = useMargenInferiorBarraPestanas();
   const mobileTabBarHeight = SEARCH_LAYOUT.mobileTabBarHeight + tabBarInset;
   const desktopTabBarHeight = SEARCH_LAYOUT.desktopTabBarHeight + tabBarInset;
   const [featured, setFeatured] = useState<FeaturedProduct | null>(null);
@@ -1732,7 +1732,7 @@ export default function HomeScreen() {
     // por cada pixel) y "Reseñas" la primera vez que ese bloque entra en la
     // parte visible de la pantalla.
     if (y > 40) {
-      trackEventThrottled("home-scroll", "scroll", "Scroll", { path: "/" });
+      medirEventoEspaciado("home-scroll", "scroll", "Scroll", { path: "/" });
     }
 
     if (
@@ -1741,7 +1741,7 @@ export default function HomeScreen() {
       y + viewportHeight > resenasYRef.current + 40
     ) {
       resenasTrackedRef.current = true;
-      trackEvent("section_view", "Reseñas", { path: "/" });
+      medirEvento("section_view", "Reseñas", { path: "/" });
     }
 
     lastScrollYRef.current = y;
@@ -1938,7 +1938,7 @@ export default function HomeScreen() {
 
   // Analítica: registra la visita a "Inicio" en cuanto se monta la pantalla.
   useEffect(() => {
-    trackEvent("page_view", "Inicio", { path: "/" });
+    medirEvento("page_view", "Inicio", { path: "/" });
   }, []);
 
   // Carga rápida (mejora 7): la primera pantalla útil de Inicio es la «Oferta de la semana» ya pintada (una vez por visita).
@@ -2108,7 +2108,7 @@ export default function HomeScreen() {
                     : () => pushRoute(`/catalogo?cat=${encodeURIComponent(category.cat)}` as Href);
                 // Cuántos tocan cada recuadro y si tenía portada (analítica propia; lo enseña Administración → Categorías).
                 const onPress = () => {
-                  void trackEvent("categoria_inicio", `Inicio: recuadro ${category.title}`, {
+                  void medirEvento("categoria_inicio", `Inicio: recuadro ${category.title}`, {
                     metadata: { categoria: category.cat, portada: !!portadasCategorias[category.cat]?.length },
                   });
                   ir();
@@ -2159,7 +2159,7 @@ export default function HomeScreen() {
             <Pressable
               nativeID="inicio-quienes-somos-enlace"
               onPress={() => {
-                void trackEvent("quienes_somos_abierto", "Quiénes somos: desde Inicio", { path: "/", metadata: { desde: "inicio" } });
+                void medirEvento("quienes_somos_abierto", "Quiénes somos: desde Inicio", { path: "/", metadata: { desde: "inicio" } });
                 pushRoute("/quienes-somos" as Href);
               }}
               accessibilityRole="link"

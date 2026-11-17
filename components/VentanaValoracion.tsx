@@ -89,7 +89,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
-import { trackEvent } from "../lib/analiticaPropia";
+import { medirEvento } from "../lib/analiticaPropia";
 import type { CambioEstadoPedido } from "../lib/envio";
 import { abrirChatEquipo } from "./ConversacionProducto";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../constants/temaTienda";
@@ -427,7 +427,7 @@ export default function VentanaValoracion({
 
       // Analítica propia (Administración → Usuarios): estrellas, ideas usadas y emojis propuestos que se quedaron.
       const final = comment.trim();
-      void trackEvent(servicio ? "resena_servicio_publicada" : "resena_publicada", servicio ? "Reseña de servicio publicada" : "Reseña publicada", {
+      void medirEvento(servicio ? "resena_servicio_publicada" : "resena_publicada", servicio ? "Reseña de servicio publicada" : "Reseña publicada", {
         metadata: {
           estrellas: rating,
           sugerencias: SUGERENCIAS_RESENA.filter((s) => final.includes(s.texto)).map((s) => s.id),
@@ -856,7 +856,7 @@ export function VentanaMejoras({ visible, onClose, origen }: { visible: boolean;
       } catch {
         conSesion = false;
       }
-      void trackEvent("mejora_abierta", "Mejoras: abierta", { metadata: { origen, con_sesion: conSesion } });
+      void medirEvento("mejora_abierta", "Mejoras: abierta", { metadata: { origen, con_sesion: conSesion } });
       if (!vivo) return;
       if (!conSesion) {
         setFase("auth-required");
@@ -883,7 +883,7 @@ export function VentanaMejoras({ visible, onClose, origen }: { visible: boolean;
     const { error: e } = await supabase.from("mejoras_tienda").insert({ texto: limpio, origen });
     setEnviando(false);
     if (!e) {
-      void trackEvent("mejora_enviada", "Mejoras: enviada", { metadata: { origen, letras: limpio.length } });
+      void medirEvento("mejora_enviada", "Mejoras: enviada", { metadata: { origen, letras: limpio.length } });
       setFase("success");
       return;
     }
@@ -1165,7 +1165,7 @@ export function ValorarPedidoModal({
     setNota(0);
     setComentario("");
     setError(null);
-    void trackEvent("valoracion_abierta", "Valoración del pedido: abierta");
+    void medirEvento("valoracion_abierta", "Valoración del pedido: abierta");
   }, [visible, pedidoId]);
 
   const ref = pedido?.referencia ? ` ${pedido.referencia}` : "";
@@ -1188,7 +1188,7 @@ export function ValorarPedidoModal({
       else setError("No se ha podido enviar. Inténtalo de nuevo en unos segundos.");
       return;
     }
-    void trackEvent("valoracion_enviada", "Valoración del pedido: enviada", { metadata: { nota, con_comentario: !!texto } });
+    void medirEvento("valoracion_enviada", "Valoración del pedido: enviada", { metadata: { nota, con_comentario: !!texto } });
     onValorado((data ?? { pedido_id: pedido.id, nota, comentario: texto || null, creado_en: new Date().toISOString() }) as ValoracionPedido);
     setFase(nota <= 2 ? "baja" : "gracias");
   }
@@ -1206,7 +1206,7 @@ export function ValorarPedidoModal({
         r = await abrirChatEquipo({ borrador });
       }
       onClose();
-      if (r === "ok") void trackEvent("valoracion_baja_chat", "Valoración baja: chat abierto", { metadata: { nota } });
+      if (r === "ok") void medirEvento("valoracion_baja_chat", "Valoración baja: chat abierto", { metadata: { nota } });
       else router.push("/perfil?acceso=entrar" as Href);
     } catch {
       setError("No se ha podido abrir el chat. Inténtalo de nuevo en unos segundos.");

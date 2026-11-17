@@ -158,3 +158,22 @@ lista exacta está en la PR. Los comentarios que aún citan el nombre viejo se p
 | `SellMediaPicker` · `LocalSellMedia` · `SellRequestMediaRow` | `FotosVideoVenta` · `ArchivoVentaLocal` · `FilaArchivoVenta` |
 | `fmtEURServicio` | `formatearEurosServicio` |
 | `IoniconName` (panel) | `NombreIconoPanel` |
+
+Tanda 3, zona lógica (2026-11-17): igual, con la herramienta; 38 símbolos de `lib/` y 419 usos en 49 archivos. Las claves
+guardadas (`LIKED_PRODUCTS_KEY` → `CLAVE_ME_GUSTA_PRODUCTOS`) cambian de nombre, no de valor. `api/compartir.ts` y
+`api/blue-ia.ts` tienen su propia `fmtEUR` (otra función): queda para otra tanda.
+
+| Antes | Después |
+|---|---|
+| `AnalyticsConsent` · `getAnalyticsConsent` · `hasAnalyticsConsent` · `setAnalyticsConsent` | `ConsentimientoAnalitica` · `leerConsentimientoAnalitica` · `hayConsentimientoAnalitica` · `guardarConsentimientoAnalitica` |
+| `trackEvent` · `trackEventThrottled` | `medirEvento` · `medirEventoEspaciado` |
+| `TAB_BAR_BASE_HEIGHT` · `TAB_BAR_BASE_PADDING_BOTTOM` · `useTabBarBottomInset` | `ALTO_BASE_BARRA_PESTANAS` · `MARGEN_INFERIOR_BARRA_PESTANAS` · `useMargenInferiorBarraPestanas` |
+| `openExternalLink` | `abrirEnlaceExterno` |
+| `markStart` · `markEnd` · `pulseLoading` · `useGlobalLoading` | `marcarInicioCarga` · `marcarFinCarga` · `pulsoCarga` · `useCargaGlobal` |
+| `fmtKg` | `formatearKg` |
+| `LIKED_PRODUCTS_KEY` · `LIKED_SERVICES_KEY` | `CLAVE_ME_GUSTA_PRODUCTOS` · `CLAVE_ME_GUSTA_SERVICIOS` |
+| `softShadow` · `fmtEUR` · `clampText` · `toIntSafe` · `toPriceSafe` | `sombraSuave` · `formatearEurosPanel` · `recortarTexto` · `enteroSeguro` · `precioSeguro` |
+| `labelStatus` · `labelCond` · `statusVisual` · `smartBackAdminHome` | `textoEstadoPanel` · `textoCondicionProducto` · `aspectoEstadoProducto` · `volverAlPanel` |
+| `normalizeMediaKind` · `getMediaKind` · `getMediaDuration` · `getMediaPublicUrl` · `getPrimaryMedia` | `normalizarTipoArchivo` · `tipoDeArchivo` · `duracionDeArchivo` · `urlPublicaDeArchivo` · `archivoPrincipal` |
+| `extFromName` · `safeFileName` · `buildMediaPath` · `getVideoDurationSeconds` | `extensionDelNombre` · `nombreArchivoSeguro` · `rutaDeArchivo` · `segundosDeVideo` |
+| `SkippedPickedFile` · `PickMediaResult` · `pickMediaFilesWeb` | `ArchivoDescartado` · `ResultadoElegirArchivos` · `elegirFotosVideoWeb` |

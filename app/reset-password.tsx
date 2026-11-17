@@ -63,7 +63,7 @@ import {
 import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../lib/supabase";
-import { trackEvent } from "../lib/analiticaPropia";
+import { medirEvento } from "../lib/analiticaPropia";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -205,7 +205,7 @@ export default function ResetPasswordScreen() {
     const contar = (nombre: string, etiqueta: string, metadata: Record<string, unknown>) => {
       if (contadoRef.current) return;
       contadoRef.current = true;
-      void trackEvent(nombre, etiqueta, { metadata });
+      void medirEvento(nombre, etiqueta, { metadata });
     };
     const lista = (via: "token" | "codigo" | "sesion") => {
       if (!mounted) return;
@@ -269,7 +269,7 @@ export default function ResetPasswordScreen() {
   const medirContrasenaCorta = useCallback(() => {
     if (cortaMedida.current || !avisoContrasenaCorta(pass)) return;
     cortaMedida.current = true;
-    void trackEvent("contrasena_corta", "Contraseña: más corta del mínimo", { metadata: { motivo: "recuperar" } });
+    void medirEvento("contrasena_corta", "Contraseña: más corta del mínimo", { metadata: { motivo: "recuperar" } });
   }, [pass]);
 
   const submit = useCallback(async () => {
@@ -298,7 +298,7 @@ export default function ResetPasswordScreen() {
         return;
       }
 
-      void trackEvent("contrasena_cambiada", "Contraseña: cambiada");
+      void medirEvento("contrasena_cambiada", "Contraseña: cambiada");
       setPhase("done");
     } catch (error: any) {
       setMsg(mensajeAuthEnEspanol(error, "No se ha podido guardar la contraseña nueva. Inténtalo de nuevo."));
@@ -317,13 +317,13 @@ export default function ResetPasswordScreen() {
     const r = await pedirEnlaceContrasena(e);
     setPidiendo(false);
     if (r.ok) {
-      void trackEvent("contrasena_enlace_pedido", "Contraseña: enlace pedido", { metadata: { desde: "enlace" } });
+      void medirEvento("contrasena_enlace_pedido", "Contraseña: enlace pedido", { metadata: { desde: "enlace" } });
       setPedido({
         ok: true,
         texto: "Si ese email tiene una cuenta, te hemos enviado un enlace nuevo. Ábrelo desde este mismo móvil u ordenador (mira también en Spam).",
       });
     } else {
-      void trackEvent("contrasena_enlace_error", "Contraseña: no se pudo pedir el enlace", { metadata: { desde: "enlace", motivo: r.motivo } });
+      void medirEvento("contrasena_enlace_error", "Contraseña: no se pudo pedir el enlace", { metadata: { desde: "enlace", motivo: r.motivo } });
       setPedido({ ok: false, texto: r.mensaje });
     }
   }, [correo]);

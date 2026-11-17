@@ -38,7 +38,7 @@ import { Pressable, ScrollView, StatusBar, Text, useWindowDimensions, View } fro
 import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import CabeceraMarca from "../components/CabeceraMarca";
-import { trackEvent } from "../lib/analiticaPropia";
+import { medirEvento } from "../lib/analiticaPropia";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -244,7 +244,7 @@ export default function QuienesSomosScreen() {
 
   // Analítica propia (Administración → Analítica): cuántas sesiones ven la página (y, aparte, desde dónde llegan).
   useEffect(() => {
-    void trackEvent("quienes_somos_visto", "Quiénes somos: vista", { path: "/quienes-somos" });
+    void medirEvento("quienes_somos_visto", "Quiénes somos: vista", { path: "/quienes-somos" });
   }, []);
 
   return (

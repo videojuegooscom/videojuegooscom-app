@@ -105,7 +105,7 @@ import ImagenInteligente from "./ImagenInteligente";
 import { useRecarga } from "./TirarParaActualizar";
 import { cargarIndiceBusqueda, palabrasBusqueda, portadasDeProductos, type ProductoIndice } from "./BarraBusqueda";
 import { supabase } from "../lib/supabase";
-import { trackEvent } from "../lib/analiticaPropia";
+import { medirEvento } from "../lib/analiticaPropia";
 import { colorTextoAzul, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 
 const COLORS = {
@@ -884,7 +884,7 @@ export function ProductosParecidos({
       if (!vivo) return;
       setLista(conFoto);
       if (conFoto.length) {
-        void trackEvent("parecidos_mostrado", "Ficha: productos parecidos", {
+        void medirEvento("parecidos_mostrado", "Ficha: productos parecidos", {
           path: `/producto/${id}`,
           metadata: { productId: id, ids: conFoto.map((p) => p.id), n: conFoto.length },
         });
@@ -897,7 +897,7 @@ export function ProductosParecidos({
 
   const tocar = useCallback(
     (destino: string, posicion: number) => {
-      void trackEvent("parecido_tocado", "Ficha: producto parecido tocado", { path: `/producto/${id}`, metadata: { productId: id, id: destino, posicion } });
+      void medirEvento("parecido_tocado", "Ficha: producto parecido tocado", { path: `/producto/${id}`, metadata: { productId: id, id: destino, posicion } });
     },
     [id]
   );
@@ -961,7 +961,7 @@ export function CompletaTuCompra({
       const firma = `${clave}|${conFoto.map((p) => p.id).join(",")}`;
       if (conFoto.length && !medidos.current.has(firma)) {
         medidos.current.add(firma);
-        void trackEvent("complemento_mostrado", origen === "ficha" ? "Ficha: completa tu compra" : "Cesta: completa tu compra", {
+        void medirEvento("complemento_mostrado", origen === "ficha" ? "Ficha: completa tu compra" : "Cesta: completa tu compra", {
           metadata: { origen, bases: ids, ids: conFoto.map((p) => p.id), n: conFoto.length },
         });
       }
@@ -989,7 +989,7 @@ export function CompletaTuCompra({
         >
           <Pressable
             onPress={() => {
-              void trackEvent("complemento_tocado", "Completa tu compra: producto tocado", { metadata: { origen, id: p.id, posicion: i + 1 } });
+              void medirEvento("complemento_tocado", "Completa tu compra: producto tocado", { metadata: { origen, id: p.id, posicion: i + 1 } });
               router.push(`/producto/${p.id}` as Href);
             }}
             accessibilityRole="link"
@@ -1018,7 +1018,7 @@ export function CompletaTuCompra({
                 setAnadiendo(p.id);
                 try {
                   const ok = await onAnadir(p.id);
-                  if (ok) void trackEvent("complemento_anadido", "Cesta: complemento añadido", { metadata: { origen, id: p.id, precio: p.priceEUR } });
+                  if (ok) void medirEvento("complemento_anadido", "Cesta: complemento añadido", { metadata: { origen, id: p.id, precio: p.priceEUR } });
                 } finally {
                   setAnadiendo(null);
                 }
@@ -1154,7 +1154,7 @@ export async function alternarComparar(p: ProductoComparar, origen: OrigenCompar
   avisoComparar(null);
   const nueva = [...comparador.lista, p];
   guardarComparados(nueva);
-  void trackEvent("comparar_anadido", "Comparar: producto añadido", { metadata: { id: p.id, origen, n: nueva.length } });
+  void medirEvento("comparar_anadido", "Comparar: producto añadido", { metadata: { id: p.id, origen, n: nueva.length } });
   return "anadido";
 }
 
@@ -1163,7 +1163,7 @@ export function quitarDeComparar(id: string, origen: OrigenComparar) {
   if (nueva.length === comparador.lista.length) return;
   avisoComparar(null);
   guardarComparados(nueva);
-  void trackEvent("comparar_quitado", "Comparar: producto quitado", { metadata: { id, origen, n: nueva.length } });
+  void medirEvento("comparar_quitado", "Comparar: producto quitado", { metadata: { id, origen, n: nueva.length } });
 }
 
 export function vaciarComparar(origen: OrigenComparar) {
@@ -1171,7 +1171,7 @@ export function vaciarComparar(origen: OrigenComparar) {
   if (!quitados) return;
   avisoComparar(null);
   guardarComparados([]);
-  void trackEvent("comparar_quitado", "Comparar: comparación vaciada", { metadata: { origen, vaciada: true, quitados, n: 0 } });
+  void medirEvento("comparar_quitado", "Comparar: comparación vaciada", { metadata: { origen, vaciada: true, quitados, n: 0 } });
 }
 
 /** /comparar abierto con un enlace (compartido o no): lo que se compara en este dispositivo pasa a ser eso. */
@@ -1532,14 +1532,14 @@ export function quitarVisto(id: string) {
   const nueva = vistos.lista.filter((v) => v.id !== id);
   if (nueva.length === vistos.lista.length) return;
   cambiarVistos(nueva, true);
-  void trackEvent("visto_quitado", "Inicio: visto recientemente quitado", { path: "/", metadata: { id, n: nueva.length } });
+  void medirEvento("visto_quitado", "Inicio: visto recientemente quitado", { path: "/", metadata: { id, n: nueva.length } });
 }
 
 export function borrarVistos() {
   const n = vistos.lista.length;
   if (!n) return;
   cambiarVistos([], true);
-  void trackEvent("vistos_borrados", "Inicio: historial de vistos borrado", { path: "/", metadata: { n } });
+  void medirEvento("vistos_borrados", "Inicio: historial de vistos borrado", { path: "/", metadata: { n } });
 }
 
 /** El historial del dispositivo (se repinta con cada cambio, también al volver de una ficha). */
@@ -1618,12 +1618,12 @@ export function VistosRecientemente({ pie }: { pie?: React.ReactNode }) {
   useEffect(() => {
     if (n >= VISTOS_MIN && !medido.current) {
       medido.current = true;
-      void trackEvent("vistos_mostrado", "Inicio: vistos recientemente", { path: "/", metadata: { n } });
+      void medirEvento("vistos_mostrado", "Inicio: vistos recientemente", { path: "/", metadata: { n } });
     }
   }, [n]);
 
   const tocar = useCallback((id: string, posicion: number) => {
-    void trackEvent("visto_tocado", "Inicio: visto recientemente tocado", { path: "/", metadata: { id, posicion } });
+    void medirEvento("visto_tocado", "Inicio: visto recientemente tocado", { path: "/", metadata: { id, posicion } });
   }, []);
 
   if (!productos || productos.length < VISTOS_MIN) return null;

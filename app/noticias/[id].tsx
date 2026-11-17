@@ -42,7 +42,7 @@ import { Linking, Platform, Pressable, ScrollView, StatusBar, Text, View, useWin
 import { Link, router, useLocalSearchParams, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
-import { medirNoticiaDesdeBuscador, trackEvent } from "../../lib/analiticaPropia";
+import { medirNoticiaDesdeBuscador, medirEvento } from "../../lib/analiticaPropia";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
@@ -306,7 +306,7 @@ export default function NoticiaScreen() {
       const fila = await leerNoticia(id);
       setN(fila);
       if (fila && !silencioso) {
-        trackEvent("noticia_pagina", `Noticias: página vista · ${fila.categoria}`, { path: `/noticias/${fila.id}`, metadata: { categoria: fila.categoria } });
+        medirEvento("noticia_pagina", `Noticias: página vista · ${fila.categoria}`, { path: `/noticias/${fila.id}`, metadata: { categoria: fila.categoria } });
         medirNoticiaDesdeBuscador(`/noticias/${fila.id}`);
       }
     } catch (e) {
@@ -333,7 +333,7 @@ export default function NoticiaScreen() {
 
   function comentar() {
     if (!n) return;
-    trackEvent("noticia_comentar", "Noticias: comentar en el Foro", { path: `/noticias/${n.id}` });
+    medirEvento("noticia_comentar", "Noticias: comentar en el Foro", { path: `/noticias/${n.id}` });
     router.push(`/chat-global?tab=news&noticia=${encodeURIComponent(n.id)}` as Href);
   }
 

@@ -82,7 +82,7 @@ export function precioPorPeso(tramos: TramoEnvio[], pesoKg: number | null | unde
 }
 
 /** «6,5 kg», «0,2 kg», «12 kg». */
-export function fmtKg(kg: number): string {
+export function formatearKg(kg: number): string {
   return `${(Math.round(kg * 100) / 100).toLocaleString("es-ES", { maximumFractionDigits: 2 })} kg`;
 }
 

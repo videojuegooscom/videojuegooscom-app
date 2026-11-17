@@ -70,10 +70,10 @@ const SESSION_STAMP_KEY = "videojuegoos.analytics.session_last_seen";
 const CONSENT_KEY = "videojuegoos.analytics.consent"; // "accepted" | "declined"
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutos sin actividad = nueva sesión
 
-export type AnalyticsConsent = "accepted" | "declined" | null;
+export type ConsentimientoAnalitica = "accepted" | "declined" | null;
 
 let sessionIdCache: string | null = null;
-let consentCache: AnalyticsConsent | undefined; // undefined = aún no leído de storage
+let consentCache: ConsentimientoAnalitica | undefined; // undefined = aún no leído de storage
 
 type QueuedEvent = {
   eventName: string;
@@ -132,7 +132,7 @@ async function getOrCreateSessionId(): Promise<string> {
 }
 
 /** Lee el consentimiento guardado: "accepted" | "declined" | null (aún no contestó). */
-export async function getAnalyticsConsent(): Promise<AnalyticsConsent> {
+export async function leerConsentimientoAnalitica(): Promise<ConsentimientoAnalitica> {
   if (consentCache !== undefined) return consentCache;
 
   try {
@@ -146,8 +146,8 @@ export async function getAnalyticsConsent(): Promise<AnalyticsConsent> {
 }
 
 /** true solo si el visitante ha aceptado expresamente la analítica. */
-export async function hasAnalyticsConsent(): Promise<boolean> {
-  return (await getAnalyticsConsent()) === "accepted";
+export async function hayConsentimientoAnalitica(): Promise<boolean> {
+  return (await leerConsentimientoAnalitica()) === "accepted";
 }
 
 /**
@@ -155,7 +155,7 @@ export async function hasAnalyticsConsent(): Promise<boolean> {
  * memoria. Si acepta, envía los eventos de esta visita que estaban en cola;
  * si rechaza, los descarta sin enviar nada.
  */
-export async function setAnalyticsConsent(value: "accepted" | "declined"): Promise<void> {
+export async function guardarConsentimientoAnalitica(value: "accepted" | "declined"): Promise<void> {
   consentCache = value;
 
   const queued = pendingEvents.splice(0, pendingEvents.length);
@@ -206,13 +206,13 @@ async function isAdminUser(userId: string): Promise<boolean> {
  * las estadísticas reflejan solo a los clientes reales, nunca sus propias
  * pruebas o revisiones del catálogo.
  */
-export async function trackEvent(
+export async function medirEvento(
   eventName: string,
   stepLabel: string,
   opts?: { path?: string; metadata?: Record<string, unknown> }
 ): Promise<void> {
   try {
-    const consent = await getAnalyticsConsent();
+    const consent = await leerConsentimientoAnalitica();
     if (consent === "declined") return; // el visitante rechazó el seguimiento
 
     if (consent !== "accepted") {
@@ -314,7 +314,7 @@ export function medirLlegadaDesdeRedes(): void {
   const origen = detectarRedOrigen(window.location.href, document.referrer ?? "", navigator.userAgent ?? "");
   if (!origen) return;
   redOrigen = origen.red;
-  trackEvent("llegada_redes", `Redes: llegada desde ${NOMBRE_RED[origen.red]}`, {
+  medirEvento("llegada_redes", `Redes: llegada desde ${NOMBRE_RED[origen.red]}`, {
     path: window.location.pathname,
     metadata: { red: origen.red, via: origen.via },
   });
@@ -330,12 +330,12 @@ export function marcarOrigenRegistro(origen: string): void {
 
 /** Al crear una cuenta (app/(tabs)/perfil.tsx): se cuenta y, si la visita llegó de una red, también de cuál. */
 export function medirCuentaCreada(): void {
-  trackEvent("registro", "Registro: cuenta creada", { metadata: { red: redOrigen ?? "otra" } });
+  medirEvento("registro", "Registro: cuenta creada", { metadata: { red: redOrigen ?? "otra" } });
   if (redOrigen) {
-    trackEvent("registro_redes", `Redes: registro desde ${NOMBRE_RED[redOrigen]}`, { metadata: { red: redOrigen } });
+    medirEvento("registro_redes", `Redes: registro desde ${NOMBRE_RED[redOrigen]}`, { metadata: { red: redOrigen } });
   }
   if (origenRegistro && Date.now() < origenRegistro.hasta && origenRegistro.origen === "blue_avisos") {
-    trackEvent("registro_blue_avisos", "Blue: cuenta creada tras «Crear cuenta gratis» (avisos)", { metadata: { desde: "panel de Blue" } });
+    medirEvento("registro_blue_avisos", "Blue: cuenta creada tras «Crear cuenta gratis» (avisos)", { metadata: { desde: "panel de Blue" } });
   }
   origenRegistro = null;
 }
@@ -371,7 +371,7 @@ export function medirNoticiaDesdeBuscador(path: string): void {
   if (!/^\/noticias(\/|$)/.test(paginaDeEntrada)) return;
   const buscador = detectarBuscadorOrigen(document.referrer ?? "");
   if (!buscador) return;
-  trackEvent("noticia_buscador", `Noticias: llegada desde buscador · ${buscador}`, { path, metadata: { buscador } });
+  medirEvento("noticia_buscador", `Noticias: llegada desde buscador · ${buscador}`, { path, metadata: { buscador } });
 }
 
 // Carga rápida (dueño, 2026-11-14, mejora 7). trasPrimeraPintura: lo que no hace falta para ver la pantalla (Blue y sus
@@ -426,7 +426,7 @@ export function medirCargaPantalla(pantalla: PantallaCarga): void {
       const conexion = (navigator as Navigator & { connection?: { effectiveType?: unknown } }).connection?.effectiveType;
       const metadata: Record<string, unknown> = { ms, pantalla, ancho: tramoAncho(window.innerWidth) };
       if (typeof conexion === "string" && /^(slow-2g|2g|3g|4g)$/.test(conexion)) metadata.conexion = conexion;
-      void trackEvent("rendimiento_carga", `Rendimiento: ${NOMBRE_PANTALLA_CARGA[pantalla]} lista`, { path: window.location.pathname, metadata });
+      void medirEvento("rendimiento_carga", `Rendimiento: ${NOMBRE_PANTALLA_CARGA[pantalla]} lista`, { path: window.location.pathname, metadata });
     }, 0)
   );
 }
@@ -439,7 +439,7 @@ const lastTrackedAt = new Map<string, number>();
  * menos de minIntervalMs (4s por defecto), esta llamada no hace nada. Así
  * evitamos mandar un evento por cada pixel desplazado.
  */
-export function trackEventThrottled(
+export function medirEventoEspaciado(
   key: string,
   eventName: string,
   stepLabel: string,
@@ -451,5 +451,5 @@ export function trackEventThrottled(
   if (now - last < minInterval) return;
 
   lastTrackedAt.set(key, now);
-  trackEvent(eventName, stepLabel, opts);
+  medirEvento(eventName, stepLabel, opts);
 }

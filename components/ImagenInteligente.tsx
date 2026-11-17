@@ -66,7 +66,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Image, type ImageContentFit, type ImageProps, type ImageStyle } from "expo-image";
 import { Platform, View, type StyleProp, type ViewStyle } from "react-native";
-import { markEnd, markStart } from "../lib/estadoCarga";
+import { marcarFinCarga, marcarInicioCarga } from "../lib/estadoCarga";
 
 type ImagePriority = NonNullable<ImageProps["priority"]>;
 
@@ -249,13 +249,13 @@ export default function ImagenInteligente({
     }
     if (loadingRef.current) {
       loadingRef.current = false;
-      markEnd();
+      marcarFinCarga();
     }
   }
 
   function handleLoadStart() {
     loadingRef.current = true;
-    markStart();
+    marcarInicioCarga();
     safetyTimerRef.current = setTimeout(endTrackedLoad, LOAD_SAFETY_TIMEOUT_MS);
   }
 

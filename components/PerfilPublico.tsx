@@ -83,8 +83,8 @@ import {
   sesionActual,
   supabase,
 } from "../lib/supabase";
-import { trackEvent } from "../lib/analiticaPropia";
-import { pickMediaFilesWeb, reducirImagenWeb } from "../lib/admin/productos.utilidades";
+import { medirEvento } from "../lib/analiticaPropia";
+import { elegirFotosVideoWeb, reducirImagenWeb } from "../lib/admin/productos.utilidades";
 import CargaMarca from "./marca/CargaMarca";
 import ImagenInteligente from "./ImagenInteligente";
 import { CAMPO, TACTIL, colorTextoAzul } from "../constants/temaTienda";
@@ -731,7 +731,7 @@ export default function PerfilPublico({
         if (silenciosa && estadoRef.current === "listo") return;
         setEstado("error");
         // Analítica propia (Administración → Usuarios): a cuántos les pasa, sin ningún dato del perfil.
-        trackEvent("perfil_carga_fallida", "Perfil: no se pudieron cargar los datos", {
+        medirEvento("perfil_carga_fallida", "Perfil: no se pudieron cargar los datos", {
           metadata: { motivo: esErrorDeSesion(e) ? "sesion" : "red", modo: obligatorio ? "obligatorio" : "tarjeta" },
         });
       } finally {
@@ -894,9 +894,9 @@ export default function PerfilPublico({
   const elegirFoto = async () => {
     if (subiendoFoto || guardando) return;
     setAviso(null);
-    let elegidas: Awaited<ReturnType<typeof pickMediaFilesWeb>>;
+    let elegidas: Awaited<ReturnType<typeof elegirFotosVideoWeb>>;
     try {
-      elegidas = await pickMediaFilesWeb({ soloImagenes: true });
+      elegidas = await elegirFotosVideoWeb({ soloImagenes: true });
     } catch (e: unknown) {
       setAviso({ tipo: "error", texto: e instanceof Error ? e.message : "No se ha podido abrir el selector de fotos." });
       return;
@@ -1070,22 +1070,22 @@ export default function PerfilPublico({
           ? "Perfil guardado (el teléfono todavía no se puede guardar)."
           : "Perfil guardado.",
       });
-      trackEvent("perfil_guardado", "Perfil: guardado");
+      medirEvento("perfil_guardado", "Perfil: guardado");
       // Analítica propia: quién añade o cambia su teléfono (nunca el número).
       if (limpio.telefono && limpio.telefono !== telefonoAntes) {
-        trackEvent("perfil_telefono_guardado", "Perfil: teléfono guardado", { metadata: { nuevo: !telefonoAntes, desde: "perfil" } });
+        medirEvento("perfil_telefono_guardado", "Perfil: teléfono guardado", { metadata: { nuevo: !telefonoAntes, desde: "perfil" } });
       }
       // Analítica propia (Administración → Usuarios): quién añade o cambia su dirección de envío (nunca la dirección).
       // Con varias direcciones, cuántas hay y con qué etiquetas (nunca la dirección).
       const direccionAhora = direccionEnUnaLinea(limpio);
       if (final) {
         if (final.length && huellaLista(final) !== huellaLista(direccionesGuardadas)) {
-          trackEvent("perfil_direccion_guardada", "Perfil: dirección guardada", {
+          medirEvento("perfil_direccion_guardada", "Perfil: dirección guardada", {
             metadata: { nueva: final.length > direccionesGuardadas.length, direcciones: final.length, etiquetas: final.map((d) => d.etiqueta) },
           });
         }
       } else if (direccionAhora && direccionAhora !== direccionAntes) {
-        trackEvent("perfil_direccion_guardada", "Perfil: dirección guardada", { metadata: { nueva: !direccionAntes } });
+        medirEvento("perfil_direccion_guardada", "Perfil: dirección guardada", { metadata: { nueva: !direccionAntes } });
       }
       avisarPerfilGuardado();
       if (perfilCompleto(limpio)) {
@@ -1131,7 +1131,7 @@ export default function PerfilPublico({
           <Pressable
             nativeID="perfil-reintentar"
             onPress={() => {
-              trackEvent("perfil_carga_reintentada", "Perfil: reintentar la carga");
+              medirEvento("perfil_carga_reintentada", "Perfil: reintentar la carga");
               void cargar(false);
             }}
             accessibilityRole="button"
@@ -1597,12 +1597,12 @@ export default function PerfilPublico({
         revocar(recorte);
         setRecorte(null);
         // Analítica propia (Administración → Usuarios): cuántos encuadran su foto y cuántos lo dejan.
-        trackEvent("perfil_foto_cancelada", "Perfil: recorte de foto cancelado");
+        medirEvento("perfil_foto_cancelada", "Perfil: recorte de foto cancelado");
       }}
       onListo={(archivo) => {
         revocar(recorte);
         setRecorte(null);
-        trackEvent("perfil_foto_encuadrada", "Perfil: foto encuadrada");
+        medirEvento("perfil_foto_encuadrada", "Perfil: foto encuadrada");
         void subirFoto(archivo);
       }}
     />
@@ -1803,7 +1803,7 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
           } catch {
             // el correo ya está cambiado en el servidor aunque esta sesión no se renueve
           }
-          trackEvent("perfil_correo_cambiado", "Perfil: correo cambiado");
+          medirEvento("perfil_correo_cambiado", "Perfil: correo cambiado");
         }
       }
       try {
@@ -1840,7 +1840,7 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
     }
     setEnviando(false);
     if (error) {
-      void trackEvent("perfil_correo_cambio_error", "Perfil: no se pudo pedir el cambio de correo", { metadata: { motivo: motivoErrorAuth(error) } });
+      void medirEvento("perfil_correo_cambio_error", "Perfil: no se pudo pedir el cambio de correo", { metadata: { motivo: motivoErrorAuth(error) } });
       const codigo = String((error as { code?: unknown }).code ?? "");
       setAviso({
         tipo: "error",
@@ -1851,7 +1851,7 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
       });
       return;
     }
-    void trackEvent("perfil_correo_cambio_pedido", "Perfil: cambio de correo pedido");
+    void medirEvento("perfil_correo_cambio_pedido", "Perfil: cambio de correo pedido");
     setPendiente(e);
     setNuevoCorreo("");
     setAbierta(null);
@@ -1867,7 +1867,7 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
       // Se cuenta una vez por visita (Administración → Usuarios), nunca la contraseña.
       if (!cortaMedida.current) {
         cortaMedida.current = true;
-        void trackEvent("contrasena_corta", "Contraseña: más corta del mínimo", { metadata: { motivo: "perfil" } });
+        void medirEvento("contrasena_corta", "Contraseña: más corta del mínimo", { metadata: { motivo: "perfil" } });
       }
       return setAviso({ tipo: "error", texto: `La contraseña nueva debe tener al menos ${CONTRASENA_MINIMA} caracteres.` });
     }
@@ -1880,17 +1880,17 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
       const { error: e1 } = await supabase.auth.signInWithPassword({ email: correo.trim().toLowerCase(), password: a });
       if (e1) {
         const mala = String((e1 as { code?: unknown }).code ?? "") === "invalid_credentials" || /invalid login credentials/i.test(e1.message);
-        void trackEvent("perfil_contrasena_error", "Perfil: no se pudo cambiar la contraseña", { metadata: { motivo: mala ? "actual" : motivoErrorAuth(e1) } });
+        void medirEvento("perfil_contrasena_error", "Perfil: no se pudo cambiar la contraseña", { metadata: { motivo: mala ? "actual" : motivoErrorAuth(e1) } });
         setAviso({ tipo: "error", texto: mala ? "La contraseña actual no es correcta." : mensajeAuthEnEspanol(e1, "No se ha podido cambiar la contraseña. Inténtalo de nuevo.") });
         return;
       }
       const { error: e2 } = await supabase.auth.updateUser({ password: n });
       if (e2) {
-        void trackEvent("perfil_contrasena_error", "Perfil: no se pudo cambiar la contraseña", { metadata: { motivo: motivoErrorAuth(e2) } });
+        void medirEvento("perfil_contrasena_error", "Perfil: no se pudo cambiar la contraseña", { metadata: { motivo: motivoErrorAuth(e2) } });
         setAviso({ tipo: "error", texto: mensajeAuthEnEspanol(e2, "No se ha podido cambiar la contraseña. Inténtalo de nuevo.") });
         return;
       }
-      void trackEvent("perfil_contrasena_cambiada", "Perfil: contraseña cambiada");
+      void medirEvento("perfil_contrasena_cambiada", "Perfil: contraseña cambiada");
       setActual("");
       setNueva("");
       setRepite("");
@@ -1910,10 +1910,10 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
     const r = await pedirEnlaceContrasena(correo.trim().toLowerCase());
     setEnviando(false);
     if (r.ok) {
-      void trackEvent("contrasena_enlace_pedido", "Contraseña: enlace pedido", { metadata: { desde: "seguridad" } });
+      void medirEvento("contrasena_enlace_pedido", "Contraseña: enlace pedido", { metadata: { desde: "seguridad" } });
       setAviso({ tipo: "ok", texto: `Te hemos enviado un enlace a ${correo} para crear una contraseña nueva (mira también en Spam).` });
     } else {
-      void trackEvent("contrasena_enlace_error", "Contraseña: no se pudo pedir el enlace", { metadata: { desde: "seguridad", motivo: r.motivo } });
+      void medirEvento("contrasena_enlace_error", "Contraseña: no se pudo pedir el enlace", { metadata: { desde: "seguridad", motivo: r.motivo } });
       setAviso({ tipo: "error", texto: r.mensaje });
     }
   };
@@ -2408,7 +2408,7 @@ export function PerfilObligatorio() {
   const visible = !!uid && incompleto && !SIN_OBLIGACION.test(pathname);
   useEffect(() => {
     fijarObligatorioVisible(visible);
-    if (visible) trackEvent("perfil_obligatorio_visto", "Perfil: completar (obligatorio)");
+    if (visible) medirEvento("perfil_obligatorio_visto", "Perfil: completar (obligatorio)");
   }, [visible]);
   useEffect(() => () => fijarObligatorioVisible(false), []);
 
@@ -2439,7 +2439,7 @@ export function PerfilObligatorio() {
           </Pressable>
           <Pressable
             onPress={() => {
-              trackEvent("perfil_obligatorio_salir", "Perfil: cerrar sesión desde completar");
+              medirEvento("perfil_obligatorio_salir", "Perfil: cerrar sesión desde completar");
               supabase.auth.signOut().catch(() => {});
             }}
             accessibilityRole="button"

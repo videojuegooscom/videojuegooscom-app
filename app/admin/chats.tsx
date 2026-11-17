@@ -105,7 +105,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { openExternalLink } from "../../lib/abrirEnlaceExterno";
+import { abrirEnlaceExterno } from "../../lib/abrirEnlaceExterno";
 import { supabase } from "../../lib/supabase";
 import ConversacionProducto, { cargarArticulosChat, TarjetaArticuloChat, TITULO_ATENCION_CLIENTE, type ArticuloChat } from "../../components/ConversacionProducto";
 import CargaMarca from "../../components/marca/CargaMarca";
@@ -488,7 +488,7 @@ function InvitarRegistro() {
           icono="logo-whatsapp"
           texto="Por WhatsApp"
           etiqueta="Enviar la invitación por WhatsApp"
-          onPress={() => openExternalLink(`https://wa.me/?text=${encodeURIComponent(INVITACION_REGISTRO)}`)}
+          onPress={() => abrirEnlaceExterno(`https://wa.me/?text=${encodeURIComponent(INVITACION_REGISTRO)}`)}
         />
       </View>
     </View>

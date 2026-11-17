@@ -67,7 +67,7 @@ function isHttpUrl(url: string): boolean {
   return /^https?:\/\//i.test(url);
 }
 
-export function openExternalLink(url: string): void {
+export function abrirEnlaceExterno(url: string): void {
   if (Platform.OS !== "web" || typeof window === "undefined" || typeof navigator === "undefined") {
     Linking.openURL(url);
     return;

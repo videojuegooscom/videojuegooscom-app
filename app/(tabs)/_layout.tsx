@@ -68,11 +68,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { CommonActions, type ParamListBase, type TabNavigationState } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import {
-  TAB_BAR_BASE_HEIGHT,
-  TAB_BAR_BASE_PADDING_BOTTOM,
-  useTabBarBottomInset,
+  ALTO_BASE_BARRA_PESTANAS,
+  MARGEN_INFERIOR_BARRA_PESTANAS,
+  useMargenInferiorBarraPestanas,
 } from "../../lib/barraPestanas";
-import { pulseLoading, useCargando } from "../../lib/estadoCarga";
+import { pulsoCarga, useCargando } from "../../lib/estadoCarga";
 import { BrilloIconoSeccion } from "../../components/EfectoPensando";
 import { colorTextoAzul, COLORES_TEXTO, TAMANOS } from "../../constants/temaTienda";
 
@@ -123,7 +123,7 @@ function recargarPagina() {
  */
 function recargarPestana(navigation: BottomTabNavigationProp<ParamListBase>, clave: string, ruta: string) {
   avisarRecarga(ruta);
-  pulseLoading(RECARGA_PULSO_MS, true);
+  pulsoCarga(RECARGA_PULSO_MS, true);
   try {
     const estado = navigation.getState();
     const nuevaClave = `${ruta}-recarga-${Date.now().toString(36)}`;
@@ -221,7 +221,7 @@ const COLORS = {
 export default function TabsLayout() {
   // Zona segura inferior del iPhone en la web (ver lib/barraPestanas.ts): se suma a la altura y al
   // margen inferior para que los nombres de las secciones no queden cortados por abajo.
-  const bottomInset = useTabBarBottomInset();
+  const bottomInset = useMargenInferiorBarraPestanas();
 
   return (
     <Tabs
@@ -246,9 +246,9 @@ export default function TabsLayout() {
           backgroundColor: COLORS.card,
           borderTopColor: COLORS.border,
           borderTopWidth: 1,
-          height: TAB_BAR_BASE_HEIGHT + bottomInset,
+          height: ALTO_BASE_BARRA_PESTANAS + bottomInset,
           paddingTop: 4,
-          paddingBottom: TAB_BAR_BASE_PADDING_BOTTOM + bottomInset,
+          paddingBottom: MARGEN_INFERIOR_BARRA_PESTANAS + bottomInset,
           ...Platform.select({
             web: { boxShadow: "0 -6px 20px rgba(11,33,56,0.06)" },
             default: {},

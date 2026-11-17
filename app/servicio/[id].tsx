@@ -70,8 +70,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { TAMANOS } from "../../constants/temaTienda";
-import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, LIKED_SERVICES_KEY, meGustaLocales } from "../../lib/interaccion";
-import { trackEvent } from "../../lib/analiticaPropia";
+import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, CLAVE_ME_GUSTA_SERVICIOS, meGustaLocales } from "../../lib/interaccion";
+import { medirEvento } from "../../lib/analiticaPropia";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
 import { SelectorIOS } from "../../lib/admin/productos.componentes";
 import VisorFotos, { type FotoVisor } from "../../components/VisorFotos";
@@ -264,7 +264,7 @@ export default function ServicioScreen() {
       const cover = row.media.find((m) => m.isCover) ?? row.media[0] ?? null;
       setSelectedImageUrl(fotoDeOpcion(row, elegida) ?? cover?.publicUrl ?? null);
       setLikeCount(row.likeCount);
-      meGustaLocales(LIKED_SERVICES_KEY).then((ids) => setLiked(ids.includes(row.id)));
+      meGustaLocales(CLAVE_ME_GUSTA_SERVICIOS).then((ids) => setLiked(ids.includes(row.id)));
       fetchResenas(row.id).then(setResenas);
 
       if (!silencioso) {
@@ -302,7 +302,7 @@ export default function ServicioScreen() {
     const foto = s ? fotoDeOpcion(s, s.modalidades.find((m) => m.nombre === nombre) ?? null) : null;
     if (foto) setSelectedImageUrl(foto);
     // Administración → Analítica (#analitica-contratar-servicio): qué opción se mira más.
-    trackEvent("servicio_opcion", `Servicio: opción elegida · ${nombre}`, { path: `/servicio/${s?.id ?? ""}` });
+    medirEvento("servicio_opcion", `Servicio: opción elegida · ${nombre}`, { path: `/servicio/${s?.id ?? ""}` });
   }
 
   // La ficha con pestañas (la misma de producto): lo que ya contaba «Información del servicio».
@@ -331,7 +331,7 @@ export default function ServicioScreen() {
     setLightboxIndex(idx >= 0 ? idx : 0);
     setLightboxOpen(true);
     // Administración → Analítica (#analitica-ficha-servicio). El zoom lo cuenta el propio visor.
-    trackEvent("foto_ampliada", "Servicio: foto ampliada", { path: `/servicio/${s?.id ?? ""}`, metadata: { fotos: lightboxImages.length } });
+    medirEvento("foto_ampliada", "Servicio: foto ampliada", { path: `/servicio/${s?.id ?? ""}`, metadata: { fotos: lightboxImages.length } });
   }
 
   // Desliza la foto principal como un carrusel (el zoom vive en ImageLightbox); da la vuelta al llegar al final.
@@ -394,8 +394,8 @@ export default function ServicioScreen() {
       const total = await fijarMeGustaServicio(s.id, siguiente);
       if (total === null) throw new Error("no se pudo actualizar el me gusta");
       setLikeCount(total);
-      await guardarMeGustaLocal(LIKED_SERVICES_KEY, s.id, siguiente);
-      trackEvent("servicio_me_gusta", siguiente ? "Servicio: me gusta" : "Servicio: quita el me gusta", { path: `/servicio/${s.id}` });
+      await guardarMeGustaLocal(CLAVE_ME_GUSTA_SERVICIOS, s.id, siguiente);
+      medirEvento("servicio_me_gusta", siguiente ? "Servicio: me gusta" : "Servicio: quita el me gusta", { path: `/servicio/${s.id}` });
     } catch (e) {
       console.error("Error actualizando el me gusta del servicio:", e);
       setLiked(!siguiente);
@@ -408,7 +408,7 @@ export default function ServicioScreen() {
   // «Contratar servicio ahora» abre su página (dueño, 2026-11-09), con la opción que tenga elegida.
   function contratar() {
     if (!s) return;
-    trackEvent("servicio_contratar", "Servicio: Contratar servicio ahora", { path: `/servicio/${s.id}` });
+    medirEvento("servicio_contratar", "Servicio: Contratar servicio ahora", { path: `/servicio/${s.id}` });
     router.push(`/contratar/${s.id}${modalidad ? `?opcion=${encodeURIComponent(modalidad)}` : ""}` as any);
   }
 
@@ -416,7 +416,7 @@ export default function ServicioScreen() {
   // chat de la tienda.
   function preguntar() {
     if (!s) return;
-    trackEvent("servicio_preguntar", "Servicio: Preguntar por este servicio", { path: `/servicio/${s.id}` });
+    medirEvento("servicio_preguntar", "Servicio: Preguntar por este servicio", { path: `/servicio/${s.id}` });
     router.push(`/blue-ia?servicio=${encodeURIComponent(s.id)}` as any);
   }
 

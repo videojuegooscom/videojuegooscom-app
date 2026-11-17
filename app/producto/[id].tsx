@@ -159,7 +159,7 @@ import { filaPerfilCliente, rolDeUsuario, supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/temaTienda";
 import { sinEmojis } from "../../lib/admin/productos.utilidades";
 import { contarVistaProducto, fijarAvisoPrecio, fijarMeGusta, misAvisosPrecio } from "../../lib/interaccion";
-import { marcarOrigenRegistro, medirCargaPantalla, trackEvent, trackEventThrottled } from "../../lib/analiticaPropia";
+import { marcarOrigenRegistro, medirCargaPantalla, medirEvento, medirEventoEspaciado } from "../../lib/analiticaPropia";
 import {
   EXPLICACION_ARRAS,
   eurosReserva,
@@ -818,7 +818,7 @@ export default function ProductoScreen() {
     if (entregasContadas.current.has(clave)) return;
     entregasContadas.current.add(clave);
     // Sin el código postal en los datos: solo el tipo y de dónde salió.
-    trackEvent("ficha_entrega_estimada", "Ficha: entrega estimada", {
+    medirEvento("ficha_entrega_estimada", "Ficha: entrega estimada", {
       path: `/producto/${productoCargadoId}`,
       metadata: { tipo: tipoEntrega, origen: origenCp, productId: productoCargadoId },
     });
@@ -929,7 +929,7 @@ export default function ProductoScreen() {
 
         // Analítica: igual que el contador de visitas, no se cuentan las
         // aperturas del propio admin revisando su catálogo.
-        trackEvent("page_view", `Producto ${mapped.title}`, {
+        medirEvento("page_view", `Producto ${mapped.title}`, {
           path: `/producto/${mapped.id}`,
           metadata: { productId: mapped.id, category: mapped.category?.name ?? null },
         });
@@ -1055,13 +1055,13 @@ export default function ProductoScreen() {
     setLightboxIndex(idx >= 0 ? idx : 0);
     setLightboxOpen(true);
     // Uso del visor (Administración → Analítica → Recorrido principal). El zoom lo cuenta el propio visor.
-    trackEvent("foto_ampliada", "Ficha: foto ampliada", { metadata: { fotos: lightboxImages.length } });
+    medirEvento("foto_ampliada", "Ficha: foto ampliada", { metadata: { fotos: lightboxImages.length } });
     // Ficha del producto (Analítica → «Ficha del producto (30 días)»): abrir, zoom y cerrar deslizando.
-    trackEvent("ficha_foto_zoom", "Ficha: visor de fotos", { path: `/producto/${p?.id ?? ""}`, metadata: { accion: "abrir", fotos: lightboxImages.length } });
+    medirEvento("ficha_foto_zoom", "Ficha: visor de fotos", { path: `/producto/${p?.id ?? ""}`, metadata: { accion: "abrir", fotos: lightboxImages.length } });
   }
 
   function eventoVisor(evento: EventoVisor, como?: string) {
-    trackEvent("ficha_foto_zoom", "Ficha: visor de fotos", {
+    medirEvento("ficha_foto_zoom", "Ficha: visor de fotos", {
       path: `/producto/${p?.id ?? ""}`,
       metadata: evento === "zoom" ? { accion: "zoom", como: como ?? null } : { accion: "cerrar_deslizando" },
     });
@@ -1184,7 +1184,7 @@ export default function ProductoScreen() {
       await saveCart(next);
 
       // Conversión: sin await, la analítica nunca retrasa la navegación.
-      trackEvent(
+      medirEvento(
         mode === "buyNow" ? "buy_now" : "add_to_cart",
         mode === "buyNow" ? "Comprar ya" : "Añadir a la cesta",
         {
@@ -1391,7 +1391,7 @@ export default function ProductoScreen() {
           }}
           onScroll={(e) => {
             if (e.nativeEvent.contentOffset.y > 40) {
-              trackEventThrottled("producto-scroll", "scroll", "Scroll", {
+              medirEventoEspaciado("producto-scroll", "scroll", "Scroll", {
                 path: `/producto/${productId ?? ""}`,
               });
             }
@@ -1936,7 +1936,7 @@ function PreguntarArticulo({ productId, abrirAlEntrar }: { productId: string; ab
       const r = await abrirChatProducto(productId);
       if (r === "login") {
         setInvitacion(true);
-        void trackEvent("chat_producto_invitacion", "Ficha: preguntar por el artículo sin cuenta", { path: `/producto/${productId}`, metadata: { productId } });
+        void medirEvento("chat_producto_invitacion", "Ficha: preguntar por el artículo sin cuenta", { path: `/producto/${productId}`, metadata: { productId } });
       }
     } catch {
       setError("No se ha podido abrir el chat. Inténtalo de nuevo.");
@@ -2075,7 +2075,7 @@ function ReservarConSenal({
       return;
     }
     setAbierto(true);
-    void trackEvent("reserva_abierta", "Ficha: reservar con señal", { path: `/producto/${producto.id}`, metadata: { productId: producto.id } });
+    void medirEvento("reserva_abierta", "Ficha: reservar con señal", { path: `/producto/${producto.id}`, metadata: { productId: producto.id } });
   }, [conSesion, producto.id]);
 
   const crearCuenta = useCallback(() => {
@@ -2088,7 +2088,7 @@ function ReservarConSenal({
     if (!acepta || enviando || !porcentaje) return;
     setEnviando(true);
     setError(null);
-    void trackEvent("reserva_pagar", "Ficha: pagar la señal", { path: `/producto/${producto.id}`, metadata: { dias, porcentaje } });
+    void medirEvento("reserva_pagar", "Ficha: pagar la señal", { path: `/producto/${producto.id}`, metadata: { dias, porcentaje } });
     try {
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
@@ -2359,7 +2359,7 @@ function AvisoPrecioFicha({ productId, precio }: { productId: string; precio: nu
     if (ocupado) return;
     if (estado === "sin_cuenta") {
       setInvitacion((v) => !v);
-      if (!invitacion) void trackEvent("aviso_precio_invitacion", "Ficha: aviso de precio sin cuenta", { metadata: { productId } });
+      if (!invitacion) void medirEvento("aviso_precio_invitacion", "Ficha: aviso de precio sin cuenta", { metadata: { productId } });
       return;
     }
     if (estado !== "listo") return;
@@ -2371,7 +2371,7 @@ function AvisoPrecioFicha({ productId, precio }: { productId: string; precio: nu
     setOcupado(false);
     if (r === "ok") {
       setMensaje(nuevo ? "Hecho: Blue te avisará si baja de precio." : "Aviso quitado.");
-      void trackEvent(nuevo ? "aviso_precio_activado" : "aviso_precio_desactivado", nuevo ? "Aviso de precio: activado" : "Aviso de precio: desactivado", {
+      void medirEvento(nuevo ? "aviso_precio_activado" : "aviso_precio_desactivado", nuevo ? "Aviso de precio: activado" : "Aviso de precio: desactivado", {
         path: `/producto/${productId}`,
         metadata: { productId },
       });
@@ -2382,7 +2382,7 @@ function AvisoPrecioFicha({ productId, precio }: { productId: string; precio: nu
   }, [ocupado, estado, activo, invitacion, productId]);
 
   const crearCuenta = useCallback(() => {
-    void trackEvent("aviso_precio_crear_cuenta", "Ficha: crear cuenta por el aviso de precio", { metadata: { productId } });
+    void medirEvento("aviso_precio_crear_cuenta", "Ficha: crear cuenta por el aviso de precio", { metadata: { productId } });
     marcarOrigenRegistro("aviso_precio");
     AsyncStorage.setItem(VOLVER_TRAS_ACCESO_FICHA_KEY, JSON.stringify({ ruta: `/producto/${productId}`, hasta: Date.now() + 30 * 60_000 })).catch(() => {});
     pushRoute("/perfil?acceso=registro" as Href);

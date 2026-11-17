@@ -33,7 +33,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Modal, PanResponder, Platform, Pressable, ScrollView, Text, View, type LayoutChangeEvent } from "react-native";
-import { trackEvent } from "../lib/analiticaPropia";
+import { medirEvento } from "../lib/analiticaPropia";
 import { COLORES_TEXTO, TACTIL } from "../constants/temaTienda";
 
 const COLORS = {
@@ -498,7 +498,7 @@ export default function FiltrosCatalogo({
         nativeID="catalogo-filtros"
         onPress={() => {
           setOpen(true);
-          trackEvent("catalogo_filtros", "Filtros: abiertos", { path: "/catalogo", metadata: { en_categoria: enCategoria } });
+          medirEvento("catalogo_filtros", "Filtros: abiertos", { path: "/catalogo", metadata: { en_categoria: enCategoria } });
         }}
         accessibilityRole="button"
         accessibilityLabel={activeCount > 0 ? `Filtros, ${activeCount} activos` : "Filtros"}
@@ -754,7 +754,7 @@ export default function FiltrosCatalogo({
                   setOpen(false);
                   // Analítica propia (Administración → Analítica): filtros aplicados, dentro de una categoría o no, y cuáles.
                   if (activeCount > 0 || sort !== "NEWEST") {
-                    trackEvent("catalogo_filtros", enCategoria ? "Filtros: aplicados en una categoría" : "Filtros: aplicados en el catálogo", {
+                    medirEvento("catalogo_filtros", enCategoria ? "Filtros: aplicados en una categoría" : "Filtros: aplicados en el catálogo", {
                       path: "/catalogo",
                       metadata: {
                         en_categoria: enCategoria,

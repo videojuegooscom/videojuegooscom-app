@@ -52,7 +52,7 @@ import { PanResponder, Platform, Pressable, Text, View, useWindowDimensions } fr
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ImagenInteligente from "./ImagenInteligente";
-import { trackEvent } from "../lib/analiticaPropia";
+import { medirEvento } from "../lib/analiticaPropia";
 
 export type FotoVisor = {
   id: string;
@@ -275,7 +275,7 @@ function Visor({
     function contarZoom(como: "pellizco" | "doble_toque" | "rueda") {
       if (zoomContado) return;
       zoomContado = true;
-      trackEvent("foto_zoom", "Ficha: zoom en la foto", { metadata: { como } });
+      medirEvento("foto_zoom", "Ficha: zoom en la foto", { metadata: { como } });
       datos.current.onEvento?.("zoom", como);
     }
     function pedirOriginal(s: number) {

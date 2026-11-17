@@ -46,7 +46,7 @@ import { portadasDeProductos } from "../components/BarraBusqueda";
 import { COMPARAR_MAX, fijarComparados, quitarDeComparar, useComparar, type ProductoComparar } from "../components/CarruselProductosCategoria";
 import { direccionesDeFila } from "../components/PerfilPublico";
 import { filaPerfilCliente, supabase } from "../lib/supabase";
-import { trackEvent } from "../lib/analiticaPropia";
+import { medirEvento } from "../lib/analiticaPropia";
 import { cargarTarifas, entregaEstimada, limpiarCodigoPostal, tipoEntregaPorCodigo, type ZonaEnvio } from "../lib/envio";
 import { COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../constants/temaTienda";
 
@@ -222,7 +222,7 @@ export default function CompararScreen() {
   useEffect(() => {
     if (medido.current || cargando || !columnas.length) return;
     medido.current = true;
-    void trackEvent("comparar_abierto", "Comparar: comparación abierta", {
+    void medirEvento("comparar_abierto", "Comparar: comparación abierta", {
       path: "/comparar",
       metadata: { n: columnas.length, ids: columnas.map((f) => f.id) },
     });
@@ -265,7 +265,7 @@ export default function CompararScreen() {
     router.setParams({ ids: (ids ?? []).filter((x) => x !== id).join(",") });
   };
   const anadirCesta = (id: string) => {
-    void trackEvent("comparar_anadir_cesta", "Comparar: añadido a la cesta", { path: "/comparar", metadata: { id } });
+    void medirEvento("comparar_anadir_cesta", "Comparar: añadido a la cesta", { path: "/comparar", metadata: { id } });
     router.push(`/cesta?add=${encodeURIComponent(id)}` as Href);
   };
   const compartir = async () => {

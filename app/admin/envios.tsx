@@ -77,7 +77,7 @@ import {
   calcularEnvio,
   fijarAjustesFranjas,
   FRANJAS_POR_DEFECTO,
-  fmtKg,
+  formatearKg,
   horaCorta,
   normalizarAjustesFranjas,
   opcionesFranja,
@@ -873,7 +873,7 @@ export default function AdminEnvios() {
                         ? "Escribe un código postal de 5 cifras."
                         : `${prueba.zona.nombre}: ${prueba.precio === 0 ? "gratis" : fmtEUR(prueba.precio)}${prueba.gratisPorImporte ? " (por el importe)" : ""}${
                             prueba.zona.tramos && !prueba.gratisPorImporte
-                              ? ` (con ${fmtKg(pruebaPeso && !Number.isNaN(pruebaPeso) ? pruebaPeso : PESO_SIN_DATO_KG)})`
+                              ? ` (con ${formatearKg(pruebaPeso && !Number.isNaN(pruebaPeso) ? pruebaPeso : PESO_SIN_DATO_KG)})`
                               : ""
                           }${prueba.disponible ? "" : " · no se envía desde la web"}`}
                   </Text>
@@ -895,7 +895,7 @@ export default function AdminEnvios() {
                         resumen ? `${fmtEUR(resumen.cobrado)} de envío` : null,
                         resumen ? `${resumen.aMano} con el envío a mano` : null,
                         resumen ? `${resumen.sinZona} sin zona` : null,
-                        sinPeso !== null ? `${sinPeso} ${sinPeso === 1 ? "artículo" : "artículos"} sin peso (cuentan ${fmtKg(PESO_SIN_DATO_KG)})` : null,
+                        sinPeso !== null ? `${sinPeso} ${sinPeso === 1 ? "artículo" : "artículos"} sin peso (cuentan ${formatearKg(PESO_SIN_DATO_KG)})` : null,
                         soloMano ? `${soloMano} solo en mano (no se envían)` : null,
                       ]
                         .filter(Boolean)

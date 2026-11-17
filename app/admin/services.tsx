@@ -123,7 +123,7 @@ import { leerModalidades, type ModalidadServicio } from "../../components/Contra
 import { cargarAjustesReparacionEnvio, cargarTarifas, hayTarifaCorreos, type AjustesReparacionEnvio } from "../../lib/envio";
 import { enlaceVideo, esEnlaceCorto } from "../servicios";
 import CargaMarca from "../../components/marca/CargaMarca";
-import { openExternalLink } from "../../lib/abrirEnlaceExterno";
+import { abrirEnlaceExterno } from "../../lib/abrirEnlaceExterno";
 import {
   Bloque,
   Buscador,
@@ -160,11 +160,11 @@ import { ERRORS, MAX_IMAGES, MEDIA_BUCKET } from "../../lib/admin/productos.cons
 import type { LocalPickedMedia } from "../../lib/admin/productos.tipos";
 import {
   CIERRE_TECLADO,
-  buildMediaPath,
+  rutaDeArchivo,
   contarEmojis,
-  fmtEUR,
-  pickMediaFilesWeb,
-  toPriceSafe,
+  formatearEurosPanel,
+  elegirFotosVideoWeb,
+  precioSeguro,
 } from "../../lib/admin/productos.utilidades";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -1004,7 +1004,7 @@ function PanelEnvioSolicitud({
             {request.codigo_postal ? ` · C.P. ${request.codigo_postal}` : ""}
             {" · "}
             <Text style={{ fontWeight: "800" }}>Etiqueta: </Text>
-            {request.etiqueta_eur != null ? fmtEUR(Number(request.etiqueta_eur)) : "—"}
+            {request.etiqueta_eur != null ? formatearEurosPanel(Number(request.etiqueta_eur)) : "—"}
             {request.etiqueta_peso_kg != null ? ` (${String(request.etiqueta_peso_kg).replace(".", ",")} kg)` : ""}
             {" · "}
             {request.etiqueta_pagada_en
@@ -1118,8 +1118,8 @@ function PanelEnvioSolicitud({
                 {request.sin_arreglo_eleccion === "comprar"
                   ? `El cliente eligió «Te lo compramos»${request.sin_arreglo_eleccion_en ? ` el ${formatDate(request.sin_arreglo_eleccion_en)}` : ""}: le llega su solicitud a Vender`
                   : request.sin_arreglo_eleccion === "devolver"
-                    ? `El cliente eligió «Devuélvemelo»${request.sin_arreglo_eleccion_en ? ` el ${formatDate(request.sin_arreglo_eleccion_en)}` : ""}${porEnvio ? ` · vuelta ${request.vuelta_eur != null ? fmtEUR(Number(request.vuelta_eur)) : "—"}` : ""}`
-                    : `El cliente aún no ha elegido${porEnvio && request.vuelta_eur != null ? ` · la vuelta le costaría ${fmtEUR(Number(request.vuelta_eur))}` : ""}`}
+                    ? `El cliente eligió «Devuélvemelo»${request.sin_arreglo_eleccion_en ? ` el ${formatDate(request.sin_arreglo_eleccion_en)}` : ""}${porEnvio ? ` · vuelta ${request.vuelta_eur != null ? formatearEurosPanel(Number(request.vuelta_eur)) : "—"}` : ""}`
+                    : `El cliente aún no ha elegido${porEnvio && request.vuelta_eur != null ? ` · la vuelta le costaría ${formatearEurosPanel(Number(request.vuelta_eur))}` : ""}`}
               </Text>
             </>
           ) : null}
@@ -1129,15 +1129,15 @@ function PanelEnvioSolicitud({
             <>
               <Text nativeID={`solicitud-pago-${request.id}`} style={{ color: request.pago_estado === "pagado" ? COLORS.success : COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                 {request.pago_estado === "pagado"
-                  ? `Pagado ${fmtEUR(Number(request.pagado_eur ?? 0))}${request.pago_modo ? ` por ${formaDePago(request.pago_modo, request.pago_metodo)}` : ""}${request.pagado_en ? ` el ${formatDate(request.pagado_en)}` : ""}`
+                  ? `Pagado ${formatearEurosPanel(Number(request.pagado_eur ?? 0))}${request.pago_modo ? ` por ${formaDePago(request.pago_modo, request.pago_metodo)}` : ""}${request.pagado_en ? ` el ${formatDate(request.pagado_en)}` : ""}`
                   : request.diagnostico_resultado === "sin_arreglo"
                     ? request.sin_arreglo_eleccion === "devolver" && request.vuelta_eur != null
-                      ? `Pendiente de pago: la vuelta, ${fmtEUR(Number(request.vuelta_eur))}`
+                      ? `Pendiente de pago: la vuelta, ${formatearEurosPanel(Number(request.vuelta_eur))}`
                       : "Sin nada que cobrar todavía"
                     : request.presupuesto_aceptado_en && request.presupuesto_eur != null
                       ? Number(request.presupuesto_eur) === 0
                         ? "Sin coste (garantía)"
-                        : `Pendiente de pago: ${fmtEUR(Number(request.presupuesto_eur))}${request.seguimiento === "listo" ? " · el cliente ya puede pagarlo" : " · podrá pagarlo cuando esté «Lista»"}`
+                        : `Pendiente de pago: ${formatearEurosPanel(Number(request.presupuesto_eur))}${request.seguimiento === "listo" ? " · el cliente ya puede pagarlo" : " · podrá pagarlo cuando esté «Lista»"}`
                       : "Sin nada que cobrar todavía"}
               </Text>
               {request.pago_avisado_en && request.pago_estado !== "pagado" ? (
@@ -1592,7 +1592,7 @@ export default function AdminServices() {
       // válidas se añaden igual y las que fallan quedan en "skipped". Antes
       // esto era "todo o nada" — elegías 15 fotos, una daba problemas, y no
       // se añadía NINGUNA sin ningún aviso.
-      const { items: picked, skipped } = await pickMediaFilesWeb();
+      const { items: picked, skipped } = await elegirFotosVideoWeb();
       const images = picked.filter((m) => m.kind === "image");
       const nonImages = picked.filter((m) => m.kind !== "image");
 
@@ -1702,7 +1702,7 @@ export default function AdminServices() {
 
     for (let i = 0; i < newMedia.length; i++) {
       const item = newMedia[i];
-      const storagePath = `services/${buildMediaPath(serviceId, item, startIndex + i)}`;
+      const storagePath = `services/${rutaDeArchivo(serviceId, item, startIndex + i)}`;
 
       const uploadRes = await supabase.storage.from(MEDIA_BUCKET).upload(storagePath, item.file, {
         cacheControl: "3600",
@@ -1773,7 +1773,7 @@ export default function AdminServices() {
 
     // Opciones (Básica, Completa…): las filas vacías no cuentan; una con nombre necesita precio y al revés.
     const filasOpciones = opciones.filter((o) => o.nombre.trim() || o.precio.trim());
-    const incompleta = filasOpciones.find((o) => !o.nombre.trim() || !o.precio.trim() || !(toPriceSafe(o.precio, -1) >= 0));
+    const incompleta = filasOpciones.find((o) => !o.nombre.trim() || !o.precio.trim() || !(precioSeguro(o.precio, -1) >= 0));
     if (incompleta) {
       setModalErr("Cada opción necesita su nombre y su precio (o déjala vacía para quitarla).");
       return;
@@ -1793,7 +1793,7 @@ export default function AdminServices() {
       const foto = fotoValida(o.foto);
       return {
         nombre: o.nombre.trim(),
-        precio_eur: Math.round(toPriceSafe(o.precio, 0) * 100) / 100,
+        precio_eur: Math.round(precioSeguro(o.precio, 0) * 100) / 100,
         ...(foto && !foto.startsWith("nueva:") ? { foto } : null),
       };
     });
@@ -1814,7 +1814,7 @@ export default function AdminServices() {
       // Con opciones, el precio del servicio es el de la más barata (el «desde» de los listados de la tienda).
       const precio = modalidades.length
         ? Math.min(...modalidades.map((m) => m.precio_eur))
-        : Math.round(toPriceSafe(price, 0) * 100) / 100;
+        : Math.round(precioSeguro(price, 0) * 100) / 100;
       const payload: {
         title: string;
         description: string;
@@ -1847,7 +1847,7 @@ export default function AdminServices() {
       serviceId = res.id;
       setAvisoPrecio(
         sinCentimos
-          ? `Guardado con ${fmtEUR(Math.round(precio))} en vez de ${fmtEUR(precio)}: para guardar céntimos en los servicios falta aplicar un ajuste en la base de datos (migración 20261104150000).`
+          ? `Guardado con ${formatearEurosPanel(Math.round(precio))} en vez de ${formatearEurosPanel(precio)}: para guardar céntimos en los servicios falta aplicar un ajuste en la base de datos (migración 20261104150000).`
           : null
       );
 
@@ -2151,7 +2151,7 @@ export default function AdminServices() {
     if (!tel) return;
     const ref = r.codigo_seguimiento ? ` ${r.codigo_seguimiento}` : "";
     const texto = encodeURIComponent(`Hola ${r.nombre}, te escribimos por tu solicitud de «${r.service_title}»${ref} en Videojuegoszaragoza.com.`);
-    openExternalLink(`https://wa.me/${tel}?text=${texto}`);
+    abrirEnlaceExterno(`https://wa.me/${tel}?text=${texto}`);
   }
 
   // ---------- Fila compacta de una solicitud y su detalle por bloques ----------
@@ -2222,7 +2222,7 @@ export default function AdminServices() {
           <View style={{ alignItems: "flex-end", gap: 2 }}>
             {importe !== null ? (
               <Text nativeID={`solicitud-importe-${r.id}`} style={{ color: gris ? COLORS.muted : COLORS.text, fontWeight: "900", fontSize: TAMANOS.destacado, lineHeight: 22 }}>
-                {fmtEUR(importe)}
+                {formatearEurosPanel(importe)}
               </Text>
             ) : null}
             <Ionicons name={abierta ? "chevron-up" : "chevron-down"} size={18} color={COLORS.muted} style={{ marginTop: 2 }} />
@@ -2272,7 +2272,7 @@ export default function AdminServices() {
                 {r.modalidad ? (
                   <Dato nativeID={`solicitud-opcion-${r.id}`} etiqueta="Opción">
                     {r.modalidad}
-                    {r.modalidad_precio_eur != null ? ` · ${fmtEUR(Number(r.modalidad_precio_eur))}` : ""}
+                    {r.modalidad_precio_eur != null ? ` · ${formatearEurosPanel(Number(r.modalidad_precio_eur))}` : ""}
                   </Dato>
                 ) : null}
                 {r.direccion ? <Dato etiqueta="Recogida en">{r.direccion}</Dato> : null}
@@ -2511,10 +2511,10 @@ export default function AdminServices() {
                         />
                         <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, flexShrink: 1 }}>
                           {s.modalidades?.length
-                            ? `Desde ${fmtEUR(s.price_eur)} · ${s.modalidades.length} opciones${
+                            ? `Desde ${formatearEurosPanel(s.price_eur)} · ${s.modalidades.length} opciones${
                                 s.modalidades.some((m) => m.foto) ? ` (${s.modalidades.filter((m) => m.foto).length} con foto)` : ""
                               }`
-                            : fmtEUR(s.price_eur)}
+                            : formatearEurosPanel(s.price_eur)}
                           {!s.is_active ? ` · ${STATUS_LABEL[s.status]}` : ""} · {s.view_count ?? 0} visitas
                           {typeof s.like_count === "number" ? ` · ${s.like_count} me gusta` : ""}
                           {mediaServicio[s.id] ? ` · ★ ${mediaServicio[s.id].media.toFixed(1).replace(".", ",")} (${mediaServicio[s.id].n})` : ""}

@@ -27,7 +27,7 @@ import React, { useEffect, useState } from "react";
 import { Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
 import { Link, type Href } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { trackEvent } from "../../lib/analiticaPropia";
+import { medirEvento } from "../../lib/analiticaPropia";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
@@ -145,7 +145,7 @@ export default function NoticiasIndice() {
   const recarga = useRecarga();
 
   useEffect(() => {
-    trackEvent("noticias_indice", "Noticias: índice visto", { path: "/noticias" });
+    medirEvento("noticias_indice", "Noticias: índice visto", { path: "/noticias" });
   }, []);
 
   useEffect(() => {

@@ -40,7 +40,7 @@ import { Platform, Text, View } from "react-native";
 import { usePathname } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import MarcaAnimada from "./marca/MarcaAnimada";
-import { estaCargando, pulseLoading } from "../lib/estadoCarga";
+import { estaCargando, pulsoCarga } from "../lib/estadoCarga";
 
 // --- aviso a las pantallas ---------------------------------------------------------------------------
 
@@ -172,7 +172,7 @@ export default function TirarParaActualizar() {
         return;
       }
       const inicio = Date.now();
-      pulseLoading(600, true);
+      pulsoCarga(600, true);
       oyentes.forEach((oyente) => oyente());
       await esperar(MINIMO_MS);
       while (estaCargando() && Date.now() - inicio < MAXIMO_MS) await esperar(150);

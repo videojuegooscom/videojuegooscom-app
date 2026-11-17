@@ -90,7 +90,7 @@ import {
   IconButton,
   PieVentana,
 } from "../../lib/admin/productos.componentes";
-import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "../../lib/admin/productos.utilidades";
+import { CIERRE_TECLADO, formatearEurosPanel, precioSeguro } from "../../lib/admin/productos.utilidades";
 import { COLORES_TEXTO, colorTextoAzul, TAMANOS } from "../../constants/temaTienda";
 import { leerMarcaCambioCesta } from "../../components/VenderAhoraModal";
 import {
@@ -295,7 +295,7 @@ const PASTILLAS: [FiltroEstado, string][] = [
 function formatPrecioEstimado(raw: string | null | undefined) {
   const s = String(raw ?? "").trim();
   if (!s) return "-";
-  if (/^\d+(?:[.\s]\d{3})*(?:[.,]\d{1,2})?\s*€?$/.test(s)) return fmtEUR(toPriceSafe(s));
+  if (/^\d+(?:[.\s]\d{3})*(?:[.,]\d{1,2})?\s*€?$/.test(s)) return formatearEurosPanel(precioSeguro(s));
   return s;
 }
 
