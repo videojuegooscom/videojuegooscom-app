@@ -28,6 +28,9 @@
  *   se desplaza, con su disponibilidad horaria).
  * - «Cambio desde la cesta» (mejora 13, 2026-11-15): las solicitudes que llegan de la línea de la cesta salen con su
  *   etiqueta («· para comprar: …») y tienen su filtro (#cotizaciones-filtro-cesta).
+ * - «Cómo quiere que le contactemos» (2026-11-17, obligatorio en «Vender ahora»): cada fila lleva su etiqueta («Por
+ *   correo (Gmail)» o «Por el chat de la tienda», #cotizacion-via-<id>), el detalle lo dice aparte del correo y hay
+ *   pastillas «Por correo» y «Por chat» con recuento (#cotizaciones-filtro-correo, #cotizaciones-filtro-chat).
  * - «Faltan fotos o vídeo» (2026-11-16, fotos y vídeo obligatorios en «Vender ahora»): las solicitudes con menos de 7
  *   fotos o sin vídeo (antiguas o con una subida que falló) salen con esa etiqueta (#cotizacion-faltan-media-<id>) y
  *   tienen su pastilla con recuento (#cotizaciones-filtro-faltan-media); solo si los adjuntos se han podido cargar.
@@ -248,6 +251,24 @@ const METODO_LABEL: Record<MetodoContacto, string> = {
   tiktok: "TikTok",
 };
 
+// Cómo quiere el cliente que le contactemos (obligatorio en «Vender ahora»). El chat se guarda con metodo_contacto vacío
+// y contacto «Chat de la tienda»; el correo, con metodo_contacto «gmail» y su dirección en contacto.
+type ViaContacto = "correo" | "chat" | "otro" | "ninguno";
+const CONTACTO_CHAT = "Chat de la tienda";
+function viaContacto(r: SellRequestRow): ViaContacto {
+  if (r.metodo_contacto === "gmail") return "correo";
+  if (!r.metodo_contacto && r.contacto === CONTACTO_CHAT) return "chat";
+  if (r.metodo_contacto || r.contacto) return "otro";
+  return "ninguno";
+}
+function textoVia(r: SellRequestRow): string {
+  const via = viaContacto(r);
+  if (via === "correo") return "Por correo (Gmail)";
+  if (via === "chat") return "Por el chat de la tienda";
+  if (via === "otro") return r.metodo_contacto ? `Por ${METODO_LABEL[r.metodo_contacto]}` : "Otra forma";
+  return "Sin indicar";
+}
+
 const DISPONIBILIDAD_LABEL: Record<Disponibilidad, string> = {
   manana: "Mañana",
   mediodia: "Mediodía",
@@ -317,6 +338,9 @@ export default function AdminCotizaciones() {
   // «Cambio desde la cesta» (mejora 13): solo las solicitudes que llegan de la línea de la cesta.
   const [soloCesta, setSoloCesta] = useState(false);
   const cuantasCesta = useMemo(() => items.filter((r) => marcaDe(r).desdeCesta).length, [items]);
+  // Filtro por cómo quiere que le contactemos (correo o chat de la tienda).
+  const [filtroVia, setFiltroVia] = useState<"correo" | "chat" | null>(null);
+  const cuantasVia = (v: ViaContacto) => items.filter((r) => viaContacto(r) === v).length;
   const [confirmDelete, setConfirmDelete] = useState<SellRequestRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -349,6 +373,7 @@ export default function AdminCotizaciones() {
       if (statusFilter !== "todas" && r.status !== statusFilter) return false;
       if (soloCesta && !marcaDe(r).desdeCesta) return false;
       if (soloFaltaMedia && !faltaMedia(r)) return false;
+      if (filtroVia && viaContacto(r) !== filtroVia) return false;
       if (!q) return true;
 
       return (
@@ -359,7 +384,7 @@ export default function AdminCotizaciones() {
         String(r.contacto ?? "").toLowerCase().includes(q)
       );
     });
-  }, [items, q, statusFilter, soloCesta, soloFaltaMedia, faltaMedia]);
+  }, [items, q, statusFilter, soloCesta, soloFaltaMedia, faltaMedia, filtroVia]);
 
   async function load() {
     setLoading(true);
@@ -500,7 +525,7 @@ export default function AdminCotizaciones() {
     }
   }
 
-  const hayFiltro = statusFilter !== "todas" || soloCesta || soloFaltaMedia || !!q;
+  const hayFiltro = statusFilter !== "todas" || soloCesta || soloFaltaMedia || !!filtroVia || !!q;
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -566,6 +591,8 @@ export default function AdminCotizaciones() {
               {mediaCargada ? (
                 <Chip nativeID="cotizaciones-filtro-faltan-media" label={`Faltan fotos o vídeo (${cuantasFaltaMedia})`} activo={soloFaltaMedia} onPress={() => setSoloFaltaMedia((v) => !v)} />
               ) : null}
+              <Chip nativeID="cotizaciones-filtro-correo" label={`Por correo (${cuantasVia("correo")})`} activo={filtroVia === "correo"} onPress={() => setFiltroVia((v) => (v === "correo" ? null : "correo"))} />
+              <Chip nativeID="cotizaciones-filtro-chat" label={`Por chat (${cuantasVia("chat")})`} activo={filtroVia === "chat"} onPress={() => setFiltroVia((v) => (v === "chat" ? null : "chat"))} />
             </FilaPastillas>
           </View>
 
@@ -617,15 +644,19 @@ export default function AdminCotizaciones() {
                       subtitulo={`${r.nombre} ${r.apellido} · ${r.ciudad} · ${formatPrecioEstimado(r.precio_estimado)} · ${fecha(r.created_at)}`}
                       idSubtitulo={`cotizacion-datos-${r.id}`}
                       etiquetas={
-                        marca.desdeCesta || !r.funciona_bien || media.length || !r.mayor_edad || sinMedia ? (
-                          <>
+                        <>
+                            <Etiqueta
+                              nativeID={`cotizacion-via-${r.id}`}
+                              icon={viaContacto(r) === "chat" ? "chatbubble-ellipses-outline" : viaContacto(r) === "ninguno" ? "alert-circle-outline" : r.metodo_contacto === "whatsapp" ? "logo-whatsapp" : "mail-outline"}
+                              color={viaContacto(r) === "ninguno" ? COLORS.warning : colorTextoAzul(13)}
+                              texto={viaContacto(r) === "ninguno" ? "Sin forma de contacto" : textoVia(r)}
+                            />
                             {marca.desdeCesta ? <Etiqueta nativeID={`cotizacion-cesta-${r.id}`} icon="swap-horizontal-outline" color={colorTextoAzul(13)} texto={textoCesta(marca.para)} /> : null}
                             {!r.funciona_bien ? <Etiqueta nativeID={`cotizacion-averia-${r.id}`} icon="construct-outline" color={COLORS.warning} texto="Presenta una avería" /> : null}
                             {media.length ? <Etiqueta nativeID={`cotizacion-adjuntos-${r.id}`} icon="images-outline" color={COLORS.text} texto={`${media.length} ${media.length === 1 ? "adjunto" : "adjuntos"}`} /> : null}
                             {sinMedia ? <Etiqueta nativeID={`cotizacion-faltan-media-${r.id}`} icon="camera-outline" color={COLORS.warning} texto="Faltan fotos o vídeo" /> : null}
                             {!r.mayor_edad ? <Etiqueta icon="alert-circle-outline" color={COLORS.warning} texto="Mayoría de edad sin confirmar" /> : null}
-                          </>
-                        ) : undefined
+                        </>
                       }
                     >
                       <DetalleFila
@@ -666,12 +697,17 @@ export default function AdminCotizaciones() {
                           <Text style={{ color: r.mayor_edad ? COLORS.muted : COLORS.warning, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                             {r.mayor_edad ? "Mayoría de edad confirmada" : "Mayoría de edad sin confirmar"}
                           </Text>
-                          {r.contacto ? (
-                            <Dato nativeID={`cotizacion-contacto-${r.id}`} etiqueta={`Contacto${r.metodo_contacto ? ` (${METODO_LABEL[r.metodo_contacto]})` : ""}`}>
-                              {r.contacto}
+                          <Dato nativeID={`cotizacion-via-detalle-${r.id}`} etiqueta="Cómo quiere que le contactemos">
+                            {textoVia(r)}
+                          </Dato>
+                          {viaContacto(r) === "correo" || viaContacto(r) === "otro" ? (
+                            <Dato nativeID={`cotizacion-contacto-${r.id}`} etiqueta={viaContacto(r) === "correo" ? "Correo" : "Contacto"}>
+                              {r.contacto ?? "-"}
                             </Dato>
+                          ) : viaContacto(r) === "chat" ? (
+                            <Detalle>Escríbele desde Chats del panel: verá el mensaje en su cuenta.</Detalle>
                           ) : (
-                            <Detalle>Sin contacto</Detalle>
+                            <Detalle>No indicó cómo contactarle (solicitud anterior a que fuera obligatorio).</Detalle>
                           )}
                         </Bloque>
                         <Bloque icono="car-outline" titulo="Entrega" ancho={isMobile ? "100%" : "30%"}>

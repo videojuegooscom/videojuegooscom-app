@@ -22197,7 +22197,7 @@ async function seccionPANRED3() {
   const SOLICITUDES = () => [
     solicitud(1, { articulo: "PS4 Pro 1 TB", motivo_venta: "[Cambio desde la cesta · para comprar: Playstation 5 Slim Con Lector] Quiero cambiarlo por otro artículo de la tienda" }),
     solicitud(2, { articulo: "Nintendo Switch OLED con pantalla rayada", nombre: "Lucía", apellido: "Marín", funciona_bien: false, motivo_venta: null, descripcion_problema: "No carga bien", ciudad: "Cuarte de Huerva", precio_estimado: "unos 90", metodo_contacto: "whatsapp", contacto: "600111222", opcion_venta: "domicilio", direccion: "Calle Mayor 1", disponibilidad: null, status: "contactado" }),
-    solicitud(3, { articulo: "Xbox 360 con dos mandos", nombre: "Pablo", apellido: "Ruiz", status: "descartado", mayor_edad: false }),
+    solicitud(3, { articulo: "Xbox 360 con dos mandos", nombre: "Pablo", apellido: "Ruiz", status: "descartado", mayor_edad: false, metodo_contacto: null, contacto: "Chat de la tienda" }),
   ];
   const MEDIA = [{ id: "sm1", sell_request_id: S(1), kind: "image", storage_path: "panred3/ps4.jpg", file_name: "ps4.jpg", mime_type: "image/jpeg", size_bytes: 1000, duration_seconds: null, sort_order: 0, created_at: ahora }];
   // Chats: una con producto (vendido a este cliente), una general empezada por la tienda y una venta de un cliente.
@@ -22373,7 +22373,7 @@ async function seccionPANRED3() {
       const bb = await caja(p, "#cotizaciones-buscar-caja");
       ok(!!bb && bb.h >= 44 && (await letra(p, "#cotizaciones-buscar")) >= 16, `PANRED3 (${nombre}): Cotizaciones, el buscador de 16 px`);
       const pas = await pastillas(p, "#cotizaciones-filtros");
-      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Nuevas (1) · Revisadas (0) · Contactadas (1) · Descartadas (1) · Cambio desde la cesta (1) · Faltan fotos o vídeo (3)" && pas.every((x) => x.h >= 44), `PANRED3 (${nombre}): Cotizaciones, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Nuevas (1) · Revisadas (0) · Contactadas (1) · Descartadas (1) · Cambio desde la cesta (1) · Faltan fotos o vídeo (3) · Por correo (1) · Por chat (1)" && pas.every((x) => x.h >= 44), `PANRED3 (${nombre}): Cotizaciones, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
       const f1 = await texto(p, `#cotizacion-${S(1)}`);
       const alto = (await caja(p, `#cotizacion-fila-${S(1)}`))?.h ?? 0;
       ok(/PS4 Pro 1 TB Nueva/.test(f1) && /Ana García · Zaragoza · 120,00 ?€/.test(f1) && /1 adjunto/.test(f1) && alto >= 44 && alto <= 170, `PANRED3 (${nombre}): Cotizaciones, la fila compacta con artículo, estado, cliente, ciudad, precio y adjuntos (${f1} · ${alto} px)`);
@@ -22401,11 +22401,26 @@ async function seccionPANRED3() {
       await p.locator("#cotizaciones-filtro-cesta").click();
       await p.waitForTimeout(300);
       ok(JSON.stringify(nuevas) === JSON.stringify([`cotizacion-fila-${S(1)}`]) && JSON.stringify(descartadas) === JSON.stringify([`cotizacion-fila-${S(3)}`]) && JSON.stringify(cesta) === JSON.stringify([`cotizacion-fila-${S(1)}`]) && (await ids(p, '[id^="cotizacion-fila-"]')).length === 3, `PANRED3 (${nombre}): Cotizaciones, la cifra «Nuevas», la pastilla «Descartadas» y «Cambio desde la cesta» filtran (${nuevas.length}/${descartadas.length}/${cesta.length})`);
+      // CONTACTO (dueño, 2026-11-17: «no me aparece cómo quiere el cliente que contactemos con él»): cada fila dice cómo y
+      // hay pastillas «Por correo» y «Por chat» con su recuento.
+      const vias = [await texto(p, `#cotizacion-via-${S(1)}`), await texto(p, `#cotizacion-via-${S(3)}`)];
+      const pastillasVia = [await texto(p, "#cotizaciones-filtro-correo"), await texto(p, "#cotizaciones-filtro-chat")];
+      await p.locator("#cotizaciones-filtro-chat").click();
+      await p.waitForTimeout(300);
+      const porChat = await ids(p, '[id^="cotizacion-fila-"]');
+      await p.locator("#cotizaciones-filtro-chat").click();
+      await p.locator("#cotizaciones-filtro-correo").click();
+      await p.waitForTimeout(300);
+      const porCorreo = await ids(p, '[id^="cotizacion-fila-"]');
+      await p.locator("#cotizaciones-filtro-correo").click();
+      await p.waitForTimeout(300);
+      const altoPastilla = (await caja(p, "#cotizaciones-filtro-chat"))?.h ?? 0;
+      ok(vias[0] === "Por correo (Gmail)" && vias[1] === "Por el chat de la tienda" && pastillasVia[0] === "Por correo (1)" && pastillasVia[1] === "Por chat (1)" && JSON.stringify(porChat) === JSON.stringify([`cotizacion-fila-${S(3)}`]) && JSON.stringify(porCorreo) === JSON.stringify([`cotizacion-fila-${S(1)}`]) && altoPastilla >= 44 && (await ids(p, '[id^="cotizacion-fila-"]')).length === 3, `PANRED3 (${nombre}): Cotizaciones, CONTACTO: la fila dice cómo quiere que le contactemos y «Por correo»/«Por chat» filtran (${vias.join(" · ")} · ${pastillasVia.join(" · ")} · ${altoPastilla} px)`);
       // Detalle por bloques y acciones abajo.
       await p.locator(`#cotizacion-fila-${S(1)}`).click();
       await p.waitForTimeout(400);
       const d = await texto(p, `#cotizacion-detalle-${S(1)}`);
-      ok((await p.locator(`#cotizacion-fila-${S(1)}`).getAttribute("aria-expanded")) === "true" && /Artículo/.test(d) && /Cliente/.test(d) && /Entrega/.test(d) && /Funciona bien/.test(d) && /Contacto \(Gmail\): ana\.prueba@gmail\.com/.test(d) && /Género: Femenino/.test(d) && /Disponibilidad: Mañana/.test(d) && /Fotos y vídeo adjuntos \(1\)/.test(d) && /Descargar foto 1/.test(d) && /Por qué lo vende: Quiero cambiarlo/.test(d), `PANRED3 (${nombre}): Cotizaciones, al tocar la fila se despliega por bloques (${d.slice(0, 260)})`);
+      ok((await p.locator(`#cotizacion-fila-${S(1)}`).getAttribute("aria-expanded")) === "true" && /Artículo/.test(d) && /Cliente/.test(d) && /Entrega/.test(d) && /Funciona bien/.test(d) && /Cómo quiere que le contactemos: Por correo \(Gmail\)/.test(d) && /Correo: ana\.prueba@gmail\.com/.test(d) && /Género: Femenino/.test(d) && /Disponibilidad: Mañana/.test(d) && /Fotos y vídeo adjuntos \(1\)/.test(d) && /Descargar foto 1/.test(d) && /Por qué lo vende: Quiero cambiarlo/.test(d), `PANRED3 (${nombre}): Cotizaciones, al tocar la fila se despliega por bloques (${d.slice(0, 260)})`);
       // VERFOT (dueño, 2026-11-16: «no me deja visualizar los archivos multimedia»): la foto se VE en el panel, con un
       // enlace firmado solo de sus rutas, y se abre en grande; sin adjuntos, el bloque lo dice.
       await p.locator("#cotizacion-ver-foto-sm1").waitFor({ timeout: 10000 }).catch(() => {});
@@ -22429,7 +22444,7 @@ async function seccionPANRED3() {
       await p.waitForTimeout(300);
       const d2 = await texto(p, `#cotizacion-detalle-${S(2)}`);
       ok((await texto(p, `#cotizacion-sin-fotos-${S(2)}`)) === "El cliente no adjuntó fotos ni vídeo. Si las necesitas, pídeselas al contactar." && (await p.locator(`#cotizacion-galeria-${S(2)}`).count()) === 0, `PANRED3 (${nombre}): Cotizaciones, VERFOT: sin adjuntos, el bloque dice que el cliente no adjuntó nada`);
-      ok(/Presenta una avería/.test(d2) && /Qué le pasa: No carga bien/.test(d2) && /Recogida en domicilio: Calle Mayor 1/.test(d2) && /Contacto \(WhatsApp\): 600111222/.test(d2) && (await p.locator(`#cotizacion-contactada-${S(2)}`).count()) === 0, `PANRED3 (${nombre}): Cotizaciones, la de avería dice qué le pasa, la recogida y no ofrece «Marcar contactada» otra vez (${d2.slice(0, 200)})`);
+      ok(/Presenta una avería/.test(d2) && /Qué le pasa: No carga bien/.test(d2) && /Recogida en domicilio: Calle Mayor 1/.test(d2) && /Cómo quiere que le contactemos: Por WhatsApp/.test(d2) && /Contacto: 600111222/.test(d2) && (await p.locator(`#cotizacion-contactada-${S(2)}`).count()) === 0, `PANRED3 (${nombre}): Cotizaciones, la de avería dice qué le pasa, la recogida y no ofrece «Marcar contactada» otra vez (${d2.slice(0, 200)})`);
       await p.locator(`#cotizacion-revisada-${S(1)}`).click();
       await p.waitForTimeout(500);
       ok(cambios.length === 1 && JSON.stringify(cambios[0].cuerpo) === '{"status":"revisado"}' && cambios[0].filtro.includes(S(1)) && (await texto(p, `#cotizacion-estado-${S(1)}`)) === "Revisada", `PANRED3 (${nombre}): Cotizaciones, «Marcar revisada» cambia el estado (${JSON.stringify(cambios)})`);
