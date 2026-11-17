@@ -38,7 +38,7 @@ import { Platform, Pressable, ScrollView, StatusBar, Text, useWindowDimensions, 
 import type { Href } from "expo-router";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import SmartImage from "../components/ImagenInteligente";
+import ImagenInteligente from "../components/ImagenInteligente";
 import CabeceraMarca from "../components/CabeceraMarca";
 import CargaMarca from "../components/marca/CargaMarca";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
@@ -422,7 +422,7 @@ export default function CompararScreen() {
               >
                 <View style={{ width: "100%", height: altoFoto, borderRadius: 10, overflow: "hidden", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", opacity: f.disponible ? 1 : 0.5 }}>
                   {f.imagen ? (
-                    <SmartImage
+                    <ImagenInteligente
                       uri={f.imagen}
                       alt={f.titulo}
                       ancho={Math.round(Math.min(400, anchoColumna * 2))}

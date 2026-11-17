@@ -28,7 +28,7 @@ import { Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } fro
 import { Link, type Href } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { trackEvent } from "../../lib/analiticaPropia";
-import SmartImage from "../../components/ImagenInteligente";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import { useRecarga } from "../../components/TirarParaActualizar";
@@ -110,7 +110,7 @@ function TarjetaNoticia({ n, isMobile }: { n: Tarjeta; isMobile: boolean }) {
         }}
       >
         {n.foto ? (
-          <SmartImage
+          <ImagenInteligente
             uri={n.foto}
             alt={n.titulo}
             ancho={isMobile ? 420 : 240}

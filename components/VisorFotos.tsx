@@ -51,10 +51,10 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { PanResponder, Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import SmartImage from "./ImagenInteligente";
+import ImagenInteligente from "./ImagenInteligente";
 import { trackEvent } from "../lib/analiticaPropia";
 
-export type LightboxImage = {
+export type FotoVisor = {
   id: string;
   url: string;
 };
@@ -135,7 +135,7 @@ function dedos(toques: readonly Toque[]): { c: Punto; d: number } {
 
 type NodoCapa = { style?: CSSStyleDeclaration; setNativeProps?: (p: object) => void; getBoundingClientRect?: () => DOMRect };
 
-export default function ImageLightbox({
+export default function VisorFotos({
   visible,
   images,
   initialIndex,
@@ -143,7 +143,7 @@ export default function ImageLightbox({
   onEvento,
 }: {
   visible: boolean;
-  images: LightboxImage[];
+  images: FotoVisor[];
   initialIndex: number;
   onClose: () => void;
   /** Zoom usado (una vez por apertura, con cómo) o cierre deslizando hacia abajo: para la analítica de quien lo abre. */
@@ -168,7 +168,7 @@ function Visor({
   onClose,
   onEvento,
 }: {
-  images: LightboxImage[];
+  images: FotoVisor[];
   initialIndex: number;
   onClose: () => void;
   onEvento?: (evento: EventoVisor, como?: string) => void;
@@ -589,7 +589,7 @@ function Visor({
       {/* Las fotos no reciben toques: todos los gestos los lleva la capa (y en escritorio no se arrastra la imagen). */}
       <View pointerEvents="none" style={{ flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
         <View ref={capaRef} nativeID="visor-fotos-capa" style={{ width: cajaW, height: cajaH }}>
-          <SmartImage
+          <ImagenInteligente
             key={current.id}
             uri={current.url}
             ancho={cajaW}
@@ -601,7 +601,7 @@ function Visor({
           />
           {verOriginal ? (
             <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
-              <SmartImage
+              <ImagenInteligente
                 key={`${current.id}-original`}
                 uri={current.url}
                 alt=""

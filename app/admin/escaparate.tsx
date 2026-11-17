@@ -65,7 +65,7 @@ import {
   Miniatura,
   Seccion,
   useDesplegables,
-  type IoniconName,
+  type NombreIconoPanel,
   type Tono,
 } from "../../components/admin/PiezasPanelAdmin";
 
@@ -212,7 +212,7 @@ function FilaEscaparate({
 }: {
   id: string;
   primera: boolean;
-  icono: IoniconName;
+  icono: NombreIconoPanel;
   titulo: string;
   estado: { texto: string; tono: Tono };
   idEstado?: string;

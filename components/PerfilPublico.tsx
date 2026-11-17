@@ -86,7 +86,7 @@ import {
 import { trackEvent } from "../lib/analiticaPropia";
 import { pickMediaFilesWeb, reducirImagenWeb } from "../lib/admin/productos.utilidades";
 import CargaMarca from "./marca/CargaMarca";
-import SmartImage from "./ImagenInteligente";
+import ImagenInteligente from "./ImagenInteligente";
 import { CAMPO, TACTIL, colorTextoAzul } from "../constants/temaTienda";
 
 const P = {
@@ -609,7 +609,7 @@ function Foto({ uri, lado, alt }: { uri: string; lado: number; alt: string }) {
       }}
     >
       {uri ? (
-        <SmartImage uri={uri} alt={alt} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+        <ImagenInteligente uri={uri} alt={alt} contentFit="cover" style={{ width: "100%", height: "100%" }} />
       ) : (
         <Ionicons name="person" size={Math.round(lado * 0.5)} color="rgba(11,33,56,0.28)" />
       )}

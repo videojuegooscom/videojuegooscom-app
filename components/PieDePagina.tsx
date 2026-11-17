@@ -47,9 +47,9 @@ import type { Href } from "expo-router";
 import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Pressable, Text, View } from "react-native";
-import SocialLinks from "./EnlacesRedesSociales";
+import EnlacesRedesSociales from "./EnlacesRedesSociales";
 import MarcaAnimada from "./marca/MarcaAnimada";
-import { MejorasModal } from "./VentanaValoracion";
+import { VentanaMejoras } from "./VentanaValoracion";
 
 // Paleta del pie: fondo blanco, textos en azul marino y acento azul.
 const FOOTER_BG = "#FFFFFF";
@@ -170,7 +170,7 @@ function FooterAccordionSection({
   );
 }
 
-export default function SiteFooter({
+export default function PieDePagina({
   sidePadding,
   contentMaxWidth = 640,
   onPressCategorias,
@@ -297,10 +297,10 @@ export default function SiteFooter({
             <Text style={{ color: NAVY, fontWeight: "900", fontSize: 15 }}>Mejoras en la tienda</Text>
             <Ionicons name="chevron-forward" size={16} color={ACCENT} />
           </Pressable>
-          <MejorasModal visible={mejorasAbierta} onClose={() => setMejorasAbierta(false)} origen="pie" />
+          <VentanaMejoras visible={mejorasAbierta} onClose={() => setMejorasAbierta(false)} origen="pie" />
 
           <View style={{ marginTop: 4 }}>
-            <SocialLinks titleColor={NAVY} />
+            <EnlacesRedesSociales titleColor={NAVY} />
           </View>
 
           <Text

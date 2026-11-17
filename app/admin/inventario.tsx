@@ -95,7 +95,7 @@ import {
   Miniatura,
   RecuentoLista,
   useDesplegables,
-  type IoniconName,
+  type NombreIconoPanel,
   type Tono,
 } from "../../components/admin/PiezasPanelAdmin";
 
@@ -158,7 +158,7 @@ function statusColors(status: InventoryStatus) {
 
 // La etiqueta de color y el icono de cada estado en la lista (PANRED3).
 const STATUS_TONO: Record<InventoryStatus, Tono> = { TO_REVIEW: "amarillo", READY_TO_LIST: "verde", IN_REPAIR: "rojo" };
-const STATUS_ICONO: Record<InventoryStatus, IoniconName> = { TO_REVIEW: "time-outline", READY_TO_LIST: "checkmark-circle-outline", IN_REPAIR: "build-outline" };
+const STATUS_ICONO: Record<InventoryStatus, NombreIconoPanel> = { TO_REVIEW: "time-outline", READY_TO_LIST: "checkmark-circle-outline", IN_REPAIR: "build-outline" };
 const STATUS_ACCION: Record<InventoryStatus, string> = { TO_REVIEW: "Pasar a «Por revisar»", READY_TO_LIST: "Pasar a «Listo para publicar»", IN_REPAIR: "Pasar a «En reparación»" };
 type FiltroInventario = InventoryStatus | "todos";
 

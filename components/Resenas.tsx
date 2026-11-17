@@ -49,8 +49,8 @@ import { Pressable, Text, View } from "react-native";
 import { supabase } from "../lib/supabase";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 import { perfilesPublicos, type PerfilForo } from "./PerfilPublico";
-import ReviewModal, { type PublishedReview } from "./VentanaValoracion";
-import SmartImage from "./ImagenInteligente";
+import VentanaValoracion, { type ResenaPublicada } from "./VentanaValoracion";
+import ImagenInteligente from "./ImagenInteligente";
 import { useRecarga } from "./TirarParaActualizar";
 
 // Mismo texto que labelCondition() en app/producto/[id].tsx (duplicado a
@@ -129,7 +129,7 @@ function AutorResena({ nombre, perfil, fecha }: { nombre: string; perfil?: Perfi
         }}
       >
         {perfil?.foto ? (
-          <SmartImage uri={perfil.foto} alt={`Foto de ${visible}`} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+          <ImagenInteligente uri={perfil.foto} alt={`Foto de ${visible}`} contentFit="cover" style={{ width: "100%", height: "100%" }} />
         ) : (
           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>{visible.slice(0, 1).toUpperCase()}</Text>
         )}
@@ -147,7 +147,7 @@ function ReviewCard({
   soldProduct,
   perfil,
 }: {
-  review: PublishedReview;
+  review: ResenaPublicada;
   isMobile?: boolean;
   soldProduct?: SoldProduct;
   perfil?: PerfilForo;
@@ -168,7 +168,7 @@ function ReviewCard({
       {soldProduct ? (
         <View style={{ width: isMobile ? 56 : 64, gap: 4 }}>
           {soldProduct.image ? (
-            <SmartImage
+            <ImagenInteligente
               uri={soldProduct.image}
               alt={soldProduct.title}
               style={{
@@ -222,7 +222,7 @@ function ReviewCard({
 }
 
 export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
-  const [reviews, setReviews] = useState<PublishedReview[]>([]);
+  const [reviews, setReviews] = useState<ResenaPublicada[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [soldByUser, setSoldByUser] = useState<Record<string, SoldProduct>>({});
@@ -239,7 +239,7 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
         .limit(STATS_SAMPLE_LIMIT);
 
       if (error) throw error;
-      setReviews((data ?? []) as PublishedReview[]);
+      setReviews((data ?? []) as ResenaPublicada[]);
     } catch {
       setReviews([]);
     } finally {
@@ -445,7 +445,7 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
         </View>
       ) : null}
 
-      <ReviewModal
+      <VentanaValoracion
         visible={modalOpen}
         onClose={() => setModalOpen(false)}
         onPublished={() => {

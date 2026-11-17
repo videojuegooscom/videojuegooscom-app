@@ -145,7 +145,7 @@ import {
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../../components/PerfilPublico";
-import SmartImage from "../../components/ImagenInteligente";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { trackEvent } from "../../lib/analiticaPropia";
 import { markEnd, markStart } from "../../lib/estadoCarga";
@@ -2088,7 +2088,7 @@ function AvatarCircle({
   if (foto) {
     return (
       <View style={{ width: size, height: size, borderRadius: 999, overflow: "hidden", borderWidth: 1, borderColor: "#E3EAF2", backgroundColor: "#F1F6FA" }}>
-        <SmartImage uri={foto} alt={`Foto de ${username}`} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+        <ImagenInteligente uri={foto} alt={`Foto de ${username}`} contentFit="cover" style={{ width: "100%", height: "100%" }} />
       </View>
     );
   }

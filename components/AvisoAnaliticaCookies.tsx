@@ -75,7 +75,7 @@ function softShadow() {
 
 const SHOW_DELAY_MS = 750;
 
-export default function CookieConsentBanner() {
+export default function AvisoAnaliticaCookies() {
   const pathname = usePathname();
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;

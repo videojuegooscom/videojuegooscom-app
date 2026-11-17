@@ -32,7 +32,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 
-export type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+export type NombreIconoPanel = React.ComponentProps<typeof Ionicons>["name"];
 export type Ancho = number | `${number}%`;
 
 // Los mismos colores que Usuarios y Pedidos.
@@ -146,7 +146,7 @@ export function EtiquetaFila({ texto }: { texto: string }) {
 }
 
 // Una miniatura de la fila (foto pequeña con borde; sin foto, un icono). La foto la pone quien la usa como `children`.
-export function Miniatura({ icono, ancho = 56, alto = 56, children }: { icono: IoniconName; ancho?: number; alto?: number; children?: React.ReactNode }) {
+export function Miniatura({ icono, ancho = 56, alto = 56, children }: { icono: NombreIconoPanel; ancho?: number; alto?: number; children?: React.ReactNode }) {
   return (
     <View style={{ width: ancho, height: alto, borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: PANEL.border, backgroundColor: "#F8FBFE", alignItems: "center", justifyContent: "center" }}>
       {children ?? <Ionicons name={icono} size={22} color={PANEL.muted} />}
@@ -170,7 +170,7 @@ export function Cifra({
   nativeID?: string;
   onPress?: () => void;
   activa?: boolean;
-  icono?: IoniconName;
+  icono?: NombreIconoPanel;
   ancho: Ancho;
   alerta?: boolean;
 }) {
@@ -228,7 +228,7 @@ export function Cifra({
 }
 
 // Una sección: icono y título (sin recuadro).
-export function Seccion({ icon, title, extra, nativeID, children }: { icon: IoniconName; title: string; extra?: string; nativeID?: string; children: React.ReactNode }) {
+export function Seccion({ icon, title, extra, nativeID, children }: { icon: NombreIconoPanel; title: string; extra?: string; nativeID?: string; children: React.ReactNode }) {
   return (
     <View nativeID={nativeID} style={{ gap: 10 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -261,7 +261,7 @@ export function Dato({ etiqueta, children, nativeID }: { etiqueta: string; child
 }
 
 // Una etiqueta pequeña de la fila: icono y texto con su color, sin cápsula.
-export function Etiqueta({ icon, texto, color, nativeID }: { icon: IoniconName; texto: string; color: string; nativeID?: string }) {
+export function Etiqueta({ icon, texto, color, nativeID }: { icon: NombreIconoPanel; texto: string; color: string; nativeID?: string }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
       <Ionicons name={icon} size={15} color={color === PANEL.text ? PANEL.accent : color} />
@@ -273,7 +273,7 @@ export function Etiqueta({ icon, texto, color, nativeID }: { icon: IoniconName; 
 }
 
 // Un bloque del detalle: título con su icono y su contenido.
-export function Bloque({ icono, titulo, nativeID, ancho, children }: { icono: IoniconName; titulo: string; nativeID?: string; ancho: Ancho; children: React.ReactNode }) {
+export function Bloque({ icono, titulo, nativeID, ancho, children }: { icono: NombreIconoPanel; titulo: string; nativeID?: string; ancho: Ancho; children: React.ReactNode }) {
   return (
     <View nativeID={nativeID} style={{ flexGrow: 1, flexShrink: 1, flexBasis: ancho, minWidth: 0, borderRadius: 16, backgroundColor: PANEL.card, padding: 12, gap: 6 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -287,7 +287,7 @@ export function Bloque({ icono, titulo, nativeID, ancho, children }: { icono: Io
 
 // Un bloque de un formulario (a todo lo ancho, uno debajo de otro): el mismo Bloque dentro de una fila, para que su ancho
 // no se lea como alto en una columna.
-export function BloqueFormulario({ icono, titulo, nativeID, children }: { icono: IoniconName; titulo: string; nativeID?: string; children: React.ReactNode }) {
+export function BloqueFormulario({ icono, titulo, nativeID, children }: { icono: NombreIconoPanel; titulo: string; nativeID?: string; children: React.ReactNode }) {
   return (
     <View style={{ flexDirection: "row" }}>
       <Bloque icono={icono} titulo={titulo} nativeID={nativeID} ancho="100%">
@@ -309,7 +309,7 @@ export function AccionTexto({
   etiqueta,
 }: {
   nativeID?: string;
-  icono: IoniconName;
+  icono: NombreIconoPanel;
   texto: string;
   onPress: () => void;
   color?: string;
@@ -419,7 +419,7 @@ export function RecuentoLista({
 }
 
 // Lista vacía (con el filtro o la búsqueda de ahora).
-export function ListaVacia({ nativeID, icono, titulo, texto }: { nativeID?: string; icono: IoniconName; titulo: string; texto: string }) {
+export function ListaVacia({ nativeID, icono, titulo, texto }: { nativeID?: string; icono: NombreIconoPanel; titulo: string; texto: string }) {
   return (
     <View nativeID={nativeID} style={{ alignItems: "center", gap: 6, paddingVertical: 28 }}>
       <Ionicons name={icono} size={24} color={PANEL.muted} />

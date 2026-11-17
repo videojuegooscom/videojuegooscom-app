@@ -130,7 +130,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { haceCuanto, supabase } from "../../../lib/supabase";
 import CargaMarca from "../../../components/marca/CargaMarca";
-import SmartImage from "../../../components/ImagenInteligente";
+import ImagenInteligente from "../../../components/ImagenInteligente";
 import {
   ORIGENES_MEJORA,
   ValoracionPedidoAdmin,
@@ -1173,7 +1173,7 @@ export default function ClienteFicha() {
                     >
                       {/* La foto de «Mi perfil»; sin foto o si no se puede cargar, las iniciales. */}
                       {perfil?.foto && fotoFallida !== perfil.foto ? (
-                        <SmartImage uri={perfil.foto} alt="Foto de perfil del cliente" contentFit="cover" onFallo={() => setFotoFallida(perfil.foto)} style={{ width: 72, height: 72 }} />
+                        <ImagenInteligente uri={perfil.foto} alt="Foto de perfil del cliente" contentFit="cover" onFallo={() => setFotoFallida(perfil.foto)} style={{ width: 72, height: 72 }} />
                       ) : (
                         <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 24 }}>{iniciales(nombre, email)}</Text>
                       )}
@@ -1732,7 +1732,7 @@ export default function ClienteFicha() {
 function Miniatura({ uri, alt, icono }: { uri?: string | null; alt?: string; icono: IconName }) {
   return (
     <View style={{ width: 44, height: 44, borderRadius: 12, overflow: "hidden", backgroundColor: COLORS.card, alignItems: "center", justifyContent: "center" }}>
-      {uri ? <SmartImage uri={uri} alt={alt ?? ""} contentFit="cover" style={{ width: "100%", height: "100%" }} /> : <Ionicons name={icono} size={20} color={COLORS.muted} />}
+      {uri ? <ImagenInteligente uri={uri} alt={alt ?? ""} contentFit="cover" style={{ width: "100%", height: "100%" }} /> : <Ionicons name={icono} size={20} color={COLORS.muted} />}
     </View>
   );
 }

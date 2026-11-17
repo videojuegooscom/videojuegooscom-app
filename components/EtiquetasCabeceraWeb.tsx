@@ -99,7 +99,7 @@ const MARCA = "Videojuegoszaragoza.com";
 // solo se pone su dirección oficial, para no pisarle el título cuando «Marca y SEO» llega después.
 const RUTAS_CON_CABECERA_PROPIA = /^\/noticias\/[^/]+$/;
 
-export function upsertMeta(attr: "name" | "property", key: string, content: string) {
+export function ponerEtiquetaMeta(attr: "name" | "property", key: string, content: string) {
   if (typeof document === "undefined") return;
 
   let el = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`);
@@ -111,7 +111,7 @@ export function upsertMeta(attr: "name" | "property", key: string, content: stri
   el.setAttribute("content", content);
 }
 
-export function upsertLink(rel: string, href: string) {
+export function ponerEnlaceCabecera(rel: string, href: string) {
   if (typeof document === "undefined") return;
 
   let el = document.head.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
@@ -123,7 +123,7 @@ export function upsertLink(rel: string, href: string) {
   el.setAttribute("href", href);
 }
 
-export default function SiteHead() {
+export default function EtiquetasCabeceraWeb() {
   const pathname = usePathname() ?? "/";
   const [ajustes, setAjustes] = useState<Ajustes | null>(null);
 
@@ -148,9 +148,9 @@ export default function SiteHead() {
         const logoUrl = String((data as any).logo_url ?? "").trim();
 
         if (logoUrl) {
-          upsertLink("icon", logoUrl);
-          upsertLink("apple-touch-icon", logoUrl);
-          upsertMeta("property", "og:image", logoUrl);
+          ponerEnlaceCabecera("icon", logoUrl);
+          ponerEnlaceCabecera("apple-touch-icon", logoUrl);
+          ponerEtiquetaMeta("property", "og:image", logoUrl);
         }
         setAjustes({ title, description, logoUrl });
       } catch {
@@ -171,8 +171,8 @@ export default function SiteHead() {
   useEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
     const ruta = pathname.replace(/\/+$/, "") || "/";
-    upsertLink("canonical", `${DOMINIO}${ruta === "/" ? "/" : ruta}`);
-    upsertMeta("property", "og:url", `${DOMINIO}${ruta === "/" ? "/" : ruta}`);
+    ponerEnlaceCabecera("canonical", `${DOMINIO}${ruta === "/" ? "/" : ruta}`);
+    ponerEtiquetaMeta("property", "og:url", `${DOMINIO}${ruta === "/" ? "/" : ruta}`);
     if (RUTAS_CON_CABECERA_PROPIA.test(ruta)) return;
     const pagina = PAGINAS[ruta];
     if (!pagina && !ajustes) return;
@@ -182,11 +182,11 @@ export default function SiteHead() {
 
     if (titulo) {
       document.title = titulo;
-      upsertMeta("property", "og:title", titulo);
+      ponerEtiquetaMeta("property", "og:title", titulo);
     }
     if (descripcion) {
-      upsertMeta("name", "description", descripcion);
-      upsertMeta("property", "og:description", descripcion);
+      ponerEtiquetaMeta("name", "description", descripcion);
+      ponerEtiquetaMeta("property", "og:description", descripcion);
     }
   }, [pathname, ajustes]);
 

@@ -167,7 +167,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CONTRASENA_MINIMA, haceCuanto, supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
-import SmartImage from "../../components/ImagenInteligente";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import { ORIGENES_MEJORA, SUGERENCIAS_RESENA, type OrigenMejora } from "../../components/VentanaValoracion";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/temaTienda";
 import { direccionesDeFila, textoEtiqueta, type DireccionGuardada } from "../../components/PerfilPublico";
@@ -411,7 +411,7 @@ function FotoCliente({ userId, foto, nombre, email }: { userId: string; foto: st
       style={{ width: 44, height: 44, borderRadius: 22, overflow: "hidden", backgroundColor: COLORS.accent2, alignItems: "center", justifyContent: "center" }}
     >
       {conFoto ? (
-        <SmartImage uri={foto} alt={`Foto de ${nombre || email || "cliente"}`} contentFit="cover" onFallo={() => setFallo(true)} style={{ width: 44, height: 44 }} />
+        <ImagenInteligente uri={foto} alt={`Foto de ${nombre || email || "cliente"}`} contentFit="cover" onFallo={() => setFallo(true)} style={{ width: 44, height: 44 }} />
       ) : (
         <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{iniciales(nombre, email)}</Text>
       )}

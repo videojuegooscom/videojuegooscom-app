@@ -33,7 +33,7 @@ import React, { useEffect, useState } from "react";
 import { Platform, SafeAreaView, StatusBar, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import ProductChatThread from "../../components/ConversacionProducto";
+import ConversacionProducto from "../../components/ConversacionProducto";
 import CabeceraMarca from "../../components/CabeceraMarca";
 
 const COLORS = {
@@ -84,7 +84,7 @@ export default function ChatScreen() {
           <Text style={{ color: COLORS.muted }}>Cargando…</Text>
         </View>
       ) : allowed ? (
-        <ProductChatThread
+        <ConversacionProducto
           chatId={chatId}
           borradorInicial={borrador}
           onDeleted={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)/chat-global" as any))}

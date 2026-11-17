@@ -65,7 +65,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { AdminHeader, AdminLoading, AdminNotice, IconButton } from "../../lib/admin/productos.componentes";
-import SmartImage from "../../components/ImagenInteligente";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import { CAMPO, TAMANOS } from "../../constants/temaTienda";
 import { BloqueFormulario, Cifra, Detalle, FilaCifras, PANEL } from "../../components/admin/PiezasPanelAdmin";
 
@@ -407,7 +407,7 @@ export default function AdminMarcaSeo() {
                         }}
                       >
                         {logoUrl ? (
-                          <SmartImage uri={logoUrl} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                          <ImagenInteligente uri={logoUrl} contentFit="contain" style={{ width: "100%", height: "100%" }} />
                         ) : (
                           <Ionicons name="image-outline" size={30} color={PANEL.muted} />
                         )}

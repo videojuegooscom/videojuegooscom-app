@@ -137,9 +137,9 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { firmaPedidoSeg, marcarSeguimientosVistos } from "../../components/AsistenteBlue";
-import CategoryProductsShelf, { columnasLista, RejillaTarjetas, TarjetaProducto } from "../../components/CarruselProductosCategoria";
+import CarruselProductosCategoria, { columnasLista, RejillaTarjetas, TarjetaProducto } from "../../components/CarruselProductosCategoria";
 import CargaMarca from "../../components/marca/CargaMarca";
-import ImageLightbox, { type LightboxImage } from "../../components/VisorFotos";
+import VisorFotos, { type FotoVisor } from "../../components/VisorFotos";
 import {
   cargarAjustesReparacionEnvio,
   cargarSeguimientoPedidos,
@@ -152,8 +152,8 @@ import {
 } from "../../lib/envio";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PerfilPublico from "../../components/PerfilPublico";
-import ReviewModal, {
-  MejorasModal,
+import VentanaValoracion, {
+  VentanaMejoras,
   ValorarPedidoModal,
   cargarValoracionesPedidos,
   entregadoEnDe,
@@ -161,8 +161,8 @@ import ReviewModal, {
   tocaValorarPedido,
   type ValoracionPedido,
 } from "../../components/VentanaValoracion";
-import SiteFooter from "../../components/PieDePagina";
-import SmartImage from "../../components/ImagenInteligente";
+import PieDePagina from "../../components/PieDePagina";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { medirCuentaCreada, trackEvent } from "../../lib/analiticaPropia";
 import {
@@ -1143,7 +1143,7 @@ export default function PerfilScreen() {
         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Mejoras en la tienda</Text>
         <Ionicons name="chevron-forward" size={16} color={COLORS.accent} />
       </Pressable>
-      <MejorasModal visible={mejorasAbierta} onClose={() => setMejorasAbierta(false)} origen="perfil" />
+      <VentanaMejoras visible={mejorasAbierta} onClose={() => setMejorasAbierta(false)} origen="perfil" />
       {sessionRole === "admin" ? (
         <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", lineHeight: 17, textAlign: "center" }}>
           Esta cuenta tiene acceso al panel de administración.
@@ -1538,11 +1538,11 @@ export default function PerfilScreen() {
               )}
               </Animated.View>
 
-              <CategoryProductsShelf />
+              <CarruselProductosCategoria />
               {/* Las redes sociales ya salen en el pie de página (SiteFooter): no se repiten. */}
             </View>
 
-            <SiteFooter sidePadding={pagePadding} />
+            <PieDePagina sidePadding={pagePadding} />
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -2630,7 +2630,7 @@ function MiniaturaSeguimiento({ nativeID, foto, icono, alt }: { nativeID: string
       style={{ width: 56, height: 56, borderRadius: 12, overflow: "hidden", backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: SEG.line, alignItems: "center", justifyContent: "center", flexShrink: 0 }}
     >
       {foto ? (
-        <SmartImage uri={foto} alt={alt} ancho={56} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+        <ImagenInteligente uri={foto} alt={alt} ancho={56} contentFit="contain" style={{ width: "100%", height: "100%" }} />
       ) : (
         <Ionicons name={icono} size={24} color={SEG.mutedSoft} />
       )}
@@ -2666,12 +2666,12 @@ function fechaCorta(fecha: string | null | undefined) {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
 }
 
-async function pedirArchivoReparacion(solicitud: string, tipo: "etiqueta" | "fotos"): Promise<{ ok: boolean; status: number; url?: string; fotos?: LightboxImage[] }> {
+async function pedirArchivoReparacion(solicitud: string, tipo: "etiqueta" | "fotos"): Promise<{ ok: boolean; status: number; url?: string; fotos?: FotoVisor[] }> {
   const { data } = await supabase.auth.getSession();
   const r = await fetch(`/api/factura?solicitud=${encodeURIComponent(solicitud)}&tipo=${tipo}`, {
     headers: { Authorization: `Bearer ${data.session?.access_token ?? ""}` },
   });
-  const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; fotos?: LightboxImage[] } | null;
+  const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; fotos?: FotoVisor[] } | null;
   return { ok: r.ok && !!d?.ok, status: r.status, url: d?.url, fotos: Array.isArray(d?.fotos) ? d.fotos : undefined };
 }
 
@@ -2697,7 +2697,7 @@ function EnvioDeLaReparacion({
   const [embalajeAbierto, setEmbalajeAbierto] = useState(false);
   const [descargando, setDescargando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [fotos, setFotos] = useState<LightboxImage[]>([]);
+  const [fotos, setFotos] = useState<FotoVisor[]>([]);
   const [visor, setVisor] = useState<number | null>(null);
   const [confirmando, setConfirmando] = useState(false);
   const [aceptando, setAceptando] = useState(false);
@@ -2862,7 +2862,7 @@ function EnvioDeLaReparacion({
               </Pressable>
             ))}
           </View>
-          <ImageLightbox visible={visor !== null} images={fotos} initialIndex={visor ?? 0} onClose={() => setVisor(null)} />
+          <VisorFotos visible={visor !== null} images={fotos} initialIndex={visor ?? 0} onClose={() => setVisor(null)} />
         </View>
       ) : null}
 
@@ -4636,7 +4636,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
       {/* Con pedidos, al final, debajo de pedidos y reparaciones: una línea discreta, plegada (arriba estorbaba). */}
       {numerosOk && !sinPedidos ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
 
-      <ReviewModal
+      <VentanaValoracion
         visible={!!valorando}
         servicio={valorando}
         onClose={() => setValorando(null)}

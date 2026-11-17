@@ -131,3 +131,30 @@ y sus valores no cambian. Se llama `temaTienda` y no `tema` porque «tema» ya e
 | Antes | Después |
 |---|---|
 | `constants/theme.ts` | `constants/temaTienda.ts` |
+
+## Símbolos renombrados
+
+Tanda 3, zona componentes (2026-11-17): con `scripts/renombrar-simbolos.mjs` (motor de TypeScript, nunca buscar y
+reemplazar), 40 símbolos y 348 usos en 45 archivos. No cambian valores (textos, tablas, eventos, claves guardadas). La
+lista exacta está en la PR. Los comentarios que aún citan el nombre viejo se ponen al día en la tanda siguiente.
+
+| Antes | Después |
+|---|---|
+| `Barramagic` · `FloatingBarramagic` (y sus Props) | `BarraBusqueda` · `BarraBusquedaFlotante` (`PropsBarraBusqueda…`) |
+| `SiteFooter` | `PieDePagina` |
+| `Campanita` | `AsistenteBlue` |
+| `SmartImage` · `SmartImageProps` | `ImagenInteligente` · `PropsImagenInteligente` |
+| `ReviewModal` · `PublishedReview` · `MejorasModal` | `VentanaValoracion` · `ResenaPublicada` · `VentanaMejoras` |
+| `SiteHead` · `upsertMeta` · `upsertLink` | `EtiquetasCabeceraWeb` · `ponerEtiquetaMeta` · `ponerEnlaceCabecera` |
+| `BrandLoadingScreen` (y Props) | `PantallaCargaMarca` (`PropsPantallaCargaMarca`) |
+| `LineaPensadoraEfectoSiri` | `EfectoPensando` |
+| `CatalogFilters` · `ConditionFilter` · `SortKey` · `CatalogCategoryOption` · `USED_CONDITIONS` | `FiltrosCatalogo` · `FiltroEstadoCatalogo` · `ClaveOrden` · `OpcionCategoriaCatalogo` · `ESTADOS_USADO` |
+| `CookieConsentBanner` | `AvisoAnaliticaCookies` |
+| `SocialLinks` · `SocialPlatform` · `SOCIAL_ICONS` · `buildSocialHref` | `EnlacesRedesSociales` · `PlataformaSocial` · `ICONOS_REDES` · `enlaceRedSocial` |
+| `IsMobileContext` · `FieldLabel` · `FieldInput` · `SelectField` | `ContextoEsMovil` · `EtiquetaCampoVenta` · `CampoTexto` · `CampoSelector` |
+| `ImageLightbox` · `LightboxImage` | `VisorFotos` · `FotoVisor` |
+| `ProductChatThread` | `ConversacionProducto` |
+| `CategoryProductsShelf` | `CarruselProductosCategoria` |
+| `SellMediaPicker` · `LocalSellMedia` · `SellRequestMediaRow` | `FotosVideoVenta` · `ArchivoVentaLocal` · `FilaArchivoVenta` |
+| `fmtEURServicio` | `formatearEurosServicio` |
+| `IoniconName` (panel) | `NombreIconoPanel` |

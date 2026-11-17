@@ -218,7 +218,7 @@ function radioPantallaMovil(): number {
   return 44;
 }
 
-export default function LineaPensadoraEfectoSiri() {
+export default function EfectoPensando() {
   const cargando = useCargando();
   const insets = useSafeAreaInsets();
 

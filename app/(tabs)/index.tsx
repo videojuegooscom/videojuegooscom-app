@@ -106,8 +106,8 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { FloatingBarramagic } from "../../components/BarraBusqueda";
-import CategoryProductsShelf, { VistosRecientemente } from "../../components/CarruselProductosCategoria";
+import { BarraBusquedaFlotante } from "../../components/BarraBusqueda";
+import CarruselProductosCategoria, { VistosRecientemente } from "../../components/CarruselProductosCategoria";
 import {
   OPACIDAD_PORTADA_DEFECTO,
   PROPORCION_RECUADRO_INICIO,
@@ -119,8 +119,8 @@ import {
 } from "../../components/PortadasCategoria";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import Resenas from "../../components/Resenas";
-import SiteFooter from "../../components/PieDePagina";
-import SmartImage from "../../components/ImagenInteligente";
+import PieDePagina from "../../components/PieDePagina";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import { RedJuntoAlLogo, ResenasCanales, useRedesJuntoAlLogo, useResenasCanales } from "../../components/EnlacesRedesSociales";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
@@ -1285,7 +1285,7 @@ function FeaturedMediaCarousel({
           scrollEventThrottle={16}
         >
           {images.map((uri, index) => (
-            <SmartImage
+            <ImagenInteligente
               key={`${uri}-${index}`}
               uri={uri}
               alt={images.length > 1 ? `${alt} (foto ${index + 1} de ${images.length})` : alt}
@@ -2082,7 +2082,7 @@ export default function HomeScreen() {
 
           {/* Recién llegado: lo último que ha entrado (también lo que llega de VeoAura).
               Si no hay nada, no se pinta, ni su separador. */}
-          <CategoryProductsShelf modo="novedades" titulo="Recién llegado" pie={<Separador isMobile={isMobile} />} />
+          <CarruselProductosCategoria modo="novedades" titulo="Recién llegado" pie={<Separador isMobile={isMobile} />} />
 
           {/* Vistos recientemente (mejora 9): solo con 3 o más vistos a la venta en este dispositivo y si no son justo los
               de «Recién llegado». Debajo de la oferta y de la primera sección: no empuja la primera pantalla. */}
@@ -2206,7 +2206,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <SiteFooter
+        <PieDePagina
           sidePadding={sidePadding}
           contentMaxWidth={containerMaxWidth}
           onPressCategorias={scrollToCategories}
@@ -2250,7 +2250,7 @@ export default function HomeScreen() {
         </Pressable>
       </Animated.View>
 
-      <FloatingBarramagic
+      <BarraBusquedaFlotante
         isMobile={isMobile}
         topSnapY={isMobile ? SEARCH_LAYOUT.topSnapMobile : SEARCH_LAYOUT.topSnapDesktop}
         mobileTabBarHeight={mobileTabBarHeight}

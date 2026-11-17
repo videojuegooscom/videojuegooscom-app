@@ -110,7 +110,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analiticaPropia";
 import { colorTextoAzul } from "../constants/temaTienda";
-import SmartImage from "./ImagenInteligente";
+import ImagenInteligente from "./ImagenInteligente";
 
 const COLORS = {
   text: "#0B2138",
@@ -933,7 +933,7 @@ function PanelBusqueda({
                 etiqueta={`${p.titulo}, ${fmtEUR(p.precio)}`}
               >
                 <View style={{ width: 48, height: 48, flexShrink: 0, backgroundColor: "#FFFFFF" }}>
-                  {p.imagen ? <SmartImage uri={p.imagen} alt={p.titulo} ancho={96} contentFit="contain" style={{ width: "100%", height: "100%" }} /> : null}
+                  {p.imagen ? <ImagenInteligente uri={p.imagen} alt={p.titulo} ancho={96} contentFit="contain" style={{ width: "100%", height: "100%" }} /> : null}
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text numberOfLines={2} style={{ color: COLORS.text, fontSize: 14.5, lineHeight: 19, fontWeight: "700", textAlign: "center" }}>
@@ -1069,7 +1069,7 @@ export function SugerenciasCatalogo({
           >
             <View style={{ width: 44, height: 44, flexShrink: 0, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
               {p.imagen ? (
-                <SmartImage uri={p.imagen} alt={p.titulo} ancho={88} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                <ImagenInteligente uri={p.imagen} alt={p.titulo} ancho={88} contentFit="contain" style={{ width: "100%", height: "100%" }} />
               ) : (
                 <Ionicons name="cube-outline" size={20} color={COLORS.muted} />
               )}
@@ -1095,7 +1095,7 @@ export function SugerenciasCatalogo({
   );
 }
 
-export type BarramagicProps = {
+export type PropsBarraBusqueda = {
   isMobile: boolean;
 
   /** "input" = buscador real y editable. "link" = botón que navega. */
@@ -1126,7 +1126,7 @@ export type BarramagicProps = {
   style?: ViewStyle;
 };
 
-export default function Barramagic({
+export default function BarraBusqueda({
   isMobile,
   mode = "input",
   value,
@@ -1141,7 +1141,7 @@ export default function Barramagic({
   onPressAi,
   placeholder = "Buscar producto o hacer una pregunta",
   style,
-}: BarramagicProps) {
+}: PropsBarraBusqueda) {
   const handleAiPress = (event?: GestureResponderEvent) => {
     event?.stopPropagation?.();
     if (onPressAi) {
@@ -1301,7 +1301,7 @@ export default function Barramagic({
 
 type SearchSnapPosition = "top" | "bottom";
 
-export type FloatingBarramagicProps = {
+export type PropsBarraBusquedaFlotante = {
   isMobile: boolean;
 
   /**
@@ -1361,7 +1361,7 @@ export type FloatingBarramagicProps = {
   posicionInicial?: SearchSnapPosition;
 };
 
-export function FloatingBarramagic({
+export function BarraBusquedaFlotante({
   isMobile,
   topSnapY,
   mobileTabBarHeight = 92,
@@ -1376,7 +1376,7 @@ export function FloatingBarramagic({
   onPress,
   placeholder: placeholderProp,
   posicionInicial = "top",
-}: FloatingBarramagicProps) {
+}: PropsBarraBusquedaFlotante) {
   const { width, height } = useWindowDimensions();
   const widthSafe = width > 0 ? width : 1024;
   // En móvil el campo es estrecho y un <input> recorta el texto largo sin avisar: placeholder corto.
@@ -1776,9 +1776,9 @@ export function FloatingBarramagic({
           }}
         >
           {modoEnlace ? (
-            <Barramagic isMobile={isMobile} mode="link" onPress={onPress} placeholder={placeholder} />
+            <BarraBusqueda isMobile={isMobile} mode="link" onPress={onPress} placeholder={placeholder} />
           ) : (
-            <Barramagic
+            <BarraBusqueda
               isMobile={isMobile}
               mode="input"
               value={texto}

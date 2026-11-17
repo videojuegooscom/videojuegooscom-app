@@ -160,11 +160,11 @@ import {
   MAX_SELL_VIDEO_SECONDS,
   MIN_SELL_IMAGES,
   MIN_SELL_VIDEO_SECONDS,
-  SellMediaPicker,
+  FotosVideoVenta,
   listaParaSubir,
   uploadSellRequestMedia,
   videoEsValido,
-  type LocalSellMedia,
+  type ArchivoVentaLocal,
   type SellMediaPendiente,
 } from "./FotosVideoVenta";
 import { datosDeFila } from "./PerfilPublico";
@@ -203,9 +203,9 @@ type Genero = "masculino" | "femenino";
 // subcomponentes (definidos fuera del componente principal) puedan ajustar
 // tamaños/paddings sin tener que recibir la prop en cada uso.
 // (exportado con FieldLabel, FieldInput y SelectField: la página «Contratar servicio» usa las mismas piezas)
-export const IsMobileContext = React.createContext(false);
+export const ContextoEsMovil = React.createContext(false);
 function useIsMobile() {
-  return React.useContext(IsMobileContext);
+  return React.useContext(ContextoEsMovil);
 }
 
 // Envoltorio de Pressable con una pequeña animación "pop" tipo Apple: al
@@ -386,7 +386,7 @@ function SiriGlow({
 // dim=true atenúa también la pregunta (no solo el campo/desplegable de
 // debajo) cuando ese campo ya está completo, siguiendo el mismo lenguaje
 // visual de "completado" que FieldInput/SelectField.
-export function FieldLabel({ children, dim }: { children: React.ReactNode; dim?: boolean }) {
+export function EtiquetaCampoVenta({ children, dim }: { children: React.ReactNode; dim?: boolean }) {
   const isMobile = useIsMobile();
   return (
     <Text
@@ -410,7 +410,7 @@ export function FieldLabel({ children, dim }: { children: React.ReactNode; dim?:
 // de inmediato, y al salir (onBlur) se vuelve a atenuar si sigue siendo
 // válido. containerStyle es para el diseño del contenedor exterior (p.ej.
 // flex:1 dentro de una fila); style sigue afectando solo al TextInput.
-export function FieldInput({
+export function CampoTexto({
   filled,
   containerStyle,
   style,
@@ -470,7 +470,7 @@ export function FieldInput({
 // ancho contenido (para no estirarse una fila entera en pantallas anchas);
 // compact=false lo estira al 100% del contenedor (para cuando ya va dentro
 // de una columna de una fila de dos).
-export function SelectField<T extends string>({
+export function CampoSelector<T extends string>({
   options,
   value,
   onChange,
@@ -606,7 +606,7 @@ function YesNoSelect({
 }) {
   const mapped: "si" | "no" | null = value === null ? null : value ? "si" : "no";
   return (
-    <SelectField
+    <CampoSelector
       options={[
         { label: "Sí", value: "si" as const },
         { label: "No", value: "no" as const },
@@ -841,8 +841,8 @@ export default function VenderAhoraModal({
   const [mayorEdad, setMayorEdad] = useState(false);
   const [genero, setGenero] = useState<Genero | null>(null);
 
-  const [mediaImages, setMediaImages] = useState<LocalSellMedia[]>([]);
-  const [mediaVideo, setMediaVideo] = useState<LocalSellMedia | null>(null);
+  const [mediaImages, setMediaImages] = useState<ArchivoVentaLocal[]>([]);
+  const [mediaVideo, setMediaVideo] = useState<ArchivoVentaLocal | null>(null);
   // Subida tras guardar la solicitud: los archivos que no se pudieron subir (se ofrece reintentar solo esos), cuántos
   // había en total, el id de la solicitud ya guardada y si el reintento acabó bien.
   const [mediaPendientes, setMediaPendientes] = useState<SellMediaPendiente[]>([]);
@@ -1411,8 +1411,8 @@ export default function VenderAhoraModal({
 
   const campoGenero = (
     <View style={campoStyle}>
-      <FieldLabel dim={!!genero}>Género</FieldLabel>
-      <SelectField
+      <EtiquetaCampoVenta dim={!!genero}>Género</EtiquetaCampoVenta>
+      <CampoSelector
         options={GENERO_OPTIONS}
         value={genero}
         onChange={(v) => {
@@ -1426,8 +1426,8 @@ export default function VenderAhoraModal({
 
   const campoCiudad = (
     <View style={campoStyle}>
-      <FieldLabel dim={!!ciudad.trim()}>¿En qué ciudad te encuentras?</FieldLabel>
-      <FieldInput
+      <EtiquetaCampoVenta dim={!!ciudad.trim()}>¿En qué ciudad te encuentras?</EtiquetaCampoVenta>
+      <CampoTexto
         value={ciudad}
         onChangeText={(v) => {
           setCiudad(v);
@@ -1442,8 +1442,8 @@ export default function VenderAhoraModal({
 
   const campoPrecio = (
     <View style={campoStyle}>
-      <FieldLabel dim={!!precioEstimado.trim()}>¿Cuánto estimas recibir por tu artículo?</FieldLabel>
-      <FieldInput
+      <EtiquetaCampoVenta dim={!!precioEstimado.trim()}>¿Cuánto estimas recibir por tu artículo?</EtiquetaCampoVenta>
+      <CampoTexto
         value={precioEstimado}
         onChangeText={(v) => {
           setPrecioEstimado(v);
@@ -1458,7 +1458,7 @@ export default function VenderAhoraModal({
 
   const campoFunciona = (
     <View style={campoStyle}>
-      <FieldLabel dim={funcionaBien !== null}>¿Todo funciona perfectamente?</FieldLabel>
+      <EtiquetaCampoVenta dim={funcionaBien !== null}>¿Todo funciona perfectamente?</EtiquetaCampoVenta>
       <YesNoSelect
         value={funcionaBien}
         onChange={(v) => {
@@ -1473,8 +1473,8 @@ export default function VenderAhoraModal({
   const campoMotivoOProblema =
     funcionaBien === true ? (
       <View style={{ gap: 6 }}>
-        <FieldLabel dim={!!motivoVenta.trim()}>¿Cuál es el motivo de la venta?</FieldLabel>
-        <FieldInput
+        <EtiquetaCampoVenta dim={!!motivoVenta.trim()}>¿Cuál es el motivo de la venta?</EtiquetaCampoVenta>
+        <CampoTexto
           value={motivoVenta}
           onChangeText={(v) => {
             setMotivoVenta(v);
@@ -1488,10 +1488,10 @@ export default function VenderAhoraModal({
       </View>
     ) : funcionaBien === false ? (
       <View style={{ gap: 6 }}>
-        <FieldLabel dim={!!descripcionProblema.trim()}>
+        <EtiquetaCampoVenta dim={!!descripcionProblema.trim()}>
           ¿Puedes hacernos una breve descripción de qué es lo que le sucede?
-        </FieldLabel>
-        <FieldInput
+        </EtiquetaCampoVenta>
+        <CampoTexto
           value={descripcionProblema}
           onChangeText={(v) => {
             setDescripcionProblema(v);
@@ -1526,7 +1526,7 @@ export default function VenderAhoraModal({
     );
 
   return (
-    <IsMobileContext.Provider value={isMobile}>
+    <ContextoEsMovil.Provider value={isMobile}>
       {envolver(
           <ScrollView
             // nativeID: la guía de Blue (components/AsistenteBlue.tsx) desplaza el formulario para enseñar que hay más abajo.
@@ -1817,8 +1817,8 @@ export default function VenderAhoraModal({
                     {/* Nombre + Apellido (+ Género cuando caben 3 columnas) */}
                     <View style={filaStyle}>
                       <View style={campoStyle}>
-                        <FieldLabel dim={nombreValido}>Nombre</FieldLabel>
-                        <FieldInput
+                        <EtiquetaCampoVenta dim={nombreValido}>Nombre</EtiquetaCampoVenta>
+                        <CampoTexto
                           value={nombre}
                           onChangeText={(v) => {
                             setNombre(v);
@@ -1830,8 +1830,8 @@ export default function VenderAhoraModal({
                         />
                       </View>
                       <View style={campoStyle}>
-                        <FieldLabel dim={apellidoValido}>Apellido</FieldLabel>
-                        <FieldInput
+                        <EtiquetaCampoVenta dim={apellidoValido}>Apellido</EtiquetaCampoVenta>
+                        <CampoTexto
                           value={apellido}
                           onChangeText={(v) => {
                             setApellido(v);
@@ -1854,8 +1854,8 @@ export default function VenderAhoraModal({
                     ) : null}
 
                     <View style={{ gap: 6 }}>
-                      <FieldLabel dim={!!articulo.trim()}>¿Qué artículo de electrónica o relacionado quieres vender?</FieldLabel>
-                      <FieldInput
+                      <EtiquetaCampoVenta dim={!!articulo.trim()}>¿Qué artículo de electrónica o relacionado quieres vender?</EtiquetaCampoVenta>
+                      <CampoTexto
                         value={articulo}
                         onChangeText={(v) => {
                           setArticulo(v);
@@ -1896,8 +1896,8 @@ export default function VenderAhoraModal({
                         correo y la dirección salían cortados. En pantallas anchas, al lado. */}
                     <View style={{ ...filaStyle, flexDirection: metodoContacto && tresColumnas ? "row" : "column", ...(contactoYOpcionEnFila ? { flex: 1, minWidth: 0 } : { gap: gapCampos }) }}>
                       <View style={metodoContacto && tresColumnas ? campoStyle : { width: "100%", gap: 6 }}>
-                        <FieldLabel dim={!!metodoContacto}>¿Cómo prefieres que te contactemos?</FieldLabel>
-                        <SelectField
+                        <EtiquetaCampoVenta dim={!!metodoContacto}>¿Cómo prefieres que te contactemos?</EtiquetaCampoVenta>
+                        <CampoSelector
                           options={METODO_OPTIONS}
                           value={metodoContacto}
                           onChange={(v) => {
@@ -1912,8 +1912,8 @@ export default function VenderAhoraModal({
 
                       {metodoContacto === "gmail" && (
                         <View style={campoDatoStyle}>
-                          <FieldLabel dim={contactoValido}>Tu email de Gmail</FieldLabel>
-                          <FieldInput
+                          <EtiquetaCampoVenta dim={contactoValido}>Tu email de Gmail</EtiquetaCampoVenta>
+                          <CampoTexto
                             value={contactoValor}
                             onChangeText={(v) => {
                               setContactoValor(v);
@@ -2003,8 +2003,8 @@ export default function VenderAhoraModal({
                     {/* Opción de venta + su campo condicional en pareja cuando hay una elegida */}
                     <View style={{ ...filaStyle, flexDirection: opcionVenta && tresColumnas ? "row" : "column", ...(contactoYOpcionEnFila ? { flex: 1, minWidth: 0 } : { gap: gapCampos }) }}>
                       <View style={opcionVenta && tresColumnas ? campoStyle : { width: "100%", gap: 6 }}>
-                        <FieldLabel dim={!!opcionVenta}>Opción de venta</FieldLabel>
-                        <SelectField
+                        <EtiquetaCampoVenta dim={!!opcionVenta}>Opción de venta</EtiquetaCampoVenta>
+                        <CampoSelector
                           options={OPCION_VENTA_OPTIONS}
                           value={opcionVenta}
                           onChange={(v) => {
@@ -2017,8 +2017,8 @@ export default function VenderAhoraModal({
 
                       {opcionVenta === "domicilio" && (
                         <View style={campoDatoStyle}>
-                          <FieldLabel dim={!!direccion.trim()}>Dirección completa</FieldLabel>
-                          <FieldInput
+                          <EtiquetaCampoVenta dim={!!direccion.trim()}>Dirección completa</EtiquetaCampoVenta>
+                          <CampoTexto
                             value={direccion}
                             onChangeText={(v) => {
                               setDireccion(v);
@@ -2034,8 +2034,8 @@ export default function VenderAhoraModal({
 
                       {opcionVenta === "entrega" && (
                         <View style={campoDatoStyle}>
-                          <FieldLabel dim={!!disponibilidad}>Disponibilidad diaria</FieldLabel>
-                          <SelectField
+                          <EtiquetaCampoVenta dim={!!disponibilidad}>Disponibilidad diaria</EtiquetaCampoVenta>
+                          <CampoSelector
                             options={DISPONIBILIDAD_OPTIONS}
                             value={disponibilidad}
                             onChange={(v) => {
@@ -2050,10 +2050,10 @@ export default function VenderAhoraModal({
 
                     {/* Fotos (de 7 a 10) y vídeo (de 20 a 30 s): obligatorios, cuentan para el progreso. */}
                     <View nativeID="vender-fotos" style={{ gap: 6 }}>
-                      <FieldLabel dim={fotosOk}>
+                      <EtiquetaCampoVenta dim={fotosOk}>
                         Fotos del artículo (mínimo {MIN_SELL_IMAGES}, máximo {MAX_SELL_IMAGES})
-                      </FieldLabel>
-                      <SellMediaPicker
+                      </EtiquetaCampoVenta>
+                      <FotosVideoVenta
                         solo="fotos"
                         images={mediaImages}
                         video={mediaVideo}
@@ -2066,10 +2066,10 @@ export default function VenderAhoraModal({
                       />
                     </View>
                     <View nativeID="vender-video" style={{ gap: 6 }}>
-                      <FieldLabel dim={videoOk}>
+                      <EtiquetaCampoVenta dim={videoOk}>
                         Vídeo del artículo (de {MIN_SELL_VIDEO_SECONDS} a {MAX_SELL_VIDEO_SECONDS} segundos)
-                      </FieldLabel>
-                      <SellMediaPicker
+                      </EtiquetaCampoVenta>
+                      <FotosVideoVenta
                         solo="video"
                         images={mediaImages}
                         video={mediaVideo}
@@ -2218,6 +2218,6 @@ export default function VenderAhoraModal({
             </Animated.View>
           </ScrollView>
       )}
-    </IsMobileContext.Provider>
+    </ContextoEsMovil.Provider>
   );
 }

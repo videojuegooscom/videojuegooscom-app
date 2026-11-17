@@ -43,11 +43,11 @@ import { Link, router, useLocalSearchParams, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { medirNoticiaDesdeBuscador, trackEvent } from "../../lib/analiticaPropia";
-import SmartImage from "../../components/ImagenInteligente";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import CabeceraMarca from "../../components/CabeceraMarca";
-import { upsertLink, upsertMeta } from "../../components/EtiquetasCabeceraWeb";
+import { ponerEnlaceCabecera, ponerEtiquetaMeta } from "../../components/EtiquetasCabeceraWeb";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import { faltaColumna } from "../servicio/[id]";
 
@@ -174,13 +174,13 @@ function ponerCabecera(n: NoticiaPagina): () => void {
   };
 
   document.title = titulo;
-  upsertMeta("name", "description", descripcion);
-  upsertMeta("property", "og:title", titulo);
-  upsertMeta("property", "og:description", descripcion);
-  upsertMeta("property", "og:image", imagen);
-  upsertMeta("property", "og:type", "article");
-  upsertMeta("property", "og:url", direccion);
-  upsertLink("canonical", direccion);
+  ponerEtiquetaMeta("name", "description", descripcion);
+  ponerEtiquetaMeta("property", "og:title", titulo);
+  ponerEtiquetaMeta("property", "og:description", descripcion);
+  ponerEtiquetaMeta("property", "og:image", imagen);
+  ponerEtiquetaMeta("property", "og:type", "article");
+  ponerEtiquetaMeta("property", "og:url", direccion);
+  ponerEnlaceCabecera("canonical", direccion);
 
   const datos: Record<string, unknown> = {
     "@context": "https://schema.org",
@@ -214,11 +214,11 @@ function ponerCabecera(n: NoticiaPagina): () => void {
     script.remove();
     // Al salir, lo que había (la página siguiente o SiteHead ponen después lo suyo).
     if (document.title === titulo) document.title = antes.titulo;
-    if (antes.descripcion !== null) upsertMeta("name", "description", antes.descripcion);
-    if (antes.ogTitle !== null) upsertMeta("property", "og:title", antes.ogTitle);
-    if (antes.ogDescription !== null) upsertMeta("property", "og:description", antes.ogDescription);
-    if (antes.ogImage !== null) upsertMeta("property", "og:image", antes.ogImage);
-    upsertMeta("property", "og:type", antes.ogType ?? "website");
+    if (antes.descripcion !== null) ponerEtiquetaMeta("name", "description", antes.descripcion);
+    if (antes.ogTitle !== null) ponerEtiquetaMeta("property", "og:title", antes.ogTitle);
+    if (antes.ogDescription !== null) ponerEtiquetaMeta("property", "og:description", antes.ogDescription);
+    if (antes.ogImage !== null) ponerEtiquetaMeta("property", "og:image", antes.ogImage);
+    ponerEtiquetaMeta("property", "og:type", antes.ogType ?? "website");
   };
 }
 
@@ -413,7 +413,7 @@ export default function NoticiaScreen() {
 
             {n.fotos[0] ? (
               <View style={{ borderRadius: 22, overflow: "hidden", backgroundColor: COLORS.card }}>
-                <SmartImage
+                <ImagenInteligente
                   uri={n.fotos[0]}
                   alt={n.titulo}
                   ancho={isMobile ? 420 : 760}

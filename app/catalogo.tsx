@@ -83,7 +83,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { rolDeUsuario, supabase } from "../lib/supabase";
 import { medirCargaPantalla, trackEvent, trackEventThrottled } from "../lib/analiticaPropia";
-import Barramagic, {
+import BarraBusqueda, {
   SugerenciasCatalogo,
   buscarProductos,
   cargarIndiceBusqueda,
@@ -100,21 +100,21 @@ import PortadasCategoria, { enterasInicioDe, esCategoriaServicios, faltaColumnaP
 import { useRecarga } from "../components/TirarParaActualizar";
 import { crearAvisoBusqueda } from "../components/AsistenteBlue";
 import { RejillaTarjetas, TarjetaProducto, useAlturaBarraComparar } from "../components/CarruselProductosCategoria";
-import CatalogFilters, {
+import FiltrosCatalogo, {
   Chip,
   PRECIO_MAX,
   PRECIO_MIN,
-  USED_CONDITIONS,
+  ESTADOS_USADO,
   estadoAUrl,
   estadoDeUrl,
   nombreEstado,
   precioActivo,
   precioDeUrl,
   textoPrecio,
-  type CatalogCategoryOption,
+  type OpcionCategoriaCatalogo,
   type FiltrosDisponibles,
-  type ConditionFilter,
-  type SortKey,
+  type FiltroEstadoCatalogo,
+  type ClaveOrden,
 } from "../components/FiltrosCatalogo";
 
 const COLORS = {
@@ -184,11 +184,11 @@ type ListFilters = {
   adminFlag: boolean;
   statusFilter: UiFilter;
   categoryId: string | null;
-  condition: ConditionFilter;
+  condition: FiltroEstadoCatalogo;
   /** 1–1000 (1 = sin mínimo; 1000 = «1000 € o más», sin tope). */
   priceMin: number;
   priceMax: number;
-  sort: SortKey;
+  sort: ClaveOrden;
   queryText: string;
 };
 
@@ -367,7 +367,7 @@ async function fetchProductsPage(
   if (f.condition === "NEW") {
     query = query.eq("condition", "NEW");
   } else if (f.condition === "USED") {
-    query = query.in("condition", [...USED_CONDITIONS]);
+    query = query.in("condition", [...ESTADOS_USADO]);
   } else if (f.condition !== "ALL") {
     query = query.eq("condition", f.condition);
   }
@@ -401,7 +401,7 @@ async function fetchProductsPage(
 }
 
 /** Mismo orden que la consulta (fecha de alta, y el id para desempatar) cuando se busca en el índice. */
-function ordenarIndice(lista: ProductoIndice[], sort: SortKey): ProductoIndice[] {
+function ordenarIndice(lista: ProductoIndice[], sort: ClaveOrden): ProductoIndice[] {
   const porFecha = (a: ProductoIndice, b: ProductoIndice) => (a.creado < b.creado ? 1 : a.creado > b.creado ? -1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const copia = [...lista];
   if (sort === "PRICE_ASC") copia.sort((a, b) => a.precio - b.precio || porFecha(a, b));
@@ -423,7 +423,7 @@ async function fetchProductsPageBuscando(
   const indice = await cargarIndiceBusqueda(f.adminFlag);
   if (!indice) return null;
   const dbStatus = f.adminFlag ? uiFilterToDb(f.statusFilter) : null;
-  const usados: readonly string[] = USED_CONDITIONS;
+  const usados: readonly string[] = ESTADOS_USADO;
   const lista = indice.productos.filter(
     (p) =>
       (!dbStatus || p.estado === dbStatus) &&
@@ -518,12 +518,12 @@ export default function CatalogoScreen() {
   const [categoryId, setCategoryId] = useState<string | null>(null);
   // Estado y precio viven en la dirección (?estado=bueno&precio_min=20&precio_max=300): se pueden compartir y no se
   // pierden al volver atrás (mejora 3, 2026-11-14).
-  const condition: ConditionFilter = estadoDeUrl(typeof params.estado === "string" ? params.estado : undefined);
+  const condition: FiltroEstadoCatalogo = estadoDeUrl(typeof params.estado === "string" ? params.estado : undefined);
   const minUrl = precioDeUrl(typeof params.precio_min === "string" ? params.precio_min : undefined, PRECIO_MIN);
   const maxUrl = precioDeUrl(typeof params.precio_max === "string" ? params.precio_max : undefined, PRECIO_MAX);
   const priceMin = Math.min(minUrl, maxUrl);
   const priceMax = Math.max(minUrl, maxUrl);
-  const setCondition = useCallback((c: ConditionFilter) => {
+  const setCondition = useCallback((c: FiltroEstadoCatalogo) => {
     router.setParams({ estado: estadoAUrl(c) });
     if (c !== "ALL") trackEvent("catalogo_filtro", "Filtro: estado", { path: "/catalogo", metadata: { filtro: "estado", valor: c } });
   }, []);
@@ -533,7 +533,7 @@ export default function CatalogoScreen() {
       trackEvent("catalogo_filtro", "Filtro: precio", { path: "/catalogo", metadata: { filtro: "precio", min, max: max >= PRECIO_MAX ? null : max } });
     }
   }, []);
-  const [sort, setSort] = useState<SortKey>("NEWEST");
+  const [sort, setSort] = useState<ClaveOrden>("NEWEST");
   const [q, setQ] = useState(queryFromUrl);
   // «Avísame cuando llegue» desde una búsqueda sin resultados (lo avisa Blue, components/AsistenteBlue.tsx).
   const [avisoMsg, setAvisoMsg] = useState<string | null>(null);
@@ -608,7 +608,7 @@ export default function CatalogoScreen() {
 
   const portadasCategoria = useMemo(() => portadasDe(selectedCategory), [selectedCategory]);
 
-  const categoryOptions: CatalogCategoryOption[] = useMemo(
+  const categoryOptions: OpcionCategoriaCatalogo[] = useMemo(
     () => categories.map((c) => ({ id: c.id, name: c.name, slug: c.slug })),
     [categories]
   );
@@ -1011,7 +1011,7 @@ export default function CatalogoScreen() {
                 "x". A su derecha, a la misma altura, el icono de filtros (dueño, 2026-11-07); sin contador de productos. */}
             <View nativeID="catalogo-buscador-filtros" style={{ flexDirection: "row", alignItems: "center", gap: 6, zIndex: 2 }}>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Barramagic
+                <BarraBusqueda
                   isMobile={isMobile}
                   mode="input"
                   value={q}
@@ -1048,7 +1048,7 @@ export default function CatalogoScreen() {
 
             {/* Icono de filtros con su panel: dentro van todos los filtros (y, para admin, el estado interno de
                 publicación); dentro de una categoría, los de esa categoría. */}
-            <CatalogFilters
+            <FiltrosCatalogo
               enCategoria={enCategoria}
               disponibles={disponibles}
               extraTitle="Estado interno"

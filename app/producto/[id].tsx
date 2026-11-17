@@ -185,8 +185,8 @@ import {
   type ZonaEnvio,
 } from "../../lib/envio";
 import { direccionesDeFila } from "../../components/PerfilPublico";
-import ImageLightbox, { type EventoVisor, type LightboxImage } from "../../components/VisorFotos";
-import SmartImage from "../../components/ImagenInteligente";
+import VisorFotos, { type EventoVisor, type FotoVisor } from "../../components/VisorFotos";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import { useRecarga } from "../../components/TirarParaActualizar";
@@ -1037,7 +1037,7 @@ export default function ProductoScreen() {
   // producto no tiene fotos en product_media pero sí una imagen "de toda la
   // vida" en products.images, se usa esa como única foto del visor en vez
   // de dejarlo sin nada.
-  const lightboxImages: LightboxImage[] = useMemo(() => {
+  const lightboxImages: FotoVisor[] = useMemo(() => {
     if (imageGallery.length > 0) {
       return imageGallery.map((m) => ({ id: m.id, url: m.publicUrl }));
     }
@@ -1450,7 +1450,7 @@ export default function ProductoScreen() {
               >
                 {selectedImageUrl ? (
                   <View style={{ width: "100%" }} {...mainImagePan.panHandlers}>
-                    <SmartImage
+                    <ImagenInteligente
                       uri={selectedImageUrl}
                       alt={p.title}
                       ancho={isWide ? 700 : 420}
@@ -1670,7 +1670,7 @@ export default function ProductoScreen() {
                       >
                         {/* Carga diferida: solo las miniaturas que se ven (y unas pocas más) piden su foto. */}
                         {i < miniaturasCargadas ? (
-                          <SmartImage
+                          <ImagenInteligente
                             uri={media.publicUrl}
                             alt={`${p.title} (miniatura ${i + 1})`}
                             ancho={90}
@@ -1901,7 +1901,7 @@ export default function ProductoScreen() {
         </ScrollView>
       )}
 
-      <ImageLightbox
+      <VisorFotos
         visible={lightboxOpen}
         images={lightboxImages}
         initialIndex={lightboxIndex}
