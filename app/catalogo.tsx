@@ -2,8 +2,8 @@
  * Archivo: app/catalogo.tsx
  * Función: pantalla de catálogo de productos, en la dirección /catalogo (admite ?cat=, ?query=, ?estado=, ?precio_min=, ?precio_max=).
  * Para qué sirve: el cliente busca, filtra y ordena los productos de la tienda (y el administrador ve además el estado interno) en una rejilla paginada.
- * Conectado con: lib/supabase.ts (tablas products, categories, product_media, profiles), lib/analytics.ts, components/Barramagic.tsx (buscador), CatalogFilters.tsx, CategoryProductsShelf.tsx, PortadasCategoria.tsx, Campanita.tsx, TirarParaActualizar.tsx, CabeceraMarca.tsx, components/marca/*, constants/theme.ts.
- * Utilizado por: Expo Router (dirección /catalogo); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx, app/(tabs)/blue-ia.tsx, app/checkout.tsx, app/comparar.tsx, app/producto/[id].tsx, app/quienes-somos.tsx, app/noticias/[id].tsx, components/Barramagic.tsx, SiteFooter.tsx y Campanita.tsx.
+ * Conectado con: lib/supabase.ts (tablas products, categories, product_media, profiles), lib/analytics.ts, components/BarraBusqueda.tsx (buscador), FiltrosCatalogo.tsx, CarruselProductosCategoria.tsx, PortadasCategoria.tsx, AsistenteBlue.tsx, TirarParaActualizar.tsx, CabeceraMarca.tsx, components/marca/*, constants/theme.ts.
+ * Utilizado por: Expo Router (dirección /catalogo); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx, app/(tabs)/blue-ia.tsx, app/checkout.tsx, app/comparar.tsx, app/producto/[id].tsx, app/quienes-somos.tsx, app/noticias/[id].tsx, components/BarraBusqueda.tsx, PieDePagina.tsx y AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
  */
@@ -37,7 +37,7 @@
  *   compartir y no se pierden al volver atrás. Encima de la lista, un chip por
  *   filtro activo con su «Quitar» y «Borrar filtros».
  * - Búsqueda con texto (mejora 3): ya no es un ilike. Se busca en el índice
- *   ligero de components/Barramagic.tsx (sin fotos; una vez cada 5 min) con
+ *   ligero de components/BarraBusqueda.tsx (sin fotos; una vez cada 5 min) con
  *   sinónimos («play 5» = «ps5» = «PlayStation 5»), plurales y errores de
  *   escritura, por relevancia, y solo se piden las 24 filas de la página.
  *   Sin resultados: «No hemos encontrado «x»», «¿Querías decir «y»?» y «Ver
@@ -53,10 +53,10 @@
  * - lib/supabase.ts → cliente de Supabase (products, categories,
  *   product_media, profiles).
  * - lib/analytics.ts → paso "Categoría" para el panel de métricas.
- * - components/CatalogFilters.tsx → botón "Filtros" con contador y panel
+ * - components/FiltrosCatalogo.tsx → botón "Filtros" con contador y panel
  *   (hoja inferior en móvil) con todos los filtros, orden y "Quitar filtros".
- * - components/Barramagic.tsx → buscador (modo "input").
- * - components/CategoryProductsShelf.tsx → la tarjeta y la rejilla (TarjetaProducto, RejillaTarjetas), las mismas
+ * - components/BarraBusqueda.tsx → buscador (modo "input").
+ * - components/CarruselProductosCategoria.tsx → la tarjeta y la rejilla (TarjetaProducto, RejillaTarjetas), las mismas
  *   de Inicio y Servicios. Cada tarjeta lleva debajo «Comparar» (mejora 8, 2026-11-14: hasta 3 productos, barra
  *   flotante abajo y app/comparar.tsx); la lista deja abajo el hueco de esa barra (useAlturaBarraComparar).
  * - app/producto/[id].tsx → a donde se navega al pulsar una tarjeta.
@@ -91,15 +91,15 @@ import Barramagic, {
   medirSugerenciaTocada,
   useSugerenciasProductos,
   type ProductoIndice,
-} from "../components/Barramagic";
+} from "../components/BarraBusqueda";
 import { colorTextoAzul } from "../constants/theme";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
 import PortadasCategoria, { enterasInicioDe, esCategoriaServicios, faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
 import { useRecarga } from "../components/TirarParaActualizar";
-import { crearAvisoBusqueda } from "../components/Campanita";
-import { RejillaTarjetas, TarjetaProducto, useAlturaBarraComparar } from "../components/CategoryProductsShelf";
+import { crearAvisoBusqueda } from "../components/AsistenteBlue";
+import { RejillaTarjetas, TarjetaProducto, useAlturaBarraComparar } from "../components/CarruselProductosCategoria";
 import CatalogFilters, {
   Chip,
   PRECIO_MAX,
@@ -115,7 +115,7 @@ import CatalogFilters, {
   type FiltrosDisponibles,
   type ConditionFilter,
   type SortKey,
-} from "../components/CatalogFilters";
+} from "../components/FiltrosCatalogo";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -348,7 +348,7 @@ async function fetchProductsPage(
   f: ListFilters,
   offset: number
 ): Promise<{ rows: ProductDbRow[]; total: number | null; busqueda?: InfoBusqueda }> {
-  // Con texto: búsqueda tolerante en el índice ligero (components/Barramagic.tsx) y luego solo esa página de filas.
+  // Con texto: búsqueda tolerante en el índice ligero (components/BarraBusqueda.tsx) y luego solo esa página de filas.
   if (f.queryText) {
     const porIndice = await fetchProductsPageBuscando(f, offset);
     if (porIndice) return porIndice;
@@ -535,7 +535,7 @@ export default function CatalogoScreen() {
   }, []);
   const [sort, setSort] = useState<SortKey>("NEWEST");
   const [q, setQ] = useState(queryFromUrl);
-  // «Avísame cuando llegue» desde una búsqueda sin resultados (lo avisa Blue, components/Campanita.tsx).
+  // «Avísame cuando llegue» desde una búsqueda sin resultados (lo avisa Blue, components/AsistenteBlue.tsx).
   const [avisoMsg, setAvisoMsg] = useState<string | null>(null);
   const avisarCuandoLlegue = useCallback(async () => {
     const r = await crearAvisoBusqueda(q);
@@ -677,7 +677,7 @@ export default function CatalogoScreen() {
   const productCards = useMemo(
     () =>
       items.map((p, i) => (
-        // La misma tarjeta que Inicio y Servicios (components/CategoryProductsShelf.tsx). Solo el administrador ve,
+        // La misma tarjeta que Inicio y Servicios (components/CarruselProductosCategoria.tsx). Solo el administrador ve,
         // en texto y sin recuadro, el estado interno del artículo.
         <TarjetaProducto
           key={p.id}
@@ -1007,7 +1007,7 @@ export default function CatalogoScreen() {
               </View>
             ) : null}
 
-            {/* Buscador compartido (components/Barramagic.tsx), modo "input": busca al pulsar intro y limpia con la
+            {/* Buscador compartido (components/BarraBusqueda.tsx), modo "input": busca al pulsar intro y limpia con la
                 "x". A su derecha, a la misma altura, el icono de filtros (dueño, 2026-11-07); sin contador de productos. */}
             <View nativeID="catalogo-buscador-filtros" style={{ flexDirection: "row", alignItems: "center", gap: 6, zIndex: 2 }}>
               <View style={{ flex: 1, minWidth: 0 }}>

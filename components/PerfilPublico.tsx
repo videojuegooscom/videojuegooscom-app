@@ -2,8 +2,8 @@
  * Archivo: components/PerfilPublico.tsx
  * Función: componente de «Mi perfil» del cliente y de la obligación de completarlo.
  * Para qué sirve: formulario del perfil (usuario, foto, nombre, país, edad, direcciones de envío, teléfono, seguridad de la cuenta), pantalla obligatoria de completar perfil (PerfilObligatorio) y utilidades para el Foro (perfilesPublicos, datosDeFila).
- * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/admin/products.utils.ts, components/marca/CargaMarca.tsx, components/SmartImage.tsx, constants/theme.ts, tabla perfiles y función perfiles_publicos.
- * Utilizado por: app/(tabs)/perfil.tsx, app/_layout.tsx, app/checkout.tsx, app/producto/[id].tsx, app/(tabs)/chat-global.tsx, app/admin/users.tsx, app/admin/cliente/[userId].tsx, components/VenderAhoraModal.tsx, components/Resenas.tsx y components/Campanita.tsx.
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/admin/products.utils.ts, components/marca/CargaMarca.tsx, components/ImagenInteligente.tsx, constants/theme.ts, tabla perfiles y función perfiles_publicos.
+ * Utilizado por: app/(tabs)/perfil.tsx, app/_layout.tsx, app/checkout.tsx, app/producto/[id].tsx, app/(tabs)/chat-global.tsx, app/admin/users.tsx, app/admin/cliente/[userId].tsx, components/VenderAhoraModal.tsx, components/Resenas.tsx y components/AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
  *
@@ -52,7 +52,7 @@
  *   «Completa tu perfil» tapa la tienda hasta que se guarda completo (o se cierra la sesión). No sale en Mi cuenta (allí está
  *   la tarjeta), ni en las políticas (se pueden leer antes de dar los datos), ni al cambiar la contraseña, ni en el panel de
  *   administración. Mientras está
- *   abierta, Blue se esconde (usePerfilObligatorioVisible, components/Campanita.tsx).
+ *   abierta, Blue se esconde (usePerfilObligatorioVisible, components/AsistenteBlue.tsx).
  *
  * Datos: tabla perfiles_cliente (cada cliente ve y edita SOLO su fila; el administrador las lee en Administración →
  * Usuarios) y fotos en el almacén «avatares», carpeta del propio cliente (supabase/migrations/20261030150000_perfiles_cliente
@@ -61,9 +61,9 @@
  * columna de la foto, todo funciona sin foto.
  *
  * Conectado con: app/(tabs)/perfil.tsx, app/_layout.tsx, app/(tabs)/chat-global.tsx, components/Resenas.tsx,
- * components/Campanita.tsx, app/checkout.tsx, app/admin/cliente/[userId].tsx y app/admin/categories.tsx (RecortarFoto).
+ * components/AsistenteBlue.tsx, app/checkout.tsx, app/admin/cliente/[userId].tsx y app/admin/categories.tsx (RecortarFoto).
  * Usa lib/supabase.ts (tabla perfiles_cliente, función perfiles_publicos, almacén «avatares»), lib/analytics.ts,
- * lib/admin/products.utils.ts, components/SmartImage.tsx, components/marca/CargaMarca.tsx y constants/theme.ts (CAMPO).
+ * lib/admin/products.utils.ts, components/ImagenInteligente.tsx, components/marca/CargaMarca.tsx y constants/theme.ts (CAMPO).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
@@ -86,7 +86,7 @@ import {
 import { trackEvent } from "../lib/analytics";
 import { pickMediaFilesWeb, reducirImagenWeb } from "../lib/admin/products.utils";
 import CargaMarca from "./marca/CargaMarca";
-import SmartImage from "./SmartImage";
+import SmartImage from "./ImagenInteligente";
 import { CAMPO, TACTIL, colorTextoAzul } from "../constants/theme";
 
 const P = {
@@ -494,7 +494,7 @@ export function usePerfilObligatorioVisible(): boolean {
   return useSyncExternalStore(suscribirVisible, () => obligatorioVisible, () => false);
 }
 
-// ¿Está desplegado «Mi perfil» en Mi cuenta? Blue no aparece mientras tanto (dueño, 2026-11-03; components/Campanita.tsx,
+// ¿Está desplegado «Mi perfil» en Mi cuenta? Blue no aparece mientras tanto (dueño, 2026-11-03; components/AsistenteBlue.tsx,
 // que además mira que se esté en /perfil: las pestañas de la tienda se quedan montadas al cambiar de una a otra).
 let miPerfilAbierto = false;
 const oyentesMiPerfil = new Set<() => void>();

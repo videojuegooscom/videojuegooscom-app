@@ -3,7 +3,7 @@
  * Función: página «Quiénes somos», en la dirección /quienes-somos.
  * Para qué sirve: el cliente conoce quién está detrás de la tienda, su historia, cómo se revisa cada consola, entregas y horario, con botones para dar el siguiente paso.
  * Conectado con: components/CabeceraMarca.tsx, lib/analytics.ts (evento quienes_somos_visto); mismos datos que app/+html.tsx, public/llms.txt y lib/horarioAtencion.ts; no llama a Supabase.
- * Utilizado por: Expo Router (dirección /quienes-somos); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, components/SiteFooter.tsx y components/Barramagic.tsx.
+ * Utilizado por: Expo Router (dirección /quienes-somos); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, components/PieDePagina.tsx y components/BarraBusqueda.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
  */
@@ -29,8 +29,8 @@
  * descripción (SiteHead), como encabezado en «Quién está detrás» y como ficha Person en app/+html.tsx. La página se
  * enlaza también desde Inicio y desde entrar/crear cuenta; visitas y procedencia, en Administración → Analítica.
  *
- * Conectado con: components/SiteHead.tsx (título y descripción), components/SiteFooter.tsx y
- * components/Barramagic.tsx (enlaces), app/(tabs)/index.tsx y app/(tabs)/perfil.tsx (accesos), api/sitemap.ts
+ * Conectado con: components/EtiquetasCabeceraWeb.tsx (título y descripción), components/PieDePagina.tsx y
+ * components/BarraBusqueda.tsx (enlaces), app/(tabs)/index.tsx y app/(tabs)/perfil.tsx (accesos), api/sitemap.ts
  * (mapa del sitio), app/_layout.tsx (ruta), app/admin/analytics.tsx (medición).
  */
 import React, { useEffect } from "react";

@@ -2,8 +2,8 @@
  * Archivo: app/comparar.tsx
  * Función: pantalla «Comparar productos», en la dirección /comparar (admite ?ids=a,b,c).
  * Para qué sirve: el cliente ve uno al lado del otro hasta 3 productos (precio, estado, categoría, entrega estimada, revisión y garantía si constan) y los añade a la cesta o los quita.
- * Conectado con: components/CategoryProductsShelf.tsx (lista de comparados), components/Barramagic.tsx (portadas), components/CabeceraMarca.tsx, components/marca/*, components/SmartImage.tsx, components/PerfilPublico.tsx, lib/supabase.ts (tabla products, perfil del cliente), lib/envio.ts (entrega estimada), lib/analytics.ts, constants/theme.ts.
- * Utilizado por: Expo Router (dirección /comparar); lo abre BarraComparar (components/CategoryProductsShelf.tsx, montada en app/_layout.tsx) desde el Catálogo (app/catalogo.tsx) y las fichas (app/producto/[id].tsx).
+ * Conectado con: components/CarruselProductosCategoria.tsx (lista de comparados), components/BarraBusqueda.tsx (portadas), components/CabeceraMarca.tsx, components/marca/*, components/ImagenInteligente.tsx, components/PerfilPublico.tsx, lib/supabase.ts (tabla products, perfil del cliente), lib/envio.ts (entrega estimada), lib/analytics.ts, constants/theme.ts.
+ * Utilizado por: Expo Router (dirección /comparar); lo abre BarraComparar (components/CarruselProductosCategoria.tsx, montada en app/_layout.tsx) desde el Catálogo (app/catalogo.tsx) y las fichas (app/producto/[id].tsx).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
  */
@@ -29,21 +29,21 @@
  * Analítica propia (Administración → Analítica → «Comparador (30 días)»; sin datos de nadie): comparar_abierto (cuántos
  * productos y sus ids, una vez por visita a la página) y comparar_anadir_cesta (id).
  *
- * Conectado con: components/CategoryProductsShelf.tsx (useComparar, quitarDeComparar, fijarComparados; la barra que trae
- * aquí), components/Barramagic.tsx (portadasDeProductos), lib/supabase.ts (products, filaPerfilCliente), lib/envio.ts,
- * components/SiteHead.tsx (título «Comparar productos»), app/(tabs)/cesta.tsx (?add=) y app/admin/analytics.tsx.
+ * Conectado con: components/CarruselProductosCategoria.tsx (useComparar, quitarDeComparar, fijarComparados; la barra que trae
+ * aquí), components/BarraBusqueda.tsx (portadasDeProductos), lib/supabase.ts (products, filaPerfilCliente), lib/envio.ts,
+ * components/EtiquetasCabeceraWeb.tsx (título «Comparar productos»), app/(tabs)/cesta.tsx (?add=) y app/admin/analytics.tsx.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, useWindowDimensions, View } from "react-native";
 import type { Href } from "expo-router";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import SmartImage from "../components/SmartImage";
+import SmartImage from "../components/ImagenInteligente";
 import CabeceraMarca from "../components/CabeceraMarca";
 import CargaMarca from "../components/marca/CargaMarca";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
-import { portadasDeProductos } from "../components/Barramagic";
-import { COMPARAR_MAX, fijarComparados, quitarDeComparar, useComparar, type ProductoComparar } from "../components/CategoryProductsShelf";
+import { portadasDeProductos } from "../components/BarraBusqueda";
+import { COMPARAR_MAX, fijarComparados, quitarDeComparar, useComparar, type ProductoComparar } from "../components/CarruselProductosCategoria";
 import { direccionesDeFila } from "../components/PerfilPublico";
 import { filaPerfilCliente, supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";

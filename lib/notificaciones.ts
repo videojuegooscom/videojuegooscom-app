@@ -3,7 +3,7 @@
  * Función: utilidad de avisos del navegador y avisos push al móvil del dueño.
  * Para qué sirve: avisa al cliente de los mensajes nuevos del chat (Notification API) y gestiona el registro de dispositivos para los avisos push de pedidos y servicios del administrador.
  * Conectado con: public/sw-avisos.js, api/pago.ts (envía los avisos), components/AvisosMovil.tsx.
- * Utilizado por: components/VenderAhoraModal.tsx, components/Campanita.tsx y components/AvisosMovil.tsx.
+ * Utilizado por: components/VenderAhoraModal.tsx, components/AsistenteBlue.tsx y components/AvisosMovil.tsx.
  * Dependencias: react-native.
  * Estado: ACTIVO
  */
@@ -20,7 +20,7 @@
  *
  * Conectado con:
  * - components/VenderAhoraModal.tsx → botón «Activar notificaciones» al elegir el chat.
- * - components/Campanita.tsx → cuando suben los mensajes sin leer y la pestaña está en segundo
+ * - components/AsistenteBlue.tsx → cuando suben los mensajes sin leer y la pestaña está en segundo
  *   plano, lanza el aviso (notificarMensajeNuevo).
  * - Desde el 2026-11-15, abajo: los avisos push al móvil del DUEÑO (pedidos y servicios pagados o nuevos), que sí llegan
  *   con la tienda cerrada: components/AvisosMovil.tsx, public/sw-avisos.js y api/pago.ts.

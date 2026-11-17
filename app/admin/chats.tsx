@@ -2,7 +2,7 @@
  * Archivo: app/admin/chats.tsx
  * Función: pantalla de administración «Chat», en la dirección /admin/chats.
  * Para qué sirve: el administrador ve las conversaciones privadas con los clientes (por producto, por venta y atención general), responde, marca un producto como vendido a esa persona y asigna seguimientos de pedido o reparación.
- * Conectado con: lib/supabase.ts (tablas product_chats, product_sales y funciones como admin_users_by_ids), components/ProductChatThread.tsx (el hilo), components/marca/CargaMarca.tsx, lib/openExternalLink.ts, constants/theme.ts, components/admin/PanelUI.tsx; api/asignar-seguimiento.ts.
+ * Conectado con: lib/supabase.ts (tablas product_chats, product_sales y funciones como admin_users_by_ids), components/ConversacionProducto.tsx (el hilo), components/marca/CargaMarca.tsx, lib/openExternalLink.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/asignar-seguimiento.ts.
  * Utilizado por: Expo Router (dirección /admin/chats, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Chat» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -23,7 +23,7 @@
  *   poder elegir la correcta.
  * - Master-detail en una sola pantalla: lista de productos con
  *   conversaciones a la izquierda (o arriba en móvil) y, al elegir una
- *   conversación, su hilo completo (components/ProductChatThread.tsx) a la
+ *   conversación, su hilo completo (components/ConversacionProducto.tsx) a la
  *   derecha, con el botón "Marcar como vendido a este cliente" añadido por
  *   fuera del componente compartido (headerRight).
  * - Consultas generales (sin producto ni solicitud de venta): se agrupan
@@ -66,7 +66,7 @@
  *   administrador sin leer).
  *
  * - Chat con el producto adjunto (mejora 10, 2026-11-15): cada producto de la lista lleva su tarjeta (TarjetaArticuloChat
- *   de components/ProductChatThread.tsx: foto, título, precio actual y estado a la venta / vendido / retirado, con «Ver la
+ *   de components/ConversacionProducto.tsx: foto, título, precio actual y estado a la venta / vendido / retirado, con «Ver la
  *   ficha» y «Editar en Productos»), también fijada arriba del hilo abierto. Filtro «Todas» / «Con producto».
  *
  * Conectado con:
@@ -74,7 +74,7 @@
  * - app/admin/cliente/[userId].tsx → «Escribir por el chat» (?chat=) y sus preguntas por artículos.
  * - sql/product_sales.sql → marcar como vendido.
  * - sql/admin_users_by_ids.sql → nombre real del cliente en la lista.
- * - components/ProductChatThread.tsx → el hilo de mensajes en sí.
+ * - components/ConversacionProducto.tsx → el hilo de mensajes en sí.
  * - app/admin/products.tsx → la otra forma de marcar "vendido" (buscando al
  *   usuario registrado, sin depender de que haya escrito por chat).
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
@@ -83,7 +83,7 @@
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario, todo lo que se toca (volver, borrar, confirmar, chips) de 44 px
  *   separado 8 y los campos de 16 px y 48 de alto.
- * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Categorías y
+ * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos, Categorías y
  *   Productos): la invitación a registrarse arriba, en un bloque; cifras que filtran (Conversaciones, Con producto,
  *   Atención al cliente, Ventas de clientes), buscador de 16 px (cliente, mensaje, artículo o producto), pastillas de
  *   44 px con su recuento (#chats-filtro) y la lista por grupos (Atención al cliente, Ventas de clientes y Preguntas por
@@ -107,7 +107,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
-import ProductChatThread, { cargarArticulosChat, TarjetaArticuloChat, TITULO_ATENCION_CLIENTE, type ArticuloChat } from "../../components/ProductChatThread";
+import ProductChatThread, { cargarArticulosChat, TarjetaArticuloChat, TITULO_ATENCION_CLIENTE, type ArticuloChat } from "../../components/ConversacionProducto";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import {
@@ -125,7 +125,7 @@ import {
   Miniatura,
   RecuentoLista,
   Seccion,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 
 const COLORS = {
   bg: "#FFFFFF",

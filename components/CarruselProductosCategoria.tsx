@@ -1,9 +1,9 @@
 /**
- * Archivo: components/CategoryProductsShelf.tsx
+ * Archivo: components/CarruselProductosCategoria.tsx
  * Función: componente del carrusel de productos («También te puede interesar») y de la barra de comparar.
  * Para qué sirve: lista en un carrusel los productos activos de PlayStation 5 y Xbox, y exporta useComparar y useAlturaBarraComparar para la comparación de productos.
- * Conectado con: lib/supabase.ts, lib/analytics.ts, components/SmartImage.tsx, TirarParaActualizar.tsx, Barramagic.tsx, constants/theme.ts, tablas categories y products.
- * Utilizado por: app/_layout.tsx, app/catalogo.tsx, app/comparar.tsx, app/servicios.tsx, app/producto/[id].tsx, app/(tabs)/index.tsx, perfil.tsx, cesta.tsx, app/admin/analytics.tsx, components/Campanita.tsx y components/BotonAtrasAlcance.tsx.
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, components/ImagenInteligente.tsx, TirarParaActualizar.tsx, BarraBusqueda.tsx, constants/theme.ts, tablas categories y products.
+ * Utilizado por: app/_layout.tsx, app/catalogo.tsx, app/comparar.tsx, app/servicios.tsx, app/producto/[id].tsx, app/(tabs)/index.tsx, perfil.tsx, cesta.tsx, app/admin/analytics.tsx, components/AsistenteBlue.tsx y components/BotonAtrasAlcance.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage, react-native-safe-area-context.
  * Estado: ACTIVO
  */
@@ -63,7 +63,7 @@
  * de la ficha: misma categoría y precio parecido ±40 %, sin el actual; carrusel en el móvil con este mismo estante y
  * `productos` ya calculados, rejilla de 4 en el ordenador) y CompletaTuCompra (bajo los botones de la ficha y en la
  * cesta): solo si hay una consola, mandos y accesorios de su familia (tipoDeArticulo y familiasDeProducto, con los
- * sinónimos de la búsqueda); nunca otra consola ni relleno. Salen del índice ligero de components/Barramagic.tsx y
+ * sinónimos de la búsqueda); nunca otra consola ni relleno. Salen del índice ligero de components/BarraBusqueda.tsx y
  * solo bajan las portadas pequeñas de lo que se enseña. Analítica propia: parecidos_mostrado, parecido_tocado,
  * complemento_mostrado, complemento_tocado y complemento_anadido (ids de producto), en Administración → Analítica.
  *
@@ -83,8 +83,8 @@
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase (tablas categories, products,
  *   product_media).
- * - components/SmartImage.tsx → foto de cada tarjeta (y quien enciende la
- *   barra de carga global, components/lineapensadoraefectosiri.tsx,
+ * - components/ImagenInteligente.tsx → foto de cada tarjeta (y quien enciende la
+ *   barra de carga global, components/EfectoPensando.tsx,
  *   mientras esa foto concreta está descargándose).
  * - app/producto/[id].tsx → destino de cada tarjeta.
  * - app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx → pantallas que lo montan (la cesta, también «Completa tu compra»).
@@ -101,9 +101,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { NativeScrollEvent, NativeSyntheticEvent, ViewStyle } from "react-native";
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import SmartImage from "./SmartImage";
+import SmartImage from "./ImagenInteligente";
 import { useRecarga } from "./TirarParaActualizar";
-import { cargarIndiceBusqueda, palabrasBusqueda, portadasDeProductos, type ProductoIndice } from "./Barramagic";
+import { cargarIndiceBusqueda, palabrasBusqueda, portadasDeProductos, type ProductoIndice } from "./BarraBusqueda";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
 import { colorTextoAzul, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
@@ -751,7 +751,7 @@ export default function CategoryProductsShelf({
 
 // ---------------------------------------------------------------------------------------------------------------------
 // «Productos parecidos» y «Completa tu compra» (mejora 6, dueño 2026-11-14). Todo sale del índice ligero de la búsqueda
-// (components/Barramagic.tsx → cargarIndiceBusqueda: sin fotos, en memoria 5 min) y solo se piden las portadas pequeñas
+// (components/BarraBusqueda.tsx → cargarIndiceBusqueda: sin fotos, en memoria 5 min) y solo se piden las portadas pequeñas
 // de lo que se enseña (portadasDeProductos), para cuidar la cuota de salida de Supabase.
 // ---------------------------------------------------------------------------------------------------------------------
 

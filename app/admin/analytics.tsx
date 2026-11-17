@@ -2,7 +2,7 @@
  * Archivo: app/admin/analytics.tsx
  * Función: pantalla de administración «Visitas y métricas» (analítica propia), en la dirección /admin/analytics.
  * Para qué sirve: el administrador mide visitas, recorrido del cliente, búsquedas, pagos, reparaciones, alquiler y el uso de cada función nueva de la tienda, solo con datos agregados y respetando a quien rechazó la analítica.
- * Conectado con: lib/supabase.ts (tabla analytics_events y funciones SQL analytics_*), lib/envio.ts, lib/alquiler.ts, constants/theme.ts, components/marca/CargaMarca.tsx, lib/admin/products.components.ts, components/admin/PanelUI.tsx; los eventos los escribe lib/analytics.ts desde casi todas las pantallas.
+ * Conectado con: lib/supabase.ts (tabla analytics_events y funciones SQL analytics_*), lib/envio.ts, lib/alquiler.ts, constants/theme.ts, components/marca/CargaMarca.tsx, lib/admin/products.components.ts, components/admin/PiezasPanelAdmin.tsx; los eventos los escribe lib/analytics.ts desde casi todas las pantallas.
  * Utilizado por: Expo Router (dirección /admin/analytics, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Visitas y métricas» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -81,13 +81,13 @@
  * - api/escaparate-veoaura.ts (evento «venta_tienda») → «Ventas en tienda frente a online» (#analitica-ventas-tienda,
  *   migración 20261111170000, dueño 2026-11-11): cuántos pedidos y qué importe en tienda (en mano, de VeoAura) y online,
  *   sin cancelados; solo lee origen, estado y total (ningún dato de nadie). Sin la migración, no sale.
- * - components/Campanita.tsx → «Avisos de Blue solo con cuenta» (#analitica-blue-avisos-cuenta): cuentas con los
+ * - components/AsistenteBlue.tsx → «Avisos de Blue solo con cuenta» (#analitica-blue-avisos-cuenta): cuentas con los
  *   avisos de artículos nuevos (recuento de preferencias_usuario, sin filas ni la del administrador), toques en
  *   «Crear cuenta gratis» y cuentas creadas después (lib/analytics.ts → marcarOrigenRegistro).
  * - Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px y grises desde
  *   COLORES_TEXTO.secundario (antes 12/12,5 px y gris 0,48), sin tocar los gráficos ni los datos.
  * - «Búsquedas (30 días)» (#analitica-busquedas, mejora 3 del 2026-11-14): lee los eventos busqueda,
- *   busqueda_sin_resultados, busqueda_sugerencia_tocada y catalogo_filtro de components/Barramagic.tsx y
+ *   busqueda_sin_resultados, busqueda_sugerencia_tocada y catalogo_filtro de components/BarraBusqueda.tsx y
  *   app/catalogo.tsx (siempre 30 días): lo más buscado, lo que no dio resultados (lo que piden y no hay), sinónimos y
  *   correcciones usados, sugerencias tocadas y el uso de los filtros de precio y estado. Texto normalizado, sin datos.
  * - «Ficha del producto (30 días)» (#analitica-ficha-producto, mejora 4 «Ficha de confianza» del 2026-11-14): eventos
@@ -96,19 +96,19 @@
  *   garantía (migración 20261114140000; sin ella, esa línea no sale).
  * - «Seguimiento de pedidos y avisos de precio (30 días)» (#analitica-avisos-precio, mejora 5 del 2026-11-14): eventos
  *   pedido_aviso_estado_mostrado / _tocado, seguir_envio y aviso_precio_activado / _desactivado / _mostrado / _tocado /
- *   _invitacion (components/Campanita.tsx, app/producto/[id].tsx, app/(tabs)/perfil.tsx; sin datos personales) y cuántos
+ *   _invitacion (components/AsistenteBlue.tsx, app/producto/[id].tsx, app/(tabs)/perfil.tsx; sin datos personales) y cuántos
  *   clientes siguen cada producto (avisos_precio, migración 20261114160100: solo recuentos, sin nombres; sin ella, no sale).
  *   Y «Avisos de reposición» (#analitica-avisos-reposicion, dueño 2026-11-16, migración 20261116100000): activos por canal,
  *   avisados y los eventos aviso_reposicion_activado (canal) / _desactivado / _tocado; sin la tabla, no sale.
  * - «Parecidos y complementos (30 días)» (#analitica-parecidos, mejora 6 del 2026-11-14): eventos parecidos_mostrado,
  *   parecido_tocado, complemento_mostrado (ficha o cesta), complemento_tocado y complemento_anadido de
- *   components/CategoryProductsShelf.tsx (solo ids de producto) y los 5 productos que más se añaden desde ahí.
+ *   components/CarruselProductosCategoria.tsx (solo ids de producto) y los 5 productos que más se añaden desde ahí.
  * - «Comparador (30 días)» (#analitica-comparador, mejora 8 «Comparar 2-3 productos» del 2026-11-14): eventos
  *   comparar_abierto (n e ids), comparar_anadir_cesta (app/comparar.tsx), comparar_anadido y comparar_quitado
- *   (components/CategoryProductsShelf.tsx); veces abierto, media de productos, añadidos a la cesta y los 5 más comparados.
+ *   (components/CarruselProductosCategoria.tsx); veces abierto, media de productos, añadidos a la cesta y los 5 más comparados.
  * - «Consejos de Blue (30 días)» (#analitica-consejos, mejora 12 «Blue en momentos clave» del 2026-11-15): eventos
  *   consejo_mostrado, consejo_seguido y consejo_cerrado (solo el momento: cesta, catálogo, ficha, comparar, cuenta) y
- *   consejos_desactivados de components/Campanita.tsx; por momento, mostrados, seguidos y cerrados, y cuántos los apagaron.
+ *   consejos_desactivados de components/AsistenteBlue.tsx; por momento, mostrados, seguidos y cerrados, y cuántos los apagaron.
  * - «Cambio de consola desde la cesta (30 días)» (#analitica-cambio-cesta, mejora 13 del 2026-11-15): cambio_cesta_mostrado
  *   y cambio_cesta_tocado (app/(tabs)/cesta.tsx) y cambio_cesta_enviado (components/VenderAhoraModal.tsx); solo recuentos.
  * - «Pedidos cancelados: recuperación (30 días)» (#analitica-cancelados-recuperacion, 2026-11-16): cancelado_volver_comprar
@@ -116,12 +116,12 @@
  * - «Vender ahora: autorrelleno y fotos (30 días)» (#analitica-vender-media, 2026-11-16): vender_autorrelleno (metadata
  *   campos) y vender_sin_media de components/VenderAhoraModal.tsx; solo recuentos y la media de campos rellenados.
  * - «Vistos recientemente (30 días)» (#analitica-vistos, mejora 9 del 2026-11-14): eventos vistos_mostrado (n),
- *   visto_tocado (id y posición), visto_quitado y vistos_borrados de Inicio (components/CategoryProductsShelf.tsx →
+ *   visto_tocado (id y posición), visto_quitado y vistos_borrados de Inicio (components/CarruselProductosCategoria.tsx →
  *   VistosRecientemente; solo ids); veces mostrado, toques, quitados/borrados y los 5 productos más revisitados.
  * - «Preguntas por artículos (30 días)» (#analitica-chat-producto, mejora 10 «Chat con el producto adjunto» del
  *   2026-11-15): eventos chat_producto_abierto (productId), chat_producto_sugerencia (qué pregunta sugerida),
  *   chat_producto_enviado (primera o no) y chat_producto_invitacion (sin cuenta) de app/producto/[id].tsx y
- *   components/ProductChatThread.tsx; conversaciones abiertas, preguntas sugeridas más usadas y los 5 productos por los que
+ *   components/ConversacionProducto.tsx; conversaciones abiertas, preguntas sugeridas más usadas y los 5 productos por los que
  *   más se pregunta. Solo ids de producto, nunca el texto de los mensajes.
  * - «Valoraciones (30 días)» (#analitica-valoraciones, mejora 11 «Valoración tras la entrega» del 2026-11-15): de
  *   pedido_valoraciones (migración 20261115100000; sin ella, un aviso) media, número, reparto por nota, filtro por nota y la
@@ -131,7 +131,7 @@
  *   rendimiento_carga (lib/analytics.ts → medirCargaPantalla, una vez por visita: ms hasta la primera pantalla útil de
  *   Inicio, Catálogo o la ficha, ancho por tramos y tipo de conexión; sin datos de nadie). Mediana y percentil 75 por
  *   pantalla y por móvil/tableta/ordenador.
- * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx): las cuatro cifras del rango (Visitantes, Páginas
+ * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PiezasPanelAdmin.tsx): las cuatro cifras del rango (Visitantes, Páginas
  *   vistas, Eventos totales y Con cuenta) arriba del todo con FilaCifras, las pastillas de fechas comunes (44 px; en el móvil,
  *   deslizables) y cada apartado en un bloque limpio con su título y su explicación a la izquierda; mismos datos y consultas.
  * - app/admin/index.tsx → tarjeta "Visitas y métricas" que lleva aquí.
@@ -158,7 +158,7 @@ import { cargarAjustesReparacionEnvio } from "../../lib/envio";
 import { eurosAlquiler, mesesContratados } from "../../lib/alquiler";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { AdminHeader, AdminNotice } from "../../lib/admin/products.components";
-import { Chip, Cifra, Detalle, FilaCifras, FilaPastillas, PANEL } from "../../components/admin/PanelUI";
+import { Chip, Cifra, Detalle, FilaCifras, FilaPastillas, PANEL } from "../../components/admin/PiezasPanelAdmin";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -202,7 +202,7 @@ type DatePreset = "today" | "7d" | "30d" | "90d" | "all" | "custom";
 const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
 // «Velocidad de la tienda (30 días)»: pantallas y tramos de ancho que mide lib/analytics.ts (medirCargaPantalla).
-// Momentos de los consejos de Blue (components/Campanita.tsx → MomentoBlue) y su nombre en la tarjeta.
+// Momentos de los consejos de Blue (components/AsistenteBlue.tsx → MomentoBlue) y su nombre en la tarjeta.
 const MOMENTOS_CONSEJO: [string, string][] = [
   ["cesta", "Primera compra (cesta)"],
   ["catalogo", "Catálogo"],
@@ -343,7 +343,7 @@ function fmtDayLabel(dayStr: string) {
   return `${parts[2]}/${parts[1]}`;
 }
 
-// Un filtro de la pantalla (rango de fechas, nota de las valoraciones): la pastilla común del panel (PanelUI, 44 px).
+// Un filtro de la pantalla (rango de fechas, nota de las valoraciones): la pastilla común del panel (PiezasPanelAdmin, 44 px).
 function ChipButton({ label, onPress, active }: { label: string; onPress: () => void; active?: boolean; isMobile?: boolean }) {
   return <Chip label={label} onPress={onPress} activo={active} />;
 }
@@ -1578,12 +1578,12 @@ export default function AdminAnalytics() {
       bienvenidaLenta: findExact("Bienvenida: tienda lista en más de 3 s"),
       bienvenidaSaltada: findExact("Bienvenida: saltada con un toque"),
       bienvenidaInicio: findExact("Bienvenida: empieza en Inicio"),
-      // Visor de fotos de la ficha (components/ImageLightbox.tsx): quién amplía y quién llega a usar el zoom.
+      // Visor de fotos de la ficha (components/VisorFotos.tsx): quién amplía y quién llega a usar el zoom.
       fotoAmpliada: findExact("Ficha: foto ampliada"),
       fotoZoom: findExact("Ficha: zoom en la foto"),
       // Ficha de servicio (app/servicio/[id].tsx, con el formato de la de producto): fotos ampliadas y sus dos botones.
       servicioFoto: findExact("Servicio: foto ampliada"),
-      // Filtros del catálogo (components/CatalogFilters.tsx, icono junto al buscador): abiertos y aplicados.
+      // Filtros del catálogo (components/FiltrosCatalogo.tsx, icono junto al buscador): abiertos y aplicados.
       // Botones de la tienda que ofrece Blue IA (app/(tabs)/blue-ia.tsx): mostrados, tocados y cuáles se tocan más.
       blueBotonesMostrados: sumStartingWith("Blue IA: botón mostrado"),
       blueBotonesTocados: sumStartingWith("Blue IA: botón tocado"),
@@ -1621,7 +1621,7 @@ export default function AdminAnalytics() {
       resenaServicioPublicada: findExact("Reseña de servicio publicada"),
       // «Blue, ayúdame a elegir un artículo» de la Cesta (app/(tabs)/cesta.tsx): abre Blue IA con la pregunta enviada.
       blueElegir: findExact("Cesta: Blue, ayúdame a elegir"),
-      // Blue flotante (components/Campanita.tsx): solo sale en Inicio y en las fichas; en cuál lo abren.
+      // Blue flotante (components/AsistenteBlue.tsx): solo sale en Inicio y en las fichas; en cuál lo abren.
       blueInicio: findExact("Blue flotante: abierto en Inicio"),
       blueFichaProducto: findExact("Blue flotante: abierto en la ficha de producto"),
       blueFichaServicio: findExact("Blue flotante: abierto en la ficha de servicio"),

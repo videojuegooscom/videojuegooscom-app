@@ -1,9 +1,9 @@
 /**
- * Archivo: components/ImageLightbox.tsx
+ * Archivo: components/VisorFotos.tsx
  * Función: componente visor de fotos a pantalla completa.
  * Para qué sirve: muestra las fotos de una ficha con zoom (pellizco, doble toque, rueda), arrastre, navegación entre imágenes y cierre deslizando; avisa de su uso a la analítica.
- * Conectado con: components/SmartImage.tsx, lib/analytics.ts, components/Campanita.tsx (suscribirVisorFotos / visorFotosAbierto).
- * Utilizado por: app/producto/[id].tsx, app/servicio/[id].tsx, app/admin/services.tsx y components/Campanita.tsx.
+ * Conectado con: components/ImagenInteligente.tsx, lib/analytics.ts, components/AsistenteBlue.tsx (suscribirVisorFotos / visorFotosAbierto).
+ * Utilizado por: app/producto/[id].tsx, app/servicio/[id].tsx, app/admin/services.tsx y components/AsistenteBlue.tsx.
  * Dependencias: react, react-native, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
  *
@@ -41,17 +41,17 @@
  * vuelve). El eje se decide al empezar a mover: en horizontal cambia de foto, en vertical cierra. onEvento avisa a quien lo
  * abre del zoom (una vez por apertura) y del cierre deslizando, para su analítica (la ficha lo cuenta como ficha_foto_zoom).
  *
- * Blue: mientras el visor está abierto, components/Campanita.tsx lo esconde (suscribirVisorFotos) y guarda sus
+ * Blue: mientras el visor está abierto, components/AsistenteBlue.tsx lo esconde (suscribirVisorFotos) y guarda sus
  * mensajes para cuando se cierre. No usa ninguna librería nueva: los gestos son PanResponder de React Native.
  *
- * Conectado con: app/producto/[id].tsx, app/servicio/[id].tsx, app/admin/services.tsx y components/Campanita.tsx
- * (lo usan); usa components/SmartImage.tsx (las fotos) y lib/analytics.ts (trackEvent).
+ * Conectado con: app/producto/[id].tsx, app/servicio/[id].tsx, app/admin/services.tsx y components/AsistenteBlue.tsx
+ * (lo usan); usa components/ImagenInteligente.tsx (las fotos) y lib/analytics.ts (trackEvent).
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PanResponder, Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import SmartImage from "./SmartImage";
+import SmartImage from "./ImagenInteligente";
 import { trackEvent } from "../lib/analytics";
 
 export type LightboxImage = {

@@ -3,7 +3,7 @@
  * Función: utilidad con las medidas de la barra de pestañas inferior.
  * Para qué sirve: calcula el hueco inferior (zona segura del iPhone) que se suma a la barra y a lo que se coloca encima (buscador flotante, «volver arriba», aviso de cookies).
  * Conectado con: react-native-safe-area-context (zona segura); app/+html.tsx define viewport-fit=cover.
- * Utilizado por: app/(tabs)/_layout.tsx, app/(tabs)/index.tsx y components/CookieConsentBanner.tsx.
+ * Utilizado por: app/(tabs)/_layout.tsx, app/(tabs)/index.tsx y components/AvisoAnaliticaCookies.tsx.
  * Dependencias: react-native, react-native-safe-area-context.
  * Estado: ACTIVO
  */
@@ -21,7 +21,7 @@
  * En nativo no se toca: la app se publica solo como web y allí se mantienen los valores fijos.
  *
  * Conectado con: app/(tabs)/_layout.tsx (la barra), app/(tabs)/index.tsx (buscador flotante y
- * «volver arriba») y components/CookieConsentBanner.tsx (aviso de cookies).
+ * «volver arriba») y components/AvisoAnaliticaCookies.tsx (aviso de cookies).
  */
 import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

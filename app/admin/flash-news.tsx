@@ -2,7 +2,7 @@
  * Archivo: app/admin/flash-news.tsx
  * Función: pantalla de administración «Noticias Flash · Blue IA», en la dirección /admin/flash-news.
  * Para qué sirve: el administrador crea hasta 5 avisos cortos con color y duración, los ordena, activa o borra; Blue IA los muestra a los clientes en su bocadillo.
- * Conectado con: lib/supabase.ts (tabla flash_news), lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; los muestra components/Campanita.tsx.
+ * Conectado con: lib/supabase.ts (tabla flash_news), lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; los muestra components/AsistenteBlue.tsx.
  * Utilizado por: Expo Router (dirección /admin/flash-news, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Noticias Flash» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -32,7 +32,7 @@
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, todo lo que se toca de
  *   44 px (también «volver» y los colores) y los campos de 16 px y 48 de alto.
- * - Rediseño PANRED4 (tanda 4, 2026-11-16; components/admin/PanelUI.tsx, como Usuarios, Pedidos, Inventario y
+ * - Rediseño PANRED4 (tanda 4, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos, Inventario y
  *   Cotizaciones): cifras que filtran (Noticias «N / 5», Activas, Ocultas y Huecos libres), buscador de 16 px por el
  *   texto, pastillas de 44 px con su recuento, filas compactas (el aviso con su color, etiqueta Activa u Oculta,
  *   segundos en pantalla y orden) con el lápiz y la papelera a mano y, al tocar una, el detalle por bloques (Aviso, con
@@ -46,7 +46,7 @@
  *   "Noticias Flash") y a la que se vuelve con la flecha de la cabecera.
  * - app/admin/_layout.tsx → registra esta ruta ("flash-news") dentro del
  *   Stack protegido de administración.
- * - components/admin/PanelUI.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (TM5 y
+ * - components/admin/PiezasPanelAdmin.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (TM5 y
  *   PANRED4).
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -96,7 +96,7 @@ import {
   RecuentoLista,
   fechaPanel,
   useDesplegables,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 
 const COLORS = {
   bg: "#FFFFFF",

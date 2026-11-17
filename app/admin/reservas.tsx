@@ -2,7 +2,7 @@
  * Archivo: app/admin/reservas.tsx
  * Función: pantalla de administración «Reservas con señal», en la dirección /admin/reservas.
  * Para qué sirve: el administrador configura las reglas de las reservas con señal (escala de días y porcentajes, arras, condiciones), las enciende o apaga y gestiona las reservas (completar, cancelar, marcar vencida). Está apagada hasta que el dueño dé sus reglas.
- * Conectado con: lib/supabase.ts (tablas de reservas y ajustes, migración 20261115150000_reservas_senal.sql), lib/reservas.ts, lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; api/pago.ts (acción reserva_estado).
+ * Conectado con: lib/supabase.ts (tablas de reservas y ajustes, migración 20261115150000_reservas_senal.sql), lib/reservas.ts, lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/pago.ts (acción reserva_estado).
  * Utilizado por: Expo Router (dirección /admin/reservas, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Reservas con señal» de app/admin/index.tsx.
  * Dependencias: react, react-native, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -14,7 +14,7 @@
  * aún no ha dado su escala, los días máximos, el tipo de arras ni qué pasa al vencer, y su gestor tiene que revisar el texto.
  *
  * Cómo funciona:
- * - Rediseño PANRED2 (2026-11-16, piezas de components/admin/PanelUI.tsx, como Usuarios, Pedidos y Categorías): arriba las
+ * - Rediseño PANRED2 (2026-11-16, piezas de components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos y Categorías): arriba las
  *   cifras que filtran (Activas, Vencidas, Completadas y la señal de las activas) y el uso de 30 días; la lista con buscador
  *   de 16 px, pastillas de 44 px con su recuento, filas compactas con su etiqueta de color y, al tocar una, el detalle por
  *   bloques con las acciones abajo; las reglas, en un formulario por bloques. Con las reservas apagadas, las reglas van
@@ -60,7 +60,7 @@ import {
   Seccion,
   useDesplegables,
   type Tono,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 import {
   BORRADOR_CONDICIONES_RESERVA,
   EXPLICACION_ARRAS,

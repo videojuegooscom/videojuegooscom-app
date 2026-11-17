@@ -2,7 +2,7 @@
  * Archivo: app/admin/conocimiento.tsx
  * Función: pantalla de administración «Lo que Blue sabe de la tienda», en la dirección /admin/conocimiento.
  * Para qué sirve: el dueño escribe respuestas reales (horario, envíos, garantía, pagos…) que Blue IA usa al contestar a los clientes; también contesta a los temas que Blue le propone.
- * Conectado con: lib/supabase.ts (tabla blue_conocimiento), lib/conocimiento.ts, lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; components/Campanita.tsx propone temas y api/blue-ia.ts las usa.
+ * Conectado con: lib/supabase.ts (tabla blue_conocimiento), lib/conocimiento.ts, lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; components/AsistenteBlue.tsx propone temas y api/blue-ia.ts las usa.
  * Utilizado por: Expo Router (dirección /admin/conocimiento, protegida por app/admin/_layout.tsx); la enlaza la tarjeta correspondiente de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -12,7 +12,7 @@
  * Qué hace: pantalla de administración de «Lo que Blue sabe de la tienda». Aquí el dueño
  * escribe respuestas reales (horario, plazos de envío, garantía, pagos…) y Blue IA las usa al
  * contestar a los clientes con más precisión. Blue, desde el panel, le propone temas a lo largo
- * del día (components/Campanita.tsx) y también se pueden añadir desde aquí.
+ * del día (components/AsistenteBlue.tsx) y también se pueden añadir desde aquí.
  *
  * Cómo funciona:
  * - Lee/escribe la tabla «blue_conocimiento» (tema único, respuesta de hasta 800 caracteres,
@@ -24,7 +24,7 @@
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px,
  *   grises desde COLORES_TEXTO.secundario, texto azul pequeño en azulTexto, todo lo que se toca de
  *   44 px y los campos de 16 px y 48 de alto.
- * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx, como Blog y Noticias Flash): cifras que
+ * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Blog y Noticias Flash): cifras que
  *   filtran (Temas, Blue lo usa, Ocultos) y las propuestas de Blue, buscador de 16 px (tema o respuesta), pastillas con
  *   su recuento, «Blue te propone» en pastillas, filas compactas (tema, etiqueta de color, respuesta y fecha) con el
  *   lápiz y la papelera a mano y, al tocar una, el detalle por bloques (Respuesta y Uso) con «Ocultar a Blue» o «Que Blue
@@ -34,7 +34,7 @@
  * - lib/conocimiento.ts → temas propuestos y guardado.
  * - api/blue-ia.ts → lee los temas activos para responder a los clientes.
  * - app/admin/index.tsx → tarjeta de entrada; app/admin/_layout.tsx → registra la ruta.
- * - components/admin/PanelUI.tsx → piezas comunes; pruebas/perfil-datos.mjs (NO7, TM5 y PANRED5).
+ * - components/admin/PiezasPanelAdmin.tsx → piezas comunes; pruebas/perfil-datos.mjs (NO7, TM5 y PANRED5).
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -75,7 +75,7 @@ import {
   Seccion,
   fechaPanel,
   useDesplegables,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 
 type Filtro = "todos" | "activos" | "ocultos";
 const PASTILLAS: [Filtro, string][] = [

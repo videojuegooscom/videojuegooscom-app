@@ -3,7 +3,7 @@
  * Función: componente y hook de «Desliza para actualizar».
  * Para qué sirve: gesto de tirar hacia abajo para recargar la pantalla actual (con la mascota); exporta useRecarga y alRecargar para que las pantallas y Blue recarguen sus datos.
  * Conectado con: components/marca/MarcaAnimada.tsx, lib/loadingBus.ts.
- * Utilizado por: app/_layout.tsx (montaje), components/Campanita.tsx, components/CategoryProductsShelf.tsx, components/Resenas.tsx y las pantallas que usan useRecarga (catálogo, producto, servicio, noticias, blog, cesta, políticas, Inicio…).
+ * Utilizado por: app/_layout.tsx (montaje), components/AsistenteBlue.tsx, components/CarruselProductosCategoria.tsx, components/Resenas.tsx y las pantallas que usan useRecarga (catálogo, producto, servicio, noticias, blog, cesta, políticas, Inicio…).
  * Dependencias: react, react-native, expo-router, @react-navigation/native.
  * Estado: ACTIVO
  *
@@ -32,7 +32,7 @@
  * la tienda). Espera a que terminen las peticiones (lib/loadingBus.ts): mínimo 0,9 s para que se vea y como mucho
  * 8 s.
  *
- * Conectado con: app/_layout.tsx (se monta una vez), components/Campanita.tsx (alRecargar), las pantallas que
+ * Conectado con: app/_layout.tsx (se monta una vez), components/AsistenteBlue.tsx (alRecargar), las pantallas que
  * usan useRecarga, components/marca/MarcaAnimada.tsx (mascota) y lib/loadingBus.ts (barra «Pensando»).
  */
 import React, { useEffect, useRef, useState } from "react";

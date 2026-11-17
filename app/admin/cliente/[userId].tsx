@@ -2,7 +2,7 @@
  * Archivo: app/admin/cliente/[userId].tsx
  * Función: ficha de un cliente en el panel, en la dirección /admin/cliente/<userId>.
  * Para qué sirve: el administrador ve en un solo sitio lo que la tienda sabe de esa persona (perfil, compras, ventas que intentó, servicios, dispositivos, pedidos) y sus notas internas.
- * Conectado con: lib/supabase.ts (tablas product_sales, sell_requests, service_requests, perfiles_cliente, cliente_dispositivos y notas), lib/envio.ts, lib/openExternalLink.ts, lib/admin/products.components.ts y products.utils.ts, components/ReviewModal.tsx, PerfilPublico.tsx, ProductChatThread.tsx, SmartImage.tsx, marca/CargaMarca.tsx.
+ * Conectado con: lib/supabase.ts (tablas product_sales, sell_requests, service_requests, perfiles_cliente, cliente_dispositivos y notas), lib/envio.ts, lib/openExternalLink.ts, lib/admin/products.components.ts y products.utils.ts, components/VentanaValoracion.tsx, PerfilPublico.tsx, ConversacionProducto.tsx, ImagenInteligente.tsx, marca/CargaMarca.tsx.
  * Utilizado por: Expo Router (dirección /admin/cliente/<userId>, protegida por app/admin/_layout.tsx); la abre cada fila de app/admin/users.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -68,7 +68,7 @@
  *   anónimas de antes de este cambio, o enviadas sin iniciar sesión, no
  *   aparecerán aquí aunque sean de este cliente.
  * - Valoración tras la entrega (mejora 11, 2026-11-15; migración 20261115100000): bajo cada pedido entregado, su nota y
- *   su comentario (ValoracionPedidoAdmin de components/ReviewModal.tsx) o «Sin valorar» con cuándo se le pide.
+ *   su comentario (ValoracionPedidoAdmin de components/VentanaValoracion.tsx) o «Sin valorar» con cuándo se le pide.
  * - Pedidos: los de la tienda (pedidos + pedido_items) hechos con su cuenta
  *   (user_id) y, aparte, los hechos SIN sesión con su mismo correo (esos no
  *   los ve en «Mis seguimientos»). Desde aquí se cambia la etapa con un toque
@@ -130,7 +130,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { haceCuanto, supabase } from "../../../lib/supabase";
 import CargaMarca from "../../../components/marca/CargaMarca";
-import SmartImage from "../../../components/SmartImage";
+import SmartImage from "../../../components/ImagenInteligente";
 import {
   ORIGENES_MEJORA,
   ValoracionPedidoAdmin,
@@ -138,13 +138,13 @@ import {
   entregadoEnDe,
   type OrigenMejora,
   type ValoracionPedido,
-} from "../../../components/ReviewModal";
+} from "../../../components/VentanaValoracion";
 import { cargarHistorialPedidos, type HistorialPedidos } from "../../../lib/envio";
 import { datosDeFila, direccionEnUnaLinea, direccionesDeFila, textoEtiqueta } from "../../../components/PerfilPublico";
 import { openExternalLink } from "../../../lib/openExternalLink";
 import { useGestoPestanas } from "../../../lib/admin/products.components";
 import { fmtEUR } from "../../../lib/admin/products.utils";
-import { cargarArticulosChat, EtiquetaEstadoArticulo, type ArticuloChat } from "../../../components/ProductChatThread";
+import { cargarArticulosChat, EtiquetaEstadoArticulo, type ArticuloChat } from "../../../components/ConversacionProducto";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar el cuadro de notas (se cerraba solo): solo se usa en nativo.

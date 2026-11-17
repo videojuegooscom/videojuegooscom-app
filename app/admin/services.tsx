@@ -2,7 +2,7 @@
  * Archivo: app/admin/services.tsx
  * Función: pantalla de administración de servicios, en la dirección /admin/services.
  * Para qué sirve: el administrador gestiona el catálogo de servicios (reparación, limpieza, mantenimiento: opciones, precios, fotos) y las solicitudes de «Contratar servicio ahora», incluida la reparación por envío.
- * Conectado con: lib/supabase.ts (tablas services, service_media y service_requests), lib/envio.ts, lib/openExternalLink.ts, components/ContratarServicioModal.tsx, ImageLightbox.tsx, SmartImage.tsx, marca/CargaMarca.tsx, app/servicios.tsx (enlaceVideo, esEnlaceCorto), lib/admin/products.*, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Conectado con: lib/supabase.ts (tablas services, service_media y service_requests), lib/envio.ts, lib/openExternalLink.ts, components/ContratarServicioModal.tsx, VisorFotos.tsx, ImagenInteligente.tsx, marca/CargaMarca.tsx, app/servicios.tsx (enlaceVideo, esEnlaceCorto), lib/admin/products.*, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/services, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Servicios» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -43,7 +43,7 @@
  *   contadores en una fila también en el móvil, «Nuevo servicio» es el «+»
  *   flotante abajo a la derecha, los servicios y las solicitudes van sin
  *   recuadro alrededor (separados por una línea) y al tocar la foto de un
- *   servicio se abre en grande con zoom (components/ImageLightbox.tsx).
+ *   servicio se abre en grande con zoom (components/VisorFotos.tsx).
  *
  * Rendimiento: uploadNewPhotos() sube las fotos a Storage una a una (no se
  * puede agrupar) pero guarda sus filas en "service_media" con un único
@@ -78,7 +78,7 @@
  *   Bizum de Stripe (dueño, 2026-11-11; migración 20261111150000): lo pagado online dice con qué de verdad
  *   («por Bizum online», «por tarjeta online», «por Klarna online»; lo dice Stripe, pago_metodo y
  *   etiqueta_pago_metodo); sin esas columnas, «por tarjeta» como antes. El recuento está en Analítica.
- * - DISEÑO (2026-11-16, el de Usuarios y Pedidos; piezas de components/admin/PanelUI.tsx):
+ * - DISEÑO (2026-11-16, el de Usuarios y Pedidos; piezas de components/admin/PiezasPanelAdmin.tsx):
  *   · Catálogo: buscador de 16 px, las 4 cifras (Servicios, Publicados, Visibles y Visitas; tocarlas filtra),
  *     pastillas con su recuento (Todos, Publicados, Borradores, Ocultos) y filas compactas con la etiqueta de
  *     color del estado (Publicado, Borrador, Por revisar, Oculto); el lápiz y la papelera siguen en cada fila.
@@ -117,8 +117,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import SmartImage from "../../components/SmartImage";
-import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
+import SmartImage from "../../components/ImagenInteligente";
+import ImageLightbox, { type LightboxImage } from "../../components/VisorFotos";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
 import { cargarAjustesReparacionEnvio, cargarTarifas, hayTarifaCorreos, type AjustesReparacionEnvio } from "../../lib/envio";
 import { enlaceVideo, esEnlaceCorto } from "../servicios";
@@ -139,7 +139,7 @@ import {
   Seccion,
   useDesplegables,
   type Tono,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import {
   AdminHeader,
@@ -402,7 +402,7 @@ const REQUEST_STATUS_LABEL: Record<RequestStatus, string> = {
   descartado: "Descartada",
 };
 
-// Etiqueta de color de cada estado (components/admin/PanelUI.tsx) y su nombre en plural para las pastillas.
+// Etiqueta de color de cada estado (components/admin/PiezasPanelAdmin.tsx) y su nombre en plural para las pastillas.
 const REQUEST_STATUS_TONO: Record<RequestStatus, Tono> = { nuevo: "amarillo", revisado: "azul", contactado: "verde", descartado: "gris" };
 const REQUEST_STATUS_PLURAL: Record<RequestStatus, string> = { nuevo: "Nuevas", revisado: "Revisadas", contactado: "Contactadas", descartado: "Descartadas" };
 // Las etapas en las que el aparato está en el taller («En reparación»).

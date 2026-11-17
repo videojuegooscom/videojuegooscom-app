@@ -1,9 +1,9 @@
 /**
- * Archivo: components/Barramagic.tsx
+ * Archivo: components/BarraBusqueda.tsx
  * Función: componente de la barra de búsqueda de la tienda (píldora con lupa y acceso a Blue IA) y su lógica de índice.
  * Para qué sirve: barra de búsqueda quieta y flotante, sugerencias, índice de productos, efecto Siri del texto y utilidades de búsqueda que reutiliza Blue.
- * Conectado con: lib/supabase.ts, lib/analytics.ts, constants/theme.ts, components/SmartImage.tsx.
- * Utilizado por: app/catalogo.tsx, app/(tabs)/index.tsx, app/comparar.tsx, app/quienes-somos.tsx, app/admin/analytics.tsx, components/Campanita.tsx y components/CategoryProductsShelf.tsx.
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, constants/theme.ts, components/ImagenInteligente.tsx.
+ * Utilizado por: app/catalogo.tsx, app/(tabs)/index.tsx, app/comparar.tsx, app/quienes-somos.tsx, app/admin/analytics.tsx, components/AsistenteBlue.tsx y components/CarruselProductosCategoria.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
  */
@@ -41,7 +41,7 @@
  * las SECCIONES de la tienda que encajan con lo escrito («Blog», «Inicio de
  * sesión», «Vender»…: SECCIONES_BUSQUEDA, solo pantallas que existen). Si no
  * hay productos, avisa y deja las secciones y «Preguntar a Blue IA»; si tampoco encaja ninguna sección, ofrece
- * «Avísame cuando llegue» (crea el aviso de Blue, components/Campanita.tsx; sin sesión lleva a iniciar sesión). Intro: si
+ * «Avísame cuando llegue» (crea el aviso de Blue, components/AsistenteBlue.tsx; sin sesión lleva a iniciar sesión). Intro: si
  * no hay productos pero sí una sección, va directo a ella; si no, abre el
  * catálogo con lo escrito (/catalogo?query=…). El panel va en otra capa para
  * que desplazarlo no arrastre la barra, y sale debajo si la barra está arriba
@@ -110,7 +110,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
 import { colorTextoAzul } from "../constants/theme";
-import SmartImage from "./SmartImage";
+import SmartImage from "./ImagenInteligente";
 
 const COLORS = {
   text: "#0B2138",
@@ -199,7 +199,7 @@ export function escribirEnBuscadorDemo(texto: string | null, filas?: number) {
 }
 
 // ---------------------------------------------------------------------------
-// «Avísame cuando llegue» desde una búsqueda sin resultados. Lo crea components/Campanita.tsx (que ya importa este
+// «Avísame cuando llegue» desde una búsqueda sin resultados. Lo crea components/AsistenteBlue.tsx (que ya importa este
 // archivo) y se registra aquí al cargarse, para no importarlo de vuelta y crear un ciclo de imports.
 // ---------------------------------------------------------------------------
 
@@ -352,7 +352,7 @@ function palabrasDe(texto: string) {
 /**
  * Las palabras de un texto como las entiende la búsqueda (mismos sinónimos de GRUPOS_SINONIMOS): `raw` tal cual,
  * `canon` en orden con los sinónimos cambiados («Nintendo Switch 2» → switch 2) y `set` con todo (también plurales y
- * «tambien»). Lo usan «Productos parecidos» y «Completa tu compra» (components/CategoryProductsShelf.tsx).
+ * «tambien»). Lo usan «Productos parecidos» y «Completa tu compra» (components/CarruselProductosCategoria.tsx).
  */
 export function palabrasBusqueda(texto: string) {
   return palabrasDe(texto);
@@ -1752,7 +1752,7 @@ export function FloatingBarramagic({
   return (
     <>
       <Animated.View
-        // id en la web: la guía de Blue (components/Campanita.tsx) señala el buscador.
+        // id en la web: la guía de Blue (components/AsistenteBlue.tsx) señala el buscador.
         nativeID="buscador-flotante"
         pointerEvents={hidden ? "none" : "box-none"}
         {...panResponder.panHandlers}

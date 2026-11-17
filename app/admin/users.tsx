@@ -2,7 +2,7 @@
  * Archivo: app/admin/users.tsx
  * Función: pantalla de administración «Usuarios y participación», en la dirección /admin/users.
  * Para qué sirve: el administrador lista y busca a los clientes registrados, ve su participación (Foro, chats, reseñas), ideas de mejora, seguridad de cuentas y moderación del Foro, y entra a la ficha de cada cliente.
- * Conectado con: lib/supabase.ts (usuarios, perfiles, foro, chats, reseñas y eventos de analítica), lib/envio.ts, components/ReviewModal.tsx, components/PerfilPublico.tsx, components/SmartImage.tsx, components/marca/CargaMarca.tsx, constants/theme.ts.
+ * Conectado con: lib/supabase.ts (usuarios, perfiles, foro, chats, reseñas y eventos de analítica), lib/envio.ts, components/VentanaValoracion.tsx, components/PerfilPublico.tsx, components/ImagenInteligente.tsx, components/marca/CargaMarca.tsx, constants/theme.ts.
  * Utilizado por: Expo Router (dirección /admin/users, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Usuarios» de app/admin/index.tsx y abre app/admin/cliente/[userId].tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -69,7 +69,7 @@
  * - "Valoración media" sale de store_reviews (rating 1-5, visible a
  *   cualquiera igual que las reseñas de Inicio). «Reseñas (30 días)»: las
  *   publicadas, cuántas usan las ideas sugeridas o un emoji propuesto y la
- *   idea más usada (analítica propia «resena_publicada», components/ReviewModal.tsx).
+ *   idea más usada (analítica propia «resena_publicada», components/VentanaValoracion.tsx).
  * - «Ideas de mejora»: lo que mandan los clientes desde «Mejoras en la
  *   tienda» (Blue, el pie de página o Mi cuenta; tabla mejoras_tienda, migración
  *   20261101200000_mejoras_tienda.sql). Contadores que filtran (sin leer, todas,
@@ -167,8 +167,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CONTRASENA_MINIMA, haceCuanto, supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
-import SmartImage from "../../components/SmartImage";
-import { ORIGENES_MEJORA, SUGERENCIAS_RESENA, type OrigenMejora } from "../../components/ReviewModal";
+import SmartImage from "../../components/ImagenInteligente";
+import { ORIGENES_MEJORA, SUGERENCIAS_RESENA, type OrigenMejora } from "../../components/VentanaValoracion";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/theme";
 import { direccionesDeFila, textoEtiqueta, type DireccionGuardada } from "../../components/PerfilPublico";
 import { cobradoDeVerdad, importeCobrado, type PedidoDinero } from "../../lib/envio";
@@ -270,9 +270,9 @@ const EVENTOS_SEGUIMIENTOS = ["seguimientos_abiertos"] as const;
 // Foro: quién abre las Normas del Foro desde el aviso de silencio (app/(tabs)/chat-global.tsx). Las abre el cliente
 // silenciado, así que sí lo cuenta la analítica propia (si la aceptó).
 const EVENTOS_FORO = ["foro_normas_abiertas"] as const;
-// Reseñas publicadas desde «Dejar una reseña» (components/ReviewModal.tsx): con qué ideas y si llevan emojis propuestos.
+// Reseñas publicadas desde «Dejar una reseña» (components/VentanaValoracion.tsx): con qué ideas y si llevan emojis propuestos.
 const EVENTOS_RESENAS = ["resena_publicada"] as const;
-// «Mejoras en la tienda» (components/ReviewModal.tsx): cuántas veces se abre la cajita y desde dónde (las enviadas se
+// «Mejoras en la tienda» (components/VentanaValoracion.tsx): cuántas veces se abre la cajita y desde dónde (las enviadas se
 // cuentan con la propia tabla, que es exacta).
 const EVENTOS_MEJORAS = ["mejora_abierta"] as const;
 // «¿Olvidaste tu contraseña?» (app/(tabs)/perfil.tsx y app/reset-password.tsx): enlaces pedidos, los que no se pudieron

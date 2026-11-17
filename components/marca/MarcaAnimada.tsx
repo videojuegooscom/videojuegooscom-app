@@ -3,7 +3,7 @@
  * Función: componente del logo y las mascotas animadas de la tienda.
  * Para qué sirve: muestra el logo o una mascota (logo, pareja, tienda, taller, carga) con animación de reposo y una animación distinta en cada toque.
  * Conectado con: imágenes de assets/brand/.
- * Utilizado por: components/BrandLoadingScreen.tsx, marca/CargaMarca.tsx, SiteFooter.tsx, Campanita.tsx, TirarParaActualizar.tsx y pantallas como Inicio, catálogo, cesta, checkout, producto, servicio y app/+not-found.tsx.
+ * Utilizado por: components/PantallaCargaMarca.tsx, marca/CargaMarca.tsx, PieDePagina.tsx, AsistenteBlue.tsx, TirarParaActualizar.tsx y pantallas como Inicio, catálogo, cesta, checkout, producto, servicio y app/+not-found.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
  */
@@ -19,9 +19,9 @@
  * transformaciones (rápidas también en web). Las imágenes viven en assets/brand/,
  * reducidas y sin fondo (ver comentario de cada una en IMAGENES).
  *
- * Conectado con: components/BrandLoadingScreen.tsx, components/marca/CargaMarca.tsx y
+ * Conectado con: components/PantallaCargaMarca.tsx, components/marca/CargaMarca.tsx y
  * las pantallas de la tienda (portada, cesta, pago, servicios, pie de página…).
- * También Blue (components/Campanita.tsx), «tirar para actualizar»
+ * También Blue (components/AsistenteBlue.tsx), «tirar para actualizar»
  * (components/TirarParaActualizar.tsx) y la página de error (app/+not-found.tsx).
  */
 import React, { useCallback, useEffect, useRef } from "react";

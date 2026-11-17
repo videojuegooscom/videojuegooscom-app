@@ -2,7 +2,7 @@
  * Archivo: app/admin/escaparate.tsx
  * Función: pantalla de administración «Escaparate VeoAura», en la dirección /admin/escaparate.
  * Para qué sirve: el administrador ve el puente con VeoAura: ventas hechas en la tienda y si ya se avisó, artículos llegados de VeoAura a la venta, y el registro de mensajes y facturas con sus fallos.
- * Conectado con: lib/supabase.ts (tablas del escaparate y escaparate_registro), components/marca/CargaMarca.tsx, constants/theme.ts, lib/admin/products.components.ts, components/admin/PanelUI.tsx; api/escaparate-retorno.ts.
+ * Conectado con: lib/supabase.ts (tablas del escaparate y escaparate_registro), components/marca/CargaMarca.tsx, constants/theme.ts, lib/admin/products.components.ts, components/admin/PiezasPanelAdmin.tsx; api/escaparate-retorno.ts.
  * Utilizado por: Expo Router (dirección /admin/escaparate, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Escaparate VeoAura» de app/admin/index.tsx.
  * Dependencias: react, react-native, expo-router.
  * Estado: ACTIVO
@@ -23,7 +23,7 @@
  * apunta y envía los avisos pendientes; después lee las tablas. Solo el administrador puede
  * leerlas (RLS con is_admin()).
  *
- * Rediseño PANRED2 (2026-11-16, piezas de components/admin/PanelUI.tsx, como Usuarios, Pedidos y Categorías): cifras
+ * Rediseño PANRED2 (2026-11-16, piezas de components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos y Categorías): cifras
  * que filtran (ventas sin confirmar, a la venta, recibidos, fichas de cliente, productos en VeoAura y facturas), las
  * líneas de resumen de siempre, buscador de 16 px, pastillas de 44 px con su recuento (todo, pendientes, ventas,
  * productos de la tienda, escaparate y mensajes), filas compactas con su etiqueta de color (Pendiente de avisar, Avisado a
@@ -33,7 +33,7 @@
  * Conectado con:
  * - app/admin/index.tsx → tarjeta "Escaparate VeoAura" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("escaparate") en el Stack.
- * - components/Campanita.tsx → al admin le avisa Blue si hay ventas sin confirmar.
+ * - components/AsistenteBlue.tsx → al admin le avisa Blue si hay ventas sin confirmar.
  * - Productos de la tienda a VeoAura (2026-11-13): cada producto creado a mano (sin id_veoaura) y si ya se avisó
  *   a VeoAura («producto_tienda»; pendiente o en VeoAura ✓), desde escaparate_salida_productos.
  * - supabase/migrations/20261015100000_escaparate_novedades_retorno.sql (escaparate_salida).
@@ -67,7 +67,7 @@ import {
   useDesplegables,
   type IoniconName,
   type Tono,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 
 const COLORS = {
   bg: "#FFFFFF",

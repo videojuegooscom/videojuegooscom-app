@@ -1,5 +1,5 @@
 /**
- * Archivo: components/CookieConsentBanner.tsx
+ * Archivo: components/AvisoAnaliticaCookies.tsx
  * Función: componente del aviso de analítica propia (consentimiento).
  * Para qué sirve: pide al visitante aceptar o rechazar la analítica (RGPD), guarda su respuesta con lib/analytics.ts y no se muestra en el panel de administración ni cuando ya contestó.
  * Conectado con: lib/analytics.ts (getAnalyticsConsent, setAnalyticsConsent), lib/tabBar.ts (useTabBarBottomInset), política de privacidad (app/politicas/[slug].tsx).
@@ -39,7 +39,7 @@
  *
  * Conectado con:
  * - lib/analytics.ts → getAnalyticsConsent()/setAnalyticsConsent().
- * - app/_layout.tsx → se monta aquí, junto a components/Campanita.tsx.
+ * - app/_layout.tsx → se monta aquí, junto a components/AsistenteBlue.tsx.
  * - app/politicas/[slug].tsx → destino del enlace "Política de privacidad".
  */
 import React, { useEffect, useRef, useState } from "react";

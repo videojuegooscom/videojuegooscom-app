@@ -2,8 +2,8 @@
  * Archivo: app/producto/[id].tsx
  * Función: ficha de un producto, en la dirección /producto/<id> (admite ?chat=1 y ?guia=1).
  * Para qué sirve: el cliente ve fotos, precio, estado, entrega estimada y garantía, y puede añadir a la cesta, comprar ya, preguntar, compartir, dar «me gusta», avisarse de bajadas de precio, comparar o reservar con señal.
- * Conectado con: lib/supabase.ts (tablas products, product_media, categories, profiles), lib/interaccion.ts, lib/reservas.ts, lib/envio.ts, lib/analytics.ts, constants/theme.ts, lib/admin/products.utils.ts, components/ImageLightbox.tsx, SmartImage.tsx, CategoryProductsShelf.tsx, ProductChatThread.tsx, PerfilPublico.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*; api/pago.ts (reserva con señal).
- * Utilizado por: Expo Router (dirección /producto/<id>); la enlazan app/catalogo.tsx, app/comparar.tsx, app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/admin/escaparate.tsx y components/CategoryProductsShelf.tsx, Campanita.tsx, Barramagic.tsx, ProductChatThread.tsx; exporta FichaProducto, usada por app/servicio/[id].tsx.
+ * Conectado con: lib/supabase.ts (tablas products, product_media, categories, profiles), lib/interaccion.ts, lib/reservas.ts, lib/envio.ts, lib/analytics.ts, constants/theme.ts, lib/admin/products.utils.ts, components/VisorFotos.tsx, ImagenInteligente.tsx, CarruselProductosCategoria.tsx, ConversacionProducto.tsx, PerfilPublico.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*; api/pago.ts (reserva con señal).
+ * Utilizado por: Expo Router (dirección /producto/<id>); la enlazan app/catalogo.tsx, app/comparar.tsx, app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/admin/escaparate.tsx y components/CarruselProductosCategoria.tsx, AsistenteBlue.tsx, BarraBusqueda.tsx, ConversacionProducto.tsx; exporta FichaProducto, usada por app/servicio/[id].tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
  */
@@ -16,7 +16,7 @@
  *
  * Dudas (mejora 10 «Chat con el producto adjunto», 2026-11-15): «Preguntar por este artículo» abre directamente el chat
  * de la tienda de (este producto, este cliente) —el que ya hay o uno nuevo, get_or_create_product_chat no duplica— con la
- * tarjeta del producto arriba y preguntas sugeridas (abrirChatProducto en components/ProductChatThread.tsx); Jefe lo ve
+ * tarjeta del producto arriba y preguntas sugeridas (abrirChatProducto en components/ConversacionProducto.tsx); Jefe lo ve
  * en app/admin/chats.tsx. Sin cuenta (PreguntarArticulo): explica la ventaja y ofrece «Crear cuenta gratis» / «Entrar»;
  * al entrar vuelve aquí con ?chat=1 y abre el chat. Se mide chat_producto_invitacion (solo el producto). Antes abría Blue
  * IA con ?producto=<id> (Blue sigue pudiendo pasar al equipo con «Hablar con el equipo»).
@@ -50,7 +50,7 @@
  * abre /checkout?comprar=<id>: se paga SOLO este artículo (lo demás sigue en la cesta) con los datos del perfil ya puestos.
  *
  * Imagen ampliada: al tocar la foto principal se abre
- * components/ImageLightbox.tsx, un visor a pantalla completa con zoom
+ * components/VisorFotos.tsx, un visor a pantalla completa con zoom
  * (pellizco, doble toque o rueda del ratón) y navegación entre todas las
  * fotos del producto. La foto principal (sin abrir el visor) también se
  * puede deslizar con el dedo hacia los lados como un carrusel, para pasar
@@ -68,14 +68,14 @@
  * este producto», un interruptor de 44 px SOLO con cuenta (tabla avisos_precio, lib/interaccion.ts). Sin cuenta, al
  * tocarlo explica la ventaja y ofrece «Crear cuenta gratis» (vuelve a esta ficha al entrar). Sin la migración o si la
  * lectura falla, no se ofrece (un error no es «no lo sigues»). Se mide como aviso_precio_activado / aviso_precio_desactivado
- * (solo el producto) y aviso_precio_invitacion; Blue avisa de la bajada (components/Campanita.tsx).
+ * (solo el producto) y aviso_precio_invitacion; Blue avisa de la bajada (components/AsistenteBlue.tsx).
  *
- * «Productos parecidos» y «Completa tu compra» (mejora 6, 2026-11-14; components/CategoryProductsShelf.tsx): al final,
+ * «Productos parecidos» y «Completa tu compra» (mejora 6, 2026-11-14; components/CarruselProductosCategoria.tsx): al final,
  * hasta 8 productos de la misma categoría y precio parecido (carrusel en el móvil, rejilla de 4 en el ordenador; sin
  * ninguno, no sale) y, bajo los botones de comprar, como mucho 3 mandos o accesorios de la misma familia SOLO si es una
  * consola. Se miden parecidos_mostrado / parecido_tocado y complemento_mostrado / _tocado (Administración → Analítica).
  *
- * «Comparar con otros productos» (mejora 8, 2026-11-14; components/CategoryProductsShelf.tsx → BotonComparar): bajo el
+ * «Comparar con otros productos» (mejora 8, 2026-11-14; components/CarruselProductosCategoria.tsx → BotonComparar): bajo el
  * aviso de precio, una casilla de 44 px que lo añade a la comparación (como mucho 3, en el dispositivo). La barra de
  * abajo (BarraComparar) se esconde mientras «Comprar ya» / «Añadir a la cesta» (ficha-comprar-ya, ficha-anadir-cesta)
  * estén donde iría ella, y la ficha termina con su hueco. Lleva a app/comparar.tsx.
@@ -185,14 +185,14 @@ import {
   type ZonaEnvio,
 } from "../../lib/envio";
 import { direccionesDeFila } from "../../components/PerfilPublico";
-import ImageLightbox, { type EventoVisor, type LightboxImage } from "../../components/ImageLightbox";
-import SmartImage from "../../components/SmartImage";
+import ImageLightbox, { type EventoVisor, type LightboxImage } from "../../components/VisorFotos";
+import SmartImage from "../../components/ImagenInteligente";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
-import { BotonComparar, CompletaTuCompra, ProductosParecidos, registrarVisto, useAlturaBarraComparar } from "../../components/CategoryProductsShelf";
-import { abrirChatProducto } from "../../components/ProductChatThread";
+import { BotonComparar, CompletaTuCompra, ProductosParecidos, registrarVisto, useAlturaBarraComparar } from "../../components/CarruselProductosCategoria";
+import { abrirChatProducto } from "../../components/ConversacionProducto";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -694,7 +694,7 @@ export default function ProductoScreen() {
   const pagePadding = isMobile ? 12 : 16;
   const alturaBarraComparar = useAlturaBarraComparar();
 
-  // ?guia=1: la guía de Blue (components/Campanita.tsx) enseña esta ficha; esa demostración no cuenta como visita.
+  // ?guia=1: la guía de Blue (components/AsistenteBlue.tsx) enseña esta ficha; esa demostración no cuenta como visita.
   // ?chat=1: vuelve de crear la cuenta o entrar desde «Preguntar por este artículo» y abre el chat (PreguntarArticulo).
   const params = useLocalSearchParams<{ id?: string; guia?: string; chat?: string; reserva?: string }>();
   const productId = typeof params.id === "string" ? params.id : "";

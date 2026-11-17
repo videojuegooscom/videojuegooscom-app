@@ -68,7 +68,7 @@ import { markEnd, markStart } from "./loadingBus";
  * - increment_product_view: suma 1 a las visitas de un producto en segundo
  *   plano al abrir su ficha.
  * - get_unread_chat_count: sondeo de la campanita cada 45s
- *   (components/Campanita.tsx).
+ *   (components/AsistenteBlue.tsx).
  */
 const SILENT_URL_PARTS = [
   "analytics_events",

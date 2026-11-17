@@ -1,5 +1,5 @@
 /**
- * Archivo: components/admin/PanelUI.tsx
+ * Archivo: components/admin/PiezasPanelAdmin.tsx
  * Función: componentes visuales comunes del panel de Administración.
  * Para qué sirve: tarjetas de cifras que filtran, buscador, pastillas de filtro, secciones, filas compactas y botones con el diseño de «Usuarios» y «Pedidos», para que todas las pantallas del panel se vean igual.
  * Conectado con: constants/theme.ts (CAMPO, COLORES_TEXTO, TACTIL, TAMANOS).

@@ -2,7 +2,7 @@
  * Archivo: app/admin/aprendizajes.tsx
  * Función: pantalla de administración «Centro De Aprendizajes», en la dirección /admin/aprendizajes.
  * Para qué sirve: el administrador guarda, edita, activa o desactiva las lecciones y correcciones que debe aplicar Claude (textos, diseño, reglas del negocio, código), para no repetirlas.
- * Conectado con: lib/supabase.ts (tabla aprendizajes), lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; CLAUDE.md obliga a Claude a consultar esa tabla.
+ * Conectado con: lib/supabase.ts (tabla aprendizajes), lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; CLAUDE.md obliga a Claude a consultar esa tabla.
  * Utilizado por: Expo Router (dirección /admin/aprendizajes, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Centro De Aprendizajes» de app/admin/index.tsx.
  * Dependencias: react, react-native, @expo/vector-icons.
  * Estado: ACTIVO
@@ -25,7 +25,7 @@
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, texto azul pequeño en
  *   azulTexto, botones y chips de 44 px separados 8 y campos de 16 px y 48 de alto.
- * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PanelUI.tsx, como Blog y Políticas): cifras que filtran
+ * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Blog y Políticas): cifras que filtran
  *   (Total, Activas, Imprescindibles, Desactivadas), buscador de 16 px (título, regla o ejemplos), pastillas por
  *   categoría con su recuento, filas compactas (título, etiqueta de prioridad, regla, categoría y fecha) con el lápiz a
  *   mano y, al tocar una, el detalle por bloques (Regla, Ejemplos y Datos) con «Desactivar» o «Activar» abajo.
@@ -34,7 +34,7 @@
  * - app/admin/index.tsx → tarjeta "Centro De Aprendizajes" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("aprendizajes") en el Stack.
  * - CLAUDE.md → norma que obliga a Claude a consultar estas lecciones.
- * - components/admin/PanelUI.tsx → piezas comunes; pruebas/perfil-datos.mjs (TM5 y PANRED5).
+ * - components/admin/PiezasPanelAdmin.tsx → piezas comunes; pruebas/perfil-datos.mjs (TM5 y PANRED5).
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -75,7 +75,7 @@ import {
   type Tono,
   fechaPanel,
   useDesplegables,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.

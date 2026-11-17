@@ -2,7 +2,7 @@
  * Archivo: app/admin/alquileres.tsx
  * Función: pantalla de administración «Alquileres», en la dirección /admin/alquileres.
  * Para qué sirve: el administrador gestiona el alquiler de artículos (unidades, alquileres, pagos, entrega, renovación, recogida, fianza, recargo) y sus ajustes. Está apagado: los clientes no ven nada.
- * Conectado con: lib/supabase.ts (tablas de alquiler como alquiler_pagos), lib/alquiler.ts, lib/envio.ts, lib/admin/products.components.ts, constants/theme.ts, components/marca/CargaMarca.tsx, components/admin/PanelUI.tsx.
+ * Conectado con: lib/supabase.ts (tablas de alquiler como alquiler_pagos), lib/alquiler.ts, lib/envio.ts, lib/admin/products.components.ts, constants/theme.ts, components/marca/CargaMarca.tsx, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/alquileres, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Alquileres» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -14,7 +14,7 @@
  * APAGADO: los clientes no ven nada (no hay pantallas de cliente). La contabilidad y las facturas las lleva VeoAura (la
  * fase 3 le mandará los avisos); este panel es el día a día.
  *
- * Cómo funciona (piezas de components/admin/PanelUI.tsx, como Pedidos y Reservas con señal):
+ * Cómo funciona (piezas de components/admin/PiezasPanelAdmin.tsx, como Pedidos y Reservas con señal):
  * - Arriba, con el alquiler apagado, el aviso «El alquiler está apagado: los clientes no ven nada»; las cifras (unidades,
  *   libres, alquiladas, «Toca venderla», ocupación = % de unidades alquiladas e ingresos de alquiler del mes, que salen del
  *   registro de cobros public.alquiler_pagos; sin él, de lo pagado en los alquileres empezados este mes).
@@ -81,7 +81,7 @@ import {
   fechaPanel,
   useDesplegables,
   type Tono,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 import {
   AJUSTES_ALQUILER_INICIALES,
   BORRADOR_CONTRATO_ALQUILER,

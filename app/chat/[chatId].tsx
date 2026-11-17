@@ -2,8 +2,8 @@
  * Archivo: app/chat/[chatId].tsx
  * Función: pantalla de una conversación privada con la tienda, en la dirección /chat/<chatId> (admite ?borrador=).
  * Para qué sirve: el cliente (con sesión iniciada) escribe y lee mensajes del equipo sobre un producto, una venta o atención general.
- * Conectado con: components/ProductChatThread.tsx (mensajes y tiempo real), components/CabeceraMarca.tsx, lib/supabase.ts (comprobación de sesión; las tablas del chat, product_chats, las usa ProductChatThread).
- * Utilizado por: Expo Router (dirección /chat/<chatId>); la abren abrirChatEquipo y abrirChatProducto (components/ProductChatThread.tsx), app/(tabs)/chat-global.tsx, app/(tabs)/index.tsx, app/catalogo.tsx y components/VenderAhoraModal.tsx.
+ * Conectado con: components/ConversacionProducto.tsx (mensajes y tiempo real), components/CabeceraMarca.tsx, lib/supabase.ts (comprobación de sesión; las tablas del chat, product_chats, las usa ProductChatThread).
+ * Utilizado por: Expo Router (dirección /chat/<chatId>); la abren abrirChatEquipo y abrirChatProducto (components/ConversacionProducto.tsx), app/(tabs)/chat-global.tsx, app/(tabs)/index.tsx, app/catalogo.tsx y components/VenderAhoraModal.tsx.
  * Dependencias: react, react-native, expo-router.
  * Estado: ACTIVO
  */
@@ -11,10 +11,10 @@
  * Notas:
  * Qué hace: pantalla del cliente para una conversación privada con la
  * tienda: de un producto, de una venta o general ("Atención al cliente").
- * La abre abrirChatEquipo (components/ProductChatThread.tsx) desde Blue IA
+ * La abre abrirChatEquipo (components/ConversacionProducto.tsx) desde Blue IA
  * o la confirmación de pedido, o la pestaña "Chat" de
  * app/(tabs)/chat-global.tsx. Solo cabecera + la conversación en sí — toda
- * la lógica de mensajes vive en components/ProductChatThread.tsx, que
+ * la lógica de mensajes vive en components/ConversacionProducto.tsx, que
  * también reutiliza app/admin/chats.tsx para la vista de admin.
  *
  * Cómo funciona: exige sesión iniciada (si no hay, manda a /perfil); si la
@@ -25,7 +25,7 @@
  * ProductChatThread), onDeleted vuelve a la pantalla anterior.
  *
  * Conectado con:
- * - components/ProductChatThread.tsx → mensajes, envío, tiempo real.
+ * - components/ConversacionProducto.tsx → mensajes, envío, tiempo real.
  * - app/(tabs)/blue-ia.tsx, app/checkout.tsx → "Hablar con el equipo/nosotros".
  * - lib/supabase.ts → comprobación de sesión.
  */
@@ -33,7 +33,7 @@ import React, { useEffect, useState } from "react";
 import { Platform, SafeAreaView, StatusBar, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import ProductChatThread from "../../components/ProductChatThread";
+import ProductChatThread from "../../components/ConversacionProducto";
 import CabeceraMarca from "../../components/CabeceraMarca";
 
 const COLORS = {
@@ -43,7 +43,7 @@ const COLORS = {
 };
 
 export default function ChatScreen() {
-  // borrador: texto que sale escrito en la casilla sin enviar (valoración baja de un pedido, components/ReviewModal.tsx).
+  // borrador: texto que sale escrito en la casilla sin enviar (valoración baja de un pedido, components/VentanaValoracion.tsx).
   const params = useLocalSearchParams<{ chatId: string; borrador?: string }>();
   const chatId = String(params.chatId ?? "").trim();
   const borrador = typeof params.borrador === "string" ? params.borrador.slice(0, 300) : "";

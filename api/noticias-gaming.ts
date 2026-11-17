@@ -3,7 +3,7 @@
  * Función: función de servidor en /api/noticias-gaming (Vercel), lanzada por un cron.
  * Para qué sirve: recopila noticias de gaming y electrónica por RSS, evita repetidas y pide a OpenAI un resumen en español de cada una relevante para guardarla en la tabla de noticias de la tienda.
  * Conectado con: Supabase (clave de servidor; tabla noticias_gaming), OpenAI (gpt-4o-mini), Google Noticias y medios por RSS, vercel.json (cron).
- * Utilizado por: el cron de Vercel; las noticias que guarda las muestran app/noticias/index.tsx, app/noticias/[id].tsx y Blue (components/Campanita.tsx).
+ * Utilizado por: el cron de Vercel; las noticias que guarda las muestran app/noticias/index.tsx, app/noticias/[id].tsx y Blue (components/AsistenteBlue.tsx).
  * Dependencias: @supabase/supabase-js.
  * Estado: ACTIVO
  */

@@ -2,7 +2,7 @@
  * Archivo: app/admin/products.tsx
  * Función: pantalla de administración de productos, en la dirección /admin/products.
  * Para qué sirve: el administrador lista, filtra, busca, crea, edita, publica u oculta, destaca y borra productos del catálogo, con sus fotos y vídeo, peso, reserva y venta a clientes.
- * Conectado con: lib/supabase.ts (tablas products y product_media, bucket de Storage de fotos), lib/envio.ts, components/PortadasCategoria.tsx, lib/admin/products.components.ts, products.constants.ts, products.types.ts y products.utils.ts, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Conectado con: lib/supabase.ts (tablas products y product_media, bucket de Storage de fotos), lib/envio.ts, components/PortadasCategoria.tsx, lib/admin/products.components.ts, products.constants.ts, products.types.ts y products.utils.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/products, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Productos» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -74,7 +74,7 @@
  * toda la tabla. normalizeMediaForProduct() reordena la multimedia con un
  * único .upsert() por id en lugar de un .update() por archivo.
  *
- * Rediseño PANRED2 (dueño, 2026-11-16; piezas de components/admin/PanelUI.tsx, como Usuarios, Pedidos y Categorías):
+ * Rediseño PANRED2 (dueño, 2026-11-16; piezas de components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos y Categorías):
  * buscador de 16 px arriba (título, descripción, referencia o nº de pedido VZ-…), cifras que filtran (Total, Publicados,
  * Visibles, Ocultos, Destacados portada, Vendidos), pastillas de 44 px con su recuento (fase, en la tienda, revisión y
  * «Más»: destacados, vendidos, reservados, sin fotos, sin peso, peso estimado, solo en mano), filas compactas con la foto
@@ -139,7 +139,7 @@ import {
   useDesplegables,
   type IoniconName,
   type Tono,
-} from "../../components/admin/PanelUI";
+} from "../../components/admin/PiezasPanelAdmin";
 import {
   AdminHeader,
   AdminLoading,

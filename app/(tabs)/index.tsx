@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/index.tsx
  * Función: pantalla de Inicio (pestaña «Inicio»), en la dirección /.
  * Para qué sirve: es el escaparate de la tienda para el cliente: buscador flotante, categorías con portada, oferta de la semana, recién llegados, vistos recientemente, reseñas, preguntas frecuentes y pie de página, con accesos a Vender, Servicios y Quiénes somos.
- * Conectado con: lib/supabase.ts (tabla products y categorías), lib/analytics.ts, lib/tabBar.ts, lib/admin/products.utils.ts, constants/theme.ts, components/Barramagic.tsx, CategoryProductsShelf.tsx, PortadasCategoria.tsx, Resenas.tsx, SiteFooter.tsx, SmartImage.tsx, SocialLinks.tsx, TirarParaActualizar.tsx y components/marca/*.
+ * Conectado con: lib/supabase.ts (tabla products y categorías), lib/analytics.ts, lib/tabBar.ts, lib/admin/products.utils.ts, constants/theme.ts, components/BarraBusqueda.tsx, CarruselProductosCategoria.tsx, PortadasCategoria.tsx, Resenas.tsx, PieDePagina.tsx, ImagenInteligente.tsx, EnlacesRedesSociales.tsx, TirarParaActualizar.tsx y components/marca/*.
  * Utilizado por: Expo Router (dirección /, pestaña «Inicio» de app/(tabs)/_layout.tsx); es el destino del logo y de volver a Inicio desde casi todas las pantallas.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-navigation/bottom-tabs y @react-navigation/native (tipos).
  * Estado: ACTIVO
@@ -12,13 +12,13 @@
  * Qué hace: pantalla de inicio (pestaña "Inicio"). Es el escaparate
  * principal: cabecera con marca, barra de búsqueda flotante, accesos
  * rápidos a categorías, productos destacados desde Supabase, bloque de
- * reseñas y pie de página (components/SiteFooter.tsx, que a su vez incluye
- * components/SocialLinks.tsx) y contacto por WhatsApp.
+ * reseñas y pie de página (components/PieDePagina.tsx, que a su vez incluye
+ * components/EnlacesRedesSociales.tsx) y contacto por WhatsApp.
  *
  * Cómo funciona:
  * - Carga productos destacados desde la tabla "products" de Supabase
  *   (con su categoría e imágenes) para la sección de destacados.
- * - FloatingBarramagic (components/Barramagic.tsx) es un componente aparte
+ * - FloatingBarramagic (components/BarraBusqueda.tsx) es un componente aparte
  *   que se superpone al contenido y se puede arrastrar arriba/abajo.
  * - containerStyle (maxWidth según el ancho de pantalla: 920/1040/1240)
  *   centra todo el contenido en pantallas anchas para que nada quede
@@ -27,7 +27,7 @@
  *   mascotas antes de las preguntas frecuentes y CargaMarca mientras carga
  *   la oferta destacada. Todos se animan al tocarlos. A los lados del logo,
  *   TikTok (izquierda) e Instagram (derecha) con su icono y sus seguidores,
- *   que abren su perfil (RedJuntoAlLogo, components/SocialLinks.tsx), y
+ *   que abren su perfil (RedJuntoAlLogo, components/EnlacesRedesSociales.tsx), y
  *   debajo, con una estrella, las reseñas en los canales de venta
  *   (ResenasCanales); los números los escribe el dueño.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
@@ -35,7 +35,7 @@
  * - Cada apartado lleva su título y entre apartados hay una línea fina
  *   (Separador) con aire; "Oferta de la semana" brilla (TituloOferta).
  * - "Recién llegado": carrusel con lo último que ha entrado a la tienda
- *   (components/CategoryProductsShelf.tsx, modo "novedades").
+ *   (components/CarruselProductosCategoria.tsx, modo "novedades").
  * - "Vistos recientemente" (mejora 9, 2026-11-14): justo debajo, lo último que se ha mirado en este dispositivo
  *   (VistosRecientemente del mismo archivo), solo con 3 o más a la venta; «Quitar» y «Borrar historial».
  * - El botón "Vender ahora" lleva a la página app/vender.tsx (formulario de VenderAhoraModal),
@@ -68,13 +68,13 @@
  * - lib/supabase.ts → cliente de Supabase para los productos destacados.
  * - lib/analytics.ts → registro del recorrido del visitante para el panel
  *   de métricas del admin.
- * - components/Barramagic.tsx → barra de búsqueda (aquí, en modo flotante
+ * - components/BarraBusqueda.tsx → barra de búsqueda (aquí, en modo flotante
  *   vía FloatingBarramagic; app/catalogo.tsx usa el mismo archivo en modo
  *   fijo/editable).
  * - components/Resenas.tsx → bloque de reseñas.
  * - components/VenderAhoraModal.tsx → formulario de "Vender ahora"
  *   (sustituye el envío por email; guarda en la tabla "sell_requests").
- * - components/SiteFooter.tsx → pie de página completo (navegación,
+ * - components/PieDePagina.tsx → pie de página completo (navegación,
  *   políticas, blog, redes sociales, copyright), reutilizado también en
  *   app/(tabs)/perfil.tsx y app/(tabs)/cesta.tsx.
  * - app/catalogo.tsx, app/producto/[id].tsx, app/(tabs)/blue-ia.tsx →
@@ -106,8 +106,8 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { FloatingBarramagic } from "../../components/Barramagic";
-import CategoryProductsShelf, { VistosRecientemente } from "../../components/CategoryProductsShelf";
+import { FloatingBarramagic } from "../../components/BarraBusqueda";
+import CategoryProductsShelf, { VistosRecientemente } from "../../components/CarruselProductosCategoria";
 import {
   OPACIDAD_PORTADA_DEFECTO,
   PROPORCION_RECUADRO_INICIO,
@@ -119,9 +119,9 @@ import {
 } from "../../components/PortadasCategoria";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import Resenas from "../../components/Resenas";
-import SiteFooter from "../../components/SiteFooter";
-import SmartImage from "../../components/SmartImage";
-import { RedJuntoAlLogo, ResenasCanales, useRedesJuntoAlLogo, useResenasCanales } from "../../components/SocialLinks";
+import SiteFooter from "../../components/PieDePagina";
+import SmartImage from "../../components/ImagenInteligente";
+import { RedJuntoAlLogo, ResenasCanales, useRedesJuntoAlLogo, useResenasCanales } from "../../components/EnlacesRedesSociales";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { supabase } from "../../lib/supabase";
@@ -1997,7 +1997,7 @@ export default function HomeScreen() {
           {/* Logo animado como cabecera de marca: centrado, sin recuadro y con
               poco margen para no empujar el contenido. Al tocarlo, se anima.
               A sus lados, TikTok (izquierda) e Instagram (derecha) con sus
-              seguidores (components/SocialLinks.tsx); el logo sigue en el
+              seguidores (components/EnlacesRedesSociales.tsx); el logo sigue en el
               centro aunque falte una de las dos. */}
           <View
             nativeID="inicio-logo-redes"
