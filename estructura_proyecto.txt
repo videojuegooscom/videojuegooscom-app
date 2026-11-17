@@ -102,6 +102,8 @@ components/TirarParaActualizar.tsx | Gesto de deslizar para actualizar (useRecar
 components/VenderAhoraModal.tsx | Formulario «Vender ahora» | lib/supabase, analiticaPropia, notificaciones, FotosVideoVenta, PerfilPublico; tabla sell_requests | vender, Inicio, cesta, Foro, ContratarServicioModal | ACTIVO
 components/EfectoPensando.tsx | Efecto «Pensando» (marco luminoso de carga) | lib/estadoCarga | app/_layout, app/(tabs)/_layout, PantallaCargaMarca | ACTIVO
 components/admin/PiezasPanelAdmin.tsx | Piezas comunes del panel de Administración | constants/temaTienda | casi todo app/admin | ACTIVO
+components/foro/PiezasForo.tsx | Piezas comunes del Foro (colores, moderación, normas, claves, avatar, preferencias) | lib/supabase, analiticaPropia, ImagenInteligente, constants/temaTienda | app/(tabs)/chat-global, foro/NoticiasForo | ACTIVO
+components/foro/NoticiasForo.tsx | Pestaña «Noticias Gaming» del Foro (lista, carrusel, comentarios, compartir, campana) | lib/supabase, estadoCarga, foro/PiezasForo, PerfilPublico, marca/*; api/noticias-gaming | app/(tabs)/chat-global | ACTIVO
 components/marca/CargaMarca.tsx | Indicador «cargando» con la mascota | MarcaAnimada | casi todas las pantallas | ACTIVO
 components/marca/MarcaAnimada.tsx | Logo y mascotas animadas | assets/brand | PantallaCargaMarca, CargaMarca, PieDePagina, AsistenteBlue, TirarParaActualizar | ACTIVO
 components/external-link.tsx | Enlace externo (plantilla de Expo) | expo-router, expo-web-browser | Nadie | CANDIDATO_A_ELIMINAR
