@@ -2,7 +2,7 @@
  * Archivo: components/FiltrosCatalogo.tsx
  * Función: componente de filtros y orden del catálogo.
  * Para qué sirve: icono de filtros que abre un panel con chips de plataforma, estado, precio (barra de dos tiradores) y orden; solo pinta y avisa de los cambios, la consulta la hace app/catalogo.tsx.
- * Conectado con: lib/analiticaPropia.ts (trackEvent), constants/temaTienda.ts.
+ * Conectado con: lib/analiticaPropia.ts (medirEvento), constants/temaTienda.ts.
  * Utilizado por: app/catalogo.tsx (y app/admin/analytics.tsx lo menciona).
  * Dependencias: react, react-native, @expo/vector-icons.
  * Estado: ACTIVO
@@ -28,7 +28,7 @@
  * en la consulta a Supabase (para que la paginación sea correcta). Por eso el
  * número de "Ver N productos" se actualiza solo mientras se eligen filtros.
  *
- * Conectado con: app/catalogo.tsx (único que lo usa) y lib/analiticaPropia.ts (trackEvent, para medir el uso).
+ * Conectado con: app/catalogo.tsx (único que lo usa) y lib/analiticaPropia.ts (medirEvento, para medir el uso).
  */
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useRef, useState } from "react";

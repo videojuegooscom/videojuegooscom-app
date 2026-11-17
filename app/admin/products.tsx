@@ -58,12 +58,12 @@
  * - lib/admin/productos.tipos.ts → tipos de producto y media.
  * - lib/admin/productos.utilidades.ts → formateo, validación y subida
  *   de archivos.
- * - lib/admin/productos.componentes.tsx → AdminHeader, PrimaryButton,
- *   AdminNotice, EmptyState, StatCard, ChipButton, FilterPill y MediaThumb
+ * - lib/admin/productos.componentes.tsx → CabeceraPanel, BotonPrincipalPanel,
+ *   AvisoPanel, EstadoVacioPanel, TarjetaCifraPanel, BotonChipPanel, PastillaFiltroPanel y MiniaturaArchivoPanel
  *   usados en esta pantalla.
  * - components/marca/CargaMarca.tsx → estado de "cargando" con la mascota.
  * - app/admin/index.tsx → pantalla desde la que se entra aquí y a la que
- *   se vuelve con el botón de la cabecera (smartBackAdminHome()).
+ *   se vuelve con el botón de la cabecera (volverAlPanel()).
  * - app/admin/categories.tsx → los productos se clasifican con las
  *   categorías creadas allí (category_id).
  * - app/catalogo.tsx y app/producto/[id].tsx → lo que se publica aquí es
@@ -93,7 +93,7 @@
  * y crea su fila en alquiler_unidades con la categoría de antes (categoria_anterior_id, migración 20261117120000). Su
  * etiqueta es «Para alquilar»; «Pasar a la venta» está en app/admin/alquileres.tsx. Sin la columna modo no se ofrece.
  *
- * Scroll: cabecera fija y compacta (AdminHeader) y, debajo, un único
+ * Scroll: cabecera fija y compacta (CabeceraPanel) y, debajo, un único
  * ScrollView (flex 1) con margen final de 48 px + zona segura. El modal de
  * alta/edición se desplaza entero (también con el teclado abierto en iOS).
  */

@@ -2,7 +2,7 @@
  * Archivo: app/noticias/[id].tsx
  * Función: pantalla de una noticia, en la dirección /noticias/<id>.
  * Para qué sirve: el cliente (y Google) lee una noticia de consolas y videojuegos con resumen, puntos clave, fuente y enlace para comentar en el Foro; pone su propio título y datos SEO en el head.
- * Conectado con: lib/supabase.ts (tabla noticias_gaming; la llena api/noticias-gaming.ts), lib/analiticaPropia.ts, components/EtiquetasCabeceraWeb.tsx (upsertMeta, upsertLink), ImagenInteligente, CabeceraMarca, TirarParaActualizar y components/marca/*, app/servicio/[id].tsx (faltaColumna).
+ * Conectado con: lib/supabase.ts (tabla noticias_gaming; la llena api/noticias-gaming.ts), lib/analiticaPropia.ts, components/EtiquetasCabeceraWeb.tsx (ponerEtiquetaMeta, ponerEnlaceCabecera), ImagenInteligente, CabeceraMarca, TirarParaActualizar y components/marca/*, app/servicio/[id].tsx (faltaColumna).
  * Utilizado por: Expo Router (dirección /noticias/<id>); la enlazan app/noticias/index.tsx (que además importa funciones de aquí) y app/(tabs)/chat-global.tsx (Foro).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -10,7 +10,7 @@
 /**
  * Notas:
  * Qué hace: la página PROPIA de cada noticia (dueño, 2026-11-09: atraer visitas desde Google con las noticias), en
- * /noticias/<id>, con el diseño de la tienda (CabeceraMarca, colores, SmartImage, CargaMarca). Enseña la categoría y la
+ * /noticias/<id>, con el diseño de la tienda (CabeceraMarca, colores, ImagenInteligente, CargaMarca). Enseña la categoría y la
  * fecha, el título como encabezado principal (h1), la foto principal (solo si el servidor comprobó las fotos:
  * imagenes_verificadas), el resumen, «Contexto» (columna contexto, si existe y tiene texto), «Puntos clave», «Datos»,
  * «Por qué importa», «A quién afecta» y «Fuente: <medio>» con enlace al original (fuera de la tienda, nofollow). Al
@@ -22,7 +22,7 @@
  *
  * Para Google: título «<titulo> | Noticias | VideojuegosZaragoza», meta description (el resumen recortado), dirección
  * oficial (canonical), og:* y datos estructurados NewsArticle, escritos en el <head> con el mismo método que
- * components/EtiquetasCabeceraWeb.tsx (DOM directo; SiteHead deja estas rutas a la página) y quitados al salir.
+ * components/EtiquetasCabeceraWeb.tsx (DOM directo; EtiquetasCabeceraWeb deja estas rutas a la página) y quitados al salir.
  *
  * Analítica propia (Administración → Analítica, #analitica-noticias-organicas): «Noticias: página vista · <categoría>»
  * y, si la visita entró por la noticia desde un buscador, «Noticias: llegada desde buscador · Google» (solo el nombre
@@ -30,12 +30,12 @@
  *
  * Conectado con:
  * - lib/supabase.ts → tabla noticias_gaming (lectura pública, publicada = true); la llena api/noticias-gaming.ts.
- * - components/EtiquetasCabeceraWeb.tsx → upsertMeta/upsertLink y RUTAS_CON_CABECERA_PROPIA.
+ * - components/EtiquetasCabeceraWeb.tsx → ponerEtiquetaMeta/ponerEnlaceCabecera y RUTAS_CON_CABECERA_PROPIA.
  * - app/servicio/[id].tsx → faltaColumna (reintentar sin la columna que falta).
  * - app/noticias/index.tsx → el índice de noticias (usa leerFotosNoticia, CATEGORIAS_NOTICIAS y fechaNoticia de aquí).
  * - app/(tabs)/chat-global.tsx → el Foro («Comentar en el Foro»; su tarjeta enlaza aquí y comparte esta dirección).
  * - api/sitemap.ts → cada noticia de los últimos 90 días; vercel.json → rewrite /noticias/:id.
- * - lib/analiticaPropia.ts → trackEvent y medirNoticiaDesdeBuscador; app/admin/analytics.tsx → su tarjeta.
+ * - lib/analiticaPropia.ts → medirEvento y medirNoticiaDesdeBuscador; app/admin/analytics.tsx → su tarjeta.
  */
 import React, { useEffect, useState } from "react";
 import { Linking, Platform, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
@@ -212,7 +212,7 @@ function ponerCabecera(n: NoticiaPagina): () => void {
 
   return () => {
     script.remove();
-    // Al salir, lo que había (la página siguiente o SiteHead ponen después lo suyo).
+    // Al salir, lo que había (la página siguiente o EtiquetasCabeceraWeb ponen después lo suyo).
     if (document.title === titulo) document.title = antes.titulo;
     if (antes.descripcion !== null) ponerEtiquetaMeta("name", "description", antes.descripcion);
     if (antes.ogTitle !== null) ponerEtiquetaMeta("property", "og:title", antes.ogTitle);

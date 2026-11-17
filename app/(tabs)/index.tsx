@@ -58,7 +58,7 @@
  *   mandar un evento por pixel) y, la primera vez que el bloque de reseñas
  *   entra en pantalla, se registra "Reseñas". Todo esto respeta el aviso de
  *   cookies/analítica: si el visitante rechaza el seguimiento, estas
- *   llamadas no hacen nada (lo decide trackEvent internamente).
+ *   llamadas no hacen nada (lo decide medirEvento internamente).
  *
  * - Tamaños (2026-11-12, grupo 3): los avisos de «Compra con confianza» miden 44 px de alto, nada baja de 13 px (salvo el
  *   © legal, 12), el texto azul pequeño usa #0A78B4, las flechas de la oferta tienen 44 px de zona táctil y la cabecera

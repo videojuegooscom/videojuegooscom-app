@@ -7000,7 +7000,7 @@ async function seccionOV() {
   const ajustes = { id: 1, seo_title: null, seo_description: null, logo_url: null, social_links_title: null, videos_servicios: VIDEOS };
   const fotoPrincipal = (p) =>
     p.evaluate(() => {
-      // SmartImage pasa la foto por el optimizador: la dirección original va dentro, codificada.
+      // ImagenInteligente pasa la foto por el optimizador: la dirección original va dentro, codificada.
       return decodeURIComponent(document.querySelector("#servicio-foto img")?.getAttribute("src") ?? "");
     });
 
@@ -9616,7 +9616,7 @@ async function seccionNW() {
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, `/noticias/${N1}`);
     await p.locator("#noticia-titulo").waitFor({ timeout: 40000 }).catch(() => {});
-    await p.waitForTimeout(2500); // que llegue también «Marca y SEO» (SiteHead) y no pise el título
+    await p.waitForTimeout(2500); // que llegue también «Marca y SEO» (EtiquetasCabeceraWeb) y no pise el título
     const datos = await p.evaluate(() => {
       const raiz = document.querySelector("#noticia-pagina");
       const fuente = raiz?.querySelector("#noticia-fuente a");
@@ -15877,7 +15877,7 @@ async function seccionPAREC() {
 }
 
 // ===== RAPI) Carga más rápida (dueño, 2026-11-14, mejora 7; sin migración): la tienda se sirve como en Vercel (https, para
-// que SmartImage use el optimizador /_vercel/image; las fotos siguen llegando falsas, pruebas/sin-fotos-reales.mjs) y en
+// que ImagenInteligente use el optimizador /_vercel/image; las fotos siguen llegando falsas, pruebas/sin-fotos-reales.mjs) y en
 // Inicio, Catálogo y la ficha a 390 px se mide y se comprueba: las tarjetas piden la foto pequeña (nunca la original), las
 // fotos fuera de la pantalla esperan (loading="lazy", decoding="async") y la primera no (fetchpriority alta), sin saltos de
 // diseño (hueco reservado), Inicio no repite consultas, «rendimiento_carga» una vez por visita sin datos de nadie (nada si
@@ -15900,7 +15900,7 @@ async function seccionRAPI() {
       view_count: i, images: [], like_count: 0, reference: null,
     };
   });
-  // Fotos con la dirección real del almacén público (la que SmartImage manda al optimizador); nunca salen del navegador.
+  // Fotos con la dirección real del almacén público (la que ImagenInteligente manda al optimizador); nunca salen del navegador.
   const fotosCatalogo = PRODUCTOS.map((p, i) => ({ id: `rm${i}`, product_id: p.id, kind: "image", public_url: `https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/rapi/${i}.jpg`, file_name: `${i}.jpg`, sort_order: 0, is_cover: true, duration_seconds: null }));
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
   const nuevoEstado = (extra = {}) => ({ filas: perfil, guardados: [], aceptaAnalitica: true, categorias: CATS, catalogoFB: PRODUCTOS, fotosCatalogo, ...extra });

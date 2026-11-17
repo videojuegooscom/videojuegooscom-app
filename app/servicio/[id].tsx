@@ -334,7 +334,7 @@ export default function ServicioScreen() {
     medirEvento("foto_ampliada", "Servicio: foto ampliada", { path: `/servicio/${s?.id ?? ""}`, metadata: { fotos: lightboxImages.length } });
   }
 
-  // Desliza la foto principal como un carrusel (el zoom vive en ImageLightbox); da la vuelta al llegar al final.
+  // Desliza la foto principal como un carrusel (el zoom vive en VisorFotos); da la vuelta al llegar al final.
   function stepImage(delta: number) {
     if (imageGallery.length < 2) return;
     const currentIdx = imageGallery.findIndex((m) => m.publicUrl === selectedImageUrl);

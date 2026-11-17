@@ -1033,7 +1033,7 @@ export default function ProductoScreen() {
     return p.media.filter((m) => m.kind === "image");
   }, [p]);
 
-  // Imágenes para el visor a pantalla completa (ImageLightbox). Si el
+  // Imágenes para el visor a pantalla completa (VisorFotos). Si el
   // producto no tiene fotos en product_media pero sí una imagen "de toda la
   // vida" en products.images, se usa esa como única foto del visor en vez
   // de dejarlo sin nada.
@@ -1068,7 +1068,7 @@ export default function ProductoScreen() {
   }
 
   // Desliza la foto principal como un carrusel (sin zoom: el zoom vive en
-  // ImageLightbox). "delta" es -1 (anterior) o 1 (siguiente), y da la
+  // VisorFotos). "delta" es -1 (anterior) o 1 (siguiente), y da la
   // vuelta al llegar al final, como cualquier carrusel.
   function stepImage(delta: number) {
     if (imageGallery.length < 2) return;

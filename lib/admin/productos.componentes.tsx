@@ -10,39 +10,39 @@
 /**
  * Notas:
  * Qué hace: componentes visuales reutilizables del panel de administración:
- * cabecera de pantalla (AdminHeader: franja fija con volver al panel +
- * título centrado), texto de presentación (AdminIntro), carga a pantalla
- * completa con la mascota (AdminLoading → components/marca/CargaMarca),
- * botón principal (PrimaryButton), aviso de error/éxito (AdminNotice),
- * estado vacío (EmptyState), título de sección (SectionTitle), tarjeta de
- * estadística (StatCard), botones tipo chip (ChipButton), botones solo con
- * icono (IconButton, 44 px, con su nombre para lectores de pantalla), el
+ * cabecera de pantalla (CabeceraPanel: franja fija con volver al panel +
+ * título centrado), texto de presentación (IntroPanel), carga a pantalla
+ * completa con la mascota (CargandoPanel → components/marca/CargaMarca),
+ * botón principal (BotonPrincipalPanel), aviso de error/éxito (AvisoPanel),
+ * estado vacío (EstadoVacioPanel), título de sección (TituloSeccionPanel), tarjeta de
+ * estadística (TarjetaCifraPanel), botones tipo chip (BotonChipPanel), botones solo con
+ * icono (BotonIconoPanel, 44 px, con su nombre para lectores de pantalla), el
  * botón redondo flotante abajo a la derecha (BotonFlotante, p. ej. «+»
- * para crear), filtros tipo píldora (FilterPill), la miniatura de
- * foto/vídeo de un producto (MediaThumb) y las pestañas de una pantalla
+ * para crear), filtros tipo píldora (PastillaFiltroPanel), la miniatura de
+ * foto/vídeo de un producto (MiniaturaArchivoPanel) y las pestañas de una pantalla
  * (PestanasPanel, con subrayado como en Perfil) con su gesto de deslizar
  * el dedo para pasar a la siguiente, en bucle (useGestoPestanas).
  *
  * Cómo funciona: son componentes de presentación puros (sin llamadas a
  * Supabase); reciben props y pintan según la paleta COLORS del tema claro
  * global (fondo blanco, azul claro de acento, texto azul marino oscuro).
- * MediaThumb además distingue entre foto y vídeo (icono, insignia de
+ * MiniaturaArchivoPanel además distingue entre foto y vídeo (icono, insignia de
  * "IMAGEN"/"VÍDEO" y duración) y funciona tanto con archivos ya subidos a
  * Supabase como con archivos locales todavía sin subir.
  *
  * Conectado con:
  * - lib/admin/productos.constantes.ts → de donde viene COLORS.
- * - lib/admin/productos.tipos.ts → tipos LocalPickedMedia,
- *   ProductMediaRow, ProductMediaKind usados por MediaThumb.
- * - lib/admin/productos.utilidades.ts → smartBackAdminHome (botón volver).
+ * - lib/admin/productos.tipos.ts → tipos ArchivoElegidoLocal,
+ *   FilaArchivoProductoPanel, TipoArchivoProductoPanel usados por MiniaturaArchivoPanel.
+ * - lib/admin/productos.utilidades.ts → volverAlPanel (botón volver).
  * - app/admin/products.tsx → pantalla principal que usa todos estos
  *   componentes para construir la lista y el formulario de productos.
  * - app/admin/services.tsx, categories.tsx, inventario.tsx,
- *   cotizaciones.tsx e index.tsx → usan AdminHeader, PrimaryButton,
- *   AdminNotice, EmptyState y StatCard para que todas las pestañas del
+ *   cotizaciones.tsx e index.tsx → usan CabeceraPanel, BotonPrincipalPanel,
+ *   AvisoPanel, EstadoVacioPanel y TarjetaCifraPanel para que todas las pestañas del
  *   panel se vean iguales.
- * - Tamaños del móvil (grupo 4, 2026-11-12; constants/temaTienda.ts): la flecha de volver de AdminHeader, los
- *   filtros (FilterPill) y los chips (ChipButton) miden 44 px como mínimo; ningún texto baja de 13 px
+ * - Tamaños del móvil (grupo 4, 2026-11-12; constants/temaTienda.ts): la flecha de volver de CabeceraPanel, los
+ *   filtros (PastillaFiltroPanel) y los chips (BotonChipPanel) miden 44 px como mínimo; ningún texto baja de 13 px
  *   (tampoco las insignias IMAGEN/VÍDEO, a 13 desde el rediseño PANRED2) y el texto azul pequeño usa COLORS.accentText.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";

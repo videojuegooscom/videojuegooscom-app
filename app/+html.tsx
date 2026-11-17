@@ -17,7 +17,7 @@
  * y `viewport-fit=cover` para conocer la zona segura del iPhone. Además, para Google y las IA:
  * la ficha de la tienda en datos estructurados (JSON-LD) y un resumen en <noscript> para quien
  * no ejecuta JavaScript (sin él solo verían la pantalla de carga). El título y las meta de SEO
- * los añaden scripts/inject-seo-html.js y SiteHead. Para cargar antes: preconnect/dns-prefetch
+ * los añaden scripts/inject-seo-html.js y EtiquetasCabeceraWeb. Para cargar antes: preconnect/dns-prefetch
  * a Supabase (datos y fotos) y fondo blanco inline en body/#root (sin parpadeo inicial).
  *
  * Conectado con: Expo Router (la usa sola al exportar; ningún archivo la importa), scripts/inject-seo-html.js y
@@ -148,7 +148,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         {/* Título y descripción por defecto ya escritos en el HTML (lo que ven Google en su primera
             pasada y WhatsApp/Facebook, que no ejecutan JavaScript). Si «Marca y SEO» tiene otros
-            textos, scripts/inject-seo-html.js y SiteHead los sustituyen. */}
+            textos, scripts/inject-seo-html.js y EtiquetasCabeceraWeb los sustituyen. */}
         <meta name="description" content={SEO_DESCRIPCION} />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="VideojuegosZaragoza" />

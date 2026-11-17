@@ -2,7 +2,7 @@
  * Archivo: app/admin/index.tsx
  * Función: pantalla de inicio del panel de administración, en la dirección /admin.
  * Para qué sirve: el administrador ve las cifras de lo nuevo (pedidos, chats, solicitudes, cotizaciones) y una rejilla de accesos agrupados a todas las secciones del panel, con contadores de novedades.
- * Conectado con: lib/admin/productos.componentes.tsx (AdminHeader), lib/admin/productos.utilidades.ts (leerPanelVistos), lib/supabase.ts (recuentos de novedades en varias tablas), constants/temaTienda.ts, components/AvisosMovil.tsx, components/admin/PiezasPanelAdmin.tsx; enlaza a todas las pantallas app/admin/*.tsx.
+ * Conectado con: lib/admin/productos.componentes.tsx (CabeceraPanel), lib/admin/productos.utilidades.ts (leerPanelVistos), lib/supabase.ts (recuentos de novedades en varias tablas), constants/temaTienda.ts, components/AvisosMovil.tsx, components/admin/PiezasPanelAdmin.tsx; enlaza a todas las pantallas app/admin/*.tsx.
  * Utilizado por: Expo Router (dirección /admin, protegida por app/admin/_layout.tsx); la abre el botón «Panel de control» de app/(tabs)/perfil.tsx.
  * Dependencias: react, react-native, react-native-safe-area-context, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -46,7 +46,7 @@
  * número.
  *
  * Cabecera y scroll: la cabecera es la misma franja fija y compacta que en
- * el resto de pestañas del panel (AdminHeader: flecha para volver —aquí, a
+ * el resto de pestañas del panel (CabeceraPanel: flecha para volver —aquí, a
  * la tienda— y título centrado); el subtítulo y la rejilla van debajo, en
  * un único ScrollView (flex 1, margen final 48 px + zona segura).
  *
@@ -71,7 +71,7 @@
  *   app/admin/pedidos.tsx, app/admin/escaparate.tsx → destino de las tarjetas de "Gestión principal".
  * - app/admin/_layout.tsx → si el acceso no es válido redirige a /perfil
  *   (sin sesión) o a / (sesión sin rol admin).
- * - lib/admin/productos.componentes.tsx → AdminHeader (cabecera común).
+ * - lib/admin/productos.componentes.tsx → CabeceraPanel (cabecera común).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {

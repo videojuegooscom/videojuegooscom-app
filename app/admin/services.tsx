@@ -56,8 +56,8 @@
  *   tablas y políticas RLS que usa esta pantalla.
  * - lib/admin/productos.utilidades.ts, productos.constantes.ts → selector
  *   y subida de fotos, formateo de precio/texto (reutilizados, no duplicados).
- * - lib/admin/productos.componentes.tsx → AdminHeader, StatCard,
- *   PrimaryButton, AdminNotice y EmptyState (mismo diseño en todo el panel).
+ * - lib/admin/productos.componentes.tsx → CabeceraPanel, TarjetaCifraPanel,
+ *   BotonPrincipalPanel, AvisoPanel y EstadoVacioPanel (mismo diseño en todo el panel).
  * - app/servicios.tsx, app/servicio/[id].tsx → lo que ve el público.
  * - components/ContratarServicioModal.tsx → origen de cada fila de
  *   service_requests.

@@ -1,7 +1,7 @@
 /**
  * Archivo: lib/analiticaPropia.ts
  * Función: utilidad de analítica propia de la tienda (cliente de eventos).
- * Para qué sirve: genera la sesión de visita, gestiona el consentimiento (RGPD) y envía eventos (trackEvent) a Supabase para reconstruir el recorrido de cada visita en Administración; no envía nada de quien rechazó.
+ * Para qué sirve: genera la sesión de visita, gestiona el consentimiento (RGPD) y envía eventos (medirEvento) a Supabase para reconstruir el recorrido de cada visita en Administración; no envía nada de quien rechazó.
  * Conectado con: lib/supabase.ts, tabla analytics_events, components/AvisoAnaliticaCookies.tsx.
  * Utilizado por: casi todas las pantallas y componentes de la tienda y del panel (checkout, catálogo, producto, perfil, AsistenteBlue, VenderAhoraModal, VentanaValoracion, etc.).
  * Dependencias: @react-native-async-storage/async-storage.
@@ -17,7 +17,7 @@
  * desde el panel de administración.
  *
  * Cómo funciona:
- * - session_id: UUID que se genera la primera vez que se llama a trackEvent
+ * - session_id: UUID que se genera la primera vez que se llama a medirEvento
  *   en esta "visita" y se guarda en AsyncStorage junto a la hora del último
  *   evento. Mientras no pasen más de SESSION_TTL_MS (30 min) sin actividad,
  *   los eventos siguientes reutilizan el mismo session_id (así navegar por
@@ -32,9 +32,9 @@
  *   se envían en ese momento; si rechaza (o cierra la pestaña sin contestar),
  *   se descartan y no sale nada. Con "Rechazar" tampoco se envía ningún
  *   evento posterior. La decisión se guarda en AsyncStorage
- *   (getAnalyticsConsent/setAnalyticsConsent) y se cachea en memoria para no
+ *   (leerConsentimientoAnalitica/guardarConsentimientoAnalitica) y se cachea en memoria para no
  *   leer el storage en cada evento.
- * - trackEvent() nunca bloquea la UI ni lanza errores hacia quien la llama:
+ * - medirEvento() nunca bloquea la UI ni lanza errores hacia quien la llama:
  *   cualquier fallo (sin red, RLS, AsyncStorage no disponible, etc.) se
  *   traga en silencio, porque perder un evento de analítica no debe romper
  *   la experiencia de compra.
@@ -42,7 +42,7 @@
  *   cachea en memoria) el rol en "profiles"; si es "admin" (Jefe navegando
  *   su propia tienda) no se registra nada, para que las estadísticas del
  *   panel reflejen solo a clientes reales.
- * - trackEventThrottled() es una variante para eventos que se disparan muy
+ * - medirEventoEspaciado() es una variante para eventos que se disparan muy
  *   seguido (el típico "Scroll"): ignora llamadas repetidas de la misma
  *   clave antes de que pase un intervalo mínimo, para no inundar la tabla.
  *
@@ -50,9 +50,9 @@
  * - lib/supabase.ts → cliente usado para leer la sesión (user_id) y para el
  *   insert en analytics_events.
  * - components/AvisoAnaliticaCookies.tsx → lee/escribe el consentimiento con
- *   getAnalyticsConsent()/setAnalyticsConsent().
+ *   leerConsentimientoAnalitica()/guardarConsentimientoAnalitica().
  * - app/(tabs)/index.tsx, app/catalogo.tsx, app/producto/[id].tsx → llaman a
- *   trackEvent()/trackEventThrottled() en los pasos del recorrido (Inicio,
+ *   medirEvento()/medirEventoEspaciado() en los pasos del recorrido (Inicio,
  *   Scroll, Categoría, Categoría X, Producto, Reseñas...).
  * - components/AsistenteBlue.tsx → «Crear cuenta gratis» de los avisos de Blue
  *   (marcarOrigenRegistro): la cuenta creada después se cuenta aparte.
@@ -271,7 +271,7 @@ export function leerOrigenVender(): string | null {
 // Redes sociales (dueño, 2026-11-04, tras publicar el carrusel «Regístrate»): de qué red llega la visita y si crea una
 // cuenta en esa visita, para saber qué red funciona mejor. Se mira una sola vez al abrir la tienda: el enlace de la
 // biografía con ?utm_source=instagram|tiktok, la página de la que viene o el navegador de la propia app. Solo vive en
-// memoria (no se guarda nada en el dispositivo) y se cuenta con trackEvent: solo llega a la analítica de quien la
+// memoria (no se guarda nada en el dispositivo) y se cuenta con medirEvento: solo llega a la analítica de quien la
 // acepta. Administración → Analítica lo enseña en «Redes sociales: Instagram y TikTok».
 export type RedSocial = "instagram" | "tiktok";
 export const NOMBRE_RED: Record<RedSocial, string> = { instagram: "Instagram", tiktok: "TikTok" };
@@ -342,7 +342,7 @@ export function medirCuentaCreada(): void {
 
 // Noticias desde Google (dueño, 2026-11-09: atraer visitas orgánicas con las noticias). Solo el NOMBRE del buscador
 // (Google, Bing…), nunca la búsqueda ni la dirección completa de la que viene, y solo si la visita ENTRÓ en la tienda por
-// una noticia (la página con la que se abrió). Una vez por visita y con trackEvent (solo con la analítica aceptada).
+// una noticia (la página con la que se abrió). Una vez por visita y con medirEvento (solo con la analítica aceptada).
 // Administración → Analítica lo enseña en «Noticias: visitas desde Google» (#analitica-noticias-organicas).
 const paginaDeEntrada = typeof window !== "undefined" && window.location ? window.location.pathname : "";
 let buscadorNoticiaMedido = false;
@@ -398,7 +398,7 @@ export function trasPrimeraPintura(fn: () => void, maxMs = 1500): () => void {
 // «rendimiento_carga»: cuánto tarda en verse la primera pantalla útil (las primeras tarjetas o la ficha ya pintadas, en ms
 // desde que se abrió la página), una vez por visita (sessionStorage de la pestaña) y solo en la pantalla con la que se abrió
 // la tienda. Sin datos de nadie: los ms redondeados, la pantalla, el ancho por tramos y el tipo de conexión si el navegador
-// lo da. Con trackEvent: nada si se rechazó la analítica. Administración → Analítica: «Velocidad de la tienda (30 días)».
+// lo da. Con medirEvento: nada si se rechazó la analítica. Administración → Analítica: «Velocidad de la tienda (30 días)».
 export type PantallaCarga = "inicio" | "catalogo" | "producto";
 const NOMBRE_PANTALLA_CARGA: Record<PantallaCarga, string> = { inicio: "Inicio", catalogo: "Catálogo", producto: "Ficha" };
 const CLAVE_RENDIMIENTO = "videojuegoos.analytics.rendimiento_medido";
@@ -434,7 +434,7 @@ export function medirCargaPantalla(pantalla: PantallaCarga): void {
 const lastTrackedAt = new Map<string, number>();
 
 /**
- * Como trackEvent(), pero pensada para eventos que se disparan muy seguido
+ * Como medirEvento(), pero pensada para eventos que se disparan muy seguido
  * (el típico "Scroll"): si ya se registró un evento con la misma `key` hace
  * menos de minIntervalMs (4s por defecto), esta llamada no hace nada. Así
  * evitamos mandar un evento por cada pixel desplazado.

@@ -229,7 +229,7 @@ export default function EfectoPensando() {
   const area = useAreaVisible(montado);
 
   // Pulso en cada cambio de ruta (no en el primer render: ahí ya está la
-  // pantalla de carga inicial, BrandLoadingScreen).
+  // pantalla de carga inicial, PantallaCargaMarca).
   const pathname = usePathname();
   const isFirstPathRef = useRef(true);
 

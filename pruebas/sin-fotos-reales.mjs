@@ -7,7 +7,7 @@
  *   app/_layout.tsx. La lanza pruebas/todas.mjs (grupo api).
  *
  * Por qué: el 2026-10-23 Supabase cortó la tienda (plan gratuito: «Salida en caché» 25,4 de 5 GB al mes). En las
- * pruebas locales (http://127.0.0.1) SmartImage no puede usar el optimizador de Vercel y pide la foto ORIGINAL al
+ * pruebas locales (http://127.0.0.1) ImagenInteligente no puede usar el optimizador de Vercel y pide la foto ORIGINAL al
  * almacenamiento de Supabase, y cada recorrido de pruebas bajaba decenas de MB. Ahora cada foto se sustituye por
  * una imagen falsa de 1 × 1 píxel que nunca sale del navegador.
  *

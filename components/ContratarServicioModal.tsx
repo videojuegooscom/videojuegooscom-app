@@ -36,7 +36,7 @@
  *   pantalla»): «Ver en Mis seguimientos» con sesión; «Cerrar» va como texto.
  * - Analítica (Administración → Analítica, #analitica-contratar-servicio):
  *   ventana abierta, solicitud enviada, cerrada sin enviar y qué faltaba, por
- *   servicio. trackEvent respeta a quien rechazó la analítica.
+ *   servicio. medirEvento respeta a quien rechazó la analítica.
  * - Reparación por envío (dueño, 2026-11-11; migración 20261111100000): con
  *   sesión y si el dueño la ha activado (reparacion_envio_ajustes.activo) y
  *   hay tarifa de Correos, «¿Cómo nos lo haces llegar?» ofrece «Recogida en

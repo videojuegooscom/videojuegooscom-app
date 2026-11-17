@@ -43,8 +43,8 @@
  * Si no hay URL (uri vacío/null/undefined), no pinta nada — igual que antes
  * hacían las pantallas que envolvían su <Image> en `{p.imageUrl ? ... : ...}`.
  *
- * Barra de carga global ("Pensando"): cada SmartImage avisa a
- * lib/estadoCarga.ts (markStart/markEnd) mientras SU foto está cargando de
+ * Barra de carga global ("Pensando"): cada ImagenInteligente avisa a
+ * lib/estadoCarga.ts (marcarInicioCarga/marcarFinCarga) mientras SU foto está cargando de
  * verdad, igual que lib/supabase.ts avisa por cada petición — así
  * components/EfectoPensando.tsx se queda encendida hasta que TODAS
  * las fotos en pantalla han terminado de cargar, no solo mientras llegan
@@ -60,7 +60,7 @@
  * app/(tabs)/index.tsx, app/servicios.tsx, app/admin/categories.tsx,
  * app/admin/services.tsx, components/VisorFotos.tsx,
  * components/Resenas.tsx — cualquier sitio que antes usaba <Image> de
- * "react-native" para pintar una foto remota (uri) ahora usa <SmartImage>.
+ * "react-native" para pintar una foto remota (uri) ahora usa <ImagenInteligente>.
  * lib/estadoCarga.ts → a quien avisa mientras carga.
  */
 import React, { useEffect, useRef, useState } from "react";
