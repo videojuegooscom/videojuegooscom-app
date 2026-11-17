@@ -1,5 +1,15 @@
-// Fallback for using MaterialIcons on Android and web.
 /**
+ * Archivo: components/ui/icon-symbol.tsx
+ * Función: componente de icono multiplataforma, versión Android/web (plantilla de Expo).
+ * Para qué sirve: traduce nombres de SF Symbols de iOS a Material Icons; en iOS se usa en su lugar icon-symbol.ios.tsx.
+ * Conectado con: components/ui/icon-symbol.ios.tsx (misma interfaz).
+ * Utilizado por: solo components/ui/collapsible.tsx (candidato).
+ * Dependencias: @expo/vector-icons, expo-symbols, react, react-native.
+ * Estado: CANDIDATO_A_ELIMINAR (solo lo usa collapsible.tsx, que tampoco lo usa nadie).
+ */
+/**
+ * Notas:
+ * (Original: «Fallback for using MaterialIcons on Android and web».)
  * Qué hace: versión para Android/web del componente de icono IconSymbol.
  * Traduce nombres de SF Symbols (iOS) a su equivalente en Material Icons.
  *

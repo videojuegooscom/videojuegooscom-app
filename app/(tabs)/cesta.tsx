@@ -1,6 +1,14 @@
 /**
- * app/(tabs)/cesta.tsx
- *
+ * Archivo: app/(tabs)/cesta.tsx
+ * Función: pantalla de la cesta de la compra (pestaña «Cesta»), en la dirección /cesta (admite ?add=<id>).
+ * Para qué sirve: el cliente ve los artículos que ha añadido, cambia cantidades, los quita, ve el total y el envío, y pasa a pagar.
+ * Conectado con: lib/supabase.ts (tabla products), lib/envio.ts (tarifas), lib/reservas.ts, lib/analytics.ts, constants/theme.ts, components/CategoryProductsShelf.tsx, SiteFooter.tsx, SmartImage.tsx, TirarParaActualizar.tsx, components/marca/*; guarda la cesta en AsyncStorage (misma clave que app/checkout.tsx).
+ * Utilizado por: Expo Router (dirección /cesta, pestaña de app/(tabs)/_layout.tsx); la abre app/producto/[id].tsx («Añadir a la cesta») y app/comparar.tsx (?add=).
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage, @react-navigation/native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de la cesta de la compra. Guarda los artículos en el
  * dispositivo (AsyncStorage) para que sobrevivan a cerrar la app, permite
  * subir/bajar cantidad, quitar artículos y calcula el total.

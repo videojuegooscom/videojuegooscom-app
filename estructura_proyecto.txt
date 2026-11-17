@@ -1,0 +1,172 @@
+ESTRUCTURA DEL PROYECTO · VideojuegosZaragoza (tienda online de electrónica)
+=============================================================================
+
+Qué es: tienda web hecha con TypeScript, React Native y Expo Router 6, exportada como web estática y publicada en
+Vercel; base de datos, cuentas y almacenamiento en Supabase; cobros con Stripe; conexión firmada con VeoAura (el
+programa de gestión del stock y las facturas).
+
+Cómo se comprueba:
+  - Tipos:        npx tsc --noEmit
+  - Estilo:       npm run lint
+  - Compilación:  npm run build   (genera dist/)
+  - Pruebas:      pruebas/todas.mjs (todas); pruebas/perfil-datos.mjs dist <carpeta capturas> <SECCION> (pantallas en
+                  el navegador, con datos ficticios); pruebas/pago-api.mjs (pagos); pruebas/perfiles-sql.mjs (base de datos).
+
+Cada archivo de código empieza con una cabecera: Archivo, Función, Para qué sirve, Conectado con, Utilizado por,
+Dependencias y Estado (ACTIVO o CANDIDATO_A_ELIMINAR). Los candidatos y los archivos nuevos están en
+documentacion/registro-archivos.md.
+
+ZONA DELICADA = inicio de sesión, pagos, administradores, conexión con VeoAura o configuración: no se toca sin
+revisión del dueño.
+
+Formato de cada línea:  archivo | función | conectado con | utilizado por | estado
+
+-----------------------------------------------------------------------------
+app/  · Pantallas. El nombre de cada archivo ES la dirección de la web (Expo Router): no se renombran.
+-----------------------------------------------------------------------------
+app/_layout.tsx | Layout raíz: carga de marca y Stack de rutas | BrandLoadingScreen, Campanita, CookieConsentBanner, PerfilPublico, SiteHead, CategoryProductsShelf, lib/analytics, lib/supabase | Expo Router (raíz) | ACTIVO
+app/+html.tsx | Plantilla HTML de la exportación web (SEO, JSON-LD, noscript) | scripts/inject-seo-html.js, SiteHead, lib/tabBar, lib/horarioAtencion | Expo Router (al exportar) | ACTIVO
+app/+not-found.tsx | Página 404 | components/marca/MarcaAnimada | Expo Router (direcciones inexistentes) | ACTIVO
+app/modal.tsx | Modal de ejemplo de la plantilla de Expo (/modal) | themed-view, themed-text | Solo registrada en app/_layout.tsx; nadie la abre | CANDIDATO_A_ELIMINAR
+app/(tabs)/_layout.tsx | Barra de pestañas inferior | lib/loadingBus, lineapensadoraefectosiri, constants/theme | Expo Router (grupo (tabs)) | ACTIVO
+app/(tabs)/index.tsx | Inicio (/) | Supabase products y categorías, Barramagic, CategoryProductsShelf, PortadasCategoria, Resenas, SiteFooter, SocialLinks | Expo Router (/), pestaña Inicio | ACTIVO
+app/(tabs)/cesta.tsx | Cesta (/cesta) | Supabase products, lib/envio, lib/reservas, CategoryProductsShelf, SiteFooter | Expo Router; producto y comparar (?add=) | ACTIVO
+app/(tabs)/chat-global.tsx | Foro, noticias y bandeja privada (/chat-global) | Supabase chat_messages, noticias_gaming, noticias_likes, noticias_comentarios; api/noticias-gaming; PerfilPublico | Expo Router; noticias/[id] | ACTIVO
+app/(tabs)/blue-ia.tsx | Asistente Blue IA (/blue-ia) | api/blue-ia, api/factura, Supabase blue_ia_conversaciones y blue_ia_mensajes, ProductChatThread | Expo Router; Inicio, cesta, fichas, Campanita | ACTIVO
+app/(tabs)/perfil.tsx | Mi cuenta: acceso, perfil, pedidos y reparaciones (/perfil) | Supabase Auth, profiles, pedidos, pedido_facturas; api/pago, api/factura; PerfilPublico, ReviewModal | Expo Router; admin/_layout, Foro, Blue IA | ACTIVO · ZONA DELICADA (cuenta y pagos)
+app/catalogo.tsx | Catálogo con filtros y búsqueda (/catalogo) | Supabase products, categories, product_media; Barramagic, CatalogFilters, CategoryProductsShelf, PortadasCategoria | Expo Router; Inicio, perfil, cesta, Blue IA, checkout, comparar, pie, Barramagic | ACTIVO
+app/comparar.tsx | Comparar hasta 3 productos (/comparar) | Supabase products, CategoryProductsShelf, Barramagic, lib/envio | Expo Router; barra de comparar, catálogo y fichas | ACTIVO
+app/servicios.tsx | Catálogo de servicios (/servicios) | Supabase services y service_media, CategoryProductsShelf | Expo Router; Inicio, perfil, Blue IA, fichas, Barramagic, Campanita | ACTIVO
+app/servicio/[id].tsx | Ficha de servicio (/servicio/<id>) | Supabase services, service_media, store_reviews; lib/interaccion; ContratarServicioModal, ImageLightbox | Expo Router; servicios, contratar/[id] | ACTIVO
+app/contratar/[id].tsx | Contratar un servicio (/contratar/<id>) | ContratarServicioModal (service_requests), servicio/[id] | Expo Router; servicio/[id] | ACTIVO
+app/producto/[id].tsx | Ficha de producto (/producto/<id>) | Supabase products, product_media, categories; lib/interaccion, lib/reservas, lib/envio; ProductChatThread; api/pago | Expo Router; catálogo, comparar, Inicio, perfil, Blue IA, escaparate, Campanita | ACTIVO
+app/checkout.tsx | Finalizar compra y pago con Stripe (/checkout) | crear_pedido, pedidos, product_sales; lib/envio, lib/reservas; PerfilPublico; api/pago | Expo Router; cesta, ficha («Comprar ya»), pie, Campanita | ACTIVO · ZONA DELICADA (pagos)
+app/vender.tsx | Vender o cambiar un artículo (/vender) | VenderAhoraModal | Expo Router; Inicio, Blue IA, perfil, cesta, quiénes somos, Campanita, Barramagic | ACTIVO
+app/quienes-somos.tsx | Quiénes somos (/quienes-somos) | CabeceraMarca, lib/analytics | Expo Router; Inicio, perfil, Blue IA, pie, Barramagic | ACTIVO
+app/reset-password.tsx | Cambiar la contraseña desde el enlace del correo (/reset-password) | Supabase Auth (verifyOtp, updateUser), lib/supabase | Enlace del correo de recuperación | ACTIVO · ZONA DELICADA (inicio de sesión)
+app/noticias/index.tsx | Índice de noticias (/noticias) | Supabase noticias_gaming, noticias/[id] | Expo Router; pie, noticias/[id] | ACTIVO
+app/noticias/[id].tsx | Una noticia con SEO (/noticias/<id>) | Supabase noticias_gaming, SiteHead, api/noticias-gaming | Expo Router; noticias, Foro | ACTIVO
+app/blog/index.tsx | Blog (/blog) | Supabase blog_posts | Expo Router; pie, Barramagic | ACTIVO
+app/politicas/[slug].tsx | Políticas legales (/politicas/<slug>) | Supabase policy_pages | Expo Router; pie, checkout, cookies, PerfilPublico, Barramagic, Campanita, perfil, Blue IA, Foro | ACTIVO
+app/chat/[chatId].tsx | Conversación privada con la tienda (/chat/<chatId>) | ProductChatThread, Supabase | Expo Router; Foro, Inicio, catálogo, VenderAhoraModal | ACTIVO
+app/admin/_layout.tsx | Puerta de las rutas /admin (sesión y rol de administrador) | Supabase auth y profiles, products.utils | Expo Router (todas las rutas /admin) | ACTIVO · ZONA DELICADA (administradores)
+app/admin/index.tsx | Inicio del panel (/admin) | products.components, products.utils, AvisosMovil, PanelUI, Supabase (recuentos) | Expo Router; «Panel de control» del perfil | ACTIVO
+app/admin/alquileres.tsx | Alquileres (/admin/alquileres), apagado para el cliente | Supabase alquiler_ajustes, alquiler_unidades, alquileres, alquiler_pagos; lib/alquiler, lib/envio | Expo Router; tarjeta del panel | ACTIVO
+app/admin/analytics.tsx | Visitas y métricas (/admin/analytics) | Supabase analytics_events y funciones analytics_*; lib/envio, lib/alquiler | Expo Router; tarjeta del panel | ACTIVO
+app/admin/aprendizajes.tsx | Centro De Aprendizajes (/admin/aprendizajes) | Supabase aprendizajes | Expo Router; tarjeta del panel | ACTIVO
+app/admin/auditorias.tsx | Revisiones web automáticas (/admin/auditorias) | Supabase auditorias_web (api/auditoria-web) | Expo Router; tarjeta del panel | ACTIVO
+app/admin/blog.tsx | Editor del Blog (/admin/blog) | Supabase blog_posts | Expo Router; tarjeta del panel | ACTIVO
+app/admin/categories.tsx | Categorías y portadas (/admin/categories) | Supabase categories, almacén product-media, PortadasCategoria | Expo Router; tarjeta del panel | ACTIVO
+app/admin/chats.tsx | Chats con clientes (/admin/chats) | Supabase product_chats, product_sales; ProductChatThread; api/asignar-seguimiento | Expo Router; tarjeta del panel | ACTIVO
+app/admin/cliente/[userId].tsx | Ficha de un cliente (/admin/cliente/<userId>) | Supabase product_sales, sell_requests, service_requests, perfiles_cliente, cliente_dispositivos | Expo Router; filas de admin/users | ACTIVO
+app/admin/conocimiento.tsx | Lo que Blue sabe de la tienda (/admin/conocimiento) | Supabase blue_conocimiento, lib/conocimiento | Expo Router; tarjeta del panel | ACTIVO
+app/admin/cotizaciones.tsx | Solicitudes de venta (/admin/cotizaciones) | Supabase sell_requests, sell_request_media | Expo Router; tarjeta del panel | ACTIVO
+app/admin/envios.tsx | Tarifas de envío (/admin/envios) | Supabase tarifas de envío, lib/envio | Expo Router; tarjeta del panel | ACTIVO
+app/admin/escaparate.tsx | Escaparate VeoAura (/admin/escaparate) | Supabase escaparate_registro y tablas del puente; api/escaparate-retorno | Expo Router; tarjeta del panel | ACTIVO
+app/admin/flash-news.tsx | Noticias Flash de Blue (/admin/flash-news) | Supabase flash_news | Expo Router; tarjeta del panel | ACTIVO
+app/admin/inventario.tsx | Inventario interno (/admin/inventario) | Supabase inventory_items | Expo Router; tarjeta del panel | ACTIVO
+app/admin/marca-seo.tsx | Marca y SEO (/admin/marca-seo) | Supabase site_settings, almacén site-assets | Expo Router; tarjeta del panel | ACTIVO
+app/admin/pedidos.tsx | Pedidos (/admin/pedidos) | Supabase pedidos, pedido_items; lib/envio, lib/interaccion; api/factura, api/pago | Expo Router; tarjeta del panel | ACTIVO
+app/admin/policies.tsx | Editor de políticas (/admin/policies) | Supabase policy_pages | Expo Router; tarjeta del panel | ACTIVO
+app/admin/products.tsx | Productos (/admin/products) | Supabase products, product_media; lib/envio, lib/admin/products.* | Expo Router; tarjeta del panel | ACTIVO
+app/admin/redes-sociales.tsx | Redes sociales (/admin/redes-sociales) | Supabase social_links, site_settings; SocialLinks | Expo Router; tarjeta del panel | ACTIVO
+app/admin/reservas.tsx | Reservas con señal (/admin/reservas), apagado | lib/reservas, Supabase reservas; api/pago | Expo Router; tarjeta del panel | ACTIVO
+app/admin/services.tsx | Servicios y solicitudes (/admin/services) | Supabase services, service_media, service_requests; lib/envio | Expo Router; tarjeta del panel | ACTIVO
+app/admin/users.tsx | Usuarios y participación (/admin/users) | Supabase usuarios, perfiles, foro, chats, reseñas, pedidos | Expo Router; tarjeta del panel | ACTIVO
+
+-----------------------------------------------------------------------------
+components/  · Piezas visuales reutilizables
+-----------------------------------------------------------------------------
+components/AvisosMovil.tsx | Tarjeta «Avisos en este móvil» del panel | lib/notificaciones, lib/supabase, api/pago, public/sw-avisos.js | admin/pedidos, admin/index | ACTIVO
+components/Barramagic.tsx | Barra de búsqueda de la tienda e índice de productos | lib/supabase, lib/analytics, SmartImage, constants/theme | catálogo, Inicio, comparar, quiénes somos, admin/analytics, Campanita, CategoryProductsShelf | ACTIVO
+components/BotonAtrasAlcance.tsx | Botón «Volver» flotante al alcance del pulgar | CategoryProductsShelf | app/_layout, ContratarServicioModal | ACTIVO
+components/BrandLoadingScreen.tsx | Pantalla de bienvenida y de carga | MarcaAnimada, lineapensadoraefectosiri | app/_layout | ACTIVO
+components/CabeceraMarca.tsx | Barra superior con «Volver» y el nombre de la tienda | constants/theme | catálogo, servicios, fichas, blog, políticas, checkout, chat, comparar, formularios | ACTIVO
+components/Campanita.tsx | Blue, la asistente flotante (guía, avisos y panel) | lib/supabase, analytics, interaccion, conocimiento, notificaciones, envio; api/blue-ia | app/_layout | ACTIVO
+components/CatalogFilters.tsx | Filtros y orden del catálogo | lib/analytics, constants/theme | app/catalogo | ACTIVO
+components/CategoryProductsShelf.tsx | Carrusel de productos y barra de comparar | lib/supabase, analytics, SmartImage, TirarParaActualizar, Barramagic | app/_layout, catálogo, comparar, producto, Inicio, perfil, cesta, Campanita, BotonAtrasAlcance | ACTIVO
+components/ContratarServicioModal.tsx | Formulario «Contratar servicio» | lib/supabase, analytics, envio, products.components, BotonAtrasAlcance, CabeceraMarca, VenderAhoraModal; tabla service_requests | servicio/[id], contratar/[id] | ACTIVO
+components/CookieConsentBanner.tsx | Aviso de consentimiento de analítica | lib/analytics, lib/tabBar | app/_layout | ACTIVO
+components/ImageLightbox.tsx | Visor de fotos a pantalla completa con zoom | SmartImage, lib/analytics, Campanita | producto, servicio, admin/services, Campanita | ACTIVO
+components/PerfilPublico.tsx | «Mi perfil» del cliente y perfil obligatorio | lib/supabase, analytics, products.utils, CargaMarca, SmartImage; tabla perfiles | perfil, _layout, checkout, producto, Foro, admin/users, VenderAhoraModal, Resenas, Campanita | ACTIVO
+components/PortadasCategoria.tsx | Carrusel de portadas de una categoría | SmartImage, lib/supabase; tabla categories | Inicio, catálogo, admin/categories, admin/products, admin/alquileres | ACTIVO
+components/ProductChatThread.tsx | Chat privado cliente-tienda | lib/supabase, analytics, products.utils, SmartImage; tabla product_chats | chat/[chatId], admin/chats, ReviewModal | ACTIVO
+components/Resenas.tsx | Bloque de reseñas de Inicio | lib/supabase, PerfilPublico, ReviewModal, SmartImage; tabla store_reviews | Inicio | ACTIVO
+components/ReviewModal.tsx | Ventanas de reseña, mejoras y valoración de pedidos | lib/supabase, analytics, envio, ProductChatThread; tabla store_reviews | Resenas, SiteFooter, Campanita, perfil, pedidos | ACTIVO
+components/SellRequestMedia.tsx | Fotos y vídeo de «Vender ahora» (selector, subida y descarga) | constants/theme, lib/supabase; tabla sell_request_media, almacén sell-request-media | VenderAhoraModal, admin/cotizaciones | ACTIVO
+components/SiteFooter.tsx | Pie de página de la tienda | SocialLinks, MarcaAnimada, ReviewModal | Inicio, perfil, cesta, quiénes somos, noticias | ACTIVO
+components/SiteHead.tsx | Título, descripción y favicon del navegador | lib/supabase; tabla site_settings | app/_layout | ACTIVO
+components/SmartImage.tsx | Imagen remota con caché y fundido | lib/loadingBus, expo-image | casi todas las pantallas con fotos | ACTIVO
+components/SocialLinks.tsx | Bloque «Síguenos» con las redes sociales | lib/supabase, openExternalLink, analytics; tabla social_links | SiteFooter, Inicio | ACTIVO
+components/TirarParaActualizar.tsx | Gesto de deslizar para actualizar (useRecarga) | MarcaAnimada, lib/loadingBus | app/_layout, Campanita, CategoryProductsShelf, Resenas, pantallas | ACTIVO
+components/VenderAhoraModal.tsx | Formulario «Vender ahora» | lib/supabase, analytics, notificaciones, SellRequestMedia, PerfilPublico; tabla sell_requests | vender, Inicio, cesta, Foro, ContratarServicioModal | ACTIVO
+components/lineapensadoraefectosiri.tsx | Efecto «Pensando» (marco luminoso de carga) | lib/loadingBus | app/_layout, app/(tabs)/_layout, BrandLoadingScreen | ACTIVO
+components/admin/PanelUI.tsx | Piezas comunes del panel de Administración | constants/theme | casi todo app/admin | ACTIVO
+components/marca/CargaMarca.tsx | Indicador «cargando» con la mascota | MarcaAnimada | casi todas las pantallas | ACTIVO
+components/marca/MarcaAnimada.tsx | Logo y mascotas animadas | assets/brand | BrandLoadingScreen, CargaMarca, SiteFooter, Campanita, TirarParaActualizar | ACTIVO
+components/external-link.tsx | Enlace externo (plantilla de Expo) | expo-router, expo-web-browser | Nadie | CANDIDATO_A_ELIMINAR
+components/haptic-tab.tsx | Pestaña con vibración (plantilla de Expo) | @react-navigation, expo-haptics | Nadie | CANDIDATO_A_ELIMINAR
+components/hello-wave.tsx | Mano saludando (plantilla de Expo) | react-native-reanimated | Nadie | CANDIDATO_A_ELIMINAR
+components/parallax-scroll-view.tsx | Scroll con cabecera parallax (plantilla de Expo) | themed-view, use-color-scheme, use-theme-color | Nadie | CANDIDATO_A_ELIMINAR
+components/themed-text.tsx | Texto con tema (plantilla de Expo) | hooks/use-theme-color | app/modal y collapsible (candidatos) | CANDIDATO_A_ELIMINAR
+components/themed-view.tsx | Vista con tema (plantilla de Expo) | hooks/use-theme-color | app/modal, parallax-scroll-view y collapsible (candidatos) | CANDIDATO_A_ELIMINAR
+components/ui/collapsible.tsx | Bloque plegable (plantilla de Expo) | themed-text, themed-view, icon-symbol, use-color-scheme | Nadie | CANDIDATO_A_ELIMINAR
+components/ui/icon-symbol.tsx | Icono multiplataforma (plantilla de Expo) | icon-symbol.ios | collapsible (candidato) | CANDIDATO_A_ELIMINAR
+components/ui/icon-symbol.ios.tsx | Icono para iOS (plantilla de Expo) | expo-symbols | collapsible (candidato) | CANDIDATO_A_ELIMINAR
+
+-----------------------------------------------------------------------------
+lib/  · Lógica, datos y conexión
+-----------------------------------------------------------------------------
+lib/supabase.ts | Cliente único de Supabase, sesión y utilidades de cuenta | lib/loadingBus, Supabase Auth y base de datos | casi toda la aplicación | ACTIVO · ZONA DELICADA
+lib/alquiler.ts | Cuentas y contrato del alquiler (apagado) | lib/reservas | admin/alquileres, admin/analytics | ACTIVO
+lib/analytics.ts | Analítica propia (eventos y consentimiento) | lib/supabase; tabla analytics_events | casi todas las pantallas | ACTIVO
+lib/conocimiento.ts | «Lo que Blue sabe»: temas y guardado | lib/supabase; tabla blue_conocimiento; api/blue-ia | Campanita, admin/conocimiento | ACTIVO
+lib/envio.ts | Tarifas de envío, historial de pedidos y reparación por envío | lib/supabase; tablas de envío y pedidos | checkout, cesta, perfil, producto, admin, ContratarServicioModal, Campanita | ACTIVO
+lib/horarioAtencion.ts | Horario de atención del equipo | — | app/(tabs)/blue-ia | ACTIVO
+lib/interaccion.ts | Visitas, «me gusta» y reservas (cliente de api/interaccion) | lib/supabase, api/interaccion | producto, servicio, perfil, admin/pedidos, reservas, Campanita | ACTIVO
+lib/loadingBus.ts | Estado global de «cargando» | — | lib/supabase, SmartImage, efecto de carga, TirarParaActualizar, layouts | ACTIVO
+lib/notificaciones.ts | Avisos del navegador y push del dueño | public/sw-avisos.js, api/pago | VenderAhoraModal, Campanita, AvisosMovil | ACTIVO
+lib/openExternalLink.ts | Abrir enlaces externos | react-native | SocialLinks, perfil, Blue IA, admin | ACTIVO
+lib/reservas.ts | Reservas de artículos (cesta y reserva con señal) | lib/interaccion, lib/supabase, api/interaccion | producto, cesta, checkout, perfil, admin/reservas, lib/alquiler, Campanita | ACTIVO
+lib/tabBar.ts | Medidas de la barra de pestañas | react-native-safe-area-context | app/(tabs)/_layout, Inicio, CookieConsentBanner | ACTIVO
+lib/admin/products.types.ts | Tipos de la administración de productos | — | admin/products, admin/services, products.utils, products.components | ACTIVO
+lib/admin/products.utils.ts | Utilidades de productos, fotos y vídeo del panel | lib/supabase, products.types | admin, producto, Inicio, PerfilPublico, ProductChatThread, Campanita | ACTIVO
+lib/admin/products.components.tsx | Componentes comunes del panel y selector iOS | CargaMarca, products.constants, products.types, products.utils, constants/theme | casi todo app/admin, servicio, ContratarServicioModal | ACTIVO
+lib/admin/products.constants.ts | Límites de subida, errores y paleta del panel | constants/theme | admin/products, admin/services, admin/categories, products.components | ACTIVO
+
+-----------------------------------------------------------------------------
+constants/ y hooks/
+-----------------------------------------------------------------------------
+constants/theme.ts | Tamaños, zonas táctiles, campos y colores de texto comunes | react-native | casi todas las pantallas y componentes | ACTIVO (Colors y Fonts solo los usan candidatos)
+hooks/use-color-scheme.ts | Tema claro u oscuro, versión nativa (plantilla de Expo) | react-native | solo candidatos | CANDIDATO_A_ELIMINAR
+hooks/use-color-scheme.web.ts | Tema claro u oscuro, versión web (plantilla de Expo) | react-native | solo candidatos | CANDIDATO_A_ELIMINAR
+hooks/use-theme-color.ts | Color según el tema (plantilla de Expo) | constants/theme, use-color-scheme | solo candidatos | CANDIDATO_A_ELIMINAR
+
+-----------------------------------------------------------------------------
+api/  · Funciones de servidor en Vercel (12, el máximo del plan). Su nombre ES la dirección /api/…: no se renombran.
+-----------------------------------------------------------------------------
+api/asignar-seguimiento.ts | Asigna un pedido o una reparación desde el chat (solo administrador) | Supabase (clave de servidor) | admin/chats | ACTIVO
+api/auditoria-web.ts | Revisión automática de calidad de la web | Supabase, la tienda real, vercel.json (cron) | cron de Vercel, admin/auditorias | ACTIVO
+api/blue-ia.ts | Respuestas de Blue IA con OpenAI | Supabase, OpenAI | app/(tabs)/blue-ia, Campanita | ACTIVO
+api/compartir.ts | Vista previa al compartir un producto | Supabase (clave anónima), vercel.json | redes sociales, ficha de producto | ACTIVO
+api/escaparate-retorno.ts | Puente tienda → VeoAura (pedidos, productos, estadísticas) | VeoAura, Supabase, api/escaparate-veoaura | cron de Vercel, api/pago, admin | ACTIVO · ZONA DELICADA
+api/escaparate-veoaura.ts | Receptor del puente VeoAura → tienda (mensajes firmados) | VeoAura, Supabase, api/factura | VeoAura, admin/escaparate | ACTIVO · ZONA DELICADA
+api/factura.ts | Descargas privadas de facturas, etiquetas y fotos de reparación | Supabase (almacenes privados), VeoAura | perfil, admin/pedidos, admin/cliente | ACTIVO · ZONA DELICADA
+api/interaccion.ts | Visitas, «me gusta» y reservas con límites | Supabase (clave de servidor) | lib/interaccion, lib/reservas | ACTIVO
+api/noticias-gaming.ts | Recoge y resume noticias de gaming con OpenAI | Supabase, OpenAI, RSS, vercel.json (cron) | cron de Vercel, noticias, Blue | ACTIVO
+api/pago.ts | Pagos con Stripe (tarjeta, Klarna, Bizum), webhook y avisos push | Stripe, Supabase, VeoAura (vía retorno), lib/envio | checkout, perfil, admin, webhook de Stripe | ACTIVO · ZONA DELICADA
+api/sitemap.ts | /sitemap.xml para buscadores | Supabase (clave anónima), vercel.json | buscadores, api/auditoria-web | ACTIVO
+api/video-enlace.ts | Convierte enlaces cortos de TikTok e Instagram | TikTok, Instagram | admin/services, servicios | ACTIVO
+
+-----------------------------------------------------------------------------
+Otras carpetas (sin cabecera en esta tanda)
+-----------------------------------------------------------------------------
+supabase/migrations/ | Cambios de la base de datos, uno por archivo con fecha; se aplican en orden | Supabase | — | ZONA DELICADA
+pruebas/ | Pruebas automáticas (pantallas en el navegador, pagos, base de datos) | dist/, Playwright, PostgreSQL aislado | antes de cada publicación | ACTIVO
+docs/ | Documentos técnicos (puentes con VeoAura, Stripe, pruebas) | — | equipo y VeoAura | ACTIVO
+documentacion/ | Registro de archivos nuevos y candidatos a eliminar (y, más adelante, planes de división) | — | quien mantenga el proyecto | ACTIVO
+public/ | Archivos servidos tal cual (sw-avisos.js, iconos) | — | navegador | ACTIVO
+assets/ | Imágenes de la marca y mascotas | — | componentes de marca | ACTIVO
+scripts/ | Utilidades de compilación (inject-seo-html.js; reset-project.js es de la plantilla de Expo) | — | npm run build | ACTIVO (reset-project.js: revisar)
+infraestructura/ | Herramientas de seguridad y publicación de ESTE servidor (no forman parte de la tienda) | — | el servidor | ZONA DELICADA · no incluir en la venta
+app.json, package.json, vercel.json, tsconfig.json | Configuración de Expo, dependencias, Vercel y TypeScript | — | compilación y publicación | ZONA DELICADA

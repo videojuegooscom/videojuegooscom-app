@@ -1,6 +1,14 @@
 /**
- * api/asignar-seguimiento.ts
- *
+ * Archivo: api/asignar-seguimiento.ts
+ * Función: función de servidor en /api/asignar-seguimiento (Vercel).
+ * Para qué sirve: permite al administrador asignar desde el Chat un pedido o una reparación a la cuenta del cliente de esa conversación (solo si quien llama es administrador), con su número de seguimiento.
+ * Conectado con: Supabase (clave de servidor; tablas product_chats, pedidos y service_requests; migración 20261031170000).
+ * Utilizado por: app/admin/chats.tsx (botón «Asignar seguimiento»); app/admin/pedidos.tsx, services.tsx y app/(tabs)/perfil.tsx cuentan o muestran lo asignado.
+ * Dependencias: @supabase/supabase-js.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: desde Administración → Chat, el administrador asigna un seguimiento al cliente de esa conversación: crea
  * su pedido o su reparación o mantenimiento YA en la cuenta de ese cliente (lo ve al momento en Perfil → «Mis
  * seguimientos», con su número de seguimiento y su etapa). Para escribir en el chat de la tienda hace falta cuenta, así

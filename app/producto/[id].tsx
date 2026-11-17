@@ -1,6 +1,14 @@
 /**
- * app/producto/[id].tsx
- *
+ * Archivo: app/producto/[id].tsx
+ * Función: ficha de un producto, en la dirección /producto/<id> (admite ?chat=1 y ?guia=1).
+ * Para qué sirve: el cliente ve fotos, precio, estado, entrega estimada y garantía, y puede añadir a la cesta, comprar ya, preguntar, compartir, dar «me gusta», avisarse de bajadas de precio, comparar o reservar con señal.
+ * Conectado con: lib/supabase.ts (tablas products, product_media, categories, profiles), lib/interaccion.ts, lib/reservas.ts, lib/envio.ts, lib/analytics.ts, constants/theme.ts, lib/admin/products.utils.ts, components/ImageLightbox.tsx, SmartImage.tsx, CategoryProductsShelf.tsx, ProductChatThread.tsx, PerfilPublico.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*; api/pago.ts (reserva con señal).
+ * Utilizado por: Expo Router (dirección /producto/<id>); la enlazan app/catalogo.tsx, app/comparar.tsx, app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/admin/escaparate.tsx y components/CategoryProductsShelf.tsx, Campanita.tsx, Barramagic.tsx, ProductChatThread.tsx; exporta FichaProducto, usada por app/servicio/[id].tsx.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: ficha de un producto individual. Carga el producto y su galería
  * de fotos/vídeos desde Supabase a partir del id de la URL, y permite
  * añadirlo a la cesta, ir a checkout, preguntar por este producto,

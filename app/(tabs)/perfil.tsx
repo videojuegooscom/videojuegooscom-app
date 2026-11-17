@@ -1,5 +1,14 @@
-// app/(tabs)/perfil.tsx
 /**
+ * Archivo: app/(tabs)/perfil.tsx
+ * Función: pantalla «Mi cuenta» (pestaña Perfil), en la dirección /perfil (admite ?tab=seguimientos y ?filtro=).
+ * Para qué sirve: el cliente inicia sesión o crea cuenta, completa su perfil, sigue sus pedidos y reparaciones (facturas, pagos, valoraciones), ve sus «me gusta» y avisos de precio; el administrador accede desde aquí al panel.
+ * Conectado con: lib/supabase.ts (Supabase Auth, tablas profiles, pedidos, pedido_facturas y las de reparaciones), lib/envio.ts, lib/interaccion.ts, lib/reservas.ts, lib/openExternalLink.ts, lib/analytics.ts, constants/theme.ts, components/PerfilPublico.tsx, Campanita.tsx, CategoryProductsShelf.tsx, ReviewModal.tsx, ImageLightbox.tsx, SiteFooter.tsx, SmartImage.tsx, components/marca/*; api/pago.ts y api/factura.ts.
+ * Utilizado por: Expo Router (dirección /perfil, pestaña de app/(tabs)/_layout.tsx); la abren app/(tabs)/chat-global.tsx (iniciar sesión), app/(tabs)/blue-ia.tsx (facturas), app/producto/[id].tsx y components/Campanita.tsx.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage.
+ * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño (inicio de sesión, cuenta, pagos y facturas)
+ */
+/**
+ * Notas:
  * Qué hace: pantalla "Mi cuenta" (pestaña Perfil). Antes de iniciar sesión
  * muestra un formulario de acceso/registro; una vez hay sesión, muestra
  * «Mi perfil» (foto, usuario, nombre, país, provincia y edad:

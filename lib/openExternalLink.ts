@@ -1,5 +1,14 @@
-// lib/openExternalLink.ts
 /**
+ * Archivo: lib/openExternalLink.ts
+ * Función: utilidad para abrir enlaces externos.
+ * Para qué sirve: abre redes sociales, WhatsApp y otros enlaces intentando que se abran en Chrome en lugar del navegador actual.
+ * Conectado con: ninguna otra pieza del proyecto (usa Linking de react-native).
+ * Utilizado por: components/SocialLinks.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/admin/pedidos.tsx, chats.tsx, services.tsx, redes-sociales.tsx y app/admin/cliente/[userId].tsx.
+ * Dependencias: react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: abre un enlace externo (redes sociales, WhatsApp...) intentando
  * que se abra en Google Chrome en vez de en el navegador que esté mostrando
  * la tienda ahora mismo. Daniel reportó que los enlaces le llevaban a

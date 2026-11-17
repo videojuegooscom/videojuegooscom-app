@@ -1,5 +1,17 @@
 /**
- * components/Campanita.tsx — "Blue", la asistente flotante de ventas
+ * Archivo: components/Campanita.tsx
+ * Función: componente de Blue, la asistente flotante de la tienda (antes una campanita).
+ * Para qué sirve: muestra a Blue (avisos, guía de bienvenida y mini-guías, panel de asistente, noticias, valoraciones de pedidos y chat con el equipo) en Inicio, fichas y panel; se monta una sola vez en app/_layout.tsx.
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/interaccion.ts, lib/conocimiento.ts, lib/notificaciones.ts, lib/envio.ts, lib/admin/products.utils.ts, components/marca/MarcaAnimada.tsx, Barramagic.tsx, TirarParaActualizar.tsx, PerfilPublico.tsx, ImageLightbox.tsx, ReviewModal.tsx, CategoryProductsShelf.tsx, constants/theme.ts, api/blue-ia.ts.
+ * Utilizado por: app/_layout.tsx (montaje) y otras pantallas que lo mencionan o lo escuchan (por ejemplo catálogo, ficha de producto, Blue IA y panel).
+ * Dependencias: react, react-native, @expo/vector-icons, expo-router, @react-native-async-storage/async-storage.
+ * Estado: ACTIVO
+ *
+ * Notas: cabecera original conservada justo debajo.
+ */
+/**
+ * Notas:
+ * "Blue", la asistente flotante de ventas
  *
  * Qué hace: antes era una campanita; ahora es Blue, el capibara asistente de la
  * tienda (se monta una sola vez en app/_layout.tsx, fuera del Stack, así que no se

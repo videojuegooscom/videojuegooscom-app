@@ -1,5 +1,14 @@
-// app/admin/marca-seo.tsx
 /**
+ * Archivo: app/admin/marca-seo.tsx
+ * Función: pantalla de administración «Marca y SEO», en la dirección /admin/marca-seo.
+ * Para qué sirve: el administrador sube el logo de la tienda y edita el título y la descripción que Google y el navegador muestran, sin tocar código.
+ * Conectado con: lib/supabase.ts (tabla site_settings y bucket de Storage site-assets), lib/admin/products.components.ts, components/SmartImage.tsx, constants/theme.ts, components/admin/PanelUI.tsx; components/SiteHead.tsx lee esos mismos datos.
+ * Utilizado por: Expo Router (dirección /admin/marca-seo, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Marca y SEO» de app/admin/index.tsx.
+ * Dependencias: react, react-native, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración "Marca y SEO". Desde aquí Daniel
  * sube el logo de la tienda y edita el título y la descripción que Google
  * muestra en los resultados de búsqueda (y que también se ven en la pestaña

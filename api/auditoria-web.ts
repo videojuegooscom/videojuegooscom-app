@@ -1,6 +1,14 @@
 /**
- * api/auditoria-web.ts
- *
+ * Archivo: api/auditoria-web.ts
+ * Función: función de servidor en /api/auditoria-web (Vercel), lanzada por un cron.
+ * Para qué sirve: revisa automáticamente la calidad de la web real (HTTPS, título, sitemap, políticas, velocidad…) los días 1 y 15 de cada mes y apunta el resultado en la tabla auditorias_web; solo lee la tienda y exige la cabecera Bearer CRON_SECRET.
+ * Conectado con: Supabase (clave de servidor; tabla auditorias_web), vercel.json (cron), la tienda en producción.
+ * Utilizado por: el cron de Vercel; app/admin/auditorias.tsx muestra los resultados.
+ * Dependencias: @supabase/supabase-js.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: revisión de calidad web AUTOMÁTICA de la tienda real (la lista de 20 puntos de la
  * lección «Revisión de calidad web cada dos semanas»). La lanza el cron de Vercel los días 1 y 15
  * de cada mes (≈ cada dos semanas), sin que nadie tenga que tocar ni aceptar nada, y apunta en la

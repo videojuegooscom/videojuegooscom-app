@@ -1,6 +1,16 @@
 /**
- * components/ProductChatThread.tsx
+ * Archivo: components/ProductChatThread.tsx
+ * Función: componente de la conversación privada cliente-tienda (chat de producto, de venta o de atención al cliente).
+ * Para qué sirve: carga mensajes en tiempo real de un chat (product_chats), permite escribir, borrar la conversación para uno mismo y abrir el chat con el equipo (abrirChatEquipo); lo comparten la pantalla del cliente y la bandeja del administrador.
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/admin/products.utils.ts (fmtEUR), components/SmartImage.tsx, constants/theme.ts, tablas product_chats y mensajes, funciones SQL get_or_create_*_chat y delete_chat_for_me.
+ * Utilizado por: app/chat/[chatId].tsx, app/admin/chats.tsx, components/ReviewModal.tsx (abrirChatEquipo) y pantallas que abren el chat del equipo (checkout, producto, perfil, Blue IA, Foro, analítica).
+ * Dependencias: react, react-native, @expo/vector-icons, expo-router.
+ * Estado: ACTIVO
  *
+ * Notas: cabecera original conservada justo debajo.
+ */
+/**
+ * Notas:
  * Qué hace: la conversación PRIVADA de un producto concreto entre un
  * cliente y la tienda (distinta del Chat Global, que es público). La usan
  * dos pantallas distintas sin duplicar la lógica:

@@ -1,5 +1,14 @@
-// lib/notificaciones.ts
 /**
+ * Archivo: lib/notificaciones.ts
+ * Función: utilidad de avisos del navegador y avisos push al móvil del dueño.
+ * Para qué sirve: avisa al cliente de los mensajes nuevos del chat (Notification API) y gestiona el registro de dispositivos para los avisos push de pedidos y servicios del administrador.
+ * Conectado con: public/sw-avisos.js, api/pago.ts (envía los avisos), components/AvisosMovil.tsx.
+ * Utilizado por: components/VenderAhoraModal.tsx, components/Campanita.tsx y components/AvisosMovil.tsx.
+ * Dependencias: react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: avisos del navegador (Notification API) para que el cliente se entere en cuanto el
  * equipo le escribe por el chat de la tienda. Es lo que activa el formulario de «Vender mi
  * artículo» cuando se elige el chat como forma de contacto.

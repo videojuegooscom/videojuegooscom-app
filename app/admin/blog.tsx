@@ -1,5 +1,14 @@
-// app/admin/blog.tsx
 /**
+ * Archivo: app/admin/blog.tsx
+ * Función: pantalla de administración del Blog, en la dirección /admin/blog.
+ * Para qué sirve: el administrador crea, edita, publica o pasa a borrador, reordena y borra los artículos que se leen en la página pública /blog.
+ * Conectado con: lib/supabase.ts (tabla blog_posts), lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; la página pública es app/blog/index.tsx.
+ * Utilizado por: Expo Router (dirección /admin/blog, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Blog» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración de los artículos del Blog que se
  * muestran en app/blog/index.tsx. Permite crear, editar, publicar/pasar a
  * borrador, reordenar y borrar artículos, sin tocar código.

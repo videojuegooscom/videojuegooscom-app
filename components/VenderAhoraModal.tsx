@@ -1,5 +1,14 @@
-// components/VenderAhoraModal.tsx
 /**
+ * Archivo: components/VenderAhoraModal.tsx
+ * Función: componente del formulario «Vender ahora» (página Vender).
+ * Para qué sirve: recoge los datos de contacto y del artículo (con fotos y vídeo obligatorios) y guarda la solicitud de venta en Supabase; exporta además campos reutilizables (FieldInput, FieldLabel, SelectField, IsMobileContext).
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/notificaciones.ts, components/SellRequestMedia.tsx, components/PerfilPublico.tsx (datosDeFila), CabeceraMarca.tsx, constants/theme.ts, tabla sell_requests.
+ * Utilizado por: app/vender.tsx, app/(tabs)/index.tsx, app/(tabs)/cesta.tsx, app/(tabs)/chat-global.tsx y components/ContratarServicioModal.tsx (campos).
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons, react-native-safe-area-context.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: modal ("pop") que se abre al pulsar "Vender ahora". Es el
  * formulario para clientes que quieren vender su consola/electrónica: datos
  * de contacto (nombre, apellido, género), qué artículo es, si funciona bien

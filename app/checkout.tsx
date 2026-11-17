@@ -1,6 +1,14 @@
 /**
- * app/checkout.tsx
- *
+ * Archivo: app/checkout.tsx
+ * Función: pantalla de finalizar compra (checkout), en la dirección /checkout (admite ?comprar=<id>, ?pago=ok|cancelado y ?sesion=).
+ * Para qué sirve: el cliente revisa su cesta, rellena o confirma sus datos de envío, paga con tarjeta (Stripe) o confirma sin pagar ahora, y ve la confirmación con la referencia del pedido.
+ * Conectado con: lib/supabase.ts (función crear_pedido, tablas pedidos, pedido_items, product_sales, perfil del cliente), lib/envio.ts (tarifas y entrega), lib/reservas.ts, lib/analytics.ts, constants/theme.ts, components/PerfilPublico.tsx, components/ProductChatThread.tsx (abrirChatEquipo), CabeceraMarca, SmartImage y components/marca/*; api/pago.ts (pago con Stripe, referencia, comprobación).
+ * Utilizado por: Expo Router (dirección /checkout); la enlazan app/(tabs)/cesta.tsx («Ir a pagar»), app/producto/[id].tsx («Comprar ya»), components/SiteFooter.tsx y components/Campanita.tsx.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage, react-native-safe-area-context.
+ * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de checkout (finalizar compra). Lee el carrito guardado
  * en AsyncStorage, pide los datos de envío (nombre, email, teléfono,
  * dirección) y, al confirmar, registra el pedido y muestra la confirmación.

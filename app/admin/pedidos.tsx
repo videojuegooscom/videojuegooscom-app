@@ -1,5 +1,14 @@
-// app/admin/pedidos.tsx
 /**
+ * Archivo: app/admin/pedidos.tsx
+ * Función: pantalla de administración «Pedidos», en la dirección /admin/pedidos (admite ?buscar=).
+ * Para qué sirve: el administrador ve los pedidos que los clientes confirman en el checkout, su pago, entrega y valoraciones, y cambia su estado (pendiente, confirmado, preparado, enviado, entregado, cancelado con motivo).
+ * Conectado con: lib/supabase.ts (tablas pedidos y pedido_items, función crear_pedido), lib/envio.ts, lib/interaccion.ts, lib/openExternalLink.ts, components/AvisosMovil.tsx, components/ReviewModal.tsx, components/marca/CargaMarca.tsx, constants/theme.ts; api/factura.ts y api/pago.ts.
+ * Utilizado por: Expo Router (dirección /admin/pedidos, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Pedidos» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración "Pedidos". Lista los pedidos que los clientes
  * confirman en app/checkout.tsx, con sus artículos, el tipo de entrega y los datos de
  * contacto, y permite cambiar el estado (pendiente → confirmado → preparado → enviado →

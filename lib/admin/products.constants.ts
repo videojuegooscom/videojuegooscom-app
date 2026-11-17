@@ -1,4 +1,14 @@
 /**
+ * Archivo: lib/admin/products.constants.ts
+ * Función: constantes de la administración de productos.
+ * Para qué sirve: límites de subida de fotos y vídeo, tipos MIME admitidos, textos de error, nombre del bucket de media y paleta COLORS del panel.
+ * Conectado con: constants/theme.ts (COLORES_TEXTO).
+ * Utilizado por: app/admin/products.tsx, app/admin/services.tsx, app/admin/categories.tsx y lib/admin/products.components.tsx.
+ * Dependencias: ninguna externa.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: constantes compartidas del módulo de administración de
  * productos: límites de subida de fotos/vídeo, tipos MIME soportados,
  * textos de error y la paleta de colores (COLORS) del panel de productos.

@@ -1,5 +1,14 @@
-// app/admin/chats.tsx
 /**
+ * Archivo: app/admin/chats.tsx
+ * Función: pantalla de administración «Chat», en la dirección /admin/chats.
+ * Para qué sirve: el administrador ve las conversaciones privadas con los clientes (por producto, por venta y atención general), responde, marca un producto como vendido a esa persona y asigna seguimientos de pedido o reparación.
+ * Conectado con: lib/supabase.ts (tablas product_chats, product_sales y funciones como admin_users_by_ids), components/ProductChatThread.tsx (el hilo), components/marca/CargaMarca.tsx, lib/openExternalLink.ts, constants/theme.ts, components/admin/PanelUI.tsx; api/asignar-seguimiento.ts.
+ * Utilizado por: Expo Router (dirección /admin/chats, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Chat» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: bandeja de admin de las conversaciones PRIVADAS por producto
  * (ver sql/product_chats.sql). Es donde Jefe ve quién le ha escrito por
  * cada anuncio y, cuando corresponde, lo marca como "vendido" a esa persona

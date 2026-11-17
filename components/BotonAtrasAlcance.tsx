@@ -1,5 +1,14 @@
-// components/BotonAtrasAlcance.tsx
 /**
+ * Archivo: components/BotonAtrasAlcance.tsx
+ * Función: componente del botón «Volver» flotante abajo a la derecha.
+ * Para qué sirve: pone un botón de volver al alcance del pulgar en las páginas de lectura; exporta BotonAtrasFlotante para usarlo con otra acción.
+ * Conectado con: components/CategoryProductsShelf.tsx (useAlturaBarraComparar), expo-router.
+ * Utilizado por: app/_layout.tsx (montaje) y components/ContratarServicioModal.tsx.
+ * Dependencias: react, react-native, @expo/vector-icons, expo-router, react-native-safe-area-context.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: botón «Volver» flotante, abajo a la derecha, donde llega el pulgar de la mano
  * derecha. La flecha de volver de cada página está arriba a la izquierda (lejos del pulgar);
  * este botón hace lo mismo sin tener que estirar la mano.

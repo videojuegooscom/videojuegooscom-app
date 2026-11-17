@@ -1,5 +1,14 @@
-// app/admin/auditorias.tsx
 /**
+ * Archivo: app/admin/auditorias.tsx
+ * Función: pantalla de administración «Revisiones», en la dirección /admin/auditorias.
+ * Para qué sirve: el administrador consulta el registro de las revisiones de calidad web automáticas (20 puntos) con su resultado y el detalle punto por punto.
+ * Conectado con: lib/supabase.ts (tabla auditorias_web, que escribe api/auditoria-web.ts por cron), lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Utilizado por: Expo Router (dirección /admin/auditorias, protegida por app/admin/_layout.tsx); la enlaza la tarjeta correspondiente de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración «Revisiones»: el registro de las revisiones de calidad web
  * automáticas de la tienda (la lista de 20 puntos). Cada fila dice cuándo se hizo, cuántos puntos
  * salieron bien, con aviso o con fallo, qué se cambió (nada: la revisión automática solo lee) y,

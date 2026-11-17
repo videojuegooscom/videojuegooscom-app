@@ -1,5 +1,14 @@
-// app/servicios.tsx
 /**
+ * Archivo: app/servicios.tsx
+ * Función: pantalla de catálogo público de servicios (reparación, limpieza, mantenimiento), en la dirección /servicios.
+ * Para qué sirve: el cliente ve los servicios publicados, los busca por texto y entra a la ficha de cada uno.
+ * Conectado con: lib/supabase.ts (tablas services y service_media), lib/analytics.ts, components/CategoryProductsShelf.tsx (tarjetas y rejilla), components/CabeceraMarca.tsx, components/marca/*, components/TirarParaActualizar.tsx, constants/theme.ts.
+ * Utilizado por: Expo Router (dirección /servicios); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/quienes-somos.tsx, app/noticias/[id].tsx, app/servicio/[id].tsx, app/contratar/[id].tsx, components/Barramagic.tsx, components/Campanita.tsx; app/admin/services.tsx importa de aquí enlaceVideo y esEnlaceCorto.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: catálogo público de SERVICIOS (reparación, limpieza,
  * mantenimiento...) — la contraparte de app/catalogo.tsx pero para
  * servicios en vez de productos, mucho más simple (sin filtro por

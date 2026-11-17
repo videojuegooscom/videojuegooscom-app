@@ -1,6 +1,14 @@
 /**
- * components/CatalogFilters.tsx
- *
+ * Archivo: components/CatalogFilters.tsx
+ * Función: componente de filtros y orden del catálogo.
+ * Para qué sirve: icono de filtros que abre un panel con chips de plataforma, estado, precio (barra de dos tiradores) y orden; solo pinta y avisa de los cambios, la consulta la hace app/catalogo.tsx.
+ * Conectado con: lib/analytics.ts (trackEvent), constants/theme.ts.
+ * Utilizado por: app/catalogo.tsx (y app/admin/analytics.tsx lo menciona).
+ * Dependencias: react, react-native, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: filtros y orden del catálogo (app/catalogo.tsx). A la vista solo
  * queda el icono de filtros (options-outline, sin burbuja ni contador; en azul
  * si hay filtros activos), a la derecha del buscador (dueño, 2026-11-07).

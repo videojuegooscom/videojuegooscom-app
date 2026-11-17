@@ -1,4 +1,15 @@
 /**
+ * Archivo: api/escaparate-retorno.ts
+ * Función: función de servidor en /api/escaparate-retorno (Vercel), puente de vuelta tienda a VeoAura.
+ * Para qué sirve: envía firmados a VeoAura los pedidos de artículos suyos (pedido, anulado y pagado con los datos mínimos del cliente), los productos creados a mano en la tienda y las estadísticas diarias (visitas y «me gusta»), con reintentos y sin duplicar.
+ * Conectado con: VeoAura (puente firmado), Supabase (clave de servidor; tablas escaparate_salida y escaparate_salida_productos), api/escaparate-veoaura.ts (puente de ida), api/pago.ts.
+ * Utilizado por: el cron de Vercel, api/pago.ts (al pagarse un pedido), las pantallas de administración de pedidos y escaparate (app/admin/pedidos.tsx, escaparate.tsx, products.tsx) y VeoAura (recibe los envíos).
+ * Dependencias: @supabase/supabase-js.
+ * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño
+ *
+ * Notas: la cabecera original sigue justo debajo, sin cambios.
+ */
+/**
  * api/escaparate-retorno.ts
  *
  * Qué hace: puente de vuelta tienda → VeoAura (el de ida es api/escaparate-veoaura.ts).

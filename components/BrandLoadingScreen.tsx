@@ -1,4 +1,14 @@
 /**
+ * Archivo: components/BrandLoadingScreen.tsx
+ * Función: componente de la pantalla de bienvenida y de carga de la tienda.
+ * Para qué sirve: muestra el logo, las mascotas, el lema y una barra de carga con efecto Siri; es también la versión HTML estática que se genera de antemano para todas las páginas.
+ * Conectado con: components/marca/MarcaAnimada.tsx, components/lineapensadoraefectosiri.tsx (paleta y máscara Siri).
+ * Utilizado por: app/_layout.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de bienvenida de la tienda (dueño, 2026-11-04): «VideojuegosZaragoza.com», las dos mascotas
  * sonriendo, «Tu tienda de electrónica en Zaragoza» y una barra que se llena hasta los 3 s. Es también la pantalla de
  * carga y la versión que se genera de antemano (HTML estático) de todas las páginas, así que sale al instante.

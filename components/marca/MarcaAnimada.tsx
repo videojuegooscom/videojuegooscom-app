@@ -1,5 +1,14 @@
-// components/marca/MarcaAnimada.tsx
 /**
+ * Archivo: components/marca/MarcaAnimada.tsx
+ * Función: componente del logo y las mascotas animadas de la tienda.
+ * Para qué sirve: muestra el logo o una mascota (logo, pareja, tienda, taller, carga) con animación de reposo y una animación distinta en cada toque.
+ * Conectado con: imágenes de assets/brand/.
+ * Utilizado por: components/BrandLoadingScreen.tsx, marca/CargaMarca.tsx, SiteFooter.tsx, Campanita.tsx, TirarParaActualizar.tsx y pantallas como Inicio, catálogo, cesta, checkout, producto, servicio y app/+not-found.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: logo y mascotas de VideojuegosZaragoza animados. En reposo "respiran",
  * flotan y cada pocos segundos hacen un gesto al azar (inclinarse, paseíto, saltito,
  * asentir, balanceo) para no estar nunca fijos; cada toque lanza una de 10 animaciones distintas, en orden

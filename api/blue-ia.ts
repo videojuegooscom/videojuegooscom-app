@@ -1,6 +1,14 @@
 /**
- * api/blue-ia.ts
- *
+ * Archivo: api/blue-ia.ts
+ * Función: función de servidor en /api/blue-ia (Vercel).
+ * Para qué sirve: responde a las preguntas del asistente Blue IA con OpenAI (gpt-4o-mini) añadiendo contexto real de la tienda (catálogo, «Lo que Blue sabe», horario); aplica comprobación de origen y cupos de uso por persona y globales.
+ * Conectado con: Supabase (clave de servidor; catálogo, blue_conocimiento y cupos), OpenAI.
+ * Utilizado por: app/(tabs)/blue-ia.tsx y components/Campanita.tsx (guía y asistente de Blue).
+ * Dependencias: @supabase/supabase-js.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: función serverless de Vercel que responde a las preguntas del
  * asistente "Blue IA" (app/(tabs)/blue-ia.tsx). El navegador nunca habla
  * directamente con OpenAI: manda la pregunta aquí (POST /api/blue-ia), esta

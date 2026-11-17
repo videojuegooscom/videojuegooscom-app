@@ -1,5 +1,14 @@
-// app/admin/services.tsx
 /**
+ * Archivo: app/admin/services.tsx
+ * Función: pantalla de administración de servicios, en la dirección /admin/services.
+ * Para qué sirve: el administrador gestiona el catálogo de servicios (reparación, limpieza, mantenimiento: opciones, precios, fotos) y las solicitudes de «Contratar servicio ahora», incluida la reparación por envío.
+ * Conectado con: lib/supabase.ts (tablas services, service_media y service_requests), lib/envio.ts, lib/openExternalLink.ts, components/ContratarServicioModal.tsx, ImageLightbox.tsx, SmartImage.tsx, marca/CargaMarca.tsx, app/servicios.tsx (enlaceVideo, esEnlaceCorto), lib/admin/products.*, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Utilizado por: Expo Router (dirección /admin/services, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Servicios» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: panel de administración del catálogo de SERVICIOS (reparación,
  * limpieza, mantenimiento...) — la contraparte de app/admin/products.tsx
  * pero para servicios en vez de productos, y de app/admin/cotizaciones.tsx

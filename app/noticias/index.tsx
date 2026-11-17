@@ -1,5 +1,14 @@
-// app/noticias/index.tsx
 /**
+ * Archivo: app/noticias/index.tsx
+ * Función: pantalla índice de noticias, en la dirección /noticias.
+ * Para qué sirve: el cliente ve las 30 últimas noticias publicadas, las filtra por categoría y entra a cada una.
+ * Conectado con: lib/supabase.ts (tabla noticias_gaming), lib/analytics.ts, components/SmartImage.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/CargaMarca.tsx, app/noticias/[id].tsx y app/servicio/[id].tsx (funciones compartidas).
+ * Utilizado por: Expo Router (dirección /noticias); la enlazan components/SiteFooter.tsx («Noticias») y app/noticias/[id].tsx («Ver noticias», «Más noticias»).
+ * Dependencias: react, react-native, expo-router.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: el índice de noticias en /noticias (dueño, 2026-11-09: que Google encuentre las noticias). Título principal
  * «Noticias de consolas, videojuegos y tecnología», filtros por categoría (chips) y las 30 últimas noticias publicadas,
  * cada una en una tarjeta (foto solo si el servidor la comprobó, categoría y fecha, título y resumen corto) que es un

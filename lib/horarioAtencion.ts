@@ -1,5 +1,14 @@
-// lib/horarioAtencion.ts
 /**
+ * Archivo: lib/horarioAtencion.ts
+ * Función: utilidad con el horario de atención del equipo.
+ * Para qué sirve: dice si el equipo atiende ahora (estadoAtencion) y cuándo vuelve, siempre en hora de Madrid, y exporta los textos del horario.
+ * Conectado con: ningún otro archivo (el mismo horario se repite en api/blue-ia.ts, app/quienes-somos.tsx y app/+html.tsx).
+ * Utilizado por: app/(tabs)/blue-ia.tsx.
+ * Dependencias: ninguna externa.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: horario de atención del equipo (lo dio el dueño: «Lo que Blue sabe», Quiénes somos): de lunes a sábado de 10:00 a
  * 14:00 y de 17:00 a 19:00, y los domingos de 10:00 a 13:00, siempre en hora de España (Europe/Madrid), esté donde
  * esté quien mira.

@@ -1,5 +1,14 @@
-// app/admin/index.tsx
 /**
+ * Archivo: app/admin/index.tsx
+ * Función: pantalla de inicio del panel de administración, en la dirección /admin.
+ * Para qué sirve: el administrador ve las cifras de lo nuevo (pedidos, chats, solicitudes, cotizaciones) y una rejilla de accesos agrupados a todas las secciones del panel, con contadores de novedades.
+ * Conectado con: lib/admin/products.components.ts (AdminHeader), lib/admin/products.utils.ts (leerPanelVistos), lib/supabase.ts (recuentos de novedades en varias tablas), constants/theme.ts, components/AvisosMovil.tsx, components/admin/PanelUI.tsx; enlaza a todas las pantallas app/admin/*.tsx.
+ * Utilizado por: Expo Router (dirección /admin, protegida por app/admin/_layout.tsx); la abre el botón «Panel de control» de app/(tabs)/perfil.tsx.
+ * Dependencias: react, react-native, react-native-safe-area-context, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de inicio del panel admin. La comprobación de sesión y
  * rol "admin" la hace app/admin/_layout.tsx antes de montar esta pantalla,
  * así que aquí no hay lógica de sesión: solo la cabecera (título "Panel de

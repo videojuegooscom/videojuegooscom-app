@@ -1,5 +1,14 @@
-// components/SiteHead.tsx
 /**
+ * Archivo: components/SiteHead.tsx
+ * Función: componente invisible que escribe título, descripción, icono y enlace canónico en el head del navegador.
+ * Para qué sirve: aplica el título y la descripción editados en «Marca y SEO», el logo como favicon/og:image y el título propio de cada página pública, leyendo la fila única de site_settings.
+ * Conectado con: lib/supabase.ts, tabla site_settings, app/admin/marca-seo.tsx (la edita).
+ * Utilizado por: app/_layout.tsx (se monta una vez); otras pantallas (comparar, noticias, quiénes somos) lo mencionan.
+ * Dependencias: react, react-native, expo-router.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: aplica, en cualquier pantalla de la app, el título de pestaña y
  * la <meta name="description"> que se editan desde el panel de
  * administración (app/admin/marca-seo.tsx) — y, si hay un logo subido, lo

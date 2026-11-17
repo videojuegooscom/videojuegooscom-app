@@ -1,5 +1,14 @@
-// app/(tabs)/index.tsx
 /**
+ * Archivo: app/(tabs)/index.tsx
+ * Función: pantalla de Inicio (pestaña «Inicio»), en la dirección /.
+ * Para qué sirve: es el escaparate de la tienda para el cliente: buscador flotante, categorías con portada, oferta de la semana, recién llegados, vistos recientemente, reseñas, preguntas frecuentes y pie de página, con accesos a Vender, Servicios y Quiénes somos.
+ * Conectado con: lib/supabase.ts (tabla products y categorías), lib/analytics.ts, lib/tabBar.ts, lib/admin/products.utils.ts, constants/theme.ts, components/Barramagic.tsx, CategoryProductsShelf.tsx, PortadasCategoria.tsx, Resenas.tsx, SiteFooter.tsx, SmartImage.tsx, SocialLinks.tsx, TirarParaActualizar.tsx y components/marca/*.
+ * Utilizado por: Expo Router (dirección /, pestaña «Inicio» de app/(tabs)/_layout.tsx); es el destino del logo y de volver a Inicio desde casi todas las pantallas.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-navigation/bottom-tabs y @react-navigation/native (tipos).
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de inicio (pestaña "Inicio"). Es el escaparate
  * principal: cabecera con marca, barra de búsqueda flotante, accesos
  * rápidos a categorías, productos destacados desde Supabase, bloque de

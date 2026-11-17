@@ -1,5 +1,14 @@
-// app/reset-password.tsx
 /**
+ * Archivo: app/reset-password.tsx
+ * Función: pantalla para poner una contraseña nueva, en la dirección /reset-password (enlace del correo con ?token_hash=…&type=recovery o ?code=…).
+ * Para qué sirve: el cliente que olvidó su contraseña la cambia desde el enlace del correo; si el enlace no sirve, se le explica por qué y puede pedir otro.
+ * Conectado con: lib/supabase.ts (supabase.auth verifyOtp y updateUser, pedirEnlaceContrasena, mensajeAuthEnEspanol, avisoContrasenaCorta, CONTRASENA_MINIMA), lib/analytics.ts; no llama a api/.
+ * Utilizado por: Expo Router (dirección /reset-password); a ella apunta el enlace del correo de recuperación (lib/supabase.ts → pedirEnlaceContrasena, pedido desde app/(tabs)/perfil.tsx) y la registra app/_layout.tsx.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño
+ */
+/**
+ * Notas:
  * Qué hace: pantalla donde un cliente pone su contraseña nueva después de
  * pulsar el enlace de recuperación que le llega por email (lo pide
  * app/(tabs)/perfil.tsx → «¿Olvidaste tu contraseña?», con

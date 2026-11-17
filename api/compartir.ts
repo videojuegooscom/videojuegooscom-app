@@ -1,6 +1,14 @@
 /**
- * api/compartir.ts
- *
+ * Archivo: api/compartir.ts
+ * Función: función de servidor en /api/compartir (Vercel) para la vista previa al compartir un producto.
+ * Para qué sirve: devuelve un HTML mínimo con las etiquetas og (título, precio, foto) a los lectores de enlaces de WhatsApp, Instagram, Telegram, etc.; las personas siguen viendo la ficha normal.
+ * Conectado con: Supabase (clave anónima, tabla products), vercel.json (rewrite por User-Agent y optimizador de imágenes).
+ * Utilizado por: los lectores de enlaces de las redes (vía vercel.json) y el botón Compartir de app/producto/[id].tsx.
+ * Dependencias: @supabase/supabase-js.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: vista previa de un producto al compartir su enlace (WhatsApp, Instagram,
  * Telegram, Facebook, X…). Esas apps no ejecutan la web: leen las etiquetas «og:» del HTML.
  * Como la tienda es una web estática, vercel.json manda aquí SOLO a sus lectores de enlaces

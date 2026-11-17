@@ -1,5 +1,14 @@
-// app/admin/inventario.tsx
 /**
+ * Archivo: app/admin/inventario.tsx
+ * Función: pantalla de administración de inventario interno, en la dirección /admin/inventario.
+ * Para qué sirve: el administrador lista, crea, edita, cambia de estado (por revisar, listo, en reparación) y borra las unidades físicas que gestiona la tienda.
+ * Conectado con: lib/supabase.ts (tabla inventory_items; sql/inventory_items.sql), lib/admin/products.components.ts, lib/admin/products.utils.ts, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Utilizado por: Expo Router (dirección /admin/inventario, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Inventario» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración de inventario interno. Lista, crea,
  * edita, cambia de estado y borra las unidades físicas en gestión (por
  * ejemplo, una consola recién comprada pendiente de revisión).

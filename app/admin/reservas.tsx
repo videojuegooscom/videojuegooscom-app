@@ -1,5 +1,14 @@
-// app/admin/reservas.tsx
 /**
+ * Archivo: app/admin/reservas.tsx
+ * Función: pantalla de administración «Reservas con señal», en la dirección /admin/reservas.
+ * Para qué sirve: el administrador configura las reglas de las reservas con señal (escala de días y porcentajes, arras, condiciones), las enciende o apaga y gestiona las reservas (completar, cancelar, marcar vencida). Está apagada hasta que el dueño dé sus reglas.
+ * Conectado con: lib/supabase.ts (tablas de reservas y ajustes, migración 20261115150000_reservas_senal.sql), lib/reservas.ts, lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; api/pago.ts (acción reserva_estado).
+ * Utilizado por: Expo Router (dirección /admin/reservas, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Reservas con señal» de app/admin/index.tsx.
+ * Dependencias: react, react-native, @expo/vector-icons, react-native-safe-area-context.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: Administración → «Reservas con señal» (dueño, 2026-11-15, mejora 14: señal del 1 % al 70 % según los días,
  * pagada con Stripe, condiciones de arras aceptadas con casilla y reglas configurables aquí). APAGADA Y VACÍA: el dueño
  * aún no ha dado su escala, los días máximos, el tipo de arras ni qué pasa al vencer, y su gestor tiene que revisar el texto.

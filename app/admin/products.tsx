@@ -1,4 +1,14 @@
 /**
+ * Archivo: app/admin/products.tsx
+ * Función: pantalla de administración de productos, en la dirección /admin/products.
+ * Para qué sirve: el administrador lista, filtra, busca, crea, edita, publica u oculta, destaca y borra productos del catálogo, con sus fotos y vídeo, peso, reserva y venta a clientes.
+ * Conectado con: lib/supabase.ts (tablas products y product_media, bucket de Storage de fotos), lib/envio.ts, components/PortadasCategoria.tsx, lib/admin/products.components.ts, products.constants.ts, products.types.ts y products.utils.ts, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Utilizado por: Expo Router (dirección /admin/products, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Productos» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración de productos. Lista, filtra
  * (por estado y visibilidad), busca, crea, edita, publica/oculta, destaca
  * en la home y borra los productos del catálogo, incluyendo la gestión de

@@ -1,4 +1,14 @@
 /**
+ * Archivo: lib/admin/products.utils.ts
+ * Función: utilidades de la administración de productos y de uso general (formato de precios, fotos y vídeos, novedades del panel).
+ * Para qué sirve: formatea precios y textos (fmtEUR, sinEmojis), elige y valida fotos y vídeos del navegador con conversión HEIC (pickMediaFilesWeb, reducirImagenWeb), navegación «volver» y fechas de «visto» de las secciones del panel.
+ * Conectado con: lib/supabase.ts, lib/admin/products.types.ts, expo-router.
+ * Utilizado por: app/admin/products.tsx, services.tsx, categories.tsx, inventario.tsx, cotizaciones.tsx, index.tsx, _layout.tsx, app/admin/cliente/[userId].tsx, app/producto/[id].tsx, app/(tabs)/index.tsx, components/PerfilPublico.tsx, ProductChatThread.tsx, Campanita.tsx y lib/admin/products.components.tsx.
+ * Dependencias: @react-native-async-storage/async-storage, expo-router, react-native, heic2any (conversión HEIC, según la cabecera).
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: funciones auxiliares (sin componentes visuales) del módulo de
  * administración de productos: formateo (precio en €, texto recortado,
  * parseo de números con coma o punto), etiquetas en español de estado y

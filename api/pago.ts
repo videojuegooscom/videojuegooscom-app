@@ -1,4 +1,15 @@
 /**
+ * Archivo: api/pago.ts
+ * Función: función de servidor en /api/pago (Vercel) de pagos con Stripe Checkout.
+ * Para qué sirve: crea la sesión de pago de pedidos y servicios (tarjeta, Klarna, Bizum), confirma el cobro preguntando a Stripe, recibe el aviso (webhook) de Stripe, calcula los importes desde la base de datos, y envía los avisos push de pedidos al móvil del dueño y los avisos de pedido a VeoAura.
+ * Conectado con: Stripe (API y webhook), Supabase (clave de servidor; tablas pedidos y service_requests), lib/envio.ts, lib/reservas.ts, components/AvisosMovil.tsx, api/escaparate-retorno.ts y api/factura.ts.
+ * Utilizado por: app/checkout.tsx y las pantallas de pedidos y perfil (comprobar el pago, avisos), el webhook de Stripe y Stripe Checkout (vuelta del pago).
+ * Dependencias: @supabase/supabase-js, node:crypto (módulo integrado de Node, sin paquete de Stripe: se llama a su API directamente).
+ * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño
+ *
+ * Notas: la cabecera original sigue justo debajo, sin cambios.
+ */
+/**
  * api/pago.ts
  *
  * Qué hace: pago con tarjeta de los pedidos de la tienda con Stripe Checkout (la página de pago segura de Stripe). El

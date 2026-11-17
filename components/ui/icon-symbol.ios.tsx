@@ -1,4 +1,14 @@
 /**
+ * Archivo: components/ui/icon-symbol.ios.tsx
+ * Función: componente de icono multiplataforma, versión iOS (plantilla de Expo).
+ * Para qué sirve: dibuja iconos SF Symbols nativos de Apple; Expo lo elige solo en iOS en lugar de icon-symbol.tsx.
+ * Conectado con: components/ui/icon-symbol.tsx (misma interfaz).
+ * Utilizado por: solo components/ui/collapsible.tsx, a través de icon-symbol (candidato).
+ * Dependencias: expo-symbols, react-native.
+ * Estado: CANDIDATO_A_ELIMINAR (solo lo usa collapsible.tsx, que tampoco lo usa nadie).
+ */
+/**
+ * Notas:
  * Qué hace: versión para iOS del componente de icono IconSymbol. Dibuja
  * iconos SF Symbols nativos de Apple.
  *

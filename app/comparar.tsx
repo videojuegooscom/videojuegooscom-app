@@ -1,6 +1,14 @@
 /**
- * app/comparar.tsx
- *
+ * Archivo: app/comparar.tsx
+ * Función: pantalla «Comparar productos», en la dirección /comparar (admite ?ids=a,b,c).
+ * Para qué sirve: el cliente ve uno al lado del otro hasta 3 productos (precio, estado, categoría, entrega estimada, revisión y garantía si constan) y los añade a la cesta o los quita.
+ * Conectado con: components/CategoryProductsShelf.tsx (lista de comparados), components/Barramagic.tsx (portadas), components/CabeceraMarca.tsx, components/marca/*, components/SmartImage.tsx, components/PerfilPublico.tsx, lib/supabase.ts (tabla products, perfil del cliente), lib/envio.ts (entrega estimada), lib/analytics.ts, constants/theme.ts.
+ * Utilizado por: Expo Router (dirección /comparar); lo abre BarraComparar (components/CategoryProductsShelf.tsx, montada en app/_layout.tsx) desde el Catálogo (app/catalogo.tsx) y las fichas (app/producto/[id].tsx).
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: «Comparar 2-3 productos» (mejora 8, aprobada por el dueño el 2026-11-14). Pone uno al lado del otro hasta 3
  * productos elegidos con «Comparar» (tarjetas del catálogo y ficha) y enseña, por filas: foto y título, precio (el más
  * bajo, señalado con discreción), estado, categoría, entrega estimada y, SOLO si el dueño lo ha marcado en ese producto,

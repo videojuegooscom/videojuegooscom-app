@@ -1,5 +1,14 @@
-// app/admin/redes-sociales.tsx
 /**
+ * Archivo: app/admin/redes-sociales.tsx
+ * Función: pantalla de administración «Redes sociales», en la dirección /admin/redes-sociales.
+ * Para qué sirve: el administrador pone el enlace de cada red o plataforma (Instagram, TikTok, WhatsApp…), elige cuáles están activas y en qué orden, el título del bloque y los seguidores que se ven junto al logo.
+ * Conectado con: lib/supabase.ts (tablas social_links y site_settings), components/SocialLinks.tsx (formatearSeguidores; lo que se ve en la tienda), lib/admin/products.components.ts, constants/theme.ts, components/admin/PanelUI.tsx; api/blue-ia.ts usa las redes activas.
+ * Utilizado por: Expo Router (dirección /admin/redes-sociales, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Redes sociales» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: pantalla de administración "Redes sociales". Desde aquí Daniel
  * rellena el enlace de cada red/plataforma (Instagram, TikTok, WhatsApp,
  * YouTube, Gmail, Apple Maps, Facebook Marketplace, Wallapop, Vinted),

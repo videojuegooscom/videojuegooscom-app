@@ -1,5 +1,14 @@
-// components/marca/CargaMarca.tsx
 /**
+ * Archivo: components/marca/CargaMarca.tsx
+ * Función: componente del indicador de «cargando…» con la mascota.
+ * Para qué sirve: sustituye a la ruedita gris por la mascota dando saltitos, centrada y ligera.
+ * Conectado con: components/marca/MarcaAnimada.tsx.
+ * Utilizado por: casi todas las pantallas de la tienda y de Administración, components/PerfilPublico.tsx y lib/admin/products.components.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: estado de "cargando…" con la mascota de la tienda dando saltitos,
  * en lugar de la ruedita gris. Centrado, ligero (imagen pequeña de assets/brand).
  *

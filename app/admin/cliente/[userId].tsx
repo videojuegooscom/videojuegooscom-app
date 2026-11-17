@@ -1,5 +1,14 @@
-// app/admin/cliente/[userId].tsx
 /**
+ * Archivo: app/admin/cliente/[userId].tsx
+ * Función: ficha de un cliente en el panel, en la dirección /admin/cliente/<userId>.
+ * Para qué sirve: el administrador ve en un solo sitio lo que la tienda sabe de esa persona (perfil, compras, ventas que intentó, servicios, dispositivos, pedidos) y sus notas internas.
+ * Conectado con: lib/supabase.ts (tablas product_sales, sell_requests, service_requests, perfiles_cliente, cliente_dispositivos y notas), lib/envio.ts, lib/openExternalLink.ts, lib/admin/products.components.ts y products.utils.ts, components/ReviewModal.tsx, PerfilPublico.tsx, ProductChatThread.tsx, SmartImage.tsx, marca/CargaMarca.tsx.
+ * Utilizado por: Expo Router (dirección /admin/cliente/<userId>, protegida por app/admin/_layout.tsx); la abre cada fila de app/admin/users.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: "ficha de cliente" dentro del panel admin — la pantalla a la que
  * lleva cada fila de app/admin/users.tsx. Junta en un solo sitio todo lo
  * útil que la tienda sabe de esa persona: qué le hemos comprado (product_sales),

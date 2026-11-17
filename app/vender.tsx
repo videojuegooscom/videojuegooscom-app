@@ -1,5 +1,14 @@
-// app/vender.tsx
 /**
+ * Archivo: app/vender.tsx
+ * Función: pantalla «Vender ahora», en la dirección /vender (parámetros ?articulo=, ?cambio=1, ?nota=, ?desde=cesta, ?para=).
+ * Para qué sirve: el cliente cuenta qué artículo quiere vender o intercambiar y la tienda le responde con un precio; es el formulario de VenderAhoraModal como página completa.
+ * Conectado con: components/VenderAhoraModal.tsx (el formulario); el formulario escribe en Supabase desde ese componente.
+ * Utilizado por: Expo Router (dirección /vender); la enlazan app/(tabs)/index.tsx, app/(tabs)/blue-ia.tsx, app/(tabs)/perfil.tsx (reparación sin arreglo), app/(tabs)/cesta.tsx (cambio de consola), app/quienes-somos.tsx, components/Campanita.tsx, components/Barramagic.tsx.
+ * Dependencias: react, expo-router.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: página «Vender ahora». Es el formulario de venta de siempre
  * (components/VenderAhoraModal.tsx) pero como página completa en vez de ventana emergente:
  * fondo limpio, más aire entre apartados y recuadros con el texto centrado.

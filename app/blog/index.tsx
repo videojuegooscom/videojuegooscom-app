@@ -1,5 +1,14 @@
-// app/blog/index.tsx
 /**
+ * Archivo: app/blog/index.tsx
+ * Función: pantalla del Blog, en la dirección /blog (admite ?open=<slug>).
+ * Para qué sirve: el cliente lee artículos cortos (guías de compra, mantenimiento) que se despliegan al tocarlos.
+ * Conectado con: lib/supabase.ts (tabla blog_posts, editada desde app/admin/blog.tsx), components/CabeceraMarca.tsx, components/TirarParaActualizar.tsx.
+ * Utilizado por: Expo Router (dirección /blog); la enlazan components/SiteFooter.tsx (pie de página, con ?open=) y components/Barramagic.tsx (buscador).
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: listado del Blog — artículos cortos sobre consolas/electrónica
  * (guías de compra, mantenimiento...). El contenido ahora vive en la tabla
  * Supabase "blog_posts" y se edita desde app/admin/blog.tsx (crear, editar,

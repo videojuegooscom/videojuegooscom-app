@@ -1,5 +1,14 @@
-// components/CookieConsentBanner.tsx
 /**
+ * Archivo: components/CookieConsentBanner.tsx
+ * Función: componente del aviso de analítica propia (consentimiento).
+ * Para qué sirve: pide al visitante aceptar o rechazar la analítica (RGPD), guarda su respuesta con lib/analytics.ts y no se muestra en el panel de administración ni cuando ya contestó.
+ * Conectado con: lib/analytics.ts (getAnalyticsConsent, setAnalyticsConsent), lib/tabBar.ts (useTabBarBottomInset), política de privacidad (app/politicas/[slug].tsx).
+ * Utilizado por: app/_layout.tsx (se monta una vez).
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: aviso discreto (no bloqueante) de que la tienda usa analítica
  * propia para registrar el recorrido de los visitantes (Inicio, Categoría,
  * Producto, Scroll, Reseñas...) y poder mejorar la tienda con esos datos. Se

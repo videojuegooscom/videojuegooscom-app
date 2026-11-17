@@ -1,5 +1,14 @@
-// app/+html.tsx
 /**
+ * Archivo: app/+html.tsx
+ * Función: plantilla HTML de la exportación web estática (solo se usa al exportar, no se ejecuta en el navegador).
+ * Para qué sirve: fija idioma español, viewport, datos estructurados para Google (JSON-LD), resumen sin JavaScript y precarga de Supabase; mejora el SEO y la carga inicial para el cliente.
+ * Conectado con: scripts/inject-seo-html.js, components/SiteHead.tsx, lib/tabBar.ts, lib/horarioAtencion.ts y public/llms.txt (mismos datos); no llama a Supabase (solo hace preconnect a su dominio).
+ * Utilizado por: Expo Router (la usa sola al exportar la web; ningún archivo la importa).
+ * Dependencias: expo-router/html, react (tipos).
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: plantilla HTML de la exportación web estática (solo web; no se ejecuta en el navegador).
  *
  * Es la misma que Expo usa por defecto (charset, viewport, X-UA-Compatible y el reset de

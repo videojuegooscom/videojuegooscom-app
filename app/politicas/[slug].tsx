@@ -1,5 +1,14 @@
-// app/politicas/[slug].tsx
 /**
+ * Archivo: app/politicas/[slug].tsx
+ * Función: pantalla de una política legal o comercial, en la dirección /politicas/<slug> (envios, devoluciones, privacidad, terminos, normas-foro, reparacion-envio…).
+ * Para qué sirve: el cliente lee las condiciones de la tienda; el texto sale de la base de datos y, si falla, de un respaldo del propio archivo.
+ * Conectado con: lib/supabase.ts (tabla policy_pages, editada desde app/admin/policies.tsx), components/CabeceraMarca.tsx, components/TirarParaActualizar.tsx.
+ * Utilizado por: Expo Router (dirección /politicas/<slug>); la enlazan components/SiteFooter.tsx, CookieConsentBanner.tsx, PerfilPublico.tsx, Barramagic.tsx, Campanita.tsx, ContratarServicioModal.tsx, app/checkout.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx y app/(tabs)/chat-global.tsx.
+ * Dependencias: react, react-native, expo-router.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: página pública de una política legal/comercial (Envíos,
  * Devoluciones, Privacidad, Términos y condiciones...). Es UNA sola pantalla
  * dinámica para todas — el contenido de cada una ahora vive en la tabla

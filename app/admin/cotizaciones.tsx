@@ -1,5 +1,14 @@
-// app/admin/cotizaciones.tsx
 /**
+ * Archivo: app/admin/cotizaciones.tsx
+ * Función: pantalla de administración «Cotizaciones», en la dirección /admin/cotizaciones.
+ * Para qué sirve: el administrador revisa las solicitudes de venta que los clientes envían con «Vender ahora» (datos, fotos y vídeo), cambia su estado (nuevo, revisado, contactado, descartado) y las borra.
+ * Conectado con: lib/supabase.ts (tablas sell_requests y sell_request_media, bucket privado sell-request-media), components/SellRequestMedia.tsx, components/VenderAhoraModal.tsx, lib/admin/products.components.ts y products.utils.ts, constants/theme.ts, components/admin/PanelUI.tsx.
+ * Utilizado por: Expo Router (dirección /admin/cotizaciones, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Cotizaciones» de app/admin/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: panel admin donde aparecen las solicitudes de venta que envían
  * los clientes desde el formulario "Vender ahora" (components/
  * VenderAhoraModal.tsx). Ya no llega nada por email: todo se guarda en la
