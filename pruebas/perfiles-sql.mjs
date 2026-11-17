@@ -140,6 +140,11 @@
  *    crecientes; cada cliente ve solo sus reservas y nadie las escribe desde el navegador; una activa por artículo; otro
  *    cliente no compra un artículo reservado (quien lo reservó y el administrador, sí); disparadores sin security definer;
  *    se aplica dos veces (con su «prueba de la prueba»).
+ *  - Alquiler de artículos, fase 1 (20261117100000_alquiler_base.sql): ajustes APAGADOS (10/18/25/33 %, fianza 150 €,
+ *    recargo 3 €, 1 día de cortesía, plus 50 €) que no se activan sin contrato, sin revisión ni con notas internas; el coste
+ *    solo para el administrador; cada cliente lee y crea solo sus alquileres con los importes de la base de datos; uno en
+ *    curso por unidad; un artículo de alquiler no se compra como venta; la categoría «Alquílalo ahora» oculta con el alquiler
+ *    apagado; sin security definer; se aplica dos veces (con su «prueba de la prueba»).
  *  - Motivo de la cancelación y «Avisarme cuando haya otro» (20261116100000_cancelacion_motivo_aviso.sql): motivo ≤ 200
  *    que pone el administrador (el cliente lo lee y no lo cambia) y hora de la cancelación de la base de datos;
  *    avisos_reposicion solo de pedidos propios cancelados porque el artículo ya no está disponible, de quien la crea, una
@@ -2346,6 +2351,181 @@ try {
     const fuga = await como(c54, "authenticated", ADMIN, `update public.reserva_ajustes set ${REGLAS_T}, texto_condiciones = ${q(`${LIMPIO} NOTA PARA EL GESTOR: revisar.`)}, al_vencer = 'Texto.', activa = true returning activa`);
     ok(fuga.ok, "(control) sin la comprobación, se activaría con una «NOTA PARA EL GESTOR»: la prueba SÍ lo detecta");
     await c54.end();
+  }
+
+  // Alquiler de artículos, fase 1 (2026-11-17): 20261117100000_alquiler_base.sql. Con roles reales: una fila de ajustes
+  // APAGADA con los porcentajes 10/18/25/33, fianza 150 (entrega), recargo 3, cortesía 1 y plus 50; no se activa sin
+  // contrato, sin «Revisado por mi gestor» ni con notas internas; un cliente solo la lee activa; el coste (alquiler_unidades)
+  // solo el administrador; cada cliente lee y crea SOLO sus alquileres con los importes que pone la base de datos (550 € →
+  // 54,90 / 99 / 139 / 179 €, o el precio a mano); un alquiler en curso por unidad; un artículo de alquiler no se compra como
+  // venta; la categoría «Alquílalo ahora» se crea oculta, no se muestra con el alquiler apagado y sigue al interruptor.
+  {
+    const ALQ = readFileSync("supabase/migrations/20261117100000_alquiler_base.sql", "utf8");
+    const PA = "c1c1c1c1-c1c1-4c1c-8c1c-c1c1c1c1c1c1";
+    const PB = "d2d2d2d2-d2d2-4d2d-8d2d-d2d2d2d2d2d2";
+    const PV = "e3e3e3e3-e3e3-4e3e-8e3e-e3e3e3e3e3e3";
+    const ESQUEMA_A = `
+      create table public.products (id uuid primary key default gen_random_uuid(), title text not null, price_eur numeric not null default 0,
+        status text not null default 'PUBLISHED', is_active boolean not null default true);
+      alter table public.products enable row level security;
+      create policy products_select_public_or_admin on public.products for select using (((status = 'PUBLISHED') and (is_active = true)) or public.is_admin());
+      create policy products_admin_update on public.products for update using (public.is_admin()) with check (public.is_admin());
+      create table public.pedido_items (id uuid primary key default gen_random_uuid(), pedido_id uuid, product_id uuid, titulo text not null default 'x',
+        precio_eur numeric not null default 0);
+      create table public.categories (id uuid primary key default gen_random_uuid(), name text not null, slug text not null unique,
+        sort_order integer not null default 0, is_active boolean not null default true, image_url text, imagenes jsonb,
+        created_at timestamptz default now(), updated_at timestamptz default now());
+      alter table public.categories enable row level security;
+      create policy categories_select_public_or_admin on public.categories for select using ((is_active = true) or public.is_admin());
+      create policy categories_admin_update on public.categories for update using (public.is_admin());
+      insert into public.categories (name, slug, sort_order) values ('PlayStation 5', 'playstation-5', 4);
+      insert into public.products (id, title, price_eur) values ('${PA}', 'PlayStation 5 Slim', 550), ('${PB}', 'Xbox Series X', 450), ('${PV}', 'Mando DualSense', 60);`;
+    const cA = await nuevaBase("vz_aislada_alquiler_base", ESQUEMA_A);
+    let repetidaA = true;
+    try {
+      for (const m of [ALQ, ALQ]) await cA.query(m);
+    } catch (e) {
+      repetidaA = false;
+      console.log(String(e.message));
+    }
+    ok(repetidaA, "Alquiler: la migración se aplica dos veces sin error");
+    const n = async (sql) => Number((await cA.query(sql)).rows[0].n);
+    const fila = (await cA.query("select * from public.alquiler_ajustes")).rows;
+    ok(
+      fila.length === 1 && fila[0].activo === false && [fila[0].pct_1_mes, fila[0].pct_2_meses, fila[0].pct_3_meses, fila[0].pct_4_meses].map(Number).join(",") === "10,18,25,33" &&
+        Number(fila[0].fianza_eur) === 150 && fila[0].fianza_modo === "entrega" && Number(fila[0].recargo_dia_eur) === 3 && fila[0].cortesia_dias === 1 && Number(fila[0].plus_compra_eur) === 50 &&
+        fila[0].texto_contrato === null && fila[0].contrato_revisado === false,
+      `Alquiler: una sola fila de ajustes, APAGADA, con 10/18/25/33 %, fianza 150 € en la entrega, recargo 3 €, 1 día de cortesía, plus 50 € y sin contrato (${JSON.stringify(fila).slice(0, 300)})`
+    );
+    const ej = (await cA.query("select string_agg(public.alquiler_redondear(550 * p::numeric / 100)::text, ',' order by p) as t from unnest(array[10, 18, 25, 33]) as p")).rows[0].t;
+    ok(ej === "54.9,99,139,179", `Alquiler: el redondeo de la base de datos da 54,90 / 99 / 139 / 179 € con 550 € (${ej})`);
+    const cat = (await cA.query("select name, is_active, sort_order from public.categories where slug = 'alquilalo-ahora'")).rows;
+    ok(cat.length === 1 && cat[0].name === "Alquílalo ahora" && cat[0].is_active === false && cat[0].sort_order === 5, `Alquiler: la categoría «Alquílalo ahora», una sola, OCULTA y al final del orden (${JSON.stringify(cat)})`);
+    ok((await n("select count(*) as n from pg_trigger where tgname in ('alquiler_ajustes_validar', 'alquiler_ajustes_categoria', 'alquileres_validar', 'pedido_items_alquiler', 'categories_alquiler_oculta')")) === 5, "Alquiler: sus 5 disparadores, sin duplicar");
+    ok((await n("select count(*) as n from pg_policies where tablename in ('alquiler_ajustes', 'alquiler_unidades', 'alquileres')")) === 8, "Alquiler: sus 8 políticas, sin duplicar");
+    ok((await n("select count(*) as n from pg_proc where proname in ('alquiler_ajustes_validar', 'alquiler_ajustes_categoria', 'alquileres_validar', 'pedido_items_alquiler', 'categories_alquiler_oculta', 'alquiler_redondear') and prosecdef")) === 0, "Alquiler: ninguna función es security definer");
+    ok((await n("select count(*) as n from pg_class where relname in ('alquiler_ajustes', 'alquiler_unidades', 'alquileres') and relrowsecurity")) === 3, "Alquiler: RLS en las tres tablas");
+
+    // Ajustes: un cliente o un visitante no los leen (apagado) ni los cambian; el administrador sí.
+    const verAjU1 = await como(cA, "authenticated", U1, "select * from public.alquiler_ajustes");
+    const verAjAnon = await como(cA, "anon", null, "select * from public.alquiler_ajustes");
+    const cambiaAjU1 = await como(cA, "authenticated", U1, "update public.alquiler_ajustes set contrato_revisado = true", { confirmar: true });
+    ok(verAjU1.ok && verAjU1.filas.length === 0 && (!verAjAnon.ok || verAjAnon.filas.length === 0) && cambiaAjU1.cuantas === 0, "Alquiler: apagado, un cliente o un visitante no leen ni cambian los ajustes");
+    const sinContrato = await como(cA, "authenticated", ADMIN, "update public.alquiler_ajustes set activo = true");
+    ok(!sinContrato.ok && /falta: el texto del contrato, la revisión del gestor/.test(sinContrato.mensaje ?? ""), `Alquiler: no se activa sin contrato ni revisión (${sinContrato.mensaje ?? "entró"})`);
+    const q = (s) => `'${s.replace(/'/g, "''")}'`;
+    const LIMPIO = "Alquiler de {articulo} durante {plan_meses} por {precio_plan_eur}; fianza de {fianza_eur} ({modo_fianza}); recargo de {recargo_dia_eur} tras {cortesia_dias}; compra con {plus_compra_eur} más sobre {precio_venta_eur}; del {fecha_inicio} al {fecha_fin}. VARIANTE A.";
+    const sinRevisar = await como(cA, "authenticated", ADMIN, `update public.alquiler_ajustes set texto_contrato = ${q(LIMPIO)}, activo = true`);
+    ok(!sinRevisar.ok && /la revisión del gestor/.test(sinRevisar.mensaje ?? ""), `Alquiler: con contrato pero sin «Revisado por mi gestor», no se activa (${sinRevisar.mensaje ?? "entró"})`);
+    const NOTAS = [
+      ["[A DECIDIR", "[A DECIDIR POR EL DUEÑO: zona]", /huecos «\[A DECIDIR…\]»/],
+      ["NOTA PARA EL GESTOR", "NOTA PARA EL GESTOR: revisar.", /NOTA PARA EL GESTOR/],
+      ["PUNTO A REVISAR", "[PUNTO A REVISAR POR EL GESTOR: IVA]", /PUNTO A REVISAR/],
+      ["comprobar en el BOE", "(LGDCU; comprobar en el BOE)", /comprobar en el BOE/],
+      ["BORRADOR", "BORRADOR · Pendiente de revisión del gestor", /marca de borrador/],
+      ["VARIANTE A y B", "VARIANTE B.", /dos variantes/],
+      ["marca desconocida", "Hola, {nombre_cliente}.", /marca «\{nombre_cliente\}»/],
+    ];
+    for (const [nombre, nota, dice] of NOTAS) {
+      const r = await como(cA, "authenticated", ADMIN, `update public.alquiler_ajustes set texto_contrato = ${q(`${LIMPIO} ${nota}`)}, contrato_revisado = true, activo = true`);
+      ok(!r.ok && dice.test(r.mensaje ?? ""), `Alquiler: con «${nombre}» en el contrato no se activa y dice qué quitar (${r.mensaje ?? "entró"})`);
+    }
+    const malos = [];
+    for (const s of ["pct_1_mes = 0", "pct_4_meses = 101", "fianza_eur = -1", "fianza_modo = 'paypal'", "cortesia_dias = 31", "plus_compra_eur = -5"]) {
+      malos.push((await como(cA, "authenticated", ADMIN, `update public.alquiler_ajustes set ${s}`)).codigo);
+    }
+    ok(malos.every((c) => c === "23514"), `Alquiler: porcentajes, fianza, modo, cortesía y plus fuera de rango no entran (${malos.join(", ")})`);
+
+    // Coste (alquiler_unidades): solo el administrador.
+    const altaUniAdmin = await como(cA, "authenticated", ADMIN, `insert into public.alquiler_unidades (product_id, coste_eur) values ('${PA}', 310)`, { confirmar: true });
+    const verUniU1 = await como(cA, "authenticated", U1, "select coste_eur from public.alquiler_unidades");
+    const verUniAnon = await como(cA, "anon", null, "select coste_eur from public.alquiler_unidades");
+    const altaUniU1 = await como(cA, "authenticated", U1, `insert into public.alquiler_unidades (product_id, coste_eur) values ('${PB}', 1)`);
+    const cambiaUniU1 = await como(cA, "authenticated", U1, "update public.alquiler_unidades set coste_eur = 1", { confirmar: true });
+    ok(altaUniAdmin.ok && verUniU1.ok && verUniU1.filas.length === 0 && (!verUniAnon.ok || verUniAnon.filas.length === 0) && !altaUniU1.ok && cambiaUniU1.cuantas === 0, "Alquiler: el coste solo lo ven y cambian los administradores");
+
+    // Artículos de alquiler: no se compran como venta (el administrador, sí).
+    await cA.query(`update public.products set modo = 'alquiler', alquiler_precios = '{"4": 175}' where id in ('${PA}', '${PB}')`);
+    const compraU1 = await como(cA, "authenticated", U1, `insert into public.pedido_items (product_id) values ('${PA}')`);
+    const compraAdmin = await como(cA, "authenticated", ADMIN, `insert into public.pedido_items (product_id) values ('${PA}')`);
+    const compraVenta = await como(cA, "authenticated", U1, `insert into public.pedido_items (product_id) values ('${PV}')`);
+    ok(!compraU1.ok && /de alquiler/.test(compraU1.mensaje ?? "") && compraAdmin.ok && compraVenta.ok, `Alquiler: un artículo de alquiler no se compra como venta (el administrador, sí; uno de venta, cualquiera) (${compraU1.mensaje ?? "entró"})`);
+    const modoMalo = await como(cA, "authenticated", ADMIN, `update public.products set modo = 'regalo' where id = '${PV}'`);
+    ok(!modoMalo.ok && modoMalo.codigo === "23514", "Alquiler: products.modo solo venta o alquiler");
+
+    // La categoría no se muestra con el alquiler apagado.
+    const mostrar = await como(cA, "authenticated", ADMIN, "update public.categories set is_active = true where slug = 'alquilalo-ahora'");
+    ok(!mostrar.ok && /se muestra sola/.test(mostrar.mensaje ?? ""), `Alquiler: con el alquiler apagado, la categoría no se puede mostrar (${mostrar.mensaje ?? "entró"})`);
+
+    // Alquileres: apagado, un cliente no puede crear ninguno.
+    const ALTA = (uid, prod, plan, extra = "") =>
+      `insert into public.alquileres (user_id, product_id, plan_meses, precio_venta_eur, precio_plan_eur, fianza_eur, fianza_modo, contrato_texto${extra ? ", estado, pagado_alquiler_eur" : ""})
+       values ('${uid}', '${prod}', ${plan}, 1, 1, 0, 'tarjeta', 'Contrato aceptado.'${extra}) returning *`;
+    const apagado = await como(cA, "authenticated", U1, ALTA(U1, PA, 3));
+    ok(!apagado.ok && /no está disponible/.test(apagado.mensaje ?? ""), `Alquiler: apagado, un cliente no puede alquilar (${apagado.mensaje ?? "entró"})`);
+
+    // Se activa con el contrato limpio y revisado: la categoría se muestra sola; un cliente lee los ajustes.
+    const activa = await como(cA, "authenticated", ADMIN, `update public.alquiler_ajustes set texto_contrato = ${q(LIMPIO)}, contrato_revisado = true, activo = true returning activo, actualizado_por`, { confirmar: true });
+    ok(activa.ok && activa.filas[0].activo === true && activa.filas[0].actualizado_por === ADMIN, `Alquiler: con el contrato limpio y revisado, se activa (${activa.mensaje ?? "ok"})`);
+    ok((await cA.query("select is_active from public.categories where slug = 'alquilalo-ahora'")).rows[0].is_active === true, "Alquiler: al activarlo, la categoría «Alquílalo ahora» se muestra");
+    const verAjU1b = await como(cA, "authenticated", U1, "select activo from public.alquiler_ajustes");
+    ok(verAjU1b.ok && verAjU1b.filas.length === 1, "Alquiler: activo, un cliente con sesión lee los ajustes");
+
+    // El cliente crea el suyo: la base de datos pone dueño, estado e importes (lo que mande el navegador no cuenta).
+    const plan3 = await como(cA, "authenticated", U1, ALTA(U2, PA, 3, ", 'activo', 999"), { confirmar: true });
+    const f3 = plan3.filas?.[0] ?? {};
+    const huella = (await cA.query("select encode(sha256(convert_to('Contrato aceptado.', 'UTF8')), 'hex') as h")).rows[0].h;
+    ok(
+      plan3.ok && f3.user_id === U1 && f3.estado === "reservado" && Number(f3.precio_plan_eur) === 139 && Number(f3.precio_venta_eur) === 550 && Number(f3.fianza_eur) === 150 &&
+        f3.fianza_modo === "entrega" && Number(f3.pagado_alquiler_eur) === 0 && f3.fianza_estado === "pendiente" && f3.producto_titulo === "PlayStation 5 Slim" && f3.contrato_hash === huella,
+      `Alquiler: el cliente crea el suyo con los importes de la base de datos (3 meses de 550 € = 139 €, fianza 150 €, a su nombre, reservado, con la huella del contrato) (${JSON.stringify(f3).slice(0, 300)})`
+    );
+    const plan4 = await como(cA, "authenticated", U2, ALTA(U2, PB, 4), { confirmar: true });
+    ok(plan4.ok && Number(plan4.filas[0].precio_plan_eur) === 175, `Alquiler: el precio a mano del artículo manda (4 meses = 175 €) (${plan4.filas?.[0]?.precio_plan_eur ?? plan4.mensaje})`);
+    const otroEnCurso = await como(cA, "authenticated", U2, ALTA(U2, PA, 1));
+    ok(!otroEnCurso.ok && otroEnCurso.codigo === "23505", `Alquiler: un solo alquiler en curso por unidad (${otroEnCurso.codigo ?? "entró"})`);
+    const deVenta = await como(cA, "authenticated", U1, ALTA(U1, PV, 1));
+    ok(!deVenta.ok && /no está disponible para alquilar/.test(deVenta.mensaje ?? ""), `Alquiler: un artículo de venta no se alquila (${deVenta.mensaje ?? "entró"})`);
+    const plan5 = await como(cA, "authenticated", U1, ALTA(U1, PV, 5));
+    ok(!plan5.ok, "Alquiler: solo planes de 1 a 4 meses");
+    const anonAlta = await como(cA, "anon", null, ALTA(U1, PB, 1));
+    ok(!anonAlta.ok, "Alquiler: un visitante sin sesión no alquila");
+
+    // Lectura y cambios.
+    const verU1 = await como(cA, "authenticated", U1, "select user_id from public.alquileres");
+    const verU2 = await como(cA, "authenticated", U2, "select user_id from public.alquileres");
+    const verAdmin = await como(cA, "authenticated", ADMIN, "select user_id from public.alquileres");
+    const verAnon = await como(cA, "anon", null, "select user_id from public.alquileres");
+    ok(verU1.filas?.length === 1 && verU1.filas[0].user_id === U1 && verU2.filas?.length === 1 && verU2.filas[0].user_id === U2 && verAdmin.filas?.length === 2 && (!verAnon.ok || verAnon.filas.length === 0), `Alquiler: cada cliente ve SOLO los suyos, el administrador todos y un visitante ninguno (${verU1.filas?.length}, ${verU2.filas?.length}, ${verAdmin.filas?.length})`);
+    const cambiaU1 = await como(cA, "authenticated", U1, "update public.alquileres set precio_plan_eur = 1, estado = 'cerrado'", { confirmar: true });
+    const borraU1 = await como(cA, "authenticated", U1, "delete from public.alquileres", { confirmar: true });
+    const borraAdmin = await como(cA, "authenticated", ADMIN, "delete from public.alquileres", { confirmar: true });
+    ok(cambiaU1.cuantas === 0 && borraU1.cuantas === 0 && borraAdmin.cuantas === 0, "Alquiler: un cliente no cambia sus alquileres y nadie los borra");
+    const cambiaAdmin = await como(cA, "authenticated", ADMIN, `update public.alquileres set estado = 'activo', pagado_alquiler_eur = 139, fianza_estado = 'cobrada', contrato_texto = 'Otro texto.' where product_id = '${PA}' returning estado, contrato_texto, contrato_hash`, { confirmar: true });
+    ok(cambiaAdmin.ok && cambiaAdmin.filas[0].estado === "activo" && cambiaAdmin.filas[0].contrato_texto === "Contrato aceptado." && cambiaAdmin.filas[0].contrato_hash === huella, "Alquiler: el administrador cambia el estado y los cobros, pero no el contrato aceptado ni su huella");
+    const recargoTope = await como(cA, "authenticated", ADMIN, `update public.alquileres set recargo_eur = 151 where product_id = '${PA}'`);
+    const descuentoTope = await como(cA, "authenticated", ADMIN, `update public.alquileres set fianza_descuento_eur = 151 where product_id = '${PA}'`);
+    ok(recargoTope.codigo === "23514" && descuentoTope.codigo === "23514", "Alquiler: el recargo y el descuento de la fianza nunca pasan de la fianza");
+
+    // Al apagarlo, la categoría se oculta.
+    await como(cA, "authenticated", ADMIN, "update public.alquiler_ajustes set activo = false", { confirmar: true });
+    ok((await cA.query("select is_active from public.categories where slug = 'alquilalo-ahora'")).rows[0].is_active === false, "Alquiler: al apagarlo, la categoría se oculta");
+    const textoMigA = ALQ.replace(/^--.*$/gm, "").toLowerCase();
+    ok(!/\b(drop\s|delete\s+from|truncate|grant\b|revoke\b|security\s+definer|to\s+(anon|public)\b|using\s*\(\s*true\s*\)|auth\.(users|identities|sessions|refresh_tokens))/.test(textoMigA) && !ALQ.includes("\\"), "Alquiler: la migración no borra, no toca permisos delicados ni lleva barras invertidas (nada que bloquee el guardián)");
+    await cA.end();
+
+    // PRUEBA DE LAS PRUEBAS: con la lectura abierta, un cliente vería los alquileres de otro; sin la comprobación de la
+    // revisión del gestor, se activaría sin revisar.
+    const rota = ALQ.replace("for select to authenticated using (user_id = (select auth.uid()) or (select public.is_admin()));", "for select to authenticated using (auth.uid() is not null);")
+      .replace("if not new.contrato_revisado then v_faltan := array_append(v_faltan, 'la revisión del gestor'); end if;", "");
+    ok(rota !== ALQ, "(control) se han podido romper las reglas en la copia de prueba");
+    const cA2 = await nuevaBase("vz_aislada_alquiler_base_rota", ESQUEMA_A + rota);
+    await cA2.query(`update public.products set modo = 'alquiler' where id = '${PA}'`);
+    const sinGestor = await como(cA2, "authenticated", ADMIN, `update public.alquiler_ajustes set texto_contrato = ${q(LIMPIO)}, activo = true`, { confirmar: true });
+    await cA2.query(`insert into public.alquileres (user_id, product_id, plan_meses, precio_venta_eur, precio_plan_eur, fianza_eur, fianza_modo, contrato_texto) values ('${U2}', '${PA}', 1, 550, 54.9, 150, 'entrega', 'x')`);
+    const fuga = await como(cA2, "authenticated", U1, "select user_id from public.alquileres");
+    await cA2.end();
+    ok(sinGestor.ok && fuga.filas?.length === 1, `(control) con las reglas rotas, se activa sin revisar y un cliente ve los alquileres de otro: la prueba SÍ lo detecta (${sinGestor.mensaje ?? "ok"}, ${fuga.filas?.length})`);
   }
 
   // Opciones de los servicios (20261108230000_servicios_opciones.sql): el administrador escribe las opciones (Básica,

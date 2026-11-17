@@ -256,6 +256,11 @@
  *    activar sin reglas ni sin «Revisado por mi gestor» (borrador marcado, escala 1-70 %); activa, la ficha calcula el % y
  *    los € según los días, la casilla es obligatoria y «Pagar señal» solo manda artículo y días; sin cuenta invita; «Mis
  *    reservas» y la vuelta de Stripe; 360/390/1280; campos de 16 px. Se lanza con SOLO = RESEN y en la pasada completa.
+ *  - ALQ1) Alquiler de artículos, fase 1 (APAGADO): Administración → Alquileres con el aviso de apagado, las cifras a 0, la
+ *    tabla de ejemplo con 550 € (54,90 / 99 / 139 / 179 €, recalculada al escribir), no deja activar sin contrato, sin
+ *    «Revisado por mi gestor» ni con notas internas, «Cargar el borrador», «Guardar ajustes» y una unidad con sus precios a
+ *    mano y su coste; 360/390/1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px, sin errores y
+ *    con su control. Datos FICTICIOS. Se lanza con SOLO = ALQ1 y en la pasada completa.
  *  - FS) Ficha de servicio con el formato de la de producto (galería, visor con zoom, botones iguales, pestañas,
  *    «Volver atrás», sin bloques de más) y su uso en Administración → Analítica, en el móvil y en el ordenador.
  *
@@ -18867,6 +18872,230 @@ async function seccionVENFOT() {
   }
 }
 
+// ===== ALQ1) Alquiler de artículos, fase 1 (dueño, 2026-11-17) ========================================================
+// APAGADO: Administración → Alquileres carga con el aviso «El alquiler está apagado: los clientes no ven nada», las cifras a
+// 0 y la lista de unidades vacía; la tabla de ejemplo con 550 € da 54,90 / 99 / 139 / 179 € y se recalcula al escribir; no
+// deja activar sin el contrato, sin «Revisado por mi gestor» ni con notas internas («[A DECIDIR…», «NOTA PARA EL GESTOR»…);
+// «Cargar el borrador» trae el contrato con los datos del responsable y sus marcas; «Guardar ajustes» manda lo que debe y un
+// porcentaje malo no se guarda; con el texto limpio y revisado, sí se activa. Una unidad de alquiler con sus precios y su
+// coste. 360/390/1280 sin desbordar, táctiles de 44 px, letra de 13 px o más, campos de 16 px y sin errores, con su control.
+// Tablas simuladas: nada llega a la base de datos real. ===================================================================
+async function seccionALQ1() {
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+  const INICIALES = {
+    id: 1, activo: false, pct_1_mes: 10, pct_2_meses: 18, pct_3_meses: 25, pct_4_meses: 33, fianza_eur: 150, fianza_modo: "entrega",
+    recargo_dia_eur: 3, cortesia_dias: 1, plus_compra_eur: 50, meses_max_unidad: 3, texto_contrato: null, contrato_revisado: false,
+  };
+  const UNIDAD = { id: "e0000000-0000-4000-8000-000000000a01", title: "PlayStation 5 Slim Con Lector", price_eur: 550, alquiler_precios: { 4: 175 }, is_active: true, status: "PUBLISHED" };
+  const limpio = (t) => String(t ?? "").replace(/\p{Co}/gu, "").replace(/\s+/g, " ").trim();
+  const texto = async (p, sel) => limpio(await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => ""));
+  const alto = (p, sel) => p.locator(sel).first().evaluate((e) => Math.round(e.getBoundingClientRect().height)).catch(() => 0);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !(await cond()); i++) await p.waitForTimeout(250);
+  };
+  // Letra < 13 px, táctiles < 44 × 44 (los más externos), campos de menos de 16 px y el ancho (como PANRED5).
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily)) continue;
+        if (parseFloat(cs.fontSize) < 13) pequenos.push(`${t.slice(0, 30)} ${cs.fontSize}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[tabindex="0"]';
+      const deBlue = (el) => !!el.closest("#blue-flotante, #blue-mensaje") || /Blue/.test(el.getAttribute("aria-label") ?? "");
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && !deBlue(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      const campos = [...document.querySelectorAll("input,textarea")].filter((el) => !["checkbox", "radio", "file", "range", "hidden"].includes(el.type) && visible(el));
+      const camposChicos = campos.filter((el) => parseFloat(getComputedStyle(el).fontSize) < 16).map((el) => `${el.id || el.placeholder || el.tagName} ${getComputedStyle(el).fontSize}`);
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, campos: campos.length, camposChicos: camposChicos.slice(0, 8), ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    });
+  const comprobarDiseno = async (p, nombre, momento) => {
+    const m = await medir(p);
+    ok(m.ancho <= m.v + 1, `ALQ1 (${nombre}): ${momento}, la página no se sale por los lados (${m.ancho}/${m.v})`);
+    ok(m.n >= 5 && !m.chicos.length, `ALQ1 (${nombre}): ${momento}, todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+    ok(!m.pequenos.length, `ALQ1 (${nombre}): ${momento}, ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+    ok(m.campos >= 1 && !m.camposChicos.length, `ALQ1 (${nombre}): ${momento}, los campos a 16 px (${m.campos} campos; ${m.camposChicos.join(" | ") || "ninguno pequeño"})`);
+  };
+  // El control: un recuadro de 2000 px y una letra de 10 px puestos a propósito TIENEN que detectarse.
+  const control = async (p, nombre) => {
+    await p.evaluate(() => {
+      const d = document.createElement("div");
+      d.id = "alq1-control";
+      d.style.cssText = "width:2000px;height:24px;font-size:10px;position:relative";
+      d.textContent = "Control ALQ1";
+      document.body.appendChild(d);
+    });
+    const m = await medir(p);
+    await p.evaluate(() => document.getElementById("alq1-control")?.remove());
+    const despues = await medir(p);
+    ok(m.ancho > m.v + 1 && m.pequenos.some((t) => /Control ALQ1/.test(t)) && despues.ancho <= despues.v + 1, `ALQ1 (${nombre}): el control falla cuando debe (desborde ${m.ancho}/${m.v} y letra de 10 px detectados; sin ellos, ${despues.ancho}/${despues.v})`);
+  };
+  // Las tablas del alquiler, como la base de datos (PATCH apuntados, sin ir a ninguna base de datos real).
+  const simular = async (ctx, rs) => {
+    await ctx.route("**/rest/v1/alquiler_ajustes*", (r) => {
+      const q = r.request();
+      if (q.method() === "OPTIONS") return r.fallback();
+      if (q.method() === "PATCH") {
+        const cuerpo = JSON.parse(q.postData() ?? "{}");
+        rs.patches = [...(rs.patches ?? []), cuerpo];
+        rs.ajustes = { ...rs.ajustes, ...cuerpo };
+      }
+      return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(rs.ajustes) });
+    });
+    for (const [tabla, filas] of [["alquileres", () => []], ["alquiler_unidades", () => rs.datosUnidades ?? []]]) {
+      await ctx.route(`**/rest/v1/${tabla}*`, (r) => {
+        const q = r.request();
+        if (q.method() === "OPTIONS") return r.fallback();
+        if (q.method() !== "GET") {
+          rs.escritos = [...(rs.escritos ?? []), { tabla, metodo: q.method(), cuerpo: JSON.parse(q.postData() ?? "{}") }];
+          return r.fulfill({ status: 201, headers: CORS, body: "" });
+        }
+        return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(filas()) });
+      });
+    }
+    await ctx.route("**/rest/v1/products*", (r) => {
+      const q = r.request();
+      if (q.method() === "OPTIONS" || !/modo=eq\.alquiler|id=eq\./.test(q.url())) return r.fallback();
+      if (q.method() === "PATCH") {
+        rs.escritos = [...(rs.escritos ?? []), { tabla: "products", metodo: "PATCH", cuerpo: JSON.parse(q.postData() ?? "{}") }];
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+      return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(rs.unidades ?? []) });
+    });
+  };
+
+  for (const { nombre, vista } of VISTAS) {
+    const rs = { ajustes: { ...INICIALES }, unidades: [] };
+    const estado = { filas: perfilAdmin, guardados: [] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    await simular(ctx, rs);
+    const p = await pagina(ctx, "/admin/alquileres");
+    const sale = await p.locator("#alquiler-ajustes").waitFor({ timeout: 40000 }).then(() => true, () => false);
+    ok(sale, `ALQ1 (${nombre}): se abre Administración → Alquileres`);
+    ok((await texto(p, "#alquiler-aviso-apagado")) === "El alquiler está apagado: los clientes no ven nada", `ALQ1 (${nombre}): arriba, el aviso de apagado (${await texto(p, "#alquiler-aviso-apagado")})`);
+    ok(/^Desactivado/.test(await texto(p, "#alquiler-estado")), `ALQ1 (${nombre}): empieza DESACTIVADO (${await texto(p, "#alquiler-estado")})`);
+    const cifras = await texto(p, "#alquiler-cifras");
+    ok(/0 Alquileres en curso/.test(cifras) && /0 Alquileres en total/.test(cifras) && /0 Unidades de alquiler/.test(cifras), `ALQ1 (${nombre}): las cifras a 0 (${cifras})`);
+    const ej = [];
+    for (const m of [1, 2, 3, 4]) ej.push(await texto(p, `#alquiler-ejemplo-${m}`));
+    ok(JSON.stringify(ej) === JSON.stringify(["54,90 €", "99 €", "139 €", "179 €"]), `ALQ1 (${nombre}): con 550 €, la tabla de ejemplo da 54,90 / 99 / 139 / 179 € (${ej.join(" / ")})`);
+    ok((await p.locator("#alquiler-unidades-vacia").count()) === 1 && /Aún no hay unidades de alquiler/.test(await texto(p, "#alquiler-unidades-vacia")) && /En Escaparate para Alquilar/.test(await texto(p, "#alquiler-unidades-vacia")), `ALQ1 (${nombre}): la lista de unidades, vacía y con su texto`);
+    ok((await p.locator("#alquiler-contrato").inputValue()) === "" && (await p.locator("#alquiler-borrador").count()) === 0, `ALQ1 (${nombre}): el contrato empieza vacío`);
+    ok(/5 días de retraso = 12 €/.test(await texto(p, "#alquiler-recargo-ejemplo")) && /150 €/.test(await texto(p, "#alquiler-recargo-ejemplo")), `ALQ1 (${nombre}): el ejemplo del recargo con la cortesía y el tope (${await texto(p, "#alquiler-recargo-ejemplo")})`);
+    ok(/550 − 139 \+ 50 = 461 €/.test(await texto(p, "#alquiler-compra-ejemplo")), `ALQ1 (${nombre}): el ejemplo de la compra tras el alquiler (${await texto(p, "#alquiler-compra-ejemplo")})`);
+    const faltan = await texto(p, "#alquiler-faltan");
+    ok(/el texto del contrato/.test(faltan) && /Revisado por mi gestor/.test(faltan), `ALQ1 (${nombre}): dice qué falta para activarlo (${faltan.slice(0, 160)})`);
+    ok((await alto(p, "#alquiler-cargar-borrador")) >= 44 && (await alto(p, "#alquiler-revisado")) >= 44 && (await alto(p, "#alquiler-fianza-modo-entrega")) >= 44, `ALQ1 (${nombre}): «Cargar el borrador», la casilla y los modos de la fianza miden 44 px`);
+    await comprobarDiseno(p, nombre, "apagado y vacío");
+    await control(p, nombre);
+    await capturar(p, `ALQ1-admin-${nombre}`);
+
+    if (nombre === "390") {
+      // La tabla se recalcula al escribir.
+      await p.locator("#alquiler-pct-1").fill("12");
+      ok((await texto(p, "#alquiler-ejemplo-1")) === "65,90 €", `ALQ1: con un 12 %, 1 mes pasa a 65,90 € al escribir (${await texto(p, "#alquiler-ejemplo-1")})`);
+      await p.locator("#alquiler-pct-1").fill("10");
+      // Sin contrato, el interruptor no lo activa ni manda nada.
+      await p.locator("#alquiler-interruptor").click();
+      await p.waitForTimeout(400);
+      ok(/No se puede activar/.test(await texto(p, "#alquiler-mensaje")) && !(rs.patches ?? []).length, `ALQ1: sin contrato, el interruptor NO lo activa ni manda nada (${await texto(p, "#alquiler-mensaje")})`);
+      // «Cargar el borrador».
+      await p.locator("#alquiler-cargar-borrador").click();
+      const contrato = await p.locator("#alquiler-contrato").inputValue();
+      ok(contrato.startsWith("BORRADOR · Pendiente de revisión del gestor") && (await p.locator("#alquiler-borrador").count()) === 1, "ALQ1: «Cargar el borrador» trae el contrato marcado «Pendiente de revisión del gestor»");
+      ok(/Daniel Gutiérrez, con NIF\/CIF Y4751659B y domicilio en C\. Miguel Servet, 3, 50410 Cuarte de Huerva \(Zaragoza\)/.test(contrato), "ALQ1: el contrato trae los datos del responsable de la política de privacidad");
+      ok(["{articulo}", "{plan_meses}", "{precio_plan_eur}", "{fianza_eur}", "{modo_fianza}", "{recargo_dia_eur}", "{cortesia_dias}", "{plus_compra_eur}", "{fecha_inicio}", "{fecha_fin}"].every((m) => contrato.includes(m)) && /NOTA PARA EL GESTOR/.test(contrato) && /\[A DECIDIR POR EL DUEÑO/.test(contrato) && /\[A DECIDIR POR EL GESTOR/.test(contrato) && /PUNTO A REVISAR POR EL GESTOR/.test(contrato), "ALQ1: con sus marcas, la nota y los huecos para el gestor");
+      ok(["Objeto", "Plazo y renovación", "Fianza", "Estado en la entrega", "Uso", "Cambio de unidad en el plan de 4 meses", "Retraso en la devolución", "Daños y pérdida", "Alquílalo y, si te gusta, cómpralo", "Desistimiento", "Zona", "Protección de datos", "ley aplicable"].every((t) => contrato.includes(t)) && /14 días naturales/.test(contrato) && /justo y proporcionado/.test(contrato) && /550 − 139 \+ 50 = 461 €/.test(contrato), "ALQ1: el contrato cubre todos los apartados (desistimiento de 14 días, recargo justo y proporcionado, ejemplo de la compra)");
+      await p.locator("#alquiler-revisado").click();
+      await p.locator("#alquiler-interruptor").click();
+      await p.waitForTimeout(400);
+      const conNotas = await texto(p, "#alquiler-mensaje");
+      ok(/No se puede activar/.test(conNotas) && /A DECIDIR/.test(conNotas) && /NOTA PARA EL GESTOR/.test(conNotas) && !(rs.patches ?? []).some((x) => x.activo === true), `ALQ1: revisado pero con el borrador, NO se activa y dice qué notas quitar (${conNotas.slice(0, 200)})`);
+      await capturar(p, "ALQ1-admin-borrador-390");
+      // Solo un «[A DECIDIR» en un texto por lo demás limpio, tampoco.
+      const LIMPIO = "Contrato de alquiler de {articulo} durante {plan_meses} por {precio_plan_eur}, con una fianza de {fianza_eur}.";
+      await p.locator("#alquiler-contrato").fill(`${LIMPIO} [A DECIDIR POR EL DUEÑO: zona]`);
+      ok((await p.locator("#alquiler-revisado").getAttribute("aria-checked")) === "false", "ALQ1: cambiar el texto desmarca «Revisado por mi gestor»");
+      await p.locator("#alquiler-revisado").click();
+      await p.locator("#alquiler-interruptor").click();
+      await p.waitForTimeout(400);
+      ok(/A DECIDIR/.test(await texto(p, "#alquiler-mensaje")) && !(rs.patches ?? []).some((x) => x.activo === true), `ALQ1: con un «[A DECIDIR» no se activa (${await texto(p, "#alquiler-mensaje")})`);
+      // Un porcentaje malo no se guarda.
+      await p.locator("#alquiler-pct-2").fill("0");
+      await p.locator("#alquiler-guardar").click();
+      await p.waitForTimeout(400);
+      ok(/porcentaje de 2 meses/.test(await texto(p, "#alquiler-mensaje")) && !(rs.patches ?? []).length, `ALQ1: un 0 % no se guarda (${await texto(p, "#alquiler-mensaje")})`);
+      await p.locator("#alquiler-pct-2").fill("18");
+      // «Guardar ajustes» manda los ajustes escritos sin activarlo.
+      await p.locator("#alquiler-fianza-modo-tarjeta").click();
+      await p.locator("#alquiler-plus").fill("60");
+      await p.locator("#alquiler-contrato").fill(LIMPIO);
+      await p.locator("#alquiler-guardar").click();
+      await esperar(p, async () => (rs.patches ?? []).length > 0);
+      const g = (rs.patches ?? [])[0] ?? {};
+      ok(g.activo === false && g.pct_1_mes === 10 && g.pct_2_meses === 18 && g.pct_3_meses === 25 && g.pct_4_meses === 33 && g.fianza_eur === 150 && g.fianza_modo === "tarjeta" && g.recargo_dia_eur === 3 && g.cortesia_dias === 1 && g.plus_compra_eur === 60 && g.meses_max_unidad === 3 && g.texto_contrato === LIMPIO && g.contrato_revisado === false, `ALQ1: «Guardar ajustes» guarda lo escrito sin activarlo (${JSON.stringify(g).slice(0, 260)})`);
+      await p.waitForTimeout(300);
+      ok(/Ajustes guardados/.test(await texto(p, "#alquiler-mensaje")), `ALQ1: y lo confirma (${await texto(p, "#alquiler-mensaje")})`);
+      // Con el texto limpio y revisado, sí se activa.
+      await p.locator("#alquiler-revisado").click();
+      await p.locator("#alquiler-interruptor").click();
+      await esperar(p, async () => (rs.patches ?? []).some((x) => x.activo === true));
+      const a = (rs.patches ?? []).find((x) => x.activo === true) ?? {};
+      ok(a.texto_contrato === LIMPIO && a.contrato_revisado === true, `ALQ1: con el texto limpio y revisado, se activa (${JSON.stringify(a).slice(0, 200)})`);
+      await p.waitForTimeout(300);
+      ok(/^Activado/.test(await texto(p, "#alquiler-estado")) && (await p.locator("#alquiler-aviso-apagado").count()) === 0, `ALQ1: queda ACTIVADO y se quita el aviso de apagado (${await texto(p, "#alquiler-estado")})`);
+    }
+    ok(p.errores.length === 0, `ALQ1 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // Una unidad de alquiler (390 y 1280): sus precios (el de 4 meses, a mano), el coste solo para el administrador y guardarlos.
+  for (const { nombre, vista } of VISTAS.filter((v) => v.nombre !== "360")) {
+    const rs = { ajustes: { ...INICIALES }, unidades: [UNIDAD], datosUnidades: [{ product_id: UNIDAD.id, coste_eur: 310, meses_alquilada: 1 }] };
+    const ctx = await contexto(navegador, ADMIN, "admin", { filas: perfilAdmin, guardados: [] }, vista);
+    await simular(ctx, rs);
+    const p = await pagina(ctx, "/admin/alquileres");
+    await p.locator(`#alquiler-unidad-fila-${UNIDAD.id}`).waitFor({ timeout: 40000 }).catch(() => {});
+    ok(/1 Unidades de alquiler/.test(await texto(p, "#alquiler-cifras")), `ALQ1 (${nombre}): con una unidad, la cifra lo cuenta`);
+    const fila = await texto(p, `#alquiler-unidad-${UNIDAD.id}`);
+    ok(/Venta 550 € · 1 m 54,90 € · 2 m 99 € · 3 m 139 € · 4 m 175 €/.test(fila) && /Publicada/.test(fila), `ALQ1 (${nombre}): la fila con sus precios (el de 4 meses, a mano) (${fila})`);
+    await p.locator(`#alquiler-unidad-fila-${UNIDAD.id}`).click();
+    await p.waitForTimeout(300);
+    ok((await p.locator(`#alquiler-unidad-coste-${UNIDAD.id}`).inputValue()) === "310" && (await p.locator(`#alquiler-unidad-precio-4-${UNIDAD.id}`).inputValue()) === "175", `ALQ1 (${nombre}): el detalle con el coste y el precio a mano`);
+    await comprobarDiseno(p, nombre, "con una unidad abierta");
+    await capturar(p, `ALQ1-unidad-${nombre}`);
+    if (nombre === "390") {
+      await p.locator(`#alquiler-unidad-precio-1-${UNIDAD.id}`).fill("49,90");
+      await p.locator(`#alquiler-unidad-guardar-${UNIDAD.id}`).click();
+      await esperar(p, async () => (rs.escritos ?? []).length >= 2);
+      const prod = (rs.escritos ?? []).find((x) => x.tabla === "products")?.cuerpo ?? {};
+      const uni = (rs.escritos ?? []).find((x) => x.tabla === "alquiler_unidades")?.cuerpo ?? {};
+      ok(JSON.stringify(prod) === JSON.stringify({ alquiler_precios: { 1: 49.9, 4: 175 } }) && uni.product_id === UNIDAD.id && uni.coste_eur === 310, `ALQ1: guardar la unidad pone los precios a mano en el artículo y el coste aparte (${JSON.stringify(prod)} · ${JSON.stringify(uni)})`);
+    }
+    ok(p.errores.length === 0, `ALQ1 (${nombre}): con una unidad, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 // ===== RESEN) Reservar con señal (mejora 14, 2026-11-15) ==============================================================
 // APAGADA (como la deja la migración): ni la ficha ni Mis pedidos enseñan nada. Administración → Reservas con señal: el
 // borrador precargado y marcado, no deja activar sin reglas ni sin «Revisado por mi gestor», valida la escala (1-70 %) y,
@@ -22406,9 +22635,10 @@ async function seccionPANRED5() {
       ok(JSON.stringify(grupos) === '["panel-grupo-ventas","panel-grupo-catalogo","panel-grupo-contenido","panel-grupo-tienda"]', `PANRED5 (${nombre}): Inicio, los recuadros por grupos (${grupos.join(",")})`);
       const ventas = await texto(p, "#panel-grupo-ventas");
       const tienda = await texto(p, "#panel-grupo-tienda");
-      ok(/Ventas y clientes/.test(ventas) && /Pedidos/.test(ventas) && /Chat/.test(ventas) && /Usuarios y participación/.test(ventas) && /Visitas y métricas/.test(tienda) && /Centro De Aprendizajes/.test(tienda) && /Revisiones/.test(tienda), `PANRED5 (${nombre}): Inicio, cada grupo con sus apartados (${ventas.slice(0, 80)} · ${tienda.slice(0, 80)})`);
+      ok(/Ventas y clientes/.test(ventas) && /Pedidos/.test(ventas) && /Chat/.test(ventas) && /Alquileres/.test(ventas) && /Usuarios y participación/.test(ventas) && /Visitas y métricas/.test(tienda) && /Centro De Aprendizajes/.test(tienda) && /Revisiones/.test(tienda), `PANRED5 (${nombre}): Inicio, cada grupo con sus apartados (${ventas.slice(0, 80)} · ${tienda.slice(0, 80)})`);
       const recuadros = await p.evaluate(() => [...document.querySelectorAll('[id^="panel-grupo-"] [role="button"]')].length);
-      ok(recuadros === 20, `PANRED5 (${nombre}): Inicio, los 20 apartados siguen a mano (${recuadros})`);
+      // 21 desde el 2026-11-17: «Alquileres» (ALQ1) en Ventas y clientes.
+      ok(recuadros === 21, `PANRED5 (${nombre}): Inicio, los 21 apartados siguen a mano (${recuadros})`);
       ok((await texto(p, "#novedades-pedidos")) === "2" && (await texto(p, "#novedades-chats")) === "3", `PANRED5 (${nombre}): Inicio, el número rojo sigue en su recuadro`);
       await capturar(p, `PANRED5-${nombre}-inicio`);
       await comprobarDiseno(p, nombre, "Inicio", "la pantalla", { conCampos: false });
@@ -22954,6 +23184,7 @@ try {
   if (SOLO === "VENDP") await seccionVENDP();
   if (SOLO === "FRANJ") await seccionFRANJ();
   if (SOLO === "RESEN") await seccionRESEN();
+  if (SOLO === "ALQ1") await seccionALQ1();
   if (SOLO === "AVISOM") await seccionAVISOM();
   if (SOLO === "CHATP") await seccionCHATP();
   if (SOLO === "VALOR") await seccionVALOR();
@@ -24083,6 +24314,7 @@ try {
   await seccionCANCAV();
   await seccionCANDIS();
   await seccionVENFOT();
+  await seccionALQ1();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

@@ -203,7 +203,7 @@ const CIFRAS_PANEL: [SeccionConNovedades, string, string, IoniconName][] = [
   ["cotizaciones", "Cotizaciones nuevas", "Cotización nueva", "document-text-outline"],
 ];
 const GRUPOS: { id: string; titulo: string; icono: IoniconName; claves: string[] }[] = [
-  { id: "ventas", titulo: "Ventas y clientes", icono: "cart-outline", claves: ["pedidos", "chats", "cotizaciones", "reservas", "users"] },
+  { id: "ventas", titulo: "Ventas y clientes", icono: "cart-outline", claves: ["pedidos", "chats", "cotizaciones", "reservas", "alquileres", "users"] },
   { id: "catalogo", titulo: "Catálogo", icono: "pricetags-outline", claves: ["categories", "products", "services", "inventario", "envios", "escaparate"] },
   { id: "contenido", titulo: "Contenido y Blue", icono: "newspaper-outline", claves: ["blog", "flash-news", "policies", "conocimiento"] },
   { id: "tienda", titulo: "Tienda y marca", icono: "storefront-outline", claves: ["analytics", "marca-seo", "redes-sociales", "auditorias", "aprendizajes"] },
@@ -412,6 +412,13 @@ export default function AdminHome() {
         subtitle: "Tus reglas de la señal (desactivada hasta que las pongas y tu gestor revise el texto) y las reservas de los clientes",
         icon: "calendar-outline" as IoniconName,
         onPress: () => router.push("/admin/reservas" as never),
+      },
+      {
+        key: "alquileres",
+        title: "Alquileres",
+        subtitle: "Alquiler de artículos en Zaragoza: precios por plan, fianza, contrato y unidades (apagado: los clientes no ven nada)",
+        icon: "repeat-outline" as IoniconName,
+        onPress: () => router.push("/admin/alquileres" as never),
       },
       {
         key: "escaparate",
