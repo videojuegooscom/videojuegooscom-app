@@ -1,5 +1,5 @@
 /**
- * Archivo: constants/theme.ts
+ * Archivo: constants/temaTienda.ts
  * Función: constantes de diseño (colores, tamaños de letra, zonas táctiles, campos).
  * Para qué sirve: define TAMANOS, TACTIL, CAMPO, COLORES_TEXTO y colorTextoAzul que usan casi todas las pantallas para cumplir la norma de tamaños del móvil, además de Colors y Fonts de la plantilla de Expo (esos solo los usan archivos candidatos).
  * Conectado con: hooks/use-theme-color.ts y components/ui/collapsible.tsx (Colors); pruebas/perfil-datos.mjs (comprobaciones).

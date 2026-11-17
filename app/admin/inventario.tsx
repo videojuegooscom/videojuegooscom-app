@@ -2,7 +2,7 @@
  * Archivo: app/admin/inventario.tsx
  * Función: pantalla de administración de inventario interno, en la dirección /admin/inventario.
  * Para qué sirve: el administrador lista, crea, edita, cambia de estado (por revisar, listo, en reparación) y borra las unidades físicas que gestiona la tienda.
- * Conectado con: lib/supabase.ts (tabla inventory_items; sql/inventory_items.sql), lib/admin/productos.componentes.tsx, lib/admin/productos.utilidades.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tabla inventory_items; sql/inventory_items.sql), lib/admin/productos.componentes.tsx, lib/admin/productos.utilidades.ts, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/inventario, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Inventario» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -33,7 +33,7 @@
  *   subtítulo, estadísticas, buscador y lista en un único ScrollView (flex 1,
  *   margen final 48 px + zona segura). Antes todo lo de arriba era fijo y en
  *   el móvil dejaba la lista en una franja mínima.
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, los botones de estado
  *   de 44 px de alto y los campos de 16 px y 48 de alto.
  * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos, Categorías y
@@ -76,7 +76,7 @@ import {
   PrimaryButton,
 } from "../../lib/admin/productos.componentes";
 import { CIERRE_TECLADO } from "../../lib/admin/productos.utilidades";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
   AccionTexto,
   Bloque,

@@ -2,7 +2,7 @@
  * Archivo: app/admin/users.tsx
  * Función: pantalla de administración «Usuarios y participación», en la dirección /admin/users.
  * Para qué sirve: el administrador lista y busca a los clientes registrados, ve su participación (Foro, chats, reseñas), ideas de mejora, seguridad de cuentas y moderación del Foro, y entra a la ficha de cada cliente.
- * Conectado con: lib/supabase.ts (usuarios, perfiles, foro, chats, reseñas y eventos de analítica), lib/envio.ts, components/VentanaValoracion.tsx, components/PerfilPublico.tsx, components/ImagenInteligente.tsx, components/marca/CargaMarca.tsx, constants/theme.ts.
+ * Conectado con: lib/supabase.ts (usuarios, perfiles, foro, chats, reseñas y eventos de analítica), lib/envio.ts, components/VentanaValoracion.tsx, components/PerfilPublico.tsx, components/ImagenInteligente.tsx, components/marca/CargaMarca.tsx, constants/temaTienda.ts.
  * Utilizado por: Expo Router (dirección /admin/users, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Usuarios» de app/admin/index.tsx y abre app/admin/cliente/[userId].tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -18,7 +18,7 @@
  *
  * DISEÑO (dueño, 2026-11-12: «que se vea profesional, intuitivo, práctico»; el
  * mismo de la ficha del cliente, app/admin/cliente/[userId].tsx, y los tamaños
- * comunes de constants/theme.ts: letra mínima 13, cuerpo 15, táctiles de 44 px):
+ * comunes de constants/temaTienda.ts: letra mínima 13, cuerpo 15, táctiles de 44 px):
  * 1) Arriba, el buscador (16 px, sin zoom en el iPhone) y una fila de cifras
  *    clave (registrados, activos 7 días, perfil completo, con la app instalada
  *    si existe el dato y valoración media). Tocar una cifra filtra la lista o
@@ -142,7 +142,7 @@
  *
  * Conectado con:
  * - lib/supabase.ts → cliente para la RPC y las consultas de recuento.
- * - constants/theme.ts → TAMANOS, TACTIL, CAMPO, COLORES_TEXTO y colorTextoAzul.
+ * - constants/temaTienda.ts → TAMANOS, TACTIL, CAMPO, COLORES_TEXTO y colorTextoAzul.
  * - sql (migración) admin_list_users_with_stats → función que agrega todo.
  * - app/admin/index.tsx → tarjeta "Usuarios y participación" que lleva aquí.
  * - app/admin/cliente/[userId].tsx → ficha de cliente a la que lleva cada fila.
@@ -169,7 +169,7 @@ import { CONTRASENA_MINIMA, haceCuanto, supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
 import SmartImage from "../../components/ImagenInteligente";
 import { ORIGENES_MEJORA, SUGERENCIAS_RESENA, type OrigenMejora } from "../../components/VentanaValoracion";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/temaTienda";
 import { direccionesDeFila, textoEtiqueta, type DireccionGuardada } from "../../components/PerfilPublico";
 import { cobradoDeVerdad, importeCobrado, type PedidoDinero } from "../../lib/envio";
 

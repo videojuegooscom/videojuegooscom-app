@@ -2,7 +2,7 @@
  * Archivo: app/admin/categories.tsx
  * Función: pantalla de administración de categorías, en la dirección /admin/categories.
  * Para qué sirve: el administrador lista, crea, edita, activa/desactiva y borra las categorías de la tienda y sube hasta 3 fotos de portada por categoría.
- * Conectado con: lib/supabase.ts (tabla categories y almacenamiento product-media), components/PortadasCategoria.tsx, components/PerfilPublico.tsx (RecortarFoto), components/ImagenInteligente.tsx, lib/admin/productos.componentes.tsx, productos.utilidades.ts y productos.constantes.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tabla categories y almacenamiento product-media), components/PortadasCategoria.tsx, components/PerfilPublico.tsx (RecortarFoto), components/ImagenInteligente.tsx, lib/admin/productos.componentes.tsx, productos.utilidades.ts y productos.constantes.ts, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/categories, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Categorías» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -69,7 +69,7 @@
  *   subtítulo, estadísticas, buscador y lista en un único ScrollView (flex 1,
  *   margen final 48 px + zona segura). Antes todo lo de arriba era fijo y en
  *   el móvil dejaba la lista en una franja mínima.
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, texto azul pequeño en
  *   azulTexto, todo lo que se toca de 44 px y a 8 px de lo de al lado.
  *
@@ -149,7 +149,7 @@ import {
 } from "../../components/admin/PiezasPanelAdmin";
 import { CIERRE_TECLADO, pickMediaFilesWeb, reducirImagenWeb } from "../../lib/admin/productos.utilidades";
 import { MEDIA_BUCKET } from "../../lib/admin/productos.constantes";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 
 // «−» y «+» de cuánto se ve la foto: de 10 en 10, para que cada toque se note (la barra va de 5 en 5).
 const PASO_BOTON_OPACIDAD = 10;

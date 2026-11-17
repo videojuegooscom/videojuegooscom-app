@@ -2,7 +2,7 @@
  * Archivo: components/CarruselProductosCategoria.tsx
  * Función: componente del carrusel de productos («También te puede interesar») y de la barra de comparar.
  * Para qué sirve: lista en un carrusel los productos activos de PlayStation 5 y Xbox, y exporta useComparar y useAlturaBarraComparar para la comparación de productos.
- * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, components/ImagenInteligente.tsx, TirarParaActualizar.tsx, BarraBusqueda.tsx, constants/theme.ts, tablas categories y products.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, components/ImagenInteligente.tsx, TirarParaActualizar.tsx, BarraBusqueda.tsx, constants/temaTienda.ts, tablas categories y products.
  * Utilizado por: app/_layout.tsx, app/catalogo.tsx, app/comparar.tsx, app/servicios.tsx, app/producto/[id].tsx, app/(tabs)/index.tsx, perfil.tsx, cesta.tsx, app/admin/analytics.tsx, components/AsistenteBlue.tsx y components/BotonAtrasAlcance.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -78,7 +78,7 @@
  * vistos_borrados (solo ids y cuántos) en Administración → Analítica → «Vistos recientemente (30 días)».
  *
  * Tamaños (2026-11-12, grupo 3): nombres a 13 px como mínimo, precios pequeños (menos de 17 px) en el azul de texto
- * #0A78B4 (constants/theme.ts) y flechas con 44 px de zona táctil.
+ * #0A78B4 (constants/temaTienda.ts) y flechas con 44 px de zona táctil.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase (tablas categories, products,
@@ -106,7 +106,7 @@ import { useRecarga } from "./TirarParaActualizar";
 import { cargarIndiceBusqueda, palabrasBusqueda, portadasDeProductos, type ProductoIndice } from "./BarraBusqueda";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analiticaPropia";
-import { colorTextoAzul, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
+import { colorTextoAzul, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 
 const COLORS = {
   text: "#0B2138",

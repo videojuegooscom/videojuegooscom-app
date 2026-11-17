@@ -2,7 +2,7 @@
  * Archivo: app/admin/chats.tsx
  * Función: pantalla de administración «Chat», en la dirección /admin/chats.
  * Para qué sirve: el administrador ve las conversaciones privadas con los clientes (por producto, por venta y atención general), responde, marca un producto como vendido a esa persona y asigna seguimientos de pedido o reparación.
- * Conectado con: lib/supabase.ts (tablas product_chats, product_sales y funciones como admin_users_by_ids), components/ConversacionProducto.tsx (el hilo), components/marca/CargaMarca.tsx, lib/abrirEnlaceExterno.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/asignar-seguimiento.ts.
+ * Conectado con: lib/supabase.ts (tablas product_chats, product_sales y funciones como admin_users_by_ids), components/ConversacionProducto.tsx (el hilo), components/marca/CargaMarca.tsx, lib/abrirEnlaceExterno.ts, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx; api/asignar-seguimiento.ts.
  * Utilizado por: Expo Router (dirección /admin/chats, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Chat» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -80,7 +80,7 @@
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
  * - app/admin/_layout.tsx → registra esta ruta ("chats") dentro del Stack
  *   protegido del panel admin.
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario, todo lo que se toca (volver, borrar, confirmar, chips) de 44 px
  *   separado 8 y los campos de 16 px y 48 de alto.
  * - Rediseño PANRED3 (tanda 3, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos, Categorías y
@@ -109,7 +109,7 @@ import { openExternalLink } from "../../lib/abrirEnlaceExterno";
 import { supabase } from "../../lib/supabase";
 import ProductChatThread, { cargarArticulosChat, TarjetaArticuloChat, TITULO_ATENCION_CLIENTE, type ArticuloChat } from "../../components/ConversacionProducto";
 import CargaMarca from "../../components/marca/CargaMarca";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
   AccionTexto,
   Buscador,

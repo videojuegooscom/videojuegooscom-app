@@ -2,7 +2,7 @@
  * Archivo: app/admin/analytics.tsx
  * Función: pantalla de administración «Visitas y métricas» (analítica propia), en la dirección /admin/analytics.
  * Para qué sirve: el administrador mide visitas, recorrido del cliente, búsquedas, pagos, reparaciones, alquiler y el uso de cada función nueva de la tienda, solo con datos agregados y respetando a quien rechazó la analítica.
- * Conectado con: lib/supabase.ts (tabla analytics_events y funciones SQL analytics_*), lib/envio.ts, lib/alquiler.ts, constants/theme.ts, components/marca/CargaMarca.tsx, lib/admin/productos.componentes.tsx, components/admin/PiezasPanelAdmin.tsx; los eventos los escribe lib/analiticaPropia.ts desde casi todas las pantallas.
+ * Conectado con: lib/supabase.ts (tabla analytics_events y funciones SQL analytics_*), lib/envio.ts, lib/alquiler.ts, constants/temaTienda.ts, components/marca/CargaMarca.tsx, lib/admin/productos.componentes.tsx, components/admin/PiezasPanelAdmin.tsx; los eventos los escribe lib/analiticaPropia.ts desde casi todas las pantallas.
  * Utilizado por: Expo Router (dirección /admin/analytics, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Visitas y métricas» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -29,7 +29,7 @@
  *   rango a medida escribiendo dos fechas (AAAA-MM-DD). Por defecto, últimos
  *   30 días. Tamaños (grupo 2 de la auditoría móvil, 2026-11-12): los dos
  *   campos de fecha y «Aplicar» miden 48 px (CAMPO) y los chips 44 (TACTIL),
- *   con letra de 13 como mínimo (constants/theme.ts). Las fechas se tratan como días completos en hora de España
+ *   con letra de 13 como mínimo (constants/temaTienda.ts). Las fechas se tratan como días completos en hora de España
  *   (Europe/Madrid, de 00:00 a 00:00 del día siguiente, con horario de
  *   verano). Ojo: la agrupación por día de "Crecimiento de visitantes" la
  *   hace la función SQL analytics_daily_visitors en la zona del servidor.
@@ -84,7 +84,7 @@
  * - components/AsistenteBlue.tsx → «Avisos de Blue solo con cuenta» (#analitica-blue-avisos-cuenta): cuentas con los
  *   avisos de artículos nuevos (recuento de preferencias_usuario, sin filas ni la del administrador), toques en
  *   «Crear cuenta gratis» y cuentas creadas después (lib/analiticaPropia.ts → marcarOrigenRegistro).
- * - Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px y grises desde
+ * - Tamaños del móvil (grupo 4, 2026-11-12; constants/temaTienda.ts): ningún texto de menos de 13 px y grises desde
  *   COLORES_TEXTO.secundario (antes 12/12,5 px y gris 0,48), sin tocar los gráficos ni los datos.
  * - «Búsquedas (30 días)» (#analitica-busquedas, mejora 3 del 2026-11-14): lee los eventos busqueda,
  *   busqueda_sin_resultados, busqueda_sugerencia_tocada y catalogo_filtro de components/BarraBusqueda.tsx y
@@ -152,7 +152,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { supabase } from "../../lib/supabase";
 import { cargarAjustesReparacionEnvio } from "../../lib/envio";
 import { eurosAlquiler, mesesContratados } from "../../lib/alquiler";

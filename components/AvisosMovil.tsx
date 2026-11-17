@@ -2,7 +2,7 @@
  * Archivo: components/AvisosMovil.tsx
  * Función: componente de Administración «Avisos en este móvil» (notificaciones push del dueño).
  * Para qué sirve: activa, prueba y desactiva los avisos push en el móvil del administrador y muestra los dispositivos y las cifras de avisos enviados.
- * Conectado con: lib/notificaciones.ts, lib/supabase.ts (nombreDispositivo, haceCuanto), constants/theme.ts, api/pago.ts (envía los avisos), public/sw-avisos.js, tablas admin_avisos_suscripciones y admin_avisos_registro.
+ * Conectado con: lib/notificaciones.ts, lib/supabase.ts (nombreDispositivo, haceCuanto), constants/temaTienda.ts, api/pago.ts (envía los avisos), public/sw-avisos.js, tablas admin_avisos_suscripciones y admin_avisos_registro.
  * Utilizado por: app/admin/pedidos.tsx y app/admin/index.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -24,7 +24,7 @@
  * `compacta` (inicio del panel): solo el estado y el botón principal, con «Ver en Pedidos».
  * `plegable` (Administración → Pedidos, rediseño del 2026-11-15): una línea discreta «Avisos en este móvil · activos / no
  * activos / sin configurar / bloqueados» (#avisos-cabecera, 44 px) que despliega la tarjeta entera al tocarla.
- * Tamaños: botones de 44 px (TACTIL), textos de 13 px o más, azul de texto pequeño en azulTexto (constants/theme.ts).
+ * Tamaños: botones de 44 px (TACTIL), textos de 13 px o más, azul de texto pequeño en azulTexto (constants/temaTienda.ts).
  * Conectado con: app/admin/pedidos.tsx (arriba), app/admin/index.tsx (compacta), lib/notificaciones.ts, lib/supabase.ts
  * (nombreDispositivo, haceCuanto), api/pago.ts (?avisos=clave y «avisos_prueba»), migración
  * 20261115110000_avisos_movil.sql y pruebas/perfil-datos.mjs (sección AVISOM).
@@ -42,7 +42,7 @@ import {
   suscripcionActual,
   type SoporteAvisosPush,
 } from "../lib/notificaciones";
-import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 
 const C = {
   fondo: "#F4F9FD",

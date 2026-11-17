@@ -2,7 +2,7 @@
  * Archivo: app/admin/reservas.tsx
  * Función: pantalla de administración «Reservas con señal», en la dirección /admin/reservas.
  * Para qué sirve: el administrador configura las reglas de las reservas con señal (escala de días y porcentajes, arras, condiciones), las enciende o apaga y gestiona las reservas (completar, cancelar, marcar vencida). Está apagada hasta que el dueño dé sus reglas.
- * Conectado con: lib/supabase.ts (tablas de reservas y ajustes, migración 20261115150000_reservas_senal.sql), lib/reservas.ts, lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/pago.ts (acción reserva_estado).
+ * Conectado con: lib/supabase.ts (tablas de reservas y ajustes, migración 20261115150000_reservas_senal.sql), lib/reservas.ts, lib/admin/productos.componentes.tsx, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx; api/pago.ts (acción reserva_estado).
  * Utilizado por: Expo Router (dirección /admin/reservas, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Reservas con señal» de app/admin/index.tsx.
  * Dependencias: react, react-native, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -30,7 +30,7 @@
  * - Lista de reservas (activas, vencidas, completadas, canceladas o todas) con artículo, señal, vencimiento y estado;
  *   «Marcar completada», «Cancelar» y «Marcar vencida» van por api/pago.ts («reserva_estado», solo el administrador): solo
  *   cambian el estado y sueltan el artículo. NO hay reembolsos automáticos: si procede, se hace en Stripe.
- * - Tamaños de constants/theme.ts: todo lo que se toca de 44 px, campos de 16 px, ninguna letra de menos de 13 px.
+ * - Tamaños de constants/temaTienda.ts: todo lo que se toca de 44 px, campos de 16 px, ninguna letra de menos de 13 px.
  *
  * Conectado con: app/admin/index.tsx (tarjeta «Reservas con señal»), app/admin/_layout.tsx (ruta), lib/reservas.ts,
  * api/pago.ts, app/admin/products.tsx (etiqueta «Reservado» del artículo), supabase/migrations/20261115150000_reservas_senal.sql
@@ -41,7 +41,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable, 
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { AdminHeader, AdminLoading } from "../../lib/admin/productos.componentes";
 import {
   AccionTexto,

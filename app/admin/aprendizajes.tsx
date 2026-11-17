@@ -2,7 +2,7 @@
  * Archivo: app/admin/aprendizajes.tsx
  * Función: pantalla de administración «Centro De Aprendizajes», en la dirección /admin/aprendizajes.
  * Para qué sirve: el administrador guarda, edita, activa o desactiva las lecciones y correcciones que debe aplicar Claude (textos, diseño, reglas del negocio, código), para no repetirlas.
- * Conectado con: lib/supabase.ts (tabla aprendizajes), lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; CLAUDE.md obliga a Claude a consultar esa tabla.
+ * Conectado con: lib/supabase.ts (tabla aprendizajes), lib/admin/productos.componentes.tsx, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx; CLAUDE.md obliga a Claude a consultar esa tabla.
  * Utilizado por: Expo Router (dirección /admin/aprendizajes, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Centro De Aprendizajes» de app/admin/index.tsx.
  * Dependencias: react, react-native, @expo/vector-icons.
  * Estado: ACTIVO
@@ -22,7 +22,7 @@
  * - Las lecciones no se borran: se desactivan, para conservar el historial.
  * - Un mismo formulario (ventana) sirve para crear una lección nueva («+» flotante) o editar una
  *   existente (lápiz de cada fila).
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, texto azul pequeño en
  *   azulTexto, botones y chips de 44 px separados 8 y campos de 16 px y 48 de alto.
  * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Blog y Políticas): cifras que filtran
@@ -53,7 +53,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { AdminHeader, AdminLoading, AdminNotice, BotonFlotante, EmptyState, IconButton, PieVentana } from "../../lib/admin/productos.componentes";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
   AccionTexto,
   Bloque,

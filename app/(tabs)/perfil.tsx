@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/perfil.tsx
  * Función: pantalla «Mi cuenta» (pestaña Perfil), en la dirección /perfil (admite ?tab=seguimientos y ?filtro=).
  * Para qué sirve: el cliente inicia sesión o crea cuenta, completa su perfil, sigue sus pedidos y reparaciones (facturas, pagos, valoraciones), ve sus «me gusta» y avisos de precio; el administrador accede desde aquí al panel.
- * Conectado con: lib/supabase.ts (Supabase Auth, tablas profiles, pedidos, pedido_facturas y las de reparaciones), lib/envio.ts, lib/interaccion.ts, lib/reservas.ts, lib/abrirEnlaceExterno.ts, lib/analiticaPropia.ts, constants/theme.ts, components/PerfilPublico.tsx, AsistenteBlue.tsx, CarruselProductosCategoria.tsx, VentanaValoracion.tsx, VisorFotos.tsx, PieDePagina.tsx, ImagenInteligente.tsx, components/marca/*; api/pago.ts y api/factura.ts.
+ * Conectado con: lib/supabase.ts (Supabase Auth, tablas profiles, pedidos, pedido_facturas y las de reparaciones), lib/envio.ts, lib/interaccion.ts, lib/reservas.ts, lib/abrirEnlaceExterno.ts, lib/analiticaPropia.ts, constants/temaTienda.ts, components/PerfilPublico.tsx, AsistenteBlue.tsx, CarruselProductosCategoria.tsx, VentanaValoracion.tsx, VisorFotos.tsx, PieDePagina.tsx, ImagenInteligente.tsx, components/marca/*; api/pago.ts y api/factura.ts.
  * Utilizado por: Expo Router (dirección /perfil, pestaña de app/(tabs)/_layout.tsx); la abren app/(tabs)/chat-global.tsx (iniciar sesión), app/(tabs)/blue-ia.tsx (facturas), app/producto/[id].tsx y components/AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage.
  * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño (inicio de sesión, cuenta, pagos y facturas)
@@ -109,13 +109,13 @@
  * - Valoración tras la entrega (mejora 11, 2026-11-15; migración 20261115100000): en los pedidos entregados hace 3 días o
  *   más (paso «entregado» de pedido_estados) y sin valorar, «Valorar compra» (44 px) abre ValorarPedidoModal
  *   (components/VentanaValoracion.tsx); valorado, «Tu valoración: ★★★★☆». Sin la migración no sale nada.
- * - Tamaños y colores (auditoría móvil y lección del 2026-11-12, constants/theme.ts): toda la letra sale de TAMANOS (13 px
+ * - Tamaños y colores (auditoría móvil y lección del 2026-11-12, constants/temaTienda.ts): toda la letra sale de TAMANOS (13 px
  *   como mínimo; 12 solo «SESIÓN ACTUAL», las etiquetas de la barra de etapas y las de los filtros cuando son cinco), lo
  *   que se toca mide 44 px (pestañas Mi cuenta / Mis seguimientos / Me gusta, «Preguntar por esto», enlaces), los campos
  *   16 px de letra, el gris de texto rgba(11,33,56,0.72) y el TEXTO azul pequeño en #0A78B4 (accentTexto); el azul de
  *   marca #1EA7E8 sigue en botones, iconos, puntos y rayas. La barra de etapas de 5 o 6 pasos alterna sus etiquetas
  *   arriba y abajo para que a 360 px no se parta ninguna palabra; la de 9 sigue compacta («Paso N de M»).
- * - constants/theme.ts → TAMANOS, TACTIL, CAMPO y COLORES_TEXTO.
+ * - constants/temaTienda.ts → TAMANOS, TACTIL, CAMPO y COLORES_TEXTO.
  */
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
@@ -183,7 +183,7 @@ import {
 } from "../../lib/interaccion";
 import { abrirDescarga, openExternalLink } from "../../lib/abrirEnlaceExterno";
 import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { eurosReserva, fechaReserva, rellenarCondicionesReserva } from "../../lib/reservas";
 
 // Ficha a la que volver tras iniciar sesión o registrarse (la deja «Comprar ya» de la ficha).
@@ -199,7 +199,7 @@ const COLORS = {
   cardSoft: "#FFFFFF",
   border: "#E3EAF2",
   text: COLORES_TEXTO.texto,
-  // Gris de texto: el más claro permitido (constants/theme.ts; antes 0.62).
+  // Gris de texto: el más claro permitido (constants/temaTienda.ts; antes 0.62).
   muted: COLORES_TEXTO.secundario,
   mutedSoft: COLORES_TEXTO.secundario,
   // Azul de marca (botones, iconos, fondos) y azul de texto (enlaces y texto azul de menos de 17 px).
@@ -1565,7 +1565,7 @@ export default function PerfilScreen() {
 // sale el campo.
 // ============================================================================
 
-// Colores de «Mis seguimientos» (constants/theme.ts, lección del 2026-11-12): el gris de texto no baja de 0.72
+// Colores de «Mis seguimientos» (constants/temaTienda.ts, lección del 2026-11-12): el gris de texto no baja de 0.72
 // (muted); mutedSoft solo para el texto de ejemplo de los campos y los iconos de relleno. Azul: accent / accentDark son
 // el azul de marca (puntos y línea de la barra, iconos, botones y fondos); accentTexto es el TEXTO azul pequeño (todos los
 // de esta pestaña miden menos de 17 px), en el azul más oscuro #0A78B4.
@@ -1580,7 +1580,7 @@ const SEG = {
   danger: "#DC2626",
   ok: "#15803D",
 };
-// Letra de «Mis seguimientos» (TAMANOS de constants/theme.ts): 13 px lo secundario, 15 lo normal y 20 los títulos; 12
+// Letra de «Mis seguimientos» (TAMANOS de constants/temaTienda.ts): 13 px lo secundario, 15 lo normal y 20 los títulos; 12
 // solo las etiquetas de la barra de etapas (y las de los filtros cuando son cinco).
 
 // Selector de pestañas centrado con subrayado azul en la activa.

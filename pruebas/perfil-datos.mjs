@@ -386,7 +386,7 @@
  *    (?chat=), donde se envía un mensaje; con conversación previa abre esa y no crea otra; la ficha y Chat dicen quién la
  *    empezó (tienda o cliente); «Ver en Pedidos» abre Pedidos con ?buscar=<correo>, buscador relleno, solo sus pedidos, y
  *    el botón de borrar lo limpia.
- *  - TM) Tamaños comunes, grupo 1 (auditoría móvil y lección del 2026-11-12, constants/theme.ts), a 360 y 390 px: la barra
+ *  - TM) Tamaños comunes, grupo 1 (auditoría móvil y lección del 2026-11-12, constants/temaTienda.ts), a 360 y 390 px: la barra
  *    inferior con los nombres de 12 px o más en una línea (el activo en el azul de texto #0A78B4, su icono en el de marca);
  *    en «Mis seguimientos», las etiquetas de la barra de etapas (5 y 6) sin letra < 12 px, sin palabras partidas, sin
  *    montarse ni salirse; ningún texto < 13 px salvo esas etiquetas y las de los filtros; ningún texto azul de marca de
@@ -12260,7 +12260,7 @@ async function seccionFCH() {
 }
 const texto0 = async (p, sel) => (await p.locator(sel).first().innerText().catch(() => "")).replace(/\s+/g, " ").trim();
 
-// ===== TM) Tamaños comunes, grupo 1 (auditoría móvil y lección del 2026-11-12; constants/theme.ts): barra inferior,
+// ===== TM) Tamaños comunes, grupo 1 (auditoría móvil y lección del 2026-11-12; constants/temaTienda.ts): barra inferior,
 // «Mis seguimientos» (barra de etapas, pestañas, enlaces, azul de texto) y los 3 campos que hacían zoom en el iPhone =====
 async function seccionTM() {
   const PERFIL = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
@@ -12432,7 +12432,7 @@ async function seccionTM() {
   {
     const leer = (r) => readFileSync(new URL(`../${r}`, import.meta.url), "utf8");
     const campanita = leer("components/AsistenteBlue.tsx");
-    const tema = leer("constants/theme.ts");
+    const tema = leer("constants/temaTienda.ts");
     const campo = /placeholder="Escribe la respuesta real de la tienda"[\s\S]{0,700}?\/>/.exec(campanita)?.[0] ?? "";
     ok(/fontSize: CAMPO\.letra/.test(campo) && /CAMPO = \{\s*letra: 16,/.test(tema), "TM: el campo de la respuesta de Blue (Campanita) usa CAMPO.letra, que es 16 px");
   }
@@ -14229,7 +14229,7 @@ async function seccionCR() {
 }
 
 // ===== CAMPOS16) Todo recuadro donde sale el teclado (input, textarea, contenteditable) lleva letra de 16 px o más (con menos,
-// Safari del iPhone hace zoom al tocarlo; constants/theme.ts: CAMPO.letra). Recorre cliente (sin y con sesión) y Administración,
+// Safari del iPhone hace zoom al tocarlo; constants/temaTienda.ts: CAMPO.letra). Recorre cliente (sin y con sesión) y Administración,
 // con los formularios que se pueden abrir con un toque. Lista los que fallen con su selector. ===================================
 async function seccionCAMPOS16() {
   const ahora = new Date().toISOString();

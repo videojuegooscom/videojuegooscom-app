@@ -2,7 +2,7 @@
  * Archivo: app/checkout.tsx
  * Función: pantalla de finalizar compra (checkout), en la dirección /checkout (admite ?comprar=<id>, ?pago=ok|cancelado y ?sesion=).
  * Para qué sirve: el cliente revisa su cesta, rellena o confirma sus datos de envío, paga con tarjeta (Stripe) o confirma sin pagar ahora, y ve la confirmación con la referencia del pedido.
- * Conectado con: lib/supabase.ts (función crear_pedido, tablas pedidos, pedido_items, product_sales, perfil del cliente), lib/envio.ts (tarifas y entrega), lib/reservas.ts, lib/analiticaPropia.ts, constants/theme.ts, components/PerfilPublico.tsx, components/ConversacionProducto.tsx (abrirChatEquipo), CabeceraMarca, ImagenInteligente y components/marca/*; api/pago.ts (pago con Stripe, referencia, comprobación).
+ * Conectado con: lib/supabase.ts (función crear_pedido, tablas pedidos, pedido_items, product_sales, perfil del cliente), lib/envio.ts (tarifas y entrega), lib/reservas.ts, lib/analiticaPropia.ts, constants/temaTienda.ts, components/PerfilPublico.tsx, components/ConversacionProducto.tsx (abrirChatEquipo), CabeceraMarca, ImagenInteligente y components/marca/*; api/pago.ts (pago con Stripe, referencia, comprobación).
  * Utilizado por: Expo Router (dirección /checkout); la enlazan app/(tabs)/cesta.tsx («Ir a pagar»), app/producto/[id].tsx («Comprar ya»), components/PieDePagina.tsx y components/AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage, react-native-safe-area-context.
  * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño
@@ -130,7 +130,7 @@ import {
 import { olvidarFilaPerfil, supabase } from "../lib/supabase";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
 import { trackEvent } from "../lib/analiticaPropia";
-import { CAMPO, TACTIL } from "../constants/theme";
+import { CAMPO, TACTIL } from "../constants/temaTienda";
 import {
   ETIQUETAS_DIRECCION,
   MAX_DIRECCIONES,

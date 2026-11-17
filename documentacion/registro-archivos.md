@@ -33,7 +33,7 @@ Todos vienen de la plantilla con la que se creó el proyecto en Expo y no los us
 | `hooks/use-color-scheme.web.ts` | Versión web del anterior; solo la usan candidatos. |
 | `scripts/reset-project.js` | Script de la plantilla para «vaciar» un proyecto nuevo; la tienda no lo usa. Revisar antes de borrar: está en `scripts/`. |
 
-**Ojo al borrarlos:** los exports `Colors` y `Fonts` de `constants/theme.ts` solo los usan estos candidatos; se pueden
+**Ojo al borrarlos:** los exports `Colors` y `Fonts` de `constants/temaTienda.ts` solo los usan estos candidatos; se pueden
 quitar después, en la tanda 5 (código sin usar).
 
 **No es candidato:** `components/EfectoPensando.tsx` (antes `lineapensadoraefectosiri.tsx`; lo usan `app/_layout.tsx`,
@@ -81,7 +81,7 @@ nombre nuevo existe ya.
 | `lib/admin/products.utils.ts` | `lib/admin/productos.utilidades.ts` | Hecho en la tanda 2b (2026-11-17) |
 | `lib/admin/products.components.tsx` | `lib/admin/productos.componentes.tsx` | Hecho en la tanda 2b (2026-11-17) |
 | `lib/admin/products.constants.ts` | `lib/admin/productos.constantes.ts` | Hecho en la tanda 2b (2026-11-17) |
-| `constants/theme.ts` | `constants/tema.ts` | Pendiente |
+| `constants/theme.ts` | `constants/temaTienda.ts` (la propuesta era `tema.ts`, pero «tema» ya existía como palabra en el proyecto: temas de conocimiento de Blue, tema claro/oscuro, variables `tema` en las pruebas…; `temaTienda` evita confusiones) | Hecho en la tanda 2c (2026-11-17) |
 
 Se quedan igual: `lib/supabase.ts` (nombre propio del servicio) y los archivos de `app/` y `api/`.
 
@@ -123,3 +123,11 @@ claves). `app/admin/analytics.tsx` no cambia: es una dirección de la web.
 | `lib/admin/products.utils.ts` | `lib/admin/productos.utilidades.ts` |
 | `lib/admin/products.components.tsx` | `lib/admin/productos.componentes.tsx` |
 | `lib/admin/products.constants.ts` | `lib/admin/productos.constantes.ts` |
+
+Tanda 2c (2026-11-17): igual que la 2a y la 2b, solo el nombre del archivo y las rutas de imports, cabeceras, índice,
+registro y pruebas; las constantes (`TAMANOS`, `TACTIL`, `CAMPO`, `COLORES_TEXTO`, `colorTextoAzul`, `Colors`, `Fonts`)
+y sus valores no cambian. Se llama `temaTienda` y no `tema` porque «tema» ya existía como palabra en el proyecto.
+
+| Antes | Después |
+|---|---|
+| `constants/theme.ts` | `constants/temaTienda.ts` |

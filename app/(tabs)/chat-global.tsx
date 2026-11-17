@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/chat-global.tsx
  * Función: pantalla «Foro» (pestaña del Foro), en la dirección /chat-global (admite ?tab= y ?noticia=).
  * Para qué sirve: el cliente lee noticias gaming y comenta, participa en el chat público en tiempo real y, con sesión, ve su bandeja privada de conversaciones con la tienda; Novedades y Torneos aún dicen «Próximamente».
- * Conectado con: lib/supabase.ts (tablas chat_messages, noticias_gaming, noticias_likes, noticias_comentarios, preferencias_usuario; Realtime), lib/analiticaPropia.ts, lib/estadoCarga.ts, constants/theme.ts, components/PerfilPublico.tsx, ImagenInteligente.tsx, components/marca/*; api/noticias-gaming.ts; app/chat/[chatId].tsx y app/noticias/[id].tsx (enlaces).
+ * Conectado con: lib/supabase.ts (tablas chat_messages, noticias_gaming, noticias_likes, noticias_comentarios, preferencias_usuario; Realtime), lib/analiticaPropia.ts, lib/estadoCarga.ts, constants/temaTienda.ts, components/PerfilPublico.tsx, ImagenInteligente.tsx, components/marca/*; api/noticias-gaming.ts; app/chat/[chatId].tsx y app/noticias/[id].tsx (enlaces).
  * Utilizado por: Expo Router (dirección /chat-global, pestaña de app/(tabs)/_layout.tsx); la abre también app/noticias/[id].tsx («Comentar en el Foro»).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, expo-image, expo-linear-gradient, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
@@ -97,7 +97,7 @@
  *   (#0A78B4); el azul de marca sigue en botones, iconos y fondos.
  *
  * Conectado con:
- * - constants/theme.ts → TAMANOS, TACTIL, CAMPO y COLORES_TEXTO.
+ * - constants/temaTienda.ts → TAMANOS, TACTIL, CAMPO y COLORES_TEXTO.
  * - pruebas/perfil-datos.mjs (sección TM2) → comprueba esos tamaños.
  * - lib/supabase.ts → sesión, lectura y envío de mensajes.
  * - sql/chat_messages.sql → crea la tabla, el trigger que rellena el
@@ -146,7 +146,7 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../../components/PerfilPublico";
 import SmartImage from "../../components/ImagenInteligente";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { trackEvent } from "../../lib/analiticaPropia";
 import { markEnd, markStart } from "../../lib/estadoCarga";
 import { supabase } from "../../lib/supabase";
@@ -510,7 +510,7 @@ const COLORS = {
   border: "#E3EAF2",
   borderSoft: "#E3EAF2",
   text: COLORES_TEXTO.texto,
-  // Grises de texto: el más claro permitido (constants/theme.ts → COLORES_TEXTO.secundario).
+  // Grises de texto: el más claro permitido (constants/temaTienda.ts → COLORES_TEXTO.secundario).
   muted: COLORES_TEXTO.secundario,
   soft: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",

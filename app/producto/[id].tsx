@@ -2,7 +2,7 @@
  * Archivo: app/producto/[id].tsx
  * Función: ficha de un producto, en la dirección /producto/<id> (admite ?chat=1 y ?guia=1).
  * Para qué sirve: el cliente ve fotos, precio, estado, entrega estimada y garantía, y puede añadir a la cesta, comprar ya, preguntar, compartir, dar «me gusta», avisarse de bajadas de precio, comparar o reservar con señal.
- * Conectado con: lib/supabase.ts (tablas products, product_media, categories, profiles), lib/interaccion.ts, lib/reservas.ts, lib/envio.ts, lib/analiticaPropia.ts, constants/theme.ts, lib/admin/productos.utilidades.ts, components/VisorFotos.tsx, ImagenInteligente.tsx, CarruselProductosCategoria.tsx, ConversacionProducto.tsx, PerfilPublico.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*; api/pago.ts (reserva con señal).
+ * Conectado con: lib/supabase.ts (tablas products, product_media, categories, profiles), lib/interaccion.ts, lib/reservas.ts, lib/envio.ts, lib/analiticaPropia.ts, constants/temaTienda.ts, lib/admin/productos.utilidades.ts, components/VisorFotos.tsx, ImagenInteligente.tsx, CarruselProductosCategoria.tsx, ConversacionProducto.tsx, PerfilPublico.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*; api/pago.ts (reserva con señal).
  * Utilizado por: Expo Router (dirección /producto/<id>); la enlazan app/catalogo.tsx, app/comparar.tsx, app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/admin/escaparate.tsx y components/CarruselProductosCategoria.tsx, AsistenteBlue.tsx, BarraBusqueda.tsx, ConversacionProducto.tsx; exporta FichaProducto, usada por app/servicio/[id].tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
@@ -35,7 +35,7 @@
  * la cesta), no en Supabase, para no exigir inicio de sesión.
  *
  * Tamaños (2026-11-12, grupo 3): compartir y «me gusta» sobre la foto tienen 44 × 44 de zona táctil (el círculo
- * visible sigue en 32) y el contador a 13 px (constants/theme.ts; prueba TM3).
+ * visible sigue en 32) y el contador a 13 px (constants/temaTienda.ts; prueba TM3).
  *
  * "Compartir": usa la Web Share API del navegador (navigator.share) en
  * móvil/web, con copiar el enlace al portapapeles como alternativa en
@@ -156,7 +156,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { filaPerfilCliente, rolDeUsuario, supabase } from "../../lib/supabase";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/temaTienda";
 import { sinEmojis } from "../../lib/admin/productos.utilidades";
 import { contarVistaProducto, fijarAvisoPrecio, fijarMeGusta, misAvisosPrecio } from "../../lib/interaccion";
 import { marcarOrigenRegistro, medirCargaPantalla, trackEvent, trackEventThrottled } from "../../lib/analiticaPropia";

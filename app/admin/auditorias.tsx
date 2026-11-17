@@ -2,7 +2,7 @@
  * Archivo: app/admin/auditorias.tsx
  * Función: pantalla de administración «Revisiones», en la dirección /admin/auditorias.
  * Para qué sirve: el administrador consulta el registro de las revisiones de calidad web automáticas (20 puntos) con su resultado y el detalle punto por punto.
- * Conectado con: lib/supabase.ts (tabla auditorias_web, que escribe api/auditoria-web.ts por cron), lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tabla auditorias_web, que escribe api/auditoria-web.ts por cron), lib/admin/productos.componentes.tsx, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/auditorias, protegida por app/admin/_layout.tsx); la enlaza la tarjeta correspondiente de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -20,7 +20,7 @@
  * - Los puntos «manual» necesitan un navegador o leer el código: los repasa Claude en sus
  *   sesiones cuando han pasado más de 14 días desde la última revisión.
  *
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario y «volver» de 44 px.
  * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PiezasPanelAdmin.tsx): cifras que filtran (Revisiones, Con fallos,
  *   Con avisos, Todo bien), buscador de 16 px (resumen, cambios o puntos), pastillas con su recuento, filas compactas
@@ -36,7 +36,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { AdminHeader, AdminLoading, AdminNotice, EmptyState } from "../../lib/admin/productos.componentes";
-import { TAMANOS } from "../../constants/theme";
+import { TAMANOS } from "../../constants/temaTienda";
 import {
   Bloque,
   Buscador,

@@ -2,7 +2,7 @@
  * Archivo: components/CabeceraMarca.tsx
  * Función: componente de la barra superior con botón «volver» y el nombre de la tienda.
  * Para qué sirve: da el mismo botón de volver (círculo azul con flecha) y título centrado a las páginas con «volver»; exporta también BotonVolver y volverAtras.
- * Conectado con: constants/theme.ts (TACTIL), expo-router.
+ * Conectado con: constants/temaTienda.ts (TACTIL), expo-router.
  * Utilizado por: app/catalogo.tsx, servicios.tsx, servicio/[id].tsx, producto/[id].tsx, blog/index.tsx, politicas/[slug].tsx, checkout.tsx, chat/[chatId].tsx, comparar.tsx, quienes-somos.tsx, noticias, contratar/[id].tsx y components/VenderAhoraModal.tsx, ContratarServicioModal.tsx.
  * Dependencias: react, react-native, @expo/vector-icons, expo-router.
  * Estado: ACTIVO
@@ -17,7 +17,7 @@
  * Cómo funciona: sin pasar nada, «volver» regresa en el historial y, si no lo hay, va a Inicio.
  * Con `onBack` se usa esa acción. BotonVolver también se exporta por si hace falta solo.
  * Tamaños del móvil (grupo 4, 2026-11-12): el círculo sigue de 40 px pero la zona táctil mide 44 × 44
- * (constants/theme.ts → TACTIL), sin cambiar cómo se ve.
+ * (constants/temaTienda.ts → TACTIL), sin cambiar cómo se ve.
  *
  * Conectado con: app/catalogo.tsx, app/servicios.tsx, app/servicio/[id].tsx, app/producto/[id].tsx,
  * app/blog/index.tsx, app/politicas/[slug].tsx, app/checkout.tsx, app/chat/[chatId].tsx y
@@ -27,7 +27,7 @@ import React from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { TACTIL } from "../constants/theme";
+import { TACTIL } from "../constants/temaTienda";
 
 const AZUL = "#1EA7E8";
 const MARINO = "#0B2138";

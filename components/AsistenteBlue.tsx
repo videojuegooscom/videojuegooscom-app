@@ -2,7 +2,7 @@
  * Archivo: components/AsistenteBlue.tsx
  * Función: componente de Blue, la asistente flotante de la tienda (antes una campanita).
  * Para qué sirve: muestra a Blue (avisos, guía de bienvenida y mini-guías, panel de asistente, noticias, valoraciones de pedidos y chat con el equipo) en Inicio, fichas y panel; se monta una sola vez en app/_layout.tsx.
- * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/interaccion.ts, lib/conocimiento.ts, lib/notificaciones.ts, lib/envio.ts, lib/admin/productos.utilidades.ts, components/marca/MarcaAnimada.tsx, BarraBusqueda.tsx, TirarParaActualizar.tsx, PerfilPublico.tsx, VisorFotos.tsx, VentanaValoracion.tsx, CarruselProductosCategoria.tsx, constants/theme.ts, api/blue-ia.ts.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/interaccion.ts, lib/conocimiento.ts, lib/notificaciones.ts, lib/envio.ts, lib/admin/productos.utilidades.ts, components/marca/MarcaAnimada.tsx, BarraBusqueda.tsx, TirarParaActualizar.tsx, PerfilPublico.tsx, VisorFotos.tsx, VentanaValoracion.tsx, CarruselProductosCategoria.tsx, constants/temaTienda.ts, api/blue-ia.ts.
  * Utilizado por: app/_layout.tsx (montaje) y otras pantallas que lo mencionan o lo escuchan (por ejemplo catálogo, ficha de producto, Blue IA y panel).
  * Dependencias: react, react-native, @expo/vector-icons, expo-router, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
@@ -177,7 +177,7 @@
  * - app/vender.tsx → página "Vender" (botones de Blue, de su panel y de la guía).
  * - lib/interaccion.ts → «me gusta» de la cuenta (bajadas de precio); app/(tabs)/perfil.tsx → registro y vuelta
  *   (VOLVER_TRAS_ACCESO_KEY); app/admin/analytics.tsx → #analitica-blue-avisos-cuenta.
- * - constants/theme.ts → CAMPO.letra (16 px) en los campos de texto, para que el iPhone no haga zoom, y
+ * - constants/temaTienda.ts → CAMPO.letra (16 px) en los campos de texto, para que el iPhone no haga zoom, y
  *   COLORES_TEXTO.azulTexto en el «Blue · … Entendido ›» de la pista del Foro (texto azul de 13 px).
  */
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -220,7 +220,7 @@ import { useMiPerfilAbierto, usePerfilObligatorioVisible } from "./PerfilPublico
 import { suscribirVisorFotos, visorFotosAbierto } from "./VisorFotos";
 import { MejorasModal, VALORACION_ESPERA_MS, cargarValoracionesPedidos, entregadoEnDe, tocaValorarPedido } from "./VentanaValoracion";
 import { useAlturaBarraComparar, useComparar } from "./CarruselProductosCategoria";
-import { CAMPO, COLORES_TEXTO, colorTextoAzul, TACTIL, TAMANOS } from "../constants/theme";
+import { CAMPO, COLORES_TEXTO, colorTextoAzul, TACTIL, TAMANOS } from "../constants/temaTienda";
 import { cargarAjustesReparacionEnvio, cargarHistorialPedidos } from "../lib/envio";
 
 const COLORS = {
@@ -3679,7 +3679,7 @@ export default function Campanita() {
                 padding: 12,
                 textAlign: "center",
                 color: COLORS.text,
-                // 16 px (CAMPO.letra de constants/theme.ts): con menos, Safari del iPhone hace zoom al escribir.
+                // 16 px (CAMPO.letra de constants/temaTienda.ts): con menos, Safari del iPhone hace zoom al escribir.
                 fontSize: CAMPO.letra,
                 backgroundColor: "#F6FAFD",
               }}

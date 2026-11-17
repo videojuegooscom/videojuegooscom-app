@@ -2,7 +2,7 @@
  * Archivo: app/admin/envios.tsx
  * Función: pantalla de administración «Tarifas de envío», en la dirección /admin/envios.
  * Para qué sirve: el administrador edita a mano los precios de envío por zona y código postal, «gratis desde» y si se envía a cada zona; la tienda sigue calculando el envío sola con esas tarifas.
- * Conectado con: lib/supabase.ts (tablas de tarifas de envío, migración 20261104210000_tarifas_envio.sql), lib/envio.ts, components/marca/CargaMarca.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tablas de tarifas de envío, migración 20261104210000_tarifas_envio.sql), lib/envio.ts, components/marca/CargaMarca.tsx, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/envios, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Tarifas de envío» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -33,7 +33,7 @@
  *   fijo o por kilos y «gratis desde»). Al tocarla se despliega su editor por bloques: Nombre y precio, Códigos
  *   postales, Precio por kilos y En la web; «Abrir todas» las despliega. Debajo, «Guardar cambios», la «Prueba de un
  *   código postal» y las franjas de entrega. Prueba PANRED1 (y TE, FRANJ, TM5, CAMPOS16).
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario, texto azul pequeño en azulTexto, todo lo que se toca de 44 px y los
  *   campos de 16 px y 48 de alto.
  *
@@ -72,7 +72,7 @@ import {
   Seccion,
   useDesplegables,
 } from "../../components/admin/PiezasPanelAdmin";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
   calcularEnvio,
   fijarAjustesFranjas,

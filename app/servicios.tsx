@@ -2,7 +2,7 @@
  * Archivo: app/servicios.tsx
  * Función: pantalla de catálogo público de servicios (reparación, limpieza, mantenimiento), en la dirección /servicios.
  * Para qué sirve: el cliente ve los servicios publicados, los busca por texto y entra a la ficha de cada uno.
- * Conectado con: lib/supabase.ts (tablas services y service_media), lib/analiticaPropia.ts, components/CarruselProductosCategoria.tsx (tarjetas y rejilla), components/CabeceraMarca.tsx, components/marca/*, components/TirarParaActualizar.tsx, constants/theme.ts.
+ * Conectado con: lib/supabase.ts (tablas services y service_media), lib/analiticaPropia.ts, components/CarruselProductosCategoria.tsx (tarjetas y rejilla), components/CabeceraMarca.tsx, components/marca/*, components/TirarParaActualizar.tsx, constants/temaTienda.ts.
  * Utilizado por: Expo Router (dirección /servicios); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/quienes-somos.tsx, app/noticias/[id].tsx, app/servicio/[id].tsx, app/contratar/[id].tsx, components/BarraBusqueda.tsx, components/AsistenteBlue.tsx; app/admin/services.tsx importa de aquí enlaceVideo y esEnlaceCorto.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -21,11 +21,11 @@
  * que el Catálogo e Inicio (TarjetaProducto, RejillaTarjetas y columnasLista
  * de components/CarruselProductosCategoria.tsx: en el móvil, 2 columnas) y un
  * buscador simple por título/descripción (letra de 16 px, CAMPO.letra de
- * constants/theme.ts, para que el iPhone no haga zoom). Al tocar una tarjeta
+ * constants/temaTienda.ts, para que el iPhone no haga zoom). Al tocar una tarjeta
  * lleva a app/servicio/[id].tsx.
  *
  * Conectado con:
- * - constants/theme.ts → CAMPO (letra de los campos).
+ * - constants/temaTienda.ts → CAMPO (letra de los campos).
  * - sql/services.sql, sql/service_media.sql → tablas que lee esta pantalla.
  * - app/servicio/[id].tsx → ficha de cada servicio.
  * - app/(tabs)/index.tsx → la categoría "Reparación/Limpieza" navega aquí.
@@ -52,7 +52,7 @@ import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
 import { useRecarga } from "../components/TirarParaActualizar";
 import { trackEvent } from "../lib/analiticaPropia";
-import { CAMPO } from "../constants/theme";
+import { CAMPO } from "../constants/temaTienda";
 
 const COLORS = {
   bg: "#FFFFFF",

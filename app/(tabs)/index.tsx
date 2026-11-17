@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/index.tsx
  * Función: pantalla de Inicio (pestaña «Inicio»), en la dirección /.
  * Para qué sirve: es el escaparate de la tienda para el cliente: buscador flotante, categorías con portada, oferta de la semana, recién llegados, vistos recientemente, reseñas, preguntas frecuentes y pie de página, con accesos a Vender, Servicios y Quiénes somos.
- * Conectado con: lib/supabase.ts (tabla products y categorías), lib/analiticaPropia.ts, lib/barraPestanas.ts, lib/admin/productos.utilidades.ts, constants/theme.ts, components/BarraBusqueda.tsx, CarruselProductosCategoria.tsx, PortadasCategoria.tsx, Resenas.tsx, PieDePagina.tsx, ImagenInteligente.tsx, EnlacesRedesSociales.tsx, TirarParaActualizar.tsx y components/marca/*.
+ * Conectado con: lib/supabase.ts (tabla products y categorías), lib/analiticaPropia.ts, lib/barraPestanas.ts, lib/admin/productos.utilidades.ts, constants/temaTienda.ts, components/BarraBusqueda.tsx, CarruselProductosCategoria.tsx, PortadasCategoria.tsx, Resenas.tsx, PieDePagina.tsx, ImagenInteligente.tsx, EnlacesRedesSociales.tsx, TirarParaActualizar.tsx y components/marca/*.
  * Utilizado por: Expo Router (dirección /, pestaña «Inicio» de app/(tabs)/_layout.tsx); es el destino del logo y de volver a Inicio desde casi todas las pantallas.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-navigation/bottom-tabs y @react-navigation/native (tipos).
  * Estado: ACTIVO
@@ -128,7 +128,7 @@ import { supabase } from "../../lib/supabase";
 import { sinEmojis } from "../../lib/admin/productos.utilidades";
 import { medirCargaPantalla, trackEvent, trackEventThrottled } from "../../lib/analiticaPropia";
 import { useTabBarBottomInset } from "../../lib/barraPestanas";
-import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 

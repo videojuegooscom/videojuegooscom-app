@@ -2,7 +2,7 @@
  * Archivo: app/admin/flash-news.tsx
  * Función: pantalla de administración «Noticias Flash · Blue IA», en la dirección /admin/flash-news.
  * Para qué sirve: el administrador crea hasta 5 avisos cortos con color y duración, los ordena, activa o borra; Blue IA los muestra a los clientes en su bocadillo.
- * Conectado con: lib/supabase.ts (tabla flash_news), lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; los muestra components/AsistenteBlue.tsx.
+ * Conectado con: lib/supabase.ts (tabla flash_news), lib/admin/productos.componentes.tsx, constants/temaTienda.ts, components/admin/PiezasPanelAdmin.tsx; los muestra components/AsistenteBlue.tsx.
  * Utilizado por: Expo Router (dirección /admin/flash-news, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Noticias Flash» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -29,7 +29,7 @@
  *   muestra una vista previa sencilla del aviso en forma de bocadillo.
  * - toggleActive() aplica un cambio optimista en la lista y lo revierte si
  *   Supabase devuelve error, igual que en app/admin/categories.tsx.
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de
  *   menos de 13 px, grises desde COLORES_TEXTO.secundario, todo lo que se toca de
  *   44 px (también «volver» y los colores) y los campos de 16 px y 48 de alto.
  * - Rediseño PANRED4 (tanda 4, 2026-11-16; components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos, Inventario y
@@ -76,7 +76,7 @@ import {
   IconButton,
   PieVentana,
 } from "../../lib/admin/productos.componentes";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import {
   AccionTexto,
   Bloque,

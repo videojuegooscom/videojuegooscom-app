@@ -2,7 +2,7 @@
  * Archivo: components/ConversacionProducto.tsx
  * Función: componente de la conversación privada cliente-tienda (chat de producto, de venta o de atención al cliente).
  * Para qué sirve: carga mensajes en tiempo real de un chat (product_chats), permite escribir, borrar la conversación para uno mismo y abrir el chat con el equipo (abrirChatEquipo); lo comparten la pantalla del cliente y la bandeja del administrador.
- * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/admin/productos.utilidades.ts (fmtEUR), components/ImagenInteligente.tsx, constants/theme.ts, tablas product_chats y mensajes, funciones SQL get_or_create_*_chat y delete_chat_for_me.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/admin/productos.utilidades.ts (fmtEUR), components/ImagenInteligente.tsx, constants/temaTienda.ts, tablas product_chats y mensajes, funciones SQL get_or_create_*_chat y delete_chat_for_me.
  * Utilizado por: app/chat/[chatId].tsx, app/admin/chats.tsx, components/VentanaValoracion.tsx (abrirChatEquipo) y pantallas que abren el chat del equipo (checkout, producto, perfil, Blue IA, Foro, analítica).
  * Dependencias: react, react-native, @expo/vector-icons, expo-router.
  * Estado: ACTIVO
@@ -68,7 +68,7 @@
  *   ningún archivo .sql local — ver sql/README.md).
  * - components/VenderAhoraModal.tsx → crea chats con sell_request_id.
  * - app/chat/[chatId].tsx, app/admin/chats.tsx → lo incrustan.
- * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/temaTienda.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario, la papelera y los botones de borrar de 44 px y el campo de 16 px y 48.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -90,7 +90,7 @@ import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analiticaPropia";
 import { fmtEUR } from "../lib/admin/productos.utilidades";
 import SmartImage from "./ImagenInteligente";
-import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 
 // Título de las conversaciones sin producto ni venta (chat general con la tienda).
 export const TITULO_ATENCION_CLIENTE = "Atención al cliente";

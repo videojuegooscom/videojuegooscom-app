@@ -2,7 +2,7 @@
  * Archivo: lib/admin/productos.constantes.ts
  * Función: constantes de la administración de productos.
  * Para qué sirve: límites de subida de fotos y vídeo, tipos MIME admitidos, textos de error, nombre del bucket de media y paleta COLORS del panel.
- * Conectado con: constants/theme.ts (COLORES_TEXTO).
+ * Conectado con: constants/temaTienda.ts (COLORES_TEXTO).
  * Utilizado por: app/admin/products.tsx, app/admin/services.tsx, app/admin/categories.tsx y lib/admin/productos.componentes.tsx.
  * Dependencias: ninguna externa.
  * Estado: ACTIVO
@@ -23,10 +23,10 @@
  *   componentes visuales compartidos (ChipButton, StatCard, etc.).
  * - lib/admin/productos.utilidades.ts → importa los límites (MAX_*) y
  *   MEDIA_BUCKET para las funciones de subida de media.
- * - constants/theme.ts → COLORES_TEXTO: los grises y el azul de texto del panel salen de ahí (grupo 4 de los
+ * - constants/temaTienda.ts → COLORES_TEXTO: los grises y el azul de texto del panel salen de ahí (grupo 4 de los
  *   tamaños del móvil, 2026-11-12).
  */
-import { COLORES_TEXTO } from "../../constants/theme";
+import { COLORES_TEXTO } from "../../constants/temaTienda";
 
 export const MEDIA_BUCKET = "product-media";
 

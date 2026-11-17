@@ -2,7 +2,7 @@
  * Archivo: app/servicio/[id].tsx
  * Función: ficha de un servicio (reparación, limpieza, mantenimiento), en la dirección /servicio/<id>.
  * Para qué sirve: el cliente ve fotos, precio, opciones, reseñas y «me gusta» del servicio, pregunta por él o pasa a contratarlo.
- * Conectado con: lib/supabase.ts (tablas services, service_media, store_reviews), lib/interaccion.ts (me gusta y visitas; api/interaccion.ts), lib/analiticaPropia.ts, constants/theme.ts, lib/admin/productos.componentes.tsx, components/ContratarServicioModal.tsx, VisorFotos.tsx, ImagenInteligente.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*, app/producto/[id].tsx (FichaProducto).
+ * Conectado con: lib/supabase.ts (tablas services, service_media, store_reviews), lib/interaccion.ts (me gusta y visitas; api/interaccion.ts), lib/analiticaPropia.ts, constants/temaTienda.ts, lib/admin/productos.componentes.tsx, components/ContratarServicioModal.tsx, VisorFotos.tsx, ImagenInteligente.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*, app/producto/[id].tsx (FichaProducto).
  * Utilizado por: Expo Router (dirección /servicio/<id>); la enlazan app/servicios.tsx, app/contratar/[id].tsx, components/ContratarServicioModal.tsx; exporta fetchService, fotoDeOpcion y faltaColumna que usan app/contratar/[id].tsx y app/noticias/*.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -30,7 +30,7 @@
  * migración (services.like_count no existe) el corazón no sale y nada se rompe.
  *
  * Tamaños (2026-11-12, grupo 3): compartir y «me gusta» sobre la foto tienen 44 × 44 de zona táctil (el círculo
- * visible sigue en 32) y el contador a 13 px (constants/theme.ts; prueba TM3).
+ * visible sigue en 32) y el contador a 13 px (constants/temaTienda.ts; prueba TM3).
  *
  * Reseñas (dueño, 2026-11-03): «Mis seguimientos» pide valorar el servicio al
  * entregarlo y aquí salen la media junto al precio y las opiniones debajo de
@@ -69,7 +69,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
-import { TAMANOS } from "../../constants/theme";
+import { TAMANOS } from "../../constants/temaTienda";
 import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, LIKED_SERVICES_KEY, meGustaLocales } from "../../lib/interaccion";
 import { trackEvent } from "../../lib/analiticaPropia";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
