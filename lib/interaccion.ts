@@ -1,6 +1,14 @@
 /**
- * lib/interaccion.ts
- *
+ * Archivo: lib/interaccion.ts
+ * Función: utilidad cliente de visitas, «me gusta» y reservas que pasa por /api/interaccion.
+ * Para qué sirve: cuenta visitas de productos y servicios y da o quita el «me gusta» mediante el endpoint con límites, con respaldo a las funciones antiguas de la base de datos si el endpoint no responde.
+ * Conectado con: lib/supabase.ts, api/interaccion.ts, tablas de visitas y apoyos (migración 20261018130000).
+ * Utilizado por: app/producto/[id].tsx, app/servicio/[id].tsx, app/(tabs)/perfil.tsx, app/admin/pedidos.tsx, lib/reservas.ts y components/Campanita.tsx.
+ * Dependencias: @react-native-async-storage/async-storage, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: cuenta las VISITAS de productos y servicios y da o quita el «ME GUSTA», pasando por
  * api/interaccion.ts (que pone los límites: una visita por visitante y página cada hora, un «me gusta»
  * por persona y producto). Antes las pantallas llamaban directamente a funciones de la base de datos que

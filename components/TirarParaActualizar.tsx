@@ -1,5 +1,16 @@
-// components/TirarParaActualizar.tsx
 /**
+ * Archivo: components/TirarParaActualizar.tsx
+ * Función: componente y hook de «Desliza para actualizar».
+ * Para qué sirve: gesto de tirar hacia abajo para recargar la pantalla actual (con la mascota); exporta useRecarga y alRecargar para que las pantallas y Blue recarguen sus datos.
+ * Conectado con: components/marca/MarcaAnimada.tsx, lib/loadingBus.ts.
+ * Utilizado por: app/_layout.tsx (montaje), components/Campanita.tsx, components/CategoryProductsShelf.tsx, components/Resenas.tsx y las pantallas que usan useRecarga (catálogo, producto, servicio, noticias, blog, cesta, políticas, Inicio…).
+ * Dependencias: react, react-native, expo-router, @react-navigation/native.
+ * Estado: ACTIVO
+ *
+ * Notas: cabecera original conservada justo debajo.
+ */
+/**
+ * Notas:
  * Qué hace: «Desliza para actualizar» en toda la tienda. Arriba del todo de una pantalla, al deslizar el dedo
  * hacia abajo, el contenido baja y aparece la mascota de la tienda con «Desliza para actualizar»; pasado el
  * umbral dice «Suelta para actualizar» y, al soltar, se vuelve a cargar lo de ESA pantalla («Actualizando…» y

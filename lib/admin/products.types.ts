@@ -1,4 +1,14 @@
 /**
+ * Archivo: lib/admin/products.types.ts
+ * Función: tipos TypeScript compartidos de la administración de productos.
+ * Para qué sirve: describe la forma de categorías, productos, media de producto, filtros y estados de formulario que van y vienen de Supabase y del editor de productos; no contiene lógica.
+ * Conectado con: lib/admin/products.utils.ts, lib/admin/products.components.tsx, tablas categories, products y product_media.
+ * Utilizado por: app/admin/products.tsx, app/admin/services.tsx, lib/admin/products.utils.ts y lib/admin/products.components.tsx.
+ * Dependencias: ninguna externa.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: define los tipos TypeScript compartidos del módulo de
  * administración de productos (categorías, productos, media de producto,
  * filtros y estados de formulario). No contiene lógica ni estilos.

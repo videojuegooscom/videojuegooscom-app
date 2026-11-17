@@ -1,6 +1,14 @@
 /**
- * api/video-enlace.ts
- *
+ * Archivo: api/video-enlace.ts
+ * Función: función de servidor en /api/video-enlace (Vercel).
+ * Para qué sirve: convierte un enlace corto de TikTok o Instagram en el enlace largo del vídeo siguiendo solo redirecciones permitidas (máximo 5), para poder enseñarlo en «Nuestros Servicios».
+ * Conectado con: TikTok e Instagram (solo redirecciones; no descarga contenido).
+ * Utilizado por: app/admin/services.tsx (editor de vídeos) y app/servicios.tsx.
+ * Dependencias: ninguna externa.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: convierte un enlace CORTO de TikTok o Instagram (el que copian sus apps con «Compartir → Copiar enlace»:
  * vm.tiktok.com/…, vt.tiktok.com/…, tiktok.com/t/…, instagram.com/share/…) en el enlace largo del vídeo, que es el que
  * lleva su número y permite enseñarlo en «Nuestros Servicios» (dueño, 2026-11-09: «no me deja añadir el enlace del vídeo

@@ -1,5 +1,16 @@
-// components/SmartImage.tsx
 /**
+ * Archivo: components/SmartImage.tsx
+ * Función: componente de imagen remota de toda la tienda.
+ * Para qué sirve: sustituye a Image con caché en memoria y disco, fundido de entrada, carga perezosa y prioridad en web (img del navegador) y expo-image en nativo; avisa a lib/loadingBus.ts de las cargas para el efecto «Pensando».
+ * Conectado con: lib/loadingBus.ts.
+ * Utilizado por: casi todas las pantallas con fotos (catálogo, producto, servicio, cesta, noticias, Inicio, Foro, admin/categories, admin/services, admin/users…) y los componentes ImageLightbox, ProductChatThread, PerfilPublico, ContratarServicioModal, Barramagic, CategoryProductsShelf, Resenas y PortadasCategoria.
+ * Dependencias: react, react-native, expo-image.
+ * Estado: ACTIVO
+ *
+ * Notas: cabecera original conservada justo debajo.
+ */
+/**
+ * Notas:
  * Qué hace: sustituto de <Image> de "react-native" para TODAS las fotos
  * remotas de la app (catálogo, producto, servicios, reseñas, lightbox,
  * categorías/servicios del admin...). El objetivo es que cargar fotos nunca

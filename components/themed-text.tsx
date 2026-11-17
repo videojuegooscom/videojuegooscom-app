@@ -1,4 +1,14 @@
 /**
+ * Archivo: components/themed-text.tsx
+ * Función: componente Text con tema claro/oscuro y variantes (plantilla de Expo).
+ * Para qué sirve: un Text cuyo color se adapta al tema del sistema, con variantes title, subtitle, link y defaultSemiBold.
+ * Conectado con: hooks/use-theme-color.ts.
+ * Utilizado por: app/modal.tsx (pantalla de ejemplo de la plantilla que no se abre desde ningún sitio) y components/ui/collapsible.tsx (candidato).
+ * Dependencias: react-native.
+ * Estado: CANDIDATO_A_ELIMINAR (solo lo usan app/modal.tsx, pantalla de ejemplo sin uso, y collapsible, también candidato).
+ */
+/**
+ * Notas:
  * Qué hace: componente <Text> que adapta su color automáticamente al tema
  * claro/oscuro del sistema, con variantes de estilo predefinidas (title,
  * subtitle, link, defaultSemiBold). Viene de la plantilla base de Expo.

@@ -1,4 +1,14 @@
 /**
+ * Archivo: lib/admin/products.components.tsx
+ * Función: componentes visuales reutilizables del panel de administración (y selector iOS).
+ * Para qué sirve: cabecera de pantalla, avisos, estados vacíos, botones, filtros, miniaturas de media, pestañas con gesto y selector tipo iOS que comparten todas las pantallas del panel y algunos formularios públicos.
+ * Conectado con: components/marca/CargaMarca.tsx, lib/admin/products.constants.ts, products.types.ts, products.utils.ts, constants/theme.ts.
+ * Utilizado por: casi todas las pantallas de app/admin (products, services, categories, analytics, reservas, etc.), app/servicio/[id].tsx y components/ContratarServicioModal.tsx.
+ * Dependencias: react, react-native, @expo/vector-icons, react-native-safe-area-context.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: componentes visuales reutilizables del panel de administración:
  * cabecera de pantalla (AdminHeader: franja fija con volver al panel +
  * título centrado), texto de presentación (AdminIntro), carga a pantalla

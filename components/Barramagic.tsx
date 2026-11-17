@@ -1,6 +1,14 @@
 /**
- * components/Barramagic.tsx
- *
+ * Archivo: components/Barramagic.tsx
+ * Función: componente de la barra de búsqueda de la tienda (píldora con lupa y acceso a Blue IA) y su lógica de índice.
+ * Para qué sirve: barra de búsqueda quieta y flotante, sugerencias, índice de productos, efecto Siri del texto y utilidades de búsqueda que reutiliza Blue.
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, constants/theme.ts, components/SmartImage.tsx.
+ * Utilizado por: app/catalogo.tsx, app/(tabs)/index.tsx, app/comparar.tsx, app/quienes-somos.tsx, app/admin/analytics.tsx, components/Campanita.tsx y components/CategoryProductsShelf.tsx.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: TODO lo relacionado con la barra de búsqueda de la app vive en
  * este único archivo (antes estaba repartido entre este archivo y
  * FloatingSearchBar.tsx, que ya no existe, para no confundirse sobre dónde

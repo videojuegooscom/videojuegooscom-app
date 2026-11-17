@@ -1,4 +1,14 @@
 /**
+ * Archivo: constants/theme.ts
+ * Función: constantes de diseño (colores, tamaños de letra, zonas táctiles, campos).
+ * Para qué sirve: define TAMANOS, TACTIL, CAMPO, COLORES_TEXTO y colorTextoAzul que usan casi todas las pantallas para cumplir la norma de tamaños del móvil, además de Colors y Fonts de la plantilla de Expo (esos solo los usan archivos candidatos).
+ * Conectado con: hooks/use-theme-color.ts y components/ui/collapsible.tsx (Colors); pruebas/perfil-datos.mjs (comprobaciones).
+ * Utilizado por: app/(tabs)/_layout.tsx, perfil.tsx, servicios.tsx, chat-global.tsx, app/admin (casi todo), y components/PerfilPublico.tsx, Campanita.tsx, VenderAhoraModal.tsx, ContratarServicioModal.tsx, SellRequestMedia.tsx, ProductChatThread.tsx, ReviewModal.tsx, Resenas.tsx, CatalogFilters.tsx, CabeceraMarca.tsx, AvisosMovil.tsx, Barramagic.tsx, CategoryProductsShelf.tsx y components/admin/PanelUI.tsx.
+ * Dependencias: react-native.
+ * Estado: ACTIVO (los exports Colors y Fonts solo los usan archivos candidatos a eliminar).
+ */
+/**
+ * Notas:
  * Qué hace: define la paleta de colores (Colors.light / Colors.dark) y las
  * familias tipográficas (Fonts) usadas por los componentes "Themed*"
  * (ThemedText, ThemedView) que vienen de la plantilla base de Expo.

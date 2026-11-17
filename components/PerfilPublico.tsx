@@ -1,5 +1,16 @@
-// components/PerfilPublico.tsx
 /**
+ * Archivo: components/PerfilPublico.tsx
+ * Función: componente de «Mi perfil» del cliente y de la obligación de completarlo.
+ * Para qué sirve: formulario del perfil (usuario, foto, nombre, país, edad, direcciones de envío, teléfono, seguridad de la cuenta), pantalla obligatoria de completar perfil (PerfilObligatorio) y utilidades para el Foro (perfilesPublicos, datosDeFila).
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/admin/products.utils.ts, components/marca/CargaMarca.tsx, components/SmartImage.tsx, constants/theme.ts, tabla perfiles y función perfiles_publicos.
+ * Utilizado por: app/(tabs)/perfil.tsx, app/_layout.tsx, app/checkout.tsx, app/producto/[id].tsx, app/(tabs)/chat-global.tsx, app/admin/users.tsx, app/admin/cliente/[userId].tsx, components/VenderAhoraModal.tsx, components/Resenas.tsx y components/Campanita.tsx.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons, react-native-safe-area-context.
+ * Estado: ACTIVO
+ *
+ * Notas: cabecera original conservada justo debajo.
+ */
+/**
+ * Notas:
  * Qué hace: «Mi perfil» del cliente (su perfil público: usuario y foto se ven en el Foro) y su obligación de completarlo.
  *
  * - PerfilPublico (Mi cuenta → app/(tabs)/perfil.tsx): tarjeta plegable con la foto pequeña, «Mi perfil», el subtítulo

@@ -1,4 +1,15 @@
 /**
+ * Archivo: api/factura.ts
+ * Función: función de servidor en /api/factura (Vercel) de descargas privadas.
+ * Para qué sirve: da enlaces firmados de corta duración a la factura de un pedido (emitida por VeoAura), a la etiqueta de Correos y a las fotos de una reparación por envío, y une a la cuenta las compras en mano; solo para el dueño del pedido o un administrador, con límites por IP.
+ * Conectado con: Supabase (clave de servidor; almacenes privados «facturas» y «reparaciones», tablas pedidos y service_requests), api/escaparate-veoaura.ts (la factura llega por el puente firmado de VeoAura).
+ * Utilizado por: app/(tabs)/perfil.tsx (Mis pedidos), app/admin/pedidos.tsx, app/admin/cliente/[userId].tsx y Blue IA (explica las facturas).
+ * Dependencias: @supabase/supabase-js.
+ * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño
+ *
+ * Notas: la cabecera original sigue justo debajo, sin cambios.
+ */
+/**
  * api/factura.ts
  *
  * Qué hace: descarga de la factura de un pedido (dueño, 2026-11-10). Las facturas las emite VeoAura.com y llegan por el

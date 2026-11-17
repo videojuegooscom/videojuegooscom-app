@@ -1,4 +1,16 @@
 /**
+ * Archivo: components/external-link.tsx
+ * Función: componente de enlace externo (plantilla de Expo).
+ * Para qué sirve: envuelve Link de expo-router para que en web abra la URL en una pestaña nueva y en la app nativa la abra en un navegador integrado.
+ * Conectado con: ningún archivo del proyecto (solo expo-router y expo-web-browser).
+ * Utilizado por: ningún archivo (comprobado con grep en app, components, lib, hooks y api).
+ * Dependencias: expo-router, expo-web-browser, react.
+ * Estado: CANDIDATO_A_ELIMINAR (ningún archivo lo importa; el proyecto abre enlaces externos con lib/openExternalLink.ts).
+ *
+ * Notas: cabecera original conservada justo debajo.
+ */
+/**
+ * Notas:
  * Qué hace: versión de Link (expo-router) para enlaces externos: en web se
  * comporta como un enlace normal (target="_blank"); en apps nativas abre la
  * URL en un navegador dentro de la propia app en vez de salir a Safari/Chrome.

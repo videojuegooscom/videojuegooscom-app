@@ -1,6 +1,14 @@
 /**
- * components/ReviewModal.tsx
- *
+ * Archivo: components/ReviewModal.tsx
+ * Función: componente de ventanas de valoración y mejoras (reseña de la tienda, valoración de pedidos, cajita de ideas).
+ * Para qué sirve: ReviewModal publica reseñas de 1 a 5 estrellas en store_reviews; MejorasModal recoge ideas de mejora; también exporta utilidades de valoración de pedidos (tocaValorarPedido, cargarValoracionesPedidos…).
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/envio.ts (tipo CambioEstadoPedido), components/ProductChatThread.tsx (abrirChatEquipo), constants/theme.ts, tabla store_reviews.
+ * Utilizado por: components/Resenas.tsx, components/SiteFooter.tsx (MejorasModal), components/Campanita.tsx y pantallas de perfil, pedidos y chat.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: el "pop" a pantalla completa que se abre al pulsar "Dejar una
  * reseña" en components/Resenas.tsx. Deja elegir una valoración de 1 a 5
  * estrellas (empieza con las 5 marcadas; tocar cualquier estrella salta

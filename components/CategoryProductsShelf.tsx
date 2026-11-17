@@ -1,5 +1,14 @@
-// components/CategoryProductsShelf.tsx
 /**
+ * Archivo: components/CategoryProductsShelf.tsx
+ * Función: componente del carrusel de productos («También te puede interesar») y de la barra de comparar.
+ * Para qué sirve: lista en un carrusel los productos activos de PlayStation 5 y Xbox, y exporta useComparar y useAlturaBarraComparar para la comparación de productos.
+ * Conectado con: lib/supabase.ts, lib/analytics.ts, components/SmartImage.tsx, TirarParaActualizar.tsx, Barramagic.tsx, constants/theme.ts, tablas categories y products.
+ * Utilizado por: app/_layout.tsx, app/catalogo.tsx, app/comparar.tsx, app/servicios.tsx, app/producto/[id].tsx, app/(tabs)/index.tsx, perfil.tsx, cesta.tsx, app/admin/analytics.tsx, components/Campanita.tsx y components/BotonAtrasAlcance.tsx.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage, react-native-safe-area-context.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: carrusel horizontal con TODOS los productos de PlayStation 5 y
  * Xbox ("También te puede interesar"). Daniel pidió mostrar productos de
  * esas categorías en Perfil y Cesta para que esas pantallas no se vean tan

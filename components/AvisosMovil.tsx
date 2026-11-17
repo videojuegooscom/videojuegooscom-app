@@ -1,5 +1,14 @@
-// components/AvisosMovil.tsx
 /**
+ * Archivo: components/AvisosMovil.tsx
+ * Función: componente de Administración «Avisos en este móvil» (notificaciones push del dueño).
+ * Para qué sirve: activa, prueba y desactiva los avisos push en el móvil del administrador y muestra los dispositivos y las cifras de avisos enviados.
+ * Conectado con: lib/notificaciones.ts, lib/supabase.ts (nombreDispositivo, haceCuanto), constants/theme.ts, api/pago.ts (envía los avisos), public/sw-avisos.js, tablas admin_avisos_suscripciones y admin_avisos_registro.
+ * Utilizado por: app/admin/pedidos.tsx y app/admin/index.tsx.
+ * Dependencias: react, react-native, expo-router, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: la tarjeta «Avisos en este móvil» de Administración (dueño, 2026-11-15: «He recibido un pedido nuevo con pago
  * por la app y no me he enterado hasta que no he entrado a pedidos. Quiero que me llegue una notificación a mi móvil»).
  * Con un toque en «Activar avisos en este móvil» registra el service worker (public/sw-avisos.js), el navegador pide

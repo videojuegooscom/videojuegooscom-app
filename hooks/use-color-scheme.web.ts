@@ -1,4 +1,14 @@
 /**
+ * Archivo: hooks/use-color-scheme.web.ts
+ * Función: hook de tema claro/oscuro, versión web (plantilla de Expo).
+ * Para qué sirve: devuelve el tema del sistema evitando el parpadeo de hidratación (siempre «light» en el primer render).
+ * Conectado con: hooks/use-color-scheme.ts (misma interfaz).
+ * Utilizado por: el mismo import que use-color-scheme.ts en web (hooks/use-theme-color.ts, parallax-scroll-view y collapsible, todos candidatos).
+ * Dependencias: react, react-native.
+ * Estado: CANDIDATO_A_ELIMINAR (solo lo usan otros archivos candidatos de la plantilla de Expo).
+ */
+/**
+ * Notas:
  * Qué hace: versión web del hook useColorScheme. Detecta si el sistema
  * está en modo claro u oscuro, pero evitando el "parpadeo" típico de web
  * cuando el renderizado estático no coincide con el cliente.

@@ -1,5 +1,16 @@
-// components/SiteFooter.tsx
 /**
+ * Archivo: components/SiteFooter.tsx
+ * Función: componente del pie de página de la tienda.
+ * Para qué sirve: pinta el pie completo (navegación, políticas, blog, redes sociales, «Mejoras en la tienda» y copyright) con acordeones plegables, y se monta al final de Inicio, Perfil, Cesta, Quiénes somos y Noticias.
+ * Conectado con: components/SocialLinks.tsx, components/marca/MarcaAnimada.tsx, components/ReviewModal.tsx (MejorasModal).
+ * Utilizado por: app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx, app/quienes-somos.tsx, app/noticias/index.tsx.
+ * Dependencias: @expo/vector-icons, expo-router, react, react-native.
+ * Estado: ACTIVO
+ *
+ * Notas: cabecera original conservada justo debajo.
+ */
+/**
+ * Notas:
  * Qué hace: pie de página completo de la tienda — navegación, políticas,
  * blog, redes sociales y copyright — en una banda BLANCA de lado a lado,
  * separada del contenido solo por una línea fina superior (#E3EAF2). Sin

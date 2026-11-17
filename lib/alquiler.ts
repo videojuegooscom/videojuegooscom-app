@@ -1,5 +1,14 @@
-// lib/alquiler.ts
 /**
+ * Archivo: lib/alquiler.ts
+ * Función: utilidad con las cuentas y los textos del alquiler de artículos (funciones puras, sin red; apagado para clientes).
+ * Para qué sirve: calcula precios por plan, compra tras alquiler, recargo por retraso, fianza, estado de cada unidad y rellena el borrador del contrato de alquiler.
+ * Conectado con: lib/reservas.ts (eurosReserva, fechaReserva), migraciones de alquiler (20261117100000 y 20261117120000), docs/puente-veoaura-alquiler.md.
+ * Utilizado por: app/admin/alquileres.tsx y app/admin/analytics.tsx.
+ * Dependencias: ninguna externa.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: las cuentas y los textos del ALQUILER de artículos (dueño, 2026-11-17; FASE 1, APAGADO: ningún cliente ve
  * nada). Solo Zaragoza. Planes de 1, 2, 3 y 4 meses con el IVA incluido, fianza sin IVA, recargo por retraso y
  * «Alquílalo y, si te gusta, cómpralo».

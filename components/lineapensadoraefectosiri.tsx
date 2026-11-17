@@ -1,5 +1,14 @@
-// components/lineapensadoraefectosiri.tsx
 /**
+ * Archivo: components/lineapensadoraefectosiri.tsx
+ * Función: componente del efecto «Pensando» tipo Siri (marco luminoso de carga).
+ * Para qué sirve: ilumina el borde de la pantalla mientras algo carga y exporta BrilloIconoSeccion (halo del icono de pestaña) y la paleta/máscara Siri que reutiliza la pantalla de bienvenida.
+ * Conectado con: lib/loadingBus.ts (useCargando, pulseLoading), expo-router (usePathname).
+ * Utilizado por: app/_layout.tsx (marco), app/(tabs)/_layout.tsx (BrilloIconoSeccion) y components/BrandLoadingScreen.tsx (paleta).
+ * Dependencias: react, react-native, expo-router, react-native-safe-area-context.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: el efecto "Pensando" tipo Siri. Mientras algo carga (una
  * petición a Supabase, fotos, un cambio de pantalla o una pestaña recargada
  * con triple toque — ver lib/loadingBus.ts), el borde del área visible se

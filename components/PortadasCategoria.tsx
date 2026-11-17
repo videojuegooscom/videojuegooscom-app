@@ -1,5 +1,14 @@
-// components/PortadasCategoria.tsx
 /**
+ * Archivo: components/PortadasCategoria.tsx
+ * Función: componente del carrusel de portadas de una categoría.
+ * Para qué sirve: muestra hasta 3 fotos de portada que pasan solas cada 5 s, y ofrece utilidades (portadasDe, encuadresDe, portadasInicioDe) para leer las portadas de una fila de categories.
+ * Conectado con: components/SmartImage.tsx, lib/supabase.ts, tabla categories (imagenes, portadas_inicio).
+ * Utilizado por: app/(tabs)/index.tsx, app/catalogo.tsx, app/admin/categories.tsx, app/admin/products.tsx y app/admin/alquileres.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: las portadas de una categoría (hasta 3 fotos) en un carrusel que se pasa solo: cada 5 s la foto se
  * desliza a la siguiente y de la última vuelve a la primera sin saltos (al final va una copia de la primera). Con una
  * sola foto se ve fija. No se mueve con «reducir movimiento», fuera de la vista ni con la pestaña oculta. Puntos

@@ -1,4 +1,15 @@
 /**
+ * Archivo: api/escaparate-veoaura.ts
+ * Función: función de servidor en /api/escaparate-veoaura (Vercel), receptor del puente VeoAura a tienda.
+ * Para qué sirve: recibe mensajes firmados (HMAC-SHA256, fecha, nonce) de VeoAura para publicar, actualizar, marcar vendido o retirar artículos de su Stock, y para recibir seguimientos, facturas y ventas en mano; los guarda sin duplicar y registra cada mensaje.
+ * Conectado con: VeoAura (contrato «Puente VeoAura a VideojuegosZaragoza»), Supabase (clave de servidor; tablas products, escaparate_nonces y escaparate_registro), api/factura.ts, api/escaparate-retorno.ts.
+ * Utilizado por: VeoAura (llama a este endpoint por POST); app/admin/escaparate.tsx muestra el registro.
+ * Dependencias: @supabase/supabase-js.
+ * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño
+ *
+ * Notas: la cabecera original sigue justo debajo, sin cambios.
+ */
+/**
  * api/escaparate-veoaura.ts
  *
  * Qué hace: receptor del puente VeoAura → tienda («escaparate»). VeoAura envía aquí, firmado,

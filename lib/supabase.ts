@@ -1,4 +1,15 @@
 /**
+ * Archivo: lib/supabase.ts
+ * Función: utilidad con el cliente único de Supabase, la sesión y utilidades de cuenta.
+ * Para qué sirve: crea el cliente de Supabase (inicio de sesión y acceso a la base de datos) que usa toda la app, con la sesión guardada, el registro de peticiones para el efecto «Pensando», el rol del usuario, el nombre del dispositivo, mensajes de error de autenticación en español y utilidades como haceCuanto.
+ * Conectado con: lib/loadingBus.ts (markStart / markEnd), variables EXPO_PUBLIC_SUPABASE_URL y EXPO_PUBLIC_SUPABASE_ANON_KEY, Supabase Auth y base de datos.
+ * Utilizado por: prácticamente todas las pantallas, componentes y utilidades de la tienda y del panel de administración.
+ * Dependencias: react-native-url-polyfill, @react-native-async-storage/async-storage, @supabase/supabase-js, react-native.
+ * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño
+ *
+ * Notas: la cabecera original sigue justo debajo, sin cambios.
+ */
+/**
  * Qué hace: crea y exporta el cliente único (singleton) de Supabase que
  * usa toda la app para autenticación y acceso a la base de datos.
  *

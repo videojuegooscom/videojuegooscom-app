@@ -1,4 +1,14 @@
 /**
+ * Archivo: components/parallax-scroll-view.tsx
+ * Función: componente de scroll con cabecera parallax (plantilla de Expo).
+ * Para qué sirve: contenedor de scroll con imagen de cabecera que se desplaza y escala a distinta velocidad; no se usa en la tienda.
+ * Conectado con: components/themed-view.tsx, hooks/use-color-scheme.ts, hooks/use-theme-color.ts (todos de la plantilla).
+ * Utilizado por: ningún archivo (comprobado con grep en app, components, lib y hooks).
+ * Dependencias: react, react-native, react-native-reanimated.
+ * Estado: CANDIDATO_A_ELIMINAR (ningún archivo lo importa; resto de la plantilla de Expo).
+ */
+/**
+ * Notas:
  * Qué hace: contenedor de scroll con una imagen de cabecera que hace efecto
  * "parallax" (se desplaza y escala a otra velocidad que el contenido) al
  * hacer scroll. Viene de la plantilla base de Expo.

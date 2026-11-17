@@ -1,4 +1,14 @@
 /**
+ * Archivo: components/themed-view.tsx
+ * Función: componente View con tema claro/oscuro (plantilla de Expo).
+ * Para qué sirve: un View cuyo fondo se adapta al tema del sistema mediante useThemeColor.
+ * Conectado con: hooks/use-theme-color.ts.
+ * Utilizado por: app/modal.tsx (pantalla de ejemplo de la plantilla que no se abre desde ningún sitio), components/parallax-scroll-view.tsx y components/ui/collapsible.tsx (estos dos, candidatos).
+ * Dependencias: react-native.
+ * Estado: CANDIDATO_A_ELIMINAR (solo lo usan archivos de la plantilla sin uso: app/modal.tsx, parallax-scroll-view y collapsible; la tienda usa sus propios colores).
+ */
+/**
+ * Notas:
  * Qué hace: componente <View> que adapta su color de fondo automáticamente
  * al tema claro/oscuro del sistema. Viene de la plantilla base de Expo.
  *

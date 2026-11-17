@@ -1,4 +1,14 @@
 /**
+ * Archivo: components/Resenas.tsx
+ * Función: componente del bloque de reseñas de la pantalla de inicio.
+ * Para qué sirve: muestra la valoración media real, el botón «Dejar una reseña» y las últimas reseñas publicadas, leyendo store_reviews.
+ * Conectado con: lib/supabase.ts, components/PerfilPublico.tsx (perfilesPublicos), ReviewModal.tsx, SmartImage.tsx, TirarParaActualizar.tsx (useRecarga), constants/theme.ts, tabla store_reviews.
+ * Utilizado por: app/(tabs)/index.tsx.
+ * Dependencias: react, react-native.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: bloque de "Reseñas" de la pantalla de inicio: valoración media
  * real (calculada a partir de las reseñas guardadas en Supabase), un botón
  * "Dejar una reseña" que abre components/ReviewModal.tsx, y las últimas

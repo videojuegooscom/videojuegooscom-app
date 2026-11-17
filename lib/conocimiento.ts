@@ -1,5 +1,14 @@
-// lib/conocimiento.ts
 /**
+ * Archivo: lib/conocimiento.ts
+ * Función: utilidad de «Lo que Blue sabe» (conocimiento del negocio escrito por el dueño).
+ * Para qué sirve: define los temas que Blue propone al dueño y las funciones para guardar y listar sus respuestas, que luego usa Blue IA al contestar a los clientes.
+ * Conectado con: lib/supabase.ts, tabla blue_conocimiento, api/blue-ia.ts (lee las respuestas).
+ * Utilizado por: components/Campanita.tsx y app/admin/conocimiento.tsx.
+ * Dependencias: ninguna externa.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: temas que Blue le propone al dueño para que escriba información real de la tienda
  * («Lo que Blue sabe», tabla blue_conocimiento) y las funciones para guardarla. Blue IA usa esas
  * respuestas al contestar a los clientes (api/blue-ia.ts).

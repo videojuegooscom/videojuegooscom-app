@@ -1,5 +1,14 @@
-// lib/analytics.ts
 /**
+ * Archivo: lib/analytics.ts
+ * Función: utilidad de analítica propia de la tienda (cliente de eventos).
+ * Para qué sirve: genera la sesión de visita, gestiona el consentimiento (RGPD) y envía eventos (trackEvent) a Supabase para reconstruir el recorrido de cada visita en Administración; no envía nada de quien rechazó.
+ * Conectado con: lib/supabase.ts, tabla analytics_events, components/CookieConsentBanner.tsx.
+ * Utilizado por: casi todas las pantallas y componentes de la tienda y del panel (checkout, catálogo, producto, perfil, Campanita, VenderAhoraModal, ReviewModal, etc.).
+ * Dependencias: @react-native-async-storage/async-storage.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: cliente de analítica propia (sin librerías externas de terceros
  * tipo Google Analytics). Genera un identificador de "sesión de visita" por
  * dispositivo, adjunta el user_id si hay sesión iniciada, y envía eventos a

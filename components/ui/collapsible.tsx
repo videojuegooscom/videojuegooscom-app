@@ -1,4 +1,14 @@
 /**
+ * Archivo: components/ui/collapsible.tsx
+ * Función: componente de bloque plegable (plantilla de Expo).
+ * Para qué sirve: sección que se despliega al pulsar su título, con flecha que rota; no se usa en la tienda.
+ * Conectado con: components/themed-text.tsx, components/themed-view.tsx, components/ui/icon-symbol.tsx, constants/theme.ts (Colors), hooks/use-color-scheme.ts.
+ * Utilizado por: ningún archivo (comprobado con grep en app, components, lib y hooks).
+ * Dependencias: react, react-native.
+ * Estado: CANDIDATO_A_ELIMINAR (ningún archivo lo importa; resto de la plantilla de Expo).
+ */
+/**
+ * Notas:
  * Qué hace: bloque de contenido plegable/desplegable con una flecha que
  * rota al abrir. Viene de la plantilla base de Expo.
  *

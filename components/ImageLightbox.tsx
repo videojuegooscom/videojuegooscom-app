@@ -1,5 +1,16 @@
-// components/ImageLightbox.tsx
 /**
+ * Archivo: components/ImageLightbox.tsx
+ * Función: componente visor de fotos a pantalla completa.
+ * Para qué sirve: muestra las fotos de una ficha con zoom (pellizco, doble toque, rueda), arrastre, navegación entre imágenes y cierre deslizando; avisa de su uso a la analítica.
+ * Conectado con: components/SmartImage.tsx, lib/analytics.ts, components/Campanita.tsx (suscribirVisorFotos / visorFotosAbierto).
+ * Utilizado por: app/producto/[id].tsx, app/servicio/[id].tsx, app/admin/services.tsx y components/Campanita.tsx.
+ * Dependencias: react, react-native, @expo/vector-icons, react-native-safe-area-context.
+ * Estado: ACTIVO
+ *
+ * Notas: cabecera original conservada justo debajo.
+ */
+/**
+ * Notas:
  * Qué hace: visor de fotos a pantalla completa con zoom y navegación entre
  * imágenes. Se usa en la ficha de producto (app/producto/[id].tsx) al tocar
  * la foto principal.

@@ -1,6 +1,14 @@
 /**
- * api/interaccion.ts
- *
+ * Archivo: api/interaccion.ts
+ * Función: función de servidor en /api/interaccion (Vercel).
+ * Para qué sirve: recibe las visitas, los «me gusta» y las reservas de cesta con límites por IP y por persona, y llama a funciones de la base de datos que solo puede ejecutar el servidor.
+ * Conectado con: Supabase (clave de servidor; función consumir_limite y funciones de visitas, apoyos y reservas, migraciones 20261018120000 a 20261103200000).
+ * Utilizado por: lib/interaccion.ts y lib/reservas.ts, desde app/producto/[id].tsx, app/servicio/[id].tsx, app/(tabs)/perfil.tsx y app/(tabs)/cesta.tsx.
+ * Dependencias: @supabase/supabase-js.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: función serverless de Vercel por la que pasan las VISITAS y los «ME GUSTA» de la tienda
  * (POST /api/interaccion). Antes el navegador llamaba directamente a funciones de la base de datos
  * (increment_product_view, increment_service_view y adjust_product_like) que cualquiera podía ejecutar

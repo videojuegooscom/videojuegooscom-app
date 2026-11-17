@@ -1,6 +1,14 @@
 /**
- * lib/loadingBus.ts
- *
+ * Archivo: lib/loadingBus.ts
+ * Función: utilidad de estado global de «cargando» (patrón publicador/suscriptor).
+ * Para qué sirve: cuenta las peticiones a Supabase y las fotos que están cargando para encender el efecto «Pensando» de Siri y el brillo del icono de pestaña sin tocar pantalla por pantalla.
+ * Conectado con: lib/supabase.ts (markStart / markEnd), components/SmartImage.tsx, components/lineapensadoraefectosiri.tsx, components/TirarParaActualizar.tsx.
+ * Utilizado por: lib/supabase.ts, components/SmartImage.tsx, components/lineapensadoraefectosiri.tsx, components/TirarParaActualizar.tsx, app/_layout.tsx y app/(tabs)/_layout.tsx.
+ * Dependencias: react.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: cuenta cuántas cosas reales están en marcha AHORA MISMO en toda
  * la app — peticiones a Supabase Y fotos cargando — para encender el efecto
  * "Pensando" tipo Siri (marco de colores alrededor de la pantalla, ver

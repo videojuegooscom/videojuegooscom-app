@@ -1,5 +1,14 @@
-// components/admin/PanelUI.tsx
 /**
+ * Archivo: components/admin/PanelUI.tsx
+ * Función: componentes visuales comunes del panel de Administración.
+ * Para qué sirve: tarjetas de cifras que filtran, buscador, pastillas de filtro, secciones, filas compactas y botones con el diseño de «Usuarios» y «Pedidos», para que todas las pantallas del panel se vean igual.
+ * Conectado con: constants/theme.ts (CAMPO, COLORES_TEXTO, TACTIL, TAMANOS).
+ * Utilizado por: app/admin/categories.tsx, services.tsx, envios.tsx, products.tsx, reservas.tsx, escaparate.tsx, chats.tsx, cotizaciones.tsx, inventario.tsx, blog.tsx, flash-news.tsx, policies.tsx, index.tsx, aprendizajes.tsx, conocimiento.tsx, auditorias.tsx, marca-seo.tsx, redes-sociales.tsx y analytics.tsx.
+ * Dependencias: react, react-native, @expo/vector-icons.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: las piezas visuales comunes del panel de Administración con el diseño de «Usuarios y participación»
  * (app/admin/users.tsx) y de Pedidos (app/admin/pedidos.tsx): cifras en tarjetas que filtran, buscador de 16 px,
  * pastillas de filtro de 44 px con su recuento (en el móvil, en una fila deslizable), secciones con icono y título,

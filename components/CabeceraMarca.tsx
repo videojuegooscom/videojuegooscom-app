@@ -1,5 +1,14 @@
-// components/CabeceraMarca.tsx
 /**
+ * Archivo: components/CabeceraMarca.tsx
+ * Función: componente de la barra superior con botón «volver» y el nombre de la tienda.
+ * Para qué sirve: da el mismo botón de volver (círculo azul con flecha) y título centrado a las páginas con «volver»; exporta también BotonVolver y volverAtras.
+ * Conectado con: constants/theme.ts (TACTIL), expo-router.
+ * Utilizado por: app/catalogo.tsx, servicios.tsx, servicio/[id].tsx, producto/[id].tsx, blog/index.tsx, politicas/[slug].tsx, checkout.tsx, chat/[chatId].tsx, comparar.tsx, quienes-somos.tsx, noticias, contratar/[id].tsx y components/VenderAhoraModal.tsx, ContratarServicioModal.tsx.
+ * Dependencias: react, react-native, @expo/vector-icons, expo-router.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: la barra de arriba de las páginas con «volver»: a la izquierda el botón de volver con
  * el diseño de la tienda (círculo azul de marca con la flecha blanca, un aro fino por dentro y un
  * resplandor azul suave) y, siempre centrado, el nombre «VideojuegosZaragoza». Sustituye a las

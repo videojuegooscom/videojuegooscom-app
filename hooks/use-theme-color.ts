@@ -1,4 +1,14 @@
 /**
+ * Archivo: hooks/use-theme-color.ts
+ * Función: hook que resuelve el color según el tema (plantilla de Expo).
+ * Para qué sirve: devuelve el color explícito (lightColor/darkColor) o el de Colors[tema] de constants/theme.ts para ThemedText y ThemedView.
+ * Conectado con: constants/theme.ts (Colors), hooks/use-color-scheme.ts.
+ * Utilizado por: components/themed-text.tsx, components/themed-view.tsx y components/parallax-scroll-view.tsx (todos candidatos).
+ * Dependencias: ninguna externa.
+ * Estado: CANDIDATO_A_ELIMINAR (solo lo usan archivos candidatos de la plantilla de Expo).
+ */
+/**
+ * Notas:
  * Qué hace: resuelve qué color usar para un componente "Themed*"
  * (ThemedText, ThemedView), según el tema claro/oscuro del sistema.
  *

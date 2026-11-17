@@ -1,6 +1,14 @@
 /**
- * api/sitemap.ts
- *
+ * Archivo: api/sitemap.ts
+ * Función: función de servidor en /api/sitemap (Vercel) que genera /sitemap.xml.
+ * Para qué sirve: lista las páginas públicas, las fichas de producto y servicio publicadas y las noticias recientes para que los buscadores las descubran; usa solo datos públicos y se cachea una hora.
+ * Conectado con: Supabase (clave anónima; tablas de productos, servicios y noticias_gaming), vercel.json (rewrite /sitemap.xml), public/robots.txt.
+ * Utilizado por: buscadores (rastreadores) vía /sitemap.xml, y la revisión automática api/auditoria-web.ts; app/noticias y app/quienes-somos lo mencionan.
+ * Dependencias: @supabase/supabase-js.
+ * Estado: ACTIVO
+ */
+/**
+ * Notas:
  * Qué hace: genera /sitemap.xml (vercel.json lo redirige aquí) con las páginas públicas de la
  * tienda: portada, catálogo, servicios, blog, noticias, vender, las políticas, cada ficha de
  * producto y de servicio publicada y cada noticia publicada de los últimos 90 días (máx. 1000,
