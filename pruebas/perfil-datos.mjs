@@ -2121,20 +2121,23 @@ async function seccionP() {
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, "/perfil?tab=seguimientos");
     await p.getByText("Reparaciones y Mantenimientos").first().waitFor({ timeout: 30000 }).catch(() => {});
-    // UN solo «¿Tienes un número de seguimiento…? Añádelo aquí», plegado y AL FINAL, debajo de «Reparaciones y
-    // Mantenimientos» (dueño, 2026-11-16: arriba estorbaba); se abre al tocarlo.
+    // UN solo «¿Tienes un número de seguimiento…? Añádelo aquí», plegado; se abre al tocarlo. Esta clienta aún no tiene
+    // pedidos, así que va ARRIBA, encima de «Reparaciones y Mantenimientos» (dueño, 2026-11-16: «ponerlo arriba como antes
+    // solo para quien no tiene pedidos aún»; con pedidos va al final, lo comprueba CANDIS).
     const campos = p.getByLabel("Número de seguimiento", { exact: true });
     const abrir = p.locator("#seguimiento-anadir-abrir");
     const plegado = { abrir: await abrir.count(), campos: await campos.count(), alto: Math.round((await abrir.boundingBox().catch(() => null))?.height ?? 0) };
-    const abajo = await p.evaluate(() => {
-      const a = document.querySelector("#seguimiento-anadir-abrir")?.getBoundingClientRect().top ?? -1;
-      const t = [...document.querySelectorAll("div")].find((d) => /^Reparaciones y Mantenimientos/.test(d.innerText.trim()) && !d.querySelector("div"))?.getBoundingClientRect().top ?? 9999;
-      return a > t;
-    });
+    const posicion = () =>
+      p.evaluate(() => {
+        const a = document.querySelector("#seguimiento-anadir-abrir, [aria-label='Número de seguimiento']")?.getBoundingClientRect().top ?? 9999;
+        const t = [...document.querySelectorAll("div")].find((d) => /^Reparaciones y Mantenimientos/.test(d.innerText.trim()) && !d.querySelector("div"))?.getBoundingClientRect().top ?? -1;
+        return a < t ? "arriba" : "abajo";
+      });
+    const sitio = await posicion();
     const textoAbrir = (await abrir.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
     ok(
-      plegado.abrir === 1 && plegado.campos === 0 && plegado.alto >= 44 && abajo && textoAbrir === "¿Tienes un número de seguimiento de un pedido o una reparación? Añádelo aquí",
-      `P: un solo «¿Tienes un número de seguimiento…? Añádelo aquí», plegado, al final (debajo de las reparaciones) y de 44 px (${JSON.stringify(plegado)}, abajo: ${abajo}, «${textoAbrir}»)`
+      plegado.abrir === 1 && plegado.campos === 0 && plegado.alto >= 44 && sitio === "arriba" && textoAbrir === "¿Tienes un número de seguimiento de un pedido o una reparación? Añádelo aquí",
+      `P: sin pedidos, un solo «¿Tienes un número de seguimiento…? Añádelo aquí», plegado, arriba y de 44 px (${JSON.stringify(plegado)}, ${sitio}, «${textoAbrir}»)`
     );
     await abrir.click();
     await campos.first().waitFor({ timeout: 5000 }).catch(() => {});
@@ -2165,6 +2168,9 @@ async function seccionP() {
     const t2 = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
     // Referencia del pedido (dueño, 2026-11-11): «Pedido VZ-…» y nunca «Pedido nº 31» (el número interno).
     ok(t2.includes(`Listo: el pedido ${COD_PED} ya está en «Mis pedidos».`) && t2.includes(`Pedido ${COD_PED} · 249,99€`) && !/nº 31/.test(t2) && /Nintendo Switch OLED/.test(t2), "P: un pedido también, con su referencia (no el número interno) y sus artículos");
+    // Con su primer pedido el recuadro no salta abajo mientras lo usa: sigue arriba, abierto y con su «Listo» (si saltara,
+    // se plegaría y el cliente no vería la confirmación).
+    ok((await posicion()) === "arriba" && (await campos.count()) === 1, `P: tras añadir su primer pedido, el recuadro sigue en su sitio y abierto (${await posicion()}, ${await campos.count()} campo)`);
 
     // Errores: no existe y de otra cuenta.
     await campos.first().fill("VZ-2222-2222");
