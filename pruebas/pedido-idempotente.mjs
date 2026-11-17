@@ -134,7 +134,9 @@ async function escenario(navegador, nombre, respuestas, { retraso = 0, antiguo =
 }
 
 async function rellenarYEnviar(p, { doble = false, envio = false } = {}) {
-  const boton = p.getByText(/Confirmar pedido/).last();
+  // El botón por su id (el texto «Confirmar pedido · 100,00€» está en un hijo, y un <div> siempre parece «activo»):
+  // desactivado lleva aria-disabled y una capa encima recoge el toque (app/checkout.tsx, «pago-confirmar-boton»).
+  const boton = p.locator("#pago-confirmar-boton");
   // Con el equipo justo de CPU la página tarda en «despertar» (hidratar) y lo que se escribe antes se pierde:
   // el botón sigue desactivado y el clic esperaría 30 s (comprobado: con otra prueba de navegador a la vez
   // fallaba). Se repite el rellenado hasta que el botón se activa, y si no se activa se dice claramente.
@@ -150,12 +152,19 @@ async function rellenarYEnviar(p, { doble = false, envio = false } = {}) {
       await p.getByPlaceholder("50001").fill("50001");
       await p.getByPlaceholder("Zaragoza").fill("Zaragoza");
     }
+    // Desde las franjas de entrega (dueño, 2026-11-15; perfil-datos FRANJ), en mano o a domicilio en Zaragoza hay que elegir
+    // cuándo le viene bien: la primera que se ofrezca (dependen de la hora a la que se lance la prueba).
+    const franja = p.locator('#pago-franjas [role="radio"]').first();
+    if (await franja.count()) await franja.click();
     for (let i = 0; i < 6 && !activo; i++) {
-      activo = await boton.isEnabled();
+      activo = (await boton.count()) > 0 && (await boton.getAttribute("aria-disabled")) !== "true";
       if (!activo) await p.waitForTimeout(500);
     }
   }
-  if (!activo) throw new Error("el botón «Confirmar pedido» no se activó con el formulario rellenado");
+  if (!activo) {
+    const falta = await p.locator("#pago-falta").innerText().catch(() => "");
+    throw new Error(`el botón «Confirmar pedido» no se activó con el formulario rellenado (${falta || "sin aviso de qué falta"})`);
+  }
   await boton.scrollIntoViewIfNeeded();
   if (doble) await Promise.all([boton.click(), boton.click({ delay: 10 })]);
   else await boton.click();
