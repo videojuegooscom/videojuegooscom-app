@@ -2,7 +2,7 @@
  * Archivo: app/admin/marca-seo.tsx
  * Función: pantalla de administración «Marca y SEO», en la dirección /admin/marca-seo.
  * Para qué sirve: el administrador sube el logo de la tienda y edita el título y la descripción que Google y el navegador muestran, sin tocar código.
- * Conectado con: lib/supabase.ts (tabla site_settings y bucket de Storage site-assets), lib/admin/products.components.ts, components/ImagenInteligente.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; components/EtiquetasCabeceraWeb.tsx lee esos mismos datos.
+ * Conectado con: lib/supabase.ts (tabla site_settings y bucket de Storage site-assets), lib/admin/productos.componentes.tsx, components/ImagenInteligente.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; components/EtiquetasCabeceraWeb.tsx lee esos mismos datos.
  * Utilizado por: Expo Router (dirección /admin/marca-seo, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Marca y SEO» de app/admin/index.tsx.
  * Dependencias: react, react-native, @expo/vector-icons.
  * Estado: ACTIVO
@@ -24,7 +24,7 @@
  *   admin puede escribir) con pickSingleImageWeb(), una versión mínima —
  *   solo imágenes, un archivo, sin conversión HEIC — del selector de
  *   archivos que ya usa el resto del panel (ver
- *   app/admin/products/products.utils.ts → pickMediaFilesWeb). Como el
+ *   lib/admin/productos.utilidades.ts → pickMediaFilesWeb). Como el
  *   resto de subidas de archivos del panel, solo funciona desde la versión
  *   web (Platform.OS === "web").
  * - ALCANCE (decisión tomada con Daniel): esto cubre cómo se ve la tienda en
@@ -64,7 +64,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { AdminHeader, AdminLoading, AdminNotice, IconButton } from "../../lib/admin/products.components";
+import { AdminHeader, AdminLoading, AdminNotice, IconButton } from "../../lib/admin/productos.componentes";
 import SmartImage from "../../components/ImagenInteligente";
 import { CAMPO, TAMANOS } from "../../constants/theme";
 import { BloqueFormulario, Cifra, Detalle, FilaCifras, PANEL } from "../../components/admin/PiezasPanelAdmin";
@@ -100,7 +100,7 @@ const campo = {
 
 // Selector de UN único archivo de imagen (sin vídeo, sin HEIC): pensado para
 // el logo, no para las fotos de producto/servicio (eso ya lo cubre
-// pickMediaFilesWeb en products.utils.ts). Solo funciona en web, igual que
+// pickMediaFilesWeb en productos.utilidades.ts). Solo funciona en web, igual que
 // el resto de subidas de archivos del panel.
 function pickSingleImageWeb(): Promise<File | null> {
   if (Platform.OS !== "web" || typeof document === "undefined") {

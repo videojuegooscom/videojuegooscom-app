@@ -1,8 +1,8 @@
 /**
  * Archivo: components/ImagenInteligente.tsx
  * Función: componente de imagen remota de toda la tienda.
- * Para qué sirve: sustituye a Image con caché en memoria y disco, fundido de entrada, carga perezosa y prioridad en web (img del navegador) y expo-image en nativo; avisa a lib/loadingBus.ts de las cargas para el efecto «Pensando».
- * Conectado con: lib/loadingBus.ts.
+ * Para qué sirve: sustituye a Image con caché en memoria y disco, fundido de entrada, carga perezosa y prioridad en web (img del navegador) y expo-image en nativo; avisa a lib/estadoCarga.ts de las cargas para el efecto «Pensando».
+ * Conectado con: lib/estadoCarga.ts.
  * Utilizado por: casi todas las pantallas con fotos (catálogo, producto, servicio, cesta, noticias, Inicio, Foro, admin/categories, admin/services, admin/users…) y los componentes VisorFotos, ConversacionProducto, PerfilPublico, ContratarServicioModal, BarraBusqueda, CarruselProductosCategoria, Resenas y PortadasCategoria.
  * Dependencias: react, react-native, expo-image.
  * Estado: ACTIVO
@@ -44,7 +44,7 @@
  * hacían las pantallas que envolvían su <Image> en `{p.imageUrl ? ... : ...}`.
  *
  * Barra de carga global ("Pensando"): cada SmartImage avisa a
- * lib/loadingBus.ts (markStart/markEnd) mientras SU foto está cargando de
+ * lib/estadoCarga.ts (markStart/markEnd) mientras SU foto está cargando de
  * verdad, igual que lib/supabase.ts avisa por cada petición — así
  * components/EfectoPensando.tsx se queda encendida hasta que TODAS
  * las fotos en pantalla han terminado de cargar, no solo mientras llegan
@@ -61,12 +61,12 @@
  * app/admin/services.tsx, components/VisorFotos.tsx,
  * components/Resenas.tsx — cualquier sitio que antes usaba <Image> de
  * "react-native" para pintar una foto remota (uri) ahora usa <SmartImage>.
- * lib/loadingBus.ts → a quien avisa mientras carga.
+ * lib/estadoCarga.ts → a quien avisa mientras carga.
  */
 import React, { useEffect, useRef, useState } from "react";
 import { Image, type ImageContentFit, type ImageProps, type ImageStyle } from "expo-image";
 import { Platform, View, type StyleProp, type ViewStyle } from "react-native";
-import { markEnd, markStart } from "../lib/loadingBus";
+import { markEnd, markStart } from "../lib/estadoCarga";
 
 type ImagePriority = NonNullable<ImageProps["priority"]>;
 

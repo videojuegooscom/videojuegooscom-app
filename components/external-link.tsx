@@ -5,7 +5,7 @@
  * Conectado con: ningún archivo del proyecto (solo expo-router y expo-web-browser).
  * Utilizado por: ningún archivo (comprobado con grep en app, components, lib, hooks y api).
  * Dependencias: expo-router, expo-web-browser, react.
- * Estado: CANDIDATO_A_ELIMINAR (ningún archivo lo importa; el proyecto abre enlaces externos con lib/openExternalLink.ts).
+ * Estado: CANDIDATO_A_ELIMINAR (ningún archivo lo importa; el proyecto abre enlaces externos con lib/abrirEnlaceExterno.ts).
  *
  * Notas: cabecera original conservada justo debajo.
  */

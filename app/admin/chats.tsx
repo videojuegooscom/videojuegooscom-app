@@ -2,7 +2,7 @@
  * Archivo: app/admin/chats.tsx
  * Función: pantalla de administración «Chat», en la dirección /admin/chats.
  * Para qué sirve: el administrador ve las conversaciones privadas con los clientes (por producto, por venta y atención general), responde, marca un producto como vendido a esa persona y asigna seguimientos de pedido o reparación.
- * Conectado con: lib/supabase.ts (tablas product_chats, product_sales y funciones como admin_users_by_ids), components/ConversacionProducto.tsx (el hilo), components/marca/CargaMarca.tsx, lib/openExternalLink.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/asignar-seguimiento.ts.
+ * Conectado con: lib/supabase.ts (tablas product_chats, product_sales y funciones como admin_users_by_ids), components/ConversacionProducto.tsx (el hilo), components/marca/CargaMarca.tsx, lib/abrirEnlaceExterno.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/asignar-seguimiento.ts.
  * Utilizado por: Expo Router (dirección /admin/chats, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Chat» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -105,7 +105,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { openExternalLink } from "../../lib/openExternalLink";
+import { openExternalLink } from "../../lib/abrirEnlaceExterno";
 import { supabase } from "../../lib/supabase";
 import ProductChatThread, { cargarArticulosChat, TarjetaArticuloChat, TITULO_ATENCION_CLIENTE, type ArticuloChat } from "../../components/ConversacionProducto";
 import CargaMarca from "../../components/marca/CargaMarca";

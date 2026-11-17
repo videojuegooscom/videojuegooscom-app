@@ -2,7 +2,7 @@
  * Archivo: app/admin/reservas.tsx
  * Función: pantalla de administración «Reservas con señal», en la dirección /admin/reservas.
  * Para qué sirve: el administrador configura las reglas de las reservas con señal (escala de días y porcentajes, arras, condiciones), las enciende o apaga y gestiona las reservas (completar, cancelar, marcar vencida). Está apagada hasta que el dueño dé sus reglas.
- * Conectado con: lib/supabase.ts (tablas de reservas y ajustes, migración 20261115150000_reservas_senal.sql), lib/reservas.ts, lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/pago.ts (acción reserva_estado).
+ * Conectado con: lib/supabase.ts (tablas de reservas y ajustes, migración 20261115150000_reservas_senal.sql), lib/reservas.ts, lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/pago.ts (acción reserva_estado).
  * Utilizado por: Expo Router (dirección /admin/reservas, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Reservas con señal» de app/admin/index.tsx.
  * Dependencias: react, react-native, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -42,7 +42,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
-import { AdminHeader, AdminLoading } from "../../lib/admin/products.components";
+import { AdminHeader, AdminLoading } from "../../lib/admin/productos.componentes";
 import {
   AccionTexto,
   Bloque,

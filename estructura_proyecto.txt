@@ -24,11 +24,11 @@ Formato de cada línea:  archivo | función | conectado con | utilizado por | es
 -----------------------------------------------------------------------------
 app/  · Pantallas. El nombre de cada archivo ES la dirección de la web (Expo Router): no se renombran.
 -----------------------------------------------------------------------------
-app/_layout.tsx | Layout raíz: carga de marca y Stack de rutas | PantallaCargaMarca, AsistenteBlue, AvisoAnaliticaCookies, PerfilPublico, EtiquetasCabeceraWeb, CarruselProductosCategoria, lib/analytics, lib/supabase | Expo Router (raíz) | ACTIVO
-app/+html.tsx | Plantilla HTML de la exportación web (SEO, JSON-LD, noscript) | scripts/inject-seo-html.js, EtiquetasCabeceraWeb, lib/tabBar, lib/horarioAtencion | Expo Router (al exportar) | ACTIVO
+app/_layout.tsx | Layout raíz: carga de marca y Stack de rutas | PantallaCargaMarca, AsistenteBlue, AvisoAnaliticaCookies, PerfilPublico, EtiquetasCabeceraWeb, CarruselProductosCategoria, lib/analiticaPropia, lib/supabase | Expo Router (raíz) | ACTIVO
+app/+html.tsx | Plantilla HTML de la exportación web (SEO, JSON-LD, noscript) | scripts/inject-seo-html.js, EtiquetasCabeceraWeb, lib/barraPestanas, lib/horarioAtencion | Expo Router (al exportar) | ACTIVO
 app/+not-found.tsx | Página 404 | components/marca/MarcaAnimada | Expo Router (direcciones inexistentes) | ACTIVO
 app/modal.tsx | Modal de ejemplo de la plantilla de Expo (/modal) | themed-view, themed-text | Solo registrada en app/_layout.tsx; nadie la abre | CANDIDATO_A_ELIMINAR
-app/(tabs)/_layout.tsx | Barra de pestañas inferior | lib/loadingBus, EfectoPensando, constants/theme | Expo Router (grupo (tabs)) | ACTIVO
+app/(tabs)/_layout.tsx | Barra de pestañas inferior | lib/estadoCarga, EfectoPensando, constants/theme | Expo Router (grupo (tabs)) | ACTIVO
 app/(tabs)/index.tsx | Inicio (/) | Supabase products y categorías, BarraBusqueda, CarruselProductosCategoria, PortadasCategoria, Resenas, PieDePagina, EnlacesRedesSociales | Expo Router (/), pestaña Inicio | ACTIVO
 app/(tabs)/cesta.tsx | Cesta (/cesta) | Supabase products, lib/envio, lib/reservas, CarruselProductosCategoria, PieDePagina | Expo Router; producto y comparar (?add=) | ACTIVO
 app/(tabs)/chat-global.tsx | Foro, noticias y bandeja privada (/chat-global) | Supabase chat_messages, noticias_gaming, noticias_likes, noticias_comentarios; api/noticias-gaming; PerfilPublico | Expo Router; noticias/[id] | ACTIVO
@@ -42,15 +42,15 @@ app/contratar/[id].tsx | Contratar un servicio (/contratar/<id>) | ContratarServ
 app/producto/[id].tsx | Ficha de producto (/producto/<id>) | Supabase products, product_media, categories; lib/interaccion, lib/reservas, lib/envio; ConversacionProducto; api/pago | Expo Router; catálogo, comparar, Inicio, perfil, Blue IA, escaparate, AsistenteBlue | ACTIVO
 app/checkout.tsx | Finalizar compra y pago con Stripe (/checkout) | crear_pedido, pedidos, product_sales; lib/envio, lib/reservas; PerfilPublico; api/pago | Expo Router; cesta, ficha («Comprar ya»), pie, AsistenteBlue | ACTIVO · ZONA DELICADA (pagos)
 app/vender.tsx | Vender o cambiar un artículo (/vender) | VenderAhoraModal | Expo Router; Inicio, Blue IA, perfil, cesta, quiénes somos, AsistenteBlue, BarraBusqueda | ACTIVO
-app/quienes-somos.tsx | Quiénes somos (/quienes-somos) | CabeceraMarca, lib/analytics | Expo Router; Inicio, perfil, Blue IA, pie, BarraBusqueda | ACTIVO
+app/quienes-somos.tsx | Quiénes somos (/quienes-somos) | CabeceraMarca, lib/analiticaPropia | Expo Router; Inicio, perfil, Blue IA, pie, BarraBusqueda | ACTIVO
 app/reset-password.tsx | Cambiar la contraseña desde el enlace del correo (/reset-password) | Supabase Auth (verifyOtp, updateUser), lib/supabase | Enlace del correo de recuperación | ACTIVO · ZONA DELICADA (inicio de sesión)
 app/noticias/index.tsx | Índice de noticias (/noticias) | Supabase noticias_gaming, noticias/[id] | Expo Router; pie, noticias/[id] | ACTIVO
 app/noticias/[id].tsx | Una noticia con SEO (/noticias/<id>) | Supabase noticias_gaming, EtiquetasCabeceraWeb, api/noticias-gaming | Expo Router; noticias, Foro | ACTIVO
 app/blog/index.tsx | Blog (/blog) | Supabase blog_posts | Expo Router; pie, BarraBusqueda | ACTIVO
 app/politicas/[slug].tsx | Políticas legales (/politicas/<slug>) | Supabase policy_pages | Expo Router; pie, checkout, cookies, PerfilPublico, BarraBusqueda, AsistenteBlue, perfil, Blue IA, Foro | ACTIVO
 app/chat/[chatId].tsx | Conversación privada con la tienda (/chat/<chatId>) | ConversacionProducto, Supabase | Expo Router; Foro, Inicio, catálogo, VenderAhoraModal | ACTIVO
-app/admin/_layout.tsx | Puerta de las rutas /admin (sesión y rol de administrador) | Supabase auth y profiles, products.utils | Expo Router (todas las rutas /admin) | ACTIVO · ZONA DELICADA (administradores)
-app/admin/index.tsx | Inicio del panel (/admin) | products.components, products.utils, AvisosMovil, PiezasPanelAdmin, Supabase (recuentos) | Expo Router; «Panel de control» del perfil | ACTIVO
+app/admin/_layout.tsx | Puerta de las rutas /admin (sesión y rol de administrador) | Supabase auth y profiles, productos.utilidades | Expo Router (todas las rutas /admin) | ACTIVO · ZONA DELICADA (administradores)
+app/admin/index.tsx | Inicio del panel (/admin) | productos.componentes, productos.utilidades, AvisosMovil, PiezasPanelAdmin, Supabase (recuentos) | Expo Router; «Panel de control» del perfil | ACTIVO
 app/admin/alquileres.tsx | Alquileres (/admin/alquileres), apagado para el cliente | Supabase alquiler_ajustes, alquiler_unidades, alquileres, alquiler_pagos; lib/alquiler, lib/envio | Expo Router; tarjeta del panel | ACTIVO
 app/admin/analytics.tsx | Visitas y métricas (/admin/analytics) | Supabase analytics_events y funciones analytics_*; lib/envio, lib/alquiler | Expo Router; tarjeta del panel | ACTIVO
 app/admin/aprendizajes.tsx | Centro De Aprendizajes (/admin/aprendizajes) | Supabase aprendizajes | Expo Router; tarjeta del panel | ACTIVO
@@ -68,7 +68,7 @@ app/admin/inventario.tsx | Inventario interno (/admin/inventario) | Supabase inv
 app/admin/marca-seo.tsx | Marca y SEO (/admin/marca-seo) | Supabase site_settings, almacén site-assets | Expo Router; tarjeta del panel | ACTIVO
 app/admin/pedidos.tsx | Pedidos (/admin/pedidos) | Supabase pedidos, pedido_items; lib/envio, lib/interaccion; api/factura, api/pago | Expo Router; tarjeta del panel | ACTIVO
 app/admin/policies.tsx | Editor de políticas (/admin/policies) | Supabase policy_pages | Expo Router; tarjeta del panel | ACTIVO
-app/admin/products.tsx | Productos (/admin/products) | Supabase products, product_media; lib/envio, lib/admin/products.* | Expo Router; tarjeta del panel | ACTIVO
+app/admin/products.tsx | Productos (/admin/products) | Supabase products, product_media; lib/envio, lib/admin/productos.* | Expo Router; tarjeta del panel | ACTIVO
 app/admin/redes-sociales.tsx | Redes sociales (/admin/redes-sociales) | Supabase social_links, site_settings; EnlacesRedesSociales | Expo Router; tarjeta del panel | ACTIVO
 app/admin/reservas.tsx | Reservas con señal (/admin/reservas), apagado | lib/reservas, Supabase reservas; api/pago | Expo Router; tarjeta del panel | ACTIVO
 app/admin/services.tsx | Servicios y solicitudes (/admin/services) | Supabase services, service_media, service_requests; lib/envio | Expo Router; tarjeta del panel | ACTIVO
@@ -78,29 +78,29 @@ app/admin/users.tsx | Usuarios y participación (/admin/users) | Supabase usuari
 components/  · Piezas visuales reutilizables
 -----------------------------------------------------------------------------
 components/AvisosMovil.tsx | Tarjeta «Avisos en este móvil» del panel | lib/notificaciones, lib/supabase, api/pago, public/sw-avisos.js | admin/pedidos, admin/index | ACTIVO
-components/BarraBusqueda.tsx | Barra de búsqueda de la tienda e índice de productos | lib/supabase, lib/analytics, ImagenInteligente, constants/theme | catálogo, Inicio, comparar, quiénes somos, admin/analytics, AsistenteBlue, CarruselProductosCategoria | ACTIVO
+components/BarraBusqueda.tsx | Barra de búsqueda de la tienda e índice de productos | lib/supabase, lib/analiticaPropia, ImagenInteligente, constants/theme | catálogo, Inicio, comparar, quiénes somos, admin/analytics, AsistenteBlue, CarruselProductosCategoria | ACTIVO
 components/BotonAtrasAlcance.tsx | Botón «Volver» flotante al alcance del pulgar | CarruselProductosCategoria | app/_layout, ContratarServicioModal | ACTIVO
 components/PantallaCargaMarca.tsx | Pantalla de bienvenida y de carga | MarcaAnimada, EfectoPensando | app/_layout | ACTIVO
 components/CabeceraMarca.tsx | Barra superior con «Volver» y el nombre de la tienda | constants/theme | catálogo, servicios, fichas, blog, políticas, checkout, chat, comparar, formularios | ACTIVO
-components/AsistenteBlue.tsx | Blue, la asistente flotante (guía, avisos y panel) | lib/supabase, analytics, interaccion, conocimiento, notificaciones, envio; api/blue-ia | app/_layout | ACTIVO
-components/FiltrosCatalogo.tsx | Filtros y orden del catálogo | lib/analytics, constants/theme | app/catalogo | ACTIVO
-components/CarruselProductosCategoria.tsx | Carrusel de productos y barra de comparar | lib/supabase, analytics, ImagenInteligente, TirarParaActualizar, BarraBusqueda | app/_layout, catálogo, comparar, producto, Inicio, perfil, cesta, AsistenteBlue, BotonAtrasAlcance | ACTIVO
-components/ContratarServicioModal.tsx | Formulario «Contratar servicio» | lib/supabase, analytics, envio, products.components, BotonAtrasAlcance, CabeceraMarca, VenderAhoraModal; tabla service_requests | servicio/[id], contratar/[id] | ACTIVO
-components/AvisoAnaliticaCookies.tsx | Aviso de consentimiento de analítica | lib/analytics, lib/tabBar | app/_layout | ACTIVO
-components/VisorFotos.tsx | Visor de fotos a pantalla completa con zoom | ImagenInteligente, lib/analytics, AsistenteBlue | producto, servicio, admin/services, AsistenteBlue | ACTIVO
-components/PerfilPublico.tsx | «Mi perfil» del cliente y perfil obligatorio | lib/supabase, analytics, products.utils, CargaMarca, ImagenInteligente; tabla perfiles | perfil, _layout, checkout, producto, Foro, admin/users, VenderAhoraModal, Resenas, AsistenteBlue | ACTIVO
+components/AsistenteBlue.tsx | Blue, la asistente flotante (guía, avisos y panel) | lib/supabase, analiticaPropia, interaccion, conocimiento, notificaciones, envio; api/blue-ia | app/_layout | ACTIVO
+components/FiltrosCatalogo.tsx | Filtros y orden del catálogo | lib/analiticaPropia, constants/theme | app/catalogo | ACTIVO
+components/CarruselProductosCategoria.tsx | Carrusel de productos y barra de comparar | lib/supabase, analiticaPropia, ImagenInteligente, TirarParaActualizar, BarraBusqueda | app/_layout, catálogo, comparar, producto, Inicio, perfil, cesta, AsistenteBlue, BotonAtrasAlcance | ACTIVO
+components/ContratarServicioModal.tsx | Formulario «Contratar servicio» | lib/supabase, analiticaPropia, envio, productos.componentes, BotonAtrasAlcance, CabeceraMarca, VenderAhoraModal; tabla service_requests | servicio/[id], contratar/[id] | ACTIVO
+components/AvisoAnaliticaCookies.tsx | Aviso de consentimiento de analítica | lib/analiticaPropia, lib/barraPestanas | app/_layout | ACTIVO
+components/VisorFotos.tsx | Visor de fotos a pantalla completa con zoom | ImagenInteligente, lib/analiticaPropia, AsistenteBlue | producto, servicio, admin/services, AsistenteBlue | ACTIVO
+components/PerfilPublico.tsx | «Mi perfil» del cliente y perfil obligatorio | lib/supabase, analiticaPropia, productos.utilidades, CargaMarca, ImagenInteligente; tabla perfiles | perfil, _layout, checkout, producto, Foro, admin/users, VenderAhoraModal, Resenas, AsistenteBlue | ACTIVO
 components/PortadasCategoria.tsx | Carrusel de portadas de una categoría | ImagenInteligente, lib/supabase; tabla categories | Inicio, catálogo, admin/categories, admin/products, admin/alquileres | ACTIVO
-components/ConversacionProducto.tsx | Chat privado cliente-tienda | lib/supabase, analytics, products.utils, ImagenInteligente; tabla product_chats | chat/[chatId], admin/chats, VentanaValoracion | ACTIVO
+components/ConversacionProducto.tsx | Chat privado cliente-tienda | lib/supabase, analiticaPropia, productos.utilidades, ImagenInteligente; tabla product_chats | chat/[chatId], admin/chats, VentanaValoracion | ACTIVO
 components/Resenas.tsx | Bloque de reseñas de Inicio | lib/supabase, PerfilPublico, VentanaValoracion, ImagenInteligente; tabla store_reviews | Inicio | ACTIVO
-components/VentanaValoracion.tsx | Ventanas de reseña, mejoras y valoración de pedidos | lib/supabase, analytics, envio, ConversacionProducto; tabla store_reviews | Resenas, PieDePagina, AsistenteBlue, perfil, pedidos | ACTIVO
+components/VentanaValoracion.tsx | Ventanas de reseña, mejoras y valoración de pedidos | lib/supabase, analiticaPropia, envio, ConversacionProducto; tabla store_reviews | Resenas, PieDePagina, AsistenteBlue, perfil, pedidos | ACTIVO
 components/FotosVideoVenta.tsx | Fotos y vídeo de «Vender ahora» (selector, subida y descarga) | constants/theme, lib/supabase; tabla sell_request_media, almacén sell-request-media | VenderAhoraModal, admin/cotizaciones | ACTIVO
 components/PieDePagina.tsx | Pie de página de la tienda | EnlacesRedesSociales, MarcaAnimada, VentanaValoracion | Inicio, perfil, cesta, quiénes somos, noticias | ACTIVO
 components/EtiquetasCabeceraWeb.tsx | Título, descripción y favicon del navegador | lib/supabase; tabla site_settings | app/_layout | ACTIVO
-components/ImagenInteligente.tsx | Imagen remota con caché y fundido | lib/loadingBus, expo-image | casi todas las pantallas con fotos | ACTIVO
-components/EnlacesRedesSociales.tsx | Bloque «Síguenos» con las redes sociales | lib/supabase, openExternalLink, analytics; tabla social_links | PieDePagina, Inicio | ACTIVO
-components/TirarParaActualizar.tsx | Gesto de deslizar para actualizar (useRecarga) | MarcaAnimada, lib/loadingBus | app/_layout, AsistenteBlue, CarruselProductosCategoria, Resenas, pantallas | ACTIVO
-components/VenderAhoraModal.tsx | Formulario «Vender ahora» | lib/supabase, analytics, notificaciones, FotosVideoVenta, PerfilPublico; tabla sell_requests | vender, Inicio, cesta, Foro, ContratarServicioModal | ACTIVO
-components/EfectoPensando.tsx | Efecto «Pensando» (marco luminoso de carga) | lib/loadingBus | app/_layout, app/(tabs)/_layout, PantallaCargaMarca | ACTIVO
+components/ImagenInteligente.tsx | Imagen remota con caché y fundido | lib/estadoCarga, expo-image | casi todas las pantallas con fotos | ACTIVO
+components/EnlacesRedesSociales.tsx | Bloque «Síguenos» con las redes sociales | lib/supabase, abrirEnlaceExterno, analiticaPropia; tabla social_links | PieDePagina, Inicio | ACTIVO
+components/TirarParaActualizar.tsx | Gesto de deslizar para actualizar (useRecarga) | MarcaAnimada, lib/estadoCarga | app/_layout, AsistenteBlue, CarruselProductosCategoria, Resenas, pantallas | ACTIVO
+components/VenderAhoraModal.tsx | Formulario «Vender ahora» | lib/supabase, analiticaPropia, notificaciones, FotosVideoVenta, PerfilPublico; tabla sell_requests | vender, Inicio, cesta, Foro, ContratarServicioModal | ACTIVO
+components/EfectoPensando.tsx | Efecto «Pensando» (marco luminoso de carga) | lib/estadoCarga | app/_layout, app/(tabs)/_layout, PantallaCargaMarca | ACTIVO
 components/admin/PiezasPanelAdmin.tsx | Piezas comunes del panel de Administración | constants/theme | casi todo app/admin | ACTIVO
 components/marca/CargaMarca.tsx | Indicador «cargando» con la mascota | MarcaAnimada | casi todas las pantallas | ACTIVO
 components/marca/MarcaAnimada.tsx | Logo y mascotas animadas | assets/brand | PantallaCargaMarca, CargaMarca, PieDePagina, AsistenteBlue, TirarParaActualizar | ACTIVO
@@ -117,22 +117,22 @@ components/ui/icon-symbol.ios.tsx | Icono para iOS (plantilla de Expo) | expo-sy
 -----------------------------------------------------------------------------
 lib/  · Lógica, datos y conexión
 -----------------------------------------------------------------------------
-lib/supabase.ts | Cliente único de Supabase, sesión y utilidades de cuenta | lib/loadingBus, Supabase Auth y base de datos | casi toda la aplicación | ACTIVO · ZONA DELICADA
+lib/supabase.ts | Cliente único de Supabase, sesión y utilidades de cuenta | lib/estadoCarga, Supabase Auth y base de datos | casi toda la aplicación | ACTIVO · ZONA DELICADA
 lib/alquiler.ts | Cuentas y contrato del alquiler (apagado) | lib/reservas | admin/alquileres, admin/analytics | ACTIVO
-lib/analytics.ts | Analítica propia (eventos y consentimiento) | lib/supabase; tabla analytics_events | casi todas las pantallas | ACTIVO
+lib/analiticaPropia.ts | Analítica propia (eventos y consentimiento) | lib/supabase; tabla analytics_events | casi todas las pantallas | ACTIVO
 lib/conocimiento.ts | «Lo que Blue sabe»: temas y guardado | lib/supabase; tabla blue_conocimiento; api/blue-ia | AsistenteBlue, admin/conocimiento | ACTIVO
 lib/envio.ts | Tarifas de envío, historial de pedidos y reparación por envío | lib/supabase; tablas de envío y pedidos | checkout, cesta, perfil, producto, admin, ContratarServicioModal, AsistenteBlue | ACTIVO
 lib/horarioAtencion.ts | Horario de atención del equipo | — | app/(tabs)/blue-ia | ACTIVO
 lib/interaccion.ts | Visitas, «me gusta» y reservas (cliente de api/interaccion) | lib/supabase, api/interaccion | producto, servicio, perfil, admin/pedidos, reservas, AsistenteBlue | ACTIVO
-lib/loadingBus.ts | Estado global de «cargando» | — | lib/supabase, ImagenInteligente, efecto de carga, TirarParaActualizar, layouts | ACTIVO
+lib/estadoCarga.ts | Estado global de «cargando» | — | lib/supabase, ImagenInteligente, efecto de carga, TirarParaActualizar, layouts | ACTIVO
 lib/notificaciones.ts | Avisos del navegador y push del dueño | public/sw-avisos.js, api/pago | VenderAhoraModal, AsistenteBlue, AvisosMovil | ACTIVO
-lib/openExternalLink.ts | Abrir enlaces externos | react-native | EnlacesRedesSociales, perfil, Blue IA, admin | ACTIVO
+lib/abrirEnlaceExterno.ts | Abrir enlaces externos | react-native | EnlacesRedesSociales, perfil, Blue IA, admin | ACTIVO
 lib/reservas.ts | Reservas de artículos (cesta y reserva con señal) | lib/interaccion, lib/supabase, api/interaccion | producto, cesta, checkout, perfil, admin/reservas, lib/alquiler, AsistenteBlue | ACTIVO
-lib/tabBar.ts | Medidas de la barra de pestañas | react-native-safe-area-context | app/(tabs)/_layout, Inicio, AvisoAnaliticaCookies | ACTIVO
-lib/admin/products.types.ts | Tipos de la administración de productos | — | admin/products, admin/services, products.utils, products.components | ACTIVO
-lib/admin/products.utils.ts | Utilidades de productos, fotos y vídeo del panel | lib/supabase, products.types | admin, producto, Inicio, PerfilPublico, ConversacionProducto, AsistenteBlue | ACTIVO
-lib/admin/products.components.tsx | Componentes comunes del panel y selector iOS | CargaMarca, products.constants, products.types, products.utils, constants/theme | casi todo app/admin, servicio, ContratarServicioModal | ACTIVO
-lib/admin/products.constants.ts | Límites de subida, errores y paleta del panel | constants/theme | admin/products, admin/services, admin/categories, products.components | ACTIVO
+lib/barraPestanas.ts | Medidas de la barra de pestañas | react-native-safe-area-context | app/(tabs)/_layout, Inicio, AvisoAnaliticaCookies | ACTIVO
+lib/admin/productos.tipos.ts | Tipos de la administración de productos | — | admin/products, admin/services, productos.utilidades, productos.componentes | ACTIVO
+lib/admin/productos.utilidades.ts | Utilidades de productos, fotos y vídeo del panel | lib/supabase, productos.tipos | admin, producto, Inicio, PerfilPublico, ConversacionProducto, AsistenteBlue | ACTIVO
+lib/admin/productos.componentes.tsx | Componentes comunes del panel y selector iOS | CargaMarca, productos.constantes, productos.tipos, productos.utilidades, constants/theme | casi todo app/admin, servicio, ContratarServicioModal | ACTIVO
+lib/admin/productos.constantes.ts | Límites de subida, errores y paleta del panel | constants/theme | admin/products, admin/services, admin/categories, productos.componentes | ACTIVO
 
 -----------------------------------------------------------------------------
 constants/ y hooks/

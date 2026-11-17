@@ -2,7 +2,7 @@
  * Archivo: app/_layout.tsx
  * Función: layout raíz de toda la app (Expo Router): pantalla de carga de marca y Stack con todas las rutas de nivel superior.
  * Para qué sirve: arranca la tienda para el cliente, monta una sola vez los elementos globales (campanita, aviso de cookies, perfil obligatorio, barra de comparar, barra de carga), registra el dispositivo, mide la analítica de arranque y recarga sola la web si hay versión nueva.
- * Conectado con: components/PantallaCargaMarca.tsx, AsistenteBlue.tsx, CarruselProductosCategoria.tsx (BarraComparar), AvisoAnaliticaCookies.tsx, EfectoPensando.tsx, PerfilPublico.tsx (PerfilObligatorio), EtiquetasCabeceraWeb.tsx, TirarParaActualizar.tsx, BotonAtrasAlcance.tsx; lib/analytics.ts; lib/supabase.ts (supabase, registrarDispositivo, alIncidenciaDeSesion; tabla cliente_dispositivos).
+ * Conectado con: components/PantallaCargaMarca.tsx, AsistenteBlue.tsx, CarruselProductosCategoria.tsx (BarraComparar), AvisoAnaliticaCookies.tsx, EfectoPensando.tsx, PerfilPublico.tsx (PerfilObligatorio), EtiquetasCabeceraWeb.tsx, TirarParaActualizar.tsx, BotonAtrasAlcance.tsx; lib/analiticaPropia.ts; lib/supabase.ts (supabase, registrarDispositivo, alIncidenciaDeSesion; tabla cliente_dispositivos).
  * Utilizado por: Expo Router (es el layout raíz de todas las direcciones); envuelve a app/(tabs)/_layout.tsx y a todas las pantallas.
  * Dependencias: react, react-native, expo-router, expo-router/head, expo-font, @expo/vector-icons.
  * Estado: ACTIVO
@@ -55,7 +55,7 @@
  * - components/EfectoPensando.tsx → barra de colores tipo "Siri"
  *   que se enciende sola, en toda la app, mientras haya algo cargando
  *   (peticiones a Supabase, fotos, o un simple cambio de pantalla — ver
- *   lib/loadingBus.ts). Montada igual que la campanita, fuera del Stack,
+ *   lib/estadoCarga.ts). Montada igual que la campanita, fuera del Stack,
  *   para que aparezca en cualquier pantalla sin tocarlas una a una.
  * - components/EtiquetasCabeceraWeb.tsx → aplica el título de pestaña, la descripción
  *   para Google y (si hay) el logo subido desde app/admin/marca-seo.tsx. No
@@ -87,7 +87,7 @@ import LineaPensadoraEfectoSiri from "../components/EfectoPensando";
 import { PerfilObligatorio } from "../components/PerfilPublico";
 import SiteHead from "../components/EtiquetasCabeceraWeb";
 import TirarParaActualizar from "../components/TirarParaActualizar";
-import { medirLlegadaDesdeRedes, trackEvent } from "../lib/analytics";
+import { medirLlegadaDesdeRedes, trackEvent } from "../lib/analiticaPropia";
 import { alIncidenciaDeSesion, registrarDispositivo, supabase } from "../lib/supabase";
 
 // Máximo que se espera a la fuente de iconos antes de mostrar la tienda igualmente.
@@ -166,7 +166,7 @@ export default function RootLayout() {
   const [montado, setMontado] = useState(false);
   useEffect(() => setMontado(true), []);
 
-  // ¿Llega de Instagram o TikTok? Se mira una vez al abrir la tienda (lib/analytics.ts).
+  // ¿Llega de Instagram o TikTok? Se mira una vez al abrir la tienda (lib/analiticaPropia.ts).
   useEffect(() => {
     if (Platform.OS === "web") medirLlegadaDesdeRedes();
   }, []);

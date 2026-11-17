@@ -2,7 +2,7 @@
  * Archivo: app/admin/categories.tsx
  * Función: pantalla de administración de categorías, en la dirección /admin/categories.
  * Para qué sirve: el administrador lista, crea, edita, activa/desactiva y borra las categorías de la tienda y sube hasta 3 fotos de portada por categoría.
- * Conectado con: lib/supabase.ts (tabla categories y almacenamiento product-media), components/PortadasCategoria.tsx, components/PerfilPublico.tsx (RecortarFoto), components/ImagenInteligente.tsx, lib/admin/products.components.ts, products.utils.ts y products.constants.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tabla categories y almacenamiento product-media), components/PortadasCategoria.tsx, components/PerfilPublico.tsx (RecortarFoto), components/ImagenInteligente.tsx, lib/admin/productos.componentes.tsx, productos.utilidades.ts y productos.constantes.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/categories, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Categorías» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -77,7 +77,7 @@
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
  *   "Categorías") y a la que se vuelve con el botón de la cabecera.
- * - app/admin/products/products.components.tsx → AdminHeader, StatCard,
+ * - lib/admin/productos.componentes.tsx → AdminHeader, StatCard,
  *   PrimaryButton, AdminNotice y EmptyState (mismo diseño en todo el panel).
  * - app/admin/products.tsx → los productos usan estas categorías
  *   (category_id) para clasificarse en el catálogo público.
@@ -130,7 +130,7 @@ import {
   IconButton,
   PieVentana,
   PrimaryButton,
-} from "../../lib/admin/products.components";
+} from "../../lib/admin/productos.componentes";
 import {
   AccionTexto,
   Bloque,
@@ -147,8 +147,8 @@ import {
   useDesplegables,
   type IoniconName,
 } from "../../components/admin/PiezasPanelAdmin";
-import { CIERRE_TECLADO, pickMediaFilesWeb, reducirImagenWeb } from "../../lib/admin/products.utils";
-import { MEDIA_BUCKET } from "../../lib/admin/products.constants";
+import { CIERRE_TECLADO, pickMediaFilesWeb, reducirImagenWeb } from "../../lib/admin/productos.utilidades";
+import { MEDIA_BUCKET } from "../../lib/admin/productos.constantes";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 // «−» y «+» de cuánto se ve la foto: de 10 en 10, para que cada toque se note (la barra va de 5 en 5).

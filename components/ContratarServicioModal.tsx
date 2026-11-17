@@ -2,7 +2,7 @@
  * Archivo: components/ContratarServicioModal.tsx
  * Función: componente del formulario «Contratar servicio ahora».
  * Para qué sirve: recoge los datos del cliente y de la opción de servicio elegida (incluida la reparación por envío) y guarda la solicitud en Supabase.
- * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/envio.ts, lib/admin/products.components.tsx (SelectorIOS), components/BotonAtrasAlcance.tsx, CabeceraMarca.tsx, ImagenInteligente.tsx, VenderAhoraModal.tsx (campos), constants/theme.ts, tabla service_requests.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/envio.ts, lib/admin/productos.componentes.tsx (SelectorIOS), components/BotonAtrasAlcance.tsx, CabeceraMarca.tsx, ImagenInteligente.tsx, VenderAhoraModal.tsx (campos), constants/theme.ts, tabla service_requests.
  * Utilizado por: app/servicio/[id].tsx y app/contratar/[id].tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -76,7 +76,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 import { supabase } from "../lib/supabase";
-import { trackEvent } from "../lib/analytics";
+import { trackEvent } from "../lib/analiticaPropia";
 import {
   calcularEtiquetaReparacion,
   cargarAjustesReparacionEnvio,
@@ -88,7 +88,7 @@ import {
   type AjustesReparacionEnvio,
   type ZonaEnvio,
 } from "../lib/envio";
-import { SelectorIOS } from "../lib/admin/products.components";
+import { SelectorIOS } from "../lib/admin/productos.componentes";
 import { BotonAtrasFlotante } from "./BotonAtrasAlcance";
 import CabeceraMarca from "./CabeceraMarca";
 import SmartImage from "./ImagenInteligente";

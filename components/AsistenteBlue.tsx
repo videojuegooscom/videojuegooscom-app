@@ -2,7 +2,7 @@
  * Archivo: components/AsistenteBlue.tsx
  * Función: componente de Blue, la asistente flotante de la tienda (antes una campanita).
  * Para qué sirve: muestra a Blue (avisos, guía de bienvenida y mini-guías, panel de asistente, noticias, valoraciones de pedidos y chat con el equipo) en Inicio, fichas y panel; se monta una sola vez en app/_layout.tsx.
- * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/interaccion.ts, lib/conocimiento.ts, lib/notificaciones.ts, lib/envio.ts, lib/admin/products.utils.ts, components/marca/MarcaAnimada.tsx, BarraBusqueda.tsx, TirarParaActualizar.tsx, PerfilPublico.tsx, VisorFotos.tsx, VentanaValoracion.tsx, CarruselProductosCategoria.tsx, constants/theme.ts, api/blue-ia.ts.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/interaccion.ts, lib/conocimiento.ts, lib/notificaciones.ts, lib/envio.ts, lib/admin/productos.utilidades.ts, components/marca/MarcaAnimada.tsx, BarraBusqueda.tsx, TirarParaActualizar.tsx, PerfilPublico.tsx, VisorFotos.tsx, VentanaValoracion.tsx, CarruselProductosCategoria.tsx, constants/theme.ts, api/blue-ia.ts.
  * Utilizado por: app/_layout.tsx (montaje) y otras pantallas que lo mencionan o lo escuchan (por ejemplo catálogo, ficha de producto, Blue IA y panel).
  * Dependencias: react, react-native, @expo/vector-icons, expo-router, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
@@ -105,7 +105,7 @@
  *   · SOLO CON CUENTA (dueño, 2026-11-11, ventaja de registrarse): los avisos de artículos nuevos y de bajada de
  *     precio. Sin sesión no salen y en «Mis avisos», en vez del interruptor, va «Avisos de bajadas de precio y artículos
  *     nuevos · solo con cuenta» con «Crear cuenta gratis» (crearCuentaPorAvisos: evento «Blue: crear cuenta por
- *     avisos», marcarOrigenRegistro de lib/analytics.ts y vuelta a esta pantalla con VOLVER_TRAS_ACCESO_KEY).
+ *     avisos», marcarOrigenRegistro de lib/analiticaPropia.ts y vuelta a esta pantalla con VOLVER_TRAS_ACCESO_KEY).
  *     Administración → Analítica lo mide (#analitica-blue-avisos-cuenta). Se prueba con la sección AC de
  *     pruebas/perfil-datos.mjs.
  *   · Artículos nuevos: si el cliente lo activa (preferencias_usuario.avisos_novedades), cuenta los productos con
@@ -199,7 +199,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { rolDeUsuario, supabase } from "../lib/supabase";
-import { getAnalyticsConsent, marcarOrigenRegistro, marcarOrigenVender, trackEvent, trasPrimeraPintura } from "../lib/analytics";
+import { getAnalyticsConsent, marcarOrigenRegistro, marcarOrigenVender, trackEvent, trasPrimeraPintura } from "../lib/analiticaPropia";
 import {
   alCambiarAvisosPrecio,
   alCambiarAvisosReposicion,
@@ -210,7 +210,7 @@ import {
   misMeGustaServidor,
   precioReferenciaAviso,
 } from "../lib/interaccion";
-import { sinEmojis } from "../lib/admin/products.utils";
+import { sinEmojis } from "../lib/admin/productos.utilidades";
 import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaConocimiento } from "../lib/conocimiento";
 import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificaciones";
 import MarcaAnimada from "./marca/MarcaAnimada";

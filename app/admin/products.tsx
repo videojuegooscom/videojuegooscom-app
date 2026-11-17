@@ -2,7 +2,7 @@
  * Archivo: app/admin/products.tsx
  * Función: pantalla de administración de productos, en la dirección /admin/products.
  * Para qué sirve: el administrador lista, filtra, busca, crea, edita, publica u oculta, destaca y borra productos del catálogo, con sus fotos y vídeo, peso, reserva y venta a clientes.
- * Conectado con: lib/supabase.ts (tablas products y product_media, bucket de Storage de fotos), lib/envio.ts, components/PortadasCategoria.tsx, lib/admin/products.components.ts, products.constants.ts, products.types.ts y products.utils.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tablas products y product_media, bucket de Storage de fotos), lib/envio.ts, components/PortadasCategoria.tsx, lib/admin/productos.componentes.tsx, productos.constantes.ts, productos.tipos.ts y productos.utilidades.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/products, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Productos» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -19,8 +19,8 @@
  *   (con detección automática de si "product_media" existe todavía).
  * - El modal de alta/edición sube los archivos seleccionados a Supabase
  *   Storage (bucket MEDIA_BUCKET) usando pickMediaFilesWeb() y
- *   buildMediaPath() de products.utils.ts, validando tamaño, tipo y
- *   duración de vídeo con los límites de products.constants.ts.
+ *   buildMediaPath() de productos.utilidades.ts, validando tamaño, tipo y
+ *   duración de vídeo con los límites de productos.constantes.ts.
  * - "Crear producto"/"Guardar cambios" YA NO espera a que terminen de
  *   subirse las fotos/vídeo: la ficha (título, precio, estado...) se guarda,
  *   el modal se cierra al instante y la subida sigue en segundo plano
@@ -41,7 +41,7 @@
  *   tabla, así que la miniatura en components/Resenas.tsx aparece igual
  *   venga de una vía o de la otra.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
- *   textos en azul marino oscuro (COLORS de products.constants.ts).
+ *   textos en azul marino oscuro (COLORS de productos.constantes.ts).
  *
  * Conectado con:
  * - api/escaparate-retorno.ts → al guardar un producto (y al terminar sus fotos) se despierta el puente: un producto
@@ -54,11 +54,11 @@
  *   (se comprueba con «*» en una fila, sin errores en la consola). VeoAura no las pisa al publicar.
  * - sql/product_sales.sql → tabla e insert de "Marcar vendido".
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
- * - app/admin/products/products.constants.ts → COLORS y límites de subida.
- * - app/admin/products/products.types.ts → tipos de producto y media.
- * - app/admin/products/products.utils.ts → formateo, validación y subida
+ * - lib/admin/productos.constantes.ts → COLORS y límites de subida.
+ * - lib/admin/productos.tipos.ts → tipos de producto y media.
+ * - lib/admin/productos.utilidades.ts → formateo, validación y subida
  *   de archivos.
- * - app/admin/products/products.components.tsx → AdminHeader, PrimaryButton,
+ * - lib/admin/productos.componentes.tsx → AdminHeader, PrimaryButton,
  *   AdminNotice, EmptyState, StatCard, ChipButton, FilterPill y MediaThumb
  *   usados en esta pantalla.
  * - components/marca/CargaMarca.tsx → estado de "cargando" con la mascota.
@@ -83,7 +83,7 @@
  * Antes eran fichas en rejilla (2 por fila en el móvil).
  *
  * Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px, grises desde
- * COLORS.muted (= COLORES_TEXTO.secundario) y filtros, chips y volver de 44 px (lib/admin/products.components.tsx).
+ * COLORS.muted (= COLORES_TEXTO.secundario) y filtros, chips y volver de 44 px (lib/admin/productos.componentes.tsx).
  *
  * ?editar=<id> (mejora 10, 2026-11-15): «Editar en Productos» desde Administración → Chats abre ya el formulario de ese
  * producto (una sola vez, en cuanto llega la lista).
@@ -155,14 +155,14 @@ import {
   PrimaryButton,
   SelectorIOS,
   useSeleccionFotos,
-} from "../../lib/admin/products.components";
+} from "../../lib/admin/productos.componentes";
 import {
   COLORS,
   MAX_FILE_SIZE_MB,
   MAX_IMAGES,
   MAX_VIDEO_SECONDS,
   MEDIA_BUCKET,
-} from "../../lib/admin/products.constants";
+} from "../../lib/admin/productos.constantes";
 import type {
   CategoryRow,
   LocalPickedMedia,
@@ -172,7 +172,7 @@ import type {
   ProductStatus,
   StatusFilter,
   VisibilityFilter,
-} from "../../lib/admin/products.types";
+} from "../../lib/admin/productos.tipos";
 import {
   CIERRE_TECLADO,
   buildMediaPath,
@@ -184,7 +184,7 @@ import {
   labelStatus,
   pickMediaFilesWeb,
   toPriceSafe,
-} from "../../lib/admin/products.utils";
+} from "../../lib/admin/productos.utilidades";
 
 // Texto de partida del campo "Descripción" al crear un producto nuevo — la
 // mayoría de artículos llevan siempre este mismo bloque, así que en vez de
@@ -434,7 +434,7 @@ async function fetchAdminProductsSafe(): Promise<{
   throw new Error("No se pudo cargar la lista de productos.");
 }
 
-// Estado, Condición y Categoría del formulario de producto: SelectorIOS (lib/admin/products.components.tsx), el mismo
+// Estado, Condición y Categoría del formulario de producto: SelectorIOS (lib/admin/productos.componentes.tsx), el mismo
 // desplegable de Servicios, que abre el selector del propio móvil (en el iPhone, la rueda de iOS; dueño, 2026-11-04).
 
 type ProductListItemData = ProductRow & { catName: string };

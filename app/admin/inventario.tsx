@@ -2,7 +2,7 @@
  * Archivo: app/admin/inventario.tsx
  * Función: pantalla de administración de inventario interno, en la dirección /admin/inventario.
  * Para qué sirve: el administrador lista, crea, edita, cambia de estado (por revisar, listo, en reparación) y borra las unidades físicas que gestiona la tienda.
- * Conectado con: lib/supabase.ts (tabla inventory_items; sql/inventory_items.sql), lib/admin/products.components.ts, lib/admin/products.utils.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tabla inventory_items; sql/inventory_items.sql), lib/admin/productos.componentes.tsx, lib/admin/productos.utilidades.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/inventario, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Inventario» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -47,7 +47,7 @@
  * - sql/inventory_items.sql → crea la tabla y sus políticas (solo admin).
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
  *   "Inventario") y a la que se vuelve con el botón de la cabecera.
- * - lib/admin/products.components.tsx → AdminHeader, PrimaryButton, AdminNotice, EmptyState, BotonFlotante.
+ * - lib/admin/productos.componentes.tsx → AdminHeader, PrimaryButton, AdminNotice, EmptyState, BotonFlotante.
  * - components/admin/PiezasPanelAdmin.tsx → cifras, buscador, pastillas, filas y bloques; pruebas/perfil-datos.mjs (TM5 y PANRED3).
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -74,8 +74,8 @@ import {
   IconButton,
   PieVentana,
   PrimaryButton,
-} from "../../lib/admin/products.components";
-import { CIERRE_TECLADO } from "../../lib/admin/products.utils";
+} from "../../lib/admin/productos.componentes";
+import { CIERRE_TECLADO } from "../../lib/admin/productos.utilidades";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import {
   AccionTexto,

@@ -2,7 +2,7 @@
  * Archivo: app/admin/cliente/[userId].tsx
  * Función: ficha de un cliente en el panel, en la dirección /admin/cliente/<userId>.
  * Para qué sirve: el administrador ve en un solo sitio lo que la tienda sabe de esa persona (perfil, compras, ventas que intentó, servicios, dispositivos, pedidos) y sus notas internas.
- * Conectado con: lib/supabase.ts (tablas product_sales, sell_requests, service_requests, perfiles_cliente, cliente_dispositivos y notas), lib/envio.ts, lib/openExternalLink.ts, lib/admin/products.components.ts y products.utils.ts, components/VentanaValoracion.tsx, PerfilPublico.tsx, ConversacionProducto.tsx, ImagenInteligente.tsx, marca/CargaMarca.tsx.
+ * Conectado con: lib/supabase.ts (tablas product_sales, sell_requests, service_requests, perfiles_cliente, cliente_dispositivos y notas), lib/envio.ts, lib/abrirEnlaceExterno.ts, lib/admin/productos.componentes.tsx y productos.utilidades.ts, components/VentanaValoracion.tsx, PerfilPublico.tsx, ConversacionProducto.tsx, ImagenInteligente.tsx, marca/CargaMarca.tsx.
  * Utilizado por: Expo Router (dirección /admin/cliente/<userId>, protegida por app/admin/_layout.tsx); la abre cada fila de app/admin/users.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -107,7 +107,7 @@
  * - app/admin/users.tsx → navega aquí al tocar una fila de la lista.
  * - app/admin/_layout.tsx → registra esta ruta ("cliente/[userId]").
  * - app/admin/chats.tsx y app/admin/pedidos.tsx → a donde llevan las acciones rápidas.
- * - lib/admin/products.components.tsx → useGestoPestanas (deslizar para cambiar de pestaña, como en Servicios).
+ * - lib/admin/productos.componentes.tsx → useGestoPestanas (deslizar para cambiar de pestaña, como en Servicios).
  * - pruebas/perfil-datos.mjs → secciones E, DV, PT, ME, M y FC (este diseño).
  * - Migración de Supabase (no hay ya un .sql local por cada cambio, ver
  *   sql/README.md): customer_notes, sell_requests.customer_user_id,
@@ -141,9 +141,9 @@ import {
 } from "../../../components/VentanaValoracion";
 import { cargarHistorialPedidos, type HistorialPedidos } from "../../../lib/envio";
 import { datosDeFila, direccionEnUnaLinea, direccionesDeFila, textoEtiqueta } from "../../../components/PerfilPublico";
-import { openExternalLink } from "../../../lib/openExternalLink";
-import { useGestoPestanas } from "../../../lib/admin/products.components";
-import { fmtEUR } from "../../../lib/admin/products.utils";
+import { openExternalLink } from "../../../lib/abrirEnlaceExterno";
+import { useGestoPestanas } from "../../../lib/admin/productos.componentes";
+import { fmtEUR } from "../../../lib/admin/productos.utilidades";
 import { cargarArticulosChat, EtiquetaEstadoArticulo, type ArticuloChat } from "../../../components/ConversacionProducto";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el

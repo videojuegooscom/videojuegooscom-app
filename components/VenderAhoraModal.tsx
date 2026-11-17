@@ -2,7 +2,7 @@
  * Archivo: components/VenderAhoraModal.tsx
  * Función: componente del formulario «Vender ahora» (página Vender).
  * Para qué sirve: recoge los datos de contacto y del artículo (con fotos y vídeo obligatorios) y guarda la solicitud de venta en Supabase; exporta además campos reutilizables (FieldInput, FieldLabel, SelectField, IsMobileContext).
- * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/notificaciones.ts, components/FotosVideoVenta.tsx, components/PerfilPublico.tsx (datosDeFila), CabeceraMarca.tsx, constants/theme.ts, tabla sell_requests.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/notificaciones.ts, components/FotosVideoVenta.tsx, components/PerfilPublico.tsx (datosDeFila), CabeceraMarca.tsx, constants/theme.ts, tabla sell_requests.
  * Utilizado por: app/vender.tsx, app/(tabs)/index.tsx, app/(tabs)/cesta.tsx, app/(tabs)/chat-global.tsx y components/ContratarServicioModal.tsx (campos).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -152,7 +152,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 import { supabase } from "../lib/supabase";
-import { leerOrigenVender, marcarOrigenVender, trackEvent } from "../lib/analytics";
+import { leerOrigenVender, marcarOrigenVender, trackEvent } from "../lib/analiticaPropia";
 import CabeceraMarca from "./CabeceraMarca";
 import { activarNotificaciones, estadoNotificaciones, type EstadoNotificaciones } from "../lib/notificaciones";
 import {

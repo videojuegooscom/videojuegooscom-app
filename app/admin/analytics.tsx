@@ -2,7 +2,7 @@
  * Archivo: app/admin/analytics.tsx
  * Función: pantalla de administración «Visitas y métricas» (analítica propia), en la dirección /admin/analytics.
  * Para qué sirve: el administrador mide visitas, recorrido del cliente, búsquedas, pagos, reparaciones, alquiler y el uso de cada función nueva de la tienda, solo con datos agregados y respetando a quien rechazó la analítica.
- * Conectado con: lib/supabase.ts (tabla analytics_events y funciones SQL analytics_*), lib/envio.ts, lib/alquiler.ts, constants/theme.ts, components/marca/CargaMarca.tsx, lib/admin/products.components.ts, components/admin/PiezasPanelAdmin.tsx; los eventos los escribe lib/analytics.ts desde casi todas las pantallas.
+ * Conectado con: lib/supabase.ts (tabla analytics_events y funciones SQL analytics_*), lib/envio.ts, lib/alquiler.ts, constants/theme.ts, components/marca/CargaMarca.tsx, lib/admin/productos.componentes.tsx, components/admin/PiezasPanelAdmin.tsx; los eventos los escribe lib/analiticaPropia.ts desde casi todas las pantallas.
  * Utilizado por: Expo Router (dirección /admin/analytics, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Visitas y métricas» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -18,7 +18,7 @@
  * renovaciones, solo números (lib/alquiler.ts y app/admin/alquileres.tsx; sección ALQ2 de pruebas/perfil-datos.mjs).
  *
  * Cómo funciona:
- * - Todo sale de la tabla analytics_events (que rellena lib/analytics.ts
+ * - Todo sale de la tabla analytics_events (que rellena lib/analiticaPropia.ts
  *   desde Inicio, Catálogo y la ficha de producto) a través de 4 funciones
  *   SQL ya creadas en Supabase: analytics_totals, analytics_daily_visitors,
  *   analytics_funnel y (no usada aquí directamente) analytics_top_metadata.
@@ -62,7 +62,7 @@
  *
  * Conectado con:
  * - lib/supabase.ts → cliente para llamar a las funciones RPC.
- * - lib/analytics.ts → quien registra los eventos que esta pantalla resume.
+ * - lib/analiticaPropia.ts → quien registra los eventos que esta pantalla resume.
  * - app/noticias/[id].tsx, app/noticias/index.tsx → «Noticias: visitas desde Google»
  *   (#analitica-noticias-organicas): páginas vistas por categoría y entradas desde buscadores.
  * - app/(tabs)/blue-ia.tsx → «Blue: ver mis facturas» y «Blue: factura descargada» (#analitica-facturas, 2026-11-11).
@@ -83,7 +83,7 @@
  *   sin cancelados; solo lee origen, estado y total (ningún dato de nadie). Sin la migración, no sale.
  * - components/AsistenteBlue.tsx → «Avisos de Blue solo con cuenta» (#analitica-blue-avisos-cuenta): cuentas con los
  *   avisos de artículos nuevos (recuento de preferencias_usuario, sin filas ni la del administrador), toques en
- *   «Crear cuenta gratis» y cuentas creadas después (lib/analytics.ts → marcarOrigenRegistro).
+ *   «Crear cuenta gratis» y cuentas creadas después (lib/analiticaPropia.ts → marcarOrigenRegistro).
  * - Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px y grises desde
  *   COLORES_TEXTO.secundario (antes 12/12,5 px y gris 0,48), sin tocar los gráficos ni los datos.
  * - «Búsquedas (30 días)» (#analitica-busquedas, mejora 3 del 2026-11-14): lee los eventos busqueda,
@@ -128,7 +128,7 @@
  *   lista con las bajas (1-2) arriba y «Ver pedido» (Pedidos con ?buscar=VZ-…); eventos valoracion_pedida (origen blue o
  *   mis_pedidos), valoracion_abierta y valoracion_baja_chat (valoracion_enviada lleva la nota), sin datos personales.
  * - «Velocidad de la tienda (30 días)» (#analitica-velocidad, mejora 7 «Carga más rápida» del 2026-11-14): evento
- *   rendimiento_carga (lib/analytics.ts → medirCargaPantalla, una vez por visita: ms hasta la primera pantalla útil de
+ *   rendimiento_carga (lib/analiticaPropia.ts → medirCargaPantalla, una vez por visita: ms hasta la primera pantalla útil de
  *   Inicio, Catálogo o la ficha, ancho por tramos y tipo de conexión; sin datos de nadie). Mediana y percentil 75 por
  *   pantalla y por móvil/tableta/ordenador.
  * - Rediseño PANRED5 (tanda 5, 2026-11-16; components/admin/PiezasPanelAdmin.tsx): las cuatro cifras del rango (Visitantes, Páginas
@@ -157,7 +157,7 @@ import { supabase } from "../../lib/supabase";
 import { cargarAjustesReparacionEnvio } from "../../lib/envio";
 import { eurosAlquiler, mesesContratados } from "../../lib/alquiler";
 import CargaMarca from "../../components/marca/CargaMarca";
-import { AdminHeader, AdminNotice } from "../../lib/admin/products.components";
+import { AdminHeader, AdminNotice } from "../../lib/admin/productos.componentes";
 import { Chip, Cifra, Detalle, FilaCifras, FilaPastillas, PANEL } from "../../components/admin/PiezasPanelAdmin";
 
 const COLORS = {
@@ -201,7 +201,7 @@ type DatePreset = "today" | "7d" | "30d" | "90d" | "all" | "custom";
 // propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.
 const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
-// «Velocidad de la tienda (30 días)»: pantallas y tramos de ancho que mide lib/analytics.ts (medirCargaPantalla).
+// «Velocidad de la tienda (30 días)»: pantallas y tramos de ancho que mide lib/analiticaPropia.ts (medirCargaPantalla).
 // Momentos de los consejos de Blue (components/AsistenteBlue.tsx → MomentoBlue) y su nombre en la tarjeta.
 const MOMENTOS_CONSEJO: [string, string][] = [
   ["cesta", "Primera compra (cesta)"],
@@ -701,7 +701,7 @@ export default function AdminAnalytics() {
   }, []);
 
   // Búsquedas (mejora 3, 2026-11-14): los últimos 30 días, aparte de las fechas de arriba. Solo eventos propios de quien
-  // aceptó la analítica (lib/analytics.ts), con el texto normalizado y sin datos personales.
+  // aceptó la analítica (lib/analiticaPropia.ts), con el texto normalizado y sin datos personales.
   const [busquedas, setBusquedas] = useState<{
     total: number;
     top: { texto: string; n: number; resultados: number }[];
@@ -1380,7 +1380,7 @@ export default function AdminAnalytics() {
     };
   }, []);
 
-  // Velocidad de la tienda (carga rápida, mejora 7 del 2026-11-14): eventos rendimiento_carga de 30 días (lib/analytics.ts →
+  // Velocidad de la tienda (carga rápida, mejora 7 del 2026-11-14): eventos rendimiento_carga de 30 días (lib/analiticaPropia.ts →
   // medirCargaPantalla: ms hasta la primera pantalla útil, pantalla y ancho por tramos). Mediana y percentil 75 (por rango:
   // el valor que deja por debajo la mitad o tres cuartos de las visitas) por pantalla y por móvil/tableta/ordenador; solo
   // las combinaciones con visitas.
@@ -1649,7 +1649,7 @@ export default function AdminAnalytics() {
     };
   }, [funnel]);
 
-  // Redes sociales (lib/analytics.ts → medirLlegadaDesdeRedes / medirCuentaCreada): visitas que llegan de Instagram y de
+  // Redes sociales (lib/analiticaPropia.ts → medirLlegadaDesdeRedes / medirCuentaCreada): visitas que llegan de Instagram y de
   // TikTok, cuántas de ellas crean una cuenta y todas las cuentas creadas, para ver qué red funciona mejor.
   const redes = useMemo(() => {
     const exacto = (label: string) => funnel.find((f) => f.step_label === label)?.sessions ?? 0;
@@ -1670,7 +1670,7 @@ export default function AdminAnalytics() {
   }, [funnel]);
 
   // Noticias con página propia (app/noticias/[id].tsx): páginas vistas por categoría, el índice, «Comentar en el Foro»
-  // y las visitas que ENTRAN por una noticia desde un buscador (solo el nombre del buscador, lib/analytics.ts).
+  // y las visitas que ENTRAN por una noticia desde un buscador (solo el nombre del buscador, lib/analiticaPropia.ts).
   const noticiasOrganicas = useMemo(() => {
     const porPrefijo = (prefijo: string) =>
       funnel

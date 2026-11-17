@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/_layout.tsx
  * Función: layout de la barra de pestañas inferior (Inicio, Perfil, Cesta, Foro, Blue IA) de la tienda.
  * Para qué sirve: el cliente se mueve entre las cinco pantallas principales con una barra compacta; un triple toque recarga la pestaña y el icono activo brilla mientras hay algo cargando.
- * Conectado con: lib/loadingBus.ts (estado de carga), components/EfectoPensando.tsx (BrilloIconoSeccion), constants/theme.ts, lib/tabBar.ts (altura de la barra); no llama a Supabase ni a api/.
+ * Conectado con: lib/estadoCarga.ts (estado de carga), components/EfectoPensando.tsx (BrilloIconoSeccion), constants/theme.ts, lib/barraPestanas.ts (altura de la barra); no llama a Supabase ni a api/.
  * Utilizado por: Expo Router (layout del grupo (tabs), registrado en app/_layout.tsx); contiene index, perfil, cesta, chat-global y blue-ia.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-navigation/native, @react-navigation/bottom-tabs.
  * Estado: ACTIVO
@@ -31,7 +31,7 @@
  *   cambia aquí, conviene revisar SEARCH_LAYOUT.mobileTabBarHeight /
  *   desktopTabBarHeight en app/(tabs)/index.tsx, que asumen esta altura
  *   para colocar la barra de búsqueda flotante en su posición "abajo".
- * - Mientras hay algo cargando (useCargando() de lib/loadingBus.ts, el
+ * - Mientras hay algo cargando (useCargando() de lib/estadoCarga.ts, el
  *   mismo estado que enciende el marco Siri), el icono de la pestaña activa
  *   brilla: halo azul #1EA7E8 que pulsa y el icono crece un 8 % (ver
  *   BrilloIconoSeccion). React Navigation pinta cada icono dos veces (capa
@@ -49,14 +49,14 @@
  *   clave no cambia, como último recurso se recarga la página
  *   (window.location.reload, solo web). Respuesta visual: el icono da una
  *   vuelta rápida (360°) y se enciende el efecto Siri al momento
- *   (pulseLoading(…, true) de lib/loadingBus.ts). Los toques sueltos siguen
+ *   (pulseLoading(…, true) de lib/estadoCarga.ts). Los toques sueltos siguen
  *   igual: cambiar de pestaña o, en la activa, volver arriba.
  *
  * Conectado con:
  * - app/(tabs)/index.tsx, perfil.tsx, cesta.tsx, chat-global.tsx,
  *   blue-ia.tsx → las 5 pantallas que aparecen como pestañas aquí.
  * - app/_layout.tsx → layout raíz que monta este grupo "(tabs)".
- * - lib/loadingBus.ts → useCargando() para saber cuándo brillar y
+ * - lib/estadoCarga.ts → useCargando() para saber cuándo brillar y
  *   pulseLoading() al recargar una pestaña.
  * - components/EfectoPensando.tsx → BrilloIconoSeccion (halo).
  * - constants/theme.ts → TAMANOS, COLORES_TEXTO y colorTextoAzul.
@@ -71,8 +71,8 @@ import {
   TAB_BAR_BASE_HEIGHT,
   TAB_BAR_BASE_PADDING_BOTTOM,
   useTabBarBottomInset,
-} from "../../lib/tabBar";
-import { pulseLoading, useCargando } from "../../lib/loadingBus";
+} from "../../lib/barraPestanas";
+import { pulseLoading, useCargando } from "../../lib/estadoCarga";
 import { BrilloIconoSeccion } from "../../components/EfectoPensando";
 import { colorTextoAzul, COLORES_TEXTO, TAMANOS } from "../../constants/theme";
 
@@ -219,7 +219,7 @@ const COLORS = {
 };
 
 export default function TabsLayout() {
-  // Zona segura inferior del iPhone en la web (ver lib/tabBar.ts): se suma a la altura y al
+  // Zona segura inferior del iPhone en la web (ver lib/barraPestanas.ts): se suma a la altura y al
   // margen inferior para que los nombres de las secciones no queden cortados por abajo.
   const bottomInset = useTabBarBottomInset();
 
@@ -258,7 +258,7 @@ export default function TabsLayout() {
           paddingVertical: 1,
         },
         // Nombre de la sección a 13 px (TAMANOS.minimo; antes 11, y antes aún 10) con su alto
-        // justo: los botones miden 62 px (lib/tabBar.ts) y caben icono 28 + nombre 16. «Blue IA»,
+        // justo: los botones miden 62 px (lib/barraPestanas.ts) y caben icono 28 + nombre 16. «Blue IA»,
         // el más largo, cabe en una línea a 360 px con las 5 pestañas (72 px cada una).
         tabBarLabelStyle: {
           fontSize: TAMANOS.minimo,

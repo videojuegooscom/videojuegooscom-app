@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/index.tsx
  * Función: pantalla de Inicio (pestaña «Inicio»), en la dirección /.
  * Para qué sirve: es el escaparate de la tienda para el cliente: buscador flotante, categorías con portada, oferta de la semana, recién llegados, vistos recientemente, reseñas, preguntas frecuentes y pie de página, con accesos a Vender, Servicios y Quiénes somos.
- * Conectado con: lib/supabase.ts (tabla products y categorías), lib/analytics.ts, lib/tabBar.ts, lib/admin/products.utils.ts, constants/theme.ts, components/BarraBusqueda.tsx, CarruselProductosCategoria.tsx, PortadasCategoria.tsx, Resenas.tsx, PieDePagina.tsx, ImagenInteligente.tsx, EnlacesRedesSociales.tsx, TirarParaActualizar.tsx y components/marca/*.
+ * Conectado con: lib/supabase.ts (tabla products y categorías), lib/analiticaPropia.ts, lib/barraPestanas.ts, lib/admin/productos.utilidades.ts, constants/theme.ts, components/BarraBusqueda.tsx, CarruselProductosCategoria.tsx, PortadasCategoria.tsx, Resenas.tsx, PieDePagina.tsx, ImagenInteligente.tsx, EnlacesRedesSociales.tsx, TirarParaActualizar.tsx y components/marca/*.
  * Utilizado por: Expo Router (dirección /, pestaña «Inicio» de app/(tabs)/_layout.tsx); es el destino del logo y de volver a Inicio desde casi todas las pantallas.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-navigation/bottom-tabs y @react-navigation/native (tipos).
  * Estado: ACTIVO
@@ -53,7 +53,7 @@
  *   el rebote por sí solo ya no las hace reaparecer, hace falta que el
  *   usuario suba de verdad un poco más para volver a verlas.
  *
- * - Analítica propia (lib/analytics.ts): al entrar se registra el paso
+ * - Analítica propia (lib/analiticaPropia.ts): al entrar se registra el paso
  *   "Inicio", el scroll dispara "Scroll" (con límite de frecuencia para no
  *   mandar un evento por pixel) y, la primera vez que el bloque de reseñas
  *   entra en pantalla, se registra "Reseñas". Todo esto respeta el aviso de
@@ -66,7 +66,7 @@
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para los productos destacados.
- * - lib/analytics.ts → registro del recorrido del visitante para el panel
+ * - lib/analiticaPropia.ts → registro del recorrido del visitante para el panel
  *   de métricas del admin.
  * - components/BarraBusqueda.tsx → barra de búsqueda (aquí, en modo flotante
  *   vía FloatingBarramagic; app/catalogo.tsx usa el mismo archivo en modo
@@ -125,9 +125,9 @@ import { RedJuntoAlLogo, ResenasCanales, useRedesJuntoAlLogo, useResenasCanales 
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { supabase } from "../../lib/supabase";
-import { sinEmojis } from "../../lib/admin/products.utils";
-import { medirCargaPantalla, trackEvent, trackEventThrottled } from "../../lib/analytics";
-import { useTabBarBottomInset } from "../../lib/tabBar";
+import { sinEmojis } from "../../lib/admin/productos.utilidades";
+import { medirCargaPantalla, trackEvent, trackEventThrottled } from "../../lib/analiticaPropia";
+import { useTabBarBottomInset } from "../../lib/barraPestanas";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -1609,7 +1609,7 @@ function EsqueletoOferta({ isDesktopish, isWide, isMobile }: { isDesktopish: boo
 }
 
 export default function HomeScreen() {
-  // La barra de pestañas crece con la zona segura del iPhone (lib/tabBar.ts): lo que flota
+  // La barra de pestañas crece con la zona segura del iPhone (lib/barraPestanas.ts): lo que flota
   // justo encima (buscador y "volver arriba") se desplaza lo mismo para no quedar tapado.
   const tabBarInset = useTabBarBottomInset();
   const mobileTabBarHeight = SEARCH_LAYOUT.mobileTabBarHeight + tabBarInset;

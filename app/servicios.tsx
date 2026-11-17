@@ -2,7 +2,7 @@
  * Archivo: app/servicios.tsx
  * Función: pantalla de catálogo público de servicios (reparación, limpieza, mantenimiento), en la dirección /servicios.
  * Para qué sirve: el cliente ve los servicios publicados, los busca por texto y entra a la ficha de cada uno.
- * Conectado con: lib/supabase.ts (tablas services y service_media), lib/analytics.ts, components/CarruselProductosCategoria.tsx (tarjetas y rejilla), components/CabeceraMarca.tsx, components/marca/*, components/TirarParaActualizar.tsx, constants/theme.ts.
+ * Conectado con: lib/supabase.ts (tablas services y service_media), lib/analiticaPropia.ts, components/CarruselProductosCategoria.tsx (tarjetas y rejilla), components/CabeceraMarca.tsx, components/marca/*, components/TirarParaActualizar.tsx, constants/theme.ts.
  * Utilizado por: Expo Router (dirección /servicios); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/quienes-somos.tsx, app/noticias/[id].tsx, app/servicio/[id].tsx, app/contratar/[id].tsx, components/BarraBusqueda.tsx, components/AsistenteBlue.tsx; app/admin/services.tsx importa de aquí enlaceVideo y esEnlaceCorto.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -51,7 +51,7 @@ import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
 import { useRecarga } from "../components/TirarParaActualizar";
-import { trackEvent } from "../lib/analytics";
+import { trackEvent } from "../lib/analiticaPropia";
 import { CAMPO } from "../constants/theme";
 
 const COLORS = {

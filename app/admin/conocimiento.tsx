@@ -2,7 +2,7 @@
  * Archivo: app/admin/conocimiento.tsx
  * Función: pantalla de administración «Lo que Blue sabe de la tienda», en la dirección /admin/conocimiento.
  * Para qué sirve: el dueño escribe respuestas reales (horario, envíos, garantía, pagos…) que Blue IA usa al contestar a los clientes; también contesta a los temas que Blue le propone.
- * Conectado con: lib/supabase.ts (tabla blue_conocimiento), lib/conocimiento.ts, lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; components/AsistenteBlue.tsx propone temas y api/blue-ia.ts las usa.
+ * Conectado con: lib/supabase.ts (tabla blue_conocimiento), lib/conocimiento.ts, lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; components/AsistenteBlue.tsx propone temas y api/blue-ia.ts las usa.
  * Utilizado por: Expo Router (dirección /admin/conocimiento, protegida por app/admin/_layout.tsx); la enlaza la tarjeta correspondiente de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -51,7 +51,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { AdminHeader, AdminLoading, AdminNotice, BotonFlotante, EmptyState, IconButton, PieVentana } from "../../lib/admin/products.components";
+import { AdminHeader, AdminLoading, AdminNotice, BotonFlotante, EmptyState, IconButton, PieVentana } from "../../lib/admin/productos.componentes";
 import { guardarConocimiento, TEMAS_CONOCIMIENTO, type ItemConocimiento } from "../../lib/conocimiento";
 import { CAMPO, COLORES_TEXTO, TAMANOS } from "../../constants/theme";
 import {

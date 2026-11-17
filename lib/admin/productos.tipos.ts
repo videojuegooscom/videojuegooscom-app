@@ -1,9 +1,9 @@
 /**
- * Archivo: lib/admin/products.types.ts
+ * Archivo: lib/admin/productos.tipos.ts
  * Función: tipos TypeScript compartidos de la administración de productos.
  * Para qué sirve: describe la forma de categorías, productos, media de producto, filtros y estados de formulario que van y vienen de Supabase y del editor de productos; no contiene lógica.
- * Conectado con: lib/admin/products.utils.ts, lib/admin/products.components.tsx, tablas categories, products y product_media.
- * Utilizado por: app/admin/products.tsx, app/admin/services.tsx, lib/admin/products.utils.ts y lib/admin/products.components.tsx.
+ * Conectado con: lib/admin/productos.utilidades.ts, lib/admin/productos.componentes.tsx, tablas categories, products y product_media.
+ * Utilizado por: app/admin/products.tsx, app/admin/services.tsx, lib/admin/productos.utilidades.ts y lib/admin/productos.componentes.tsx.
  * Dependencias: ninguna externa.
  * Estado: ACTIVO
  */
@@ -19,9 +19,9 @@
  *
  * Conectado con:
  * - app/admin/products.tsx → usa casi todos estos tipos para su estado.
- * - app/admin/products/products.components.tsx → usa ProductMediaRow,
+ * - lib/admin/productos.componentes.tsx → usa ProductMediaRow,
  *   LocalPickedMedia y ProductMediaKind en MediaThumb.
- * - app/admin/products/products.utils.ts → usa varios de estos tipos en
+ * - lib/admin/productos.utilidades.ts → usa varios de estos tipos en
  *   sus funciones auxiliares (fmtEUR, labelStatus, labelCond, etc.).
  */
 export type CategoryRow = {

@@ -95,7 +95,7 @@
  *   por qué y «Quitar silencio»). Sin esa migración, solo los comentarios de
  *   noticias eliminados (ocultos). Se modera desde el propio Foro: tocar el
  *   mensaje → papelera o «Silenciar». Lo que hace un administrador no se
- *   cuenta con la analítica propia (lib/analytics.ts no le registra).
+ *   cuenta con la analítica propia (lib/analiticaPropia.ts no le registra).
  * - "«Mis seguimientos» (30 días)": personas distintas que abrieron esa
  *   pestaña de Perfil y cuántas lo hicieron deslizando (analítica propia
  *   seguimientos_abiertos, solo de quien aceptó la analítica); y los números de

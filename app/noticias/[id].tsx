@@ -2,7 +2,7 @@
  * Archivo: app/noticias/[id].tsx
  * Función: pantalla de una noticia, en la dirección /noticias/<id>.
  * Para qué sirve: el cliente (y Google) lee una noticia de consolas y videojuegos con resumen, puntos clave, fuente y enlace para comentar en el Foro; pone su propio título y datos SEO en el head.
- * Conectado con: lib/supabase.ts (tabla noticias_gaming; la llena api/noticias-gaming.ts), lib/analytics.ts, components/EtiquetasCabeceraWeb.tsx (upsertMeta, upsertLink), ImagenInteligente, CabeceraMarca, TirarParaActualizar y components/marca/*, app/servicio/[id].tsx (faltaColumna).
+ * Conectado con: lib/supabase.ts (tabla noticias_gaming; la llena api/noticias-gaming.ts), lib/analiticaPropia.ts, components/EtiquetasCabeceraWeb.tsx (upsertMeta, upsertLink), ImagenInteligente, CabeceraMarca, TirarParaActualizar y components/marca/*, app/servicio/[id].tsx (faltaColumna).
  * Utilizado por: Expo Router (dirección /noticias/<id>); la enlazan app/noticias/index.tsx (que además importa funciones de aquí) y app/(tabs)/chat-global.tsx (Foro).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -26,7 +26,7 @@
  *
  * Analítica propia (Administración → Analítica, #analitica-noticias-organicas): «Noticias: página vista · <categoría>»
  * y, si la visita entró por la noticia desde un buscador, «Noticias: llegada desde buscador · Google» (solo el nombre
- * del buscador; lib/analytics.ts → medirNoticiaDesdeBuscador).
+ * del buscador; lib/analiticaPropia.ts → medirNoticiaDesdeBuscador).
  *
  * Conectado con:
  * - lib/supabase.ts → tabla noticias_gaming (lectura pública, publicada = true); la llena api/noticias-gaming.ts.
@@ -35,14 +35,14 @@
  * - app/noticias/index.tsx → el índice de noticias (usa leerFotosNoticia, CATEGORIAS_NOTICIAS y fechaNoticia de aquí).
  * - app/(tabs)/chat-global.tsx → el Foro («Comentar en el Foro»; su tarjeta enlaza aquí y comparte esta dirección).
  * - api/sitemap.ts → cada noticia de los últimos 90 días; vercel.json → rewrite /noticias/:id.
- * - lib/analytics.ts → trackEvent y medirNoticiaDesdeBuscador; app/admin/analytics.tsx → su tarjeta.
+ * - lib/analiticaPropia.ts → trackEvent y medirNoticiaDesdeBuscador; app/admin/analytics.tsx → su tarjeta.
  */
 import React, { useEffect, useState } from "react";
 import { Linking, Platform, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
 import { Link, router, useLocalSearchParams, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
-import { medirNoticiaDesdeBuscador, trackEvent } from "../../lib/analytics";
+import { medirNoticiaDesdeBuscador, trackEvent } from "../../lib/analiticaPropia";
 import SmartImage from "../../components/ImagenInteligente";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";

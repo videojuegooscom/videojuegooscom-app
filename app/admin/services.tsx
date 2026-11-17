@@ -2,7 +2,7 @@
  * Archivo: app/admin/services.tsx
  * Función: pantalla de administración de servicios, en la dirección /admin/services.
  * Para qué sirve: el administrador gestiona el catálogo de servicios (reparación, limpieza, mantenimiento: opciones, precios, fotos) y las solicitudes de «Contratar servicio ahora», incluida la reparación por envío.
- * Conectado con: lib/supabase.ts (tablas services, service_media y service_requests), lib/envio.ts, lib/openExternalLink.ts, components/ContratarServicioModal.tsx, VisorFotos.tsx, ImagenInteligente.tsx, marca/CargaMarca.tsx, app/servicios.tsx (enlaceVideo, esEnlaceCorto), lib/admin/products.*, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tablas services, service_media y service_requests), lib/envio.ts, lib/abrirEnlaceExterno.ts, components/ContratarServicioModal.tsx, VisorFotos.tsx, ImagenInteligente.tsx, marca/CargaMarca.tsx, app/servicios.tsx (enlaceVideo, esEnlaceCorto), lib/admin/productos.*, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/services, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Servicios» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -23,7 +23,7 @@
  * - Tabla "services" (ver sql/services.sql) + "service_media" (ver
  *   sql/service_media.sql, fotos en el mismo bucket público "product-media"
  *   que ya usan los productos — no hace falta un bucket nuevo). Reutiliza el
- *   selector/subida de imágenes de app/admin/products/products.utils.ts
+ *   selector/subida de imágenes de lib/admin/productos.utilidades.ts
  *   (pickMediaFilesWeb, buildMediaPath) — mismo mecanismo, solo que aquí
  *   solo se admiten fotos (no vídeo, un servicio no lo necesita).
  * - Tabla "service_requests" (ver sql/service_requests.sql): mismo flujo de
@@ -54,9 +54,9 @@
  * Conectado con:
  * - sql/services.sql, sql/service_media.sql, sql/service_requests.sql →
  *   tablas y políticas RLS que usa esta pantalla.
- * - app/admin/products/products.utils.ts, products.constants.ts → selector
+ * - lib/admin/productos.utilidades.ts, productos.constantes.ts → selector
  *   y subida de fotos, formateo de precio/texto (reutilizados, no duplicados).
- * - app/admin/products/products.components.tsx → AdminHeader, StatCard,
+ * - lib/admin/productos.componentes.tsx → AdminHeader, StatCard,
  *   PrimaryButton, AdminNotice y EmptyState (mismo diseño en todo el panel).
  * - app/servicios.tsx, app/servicio/[id].tsx → lo que ve el público.
  * - components/ContratarServicioModal.tsx → origen de cada fila de
@@ -123,7 +123,7 @@ import { leerModalidades, type ModalidadServicio } from "../../components/Contra
 import { cargarAjustesReparacionEnvio, cargarTarifas, hayTarifaCorreos, type AjustesReparacionEnvio } from "../../lib/envio";
 import { enlaceVideo, esEnlaceCorto } from "../servicios";
 import CargaMarca from "../../components/marca/CargaMarca";
-import { openExternalLink } from "../../lib/openExternalLink";
+import { openExternalLink } from "../../lib/abrirEnlaceExterno";
 import {
   Bloque,
   Buscador,
@@ -155,9 +155,9 @@ import {
   SelectorIOS,
   useGestoPestanas,
   useSeleccionFotos,
-} from "../../lib/admin/products.components";
-import { ERRORS, MAX_IMAGES, MEDIA_BUCKET } from "../../lib/admin/products.constants";
-import type { LocalPickedMedia } from "../../lib/admin/products.types";
+} from "../../lib/admin/productos.componentes";
+import { ERRORS, MAX_IMAGES, MEDIA_BUCKET } from "../../lib/admin/productos.constantes";
+import type { LocalPickedMedia } from "../../lib/admin/productos.tipos";
 import {
   CIERRE_TECLADO,
   buildMediaPath,
@@ -165,7 +165,7 @@ import {
   fmtEUR,
   pickMediaFilesWeb,
   toPriceSafe,
-} from "../../lib/admin/products.utils";
+} from "../../lib/admin/productos.utilidades";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 

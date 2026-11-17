@@ -2,7 +2,7 @@
  * Archivo: app/producto/[id].tsx
  * Función: ficha de un producto, en la dirección /producto/<id> (admite ?chat=1 y ?guia=1).
  * Para qué sirve: el cliente ve fotos, precio, estado, entrega estimada y garantía, y puede añadir a la cesta, comprar ya, preguntar, compartir, dar «me gusta», avisarse de bajadas de precio, comparar o reservar con señal.
- * Conectado con: lib/supabase.ts (tablas products, product_media, categories, profiles), lib/interaccion.ts, lib/reservas.ts, lib/envio.ts, lib/analytics.ts, constants/theme.ts, lib/admin/products.utils.ts, components/VisorFotos.tsx, ImagenInteligente.tsx, CarruselProductosCategoria.tsx, ConversacionProducto.tsx, PerfilPublico.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*; api/pago.ts (reserva con señal).
+ * Conectado con: lib/supabase.ts (tablas products, product_media, categories, profiles), lib/interaccion.ts, lib/reservas.ts, lib/envio.ts, lib/analiticaPropia.ts, constants/theme.ts, lib/admin/productos.utilidades.ts, components/VisorFotos.tsx, ImagenInteligente.tsx, CarruselProductosCategoria.tsx, ConversacionProducto.tsx, PerfilPublico.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*; api/pago.ts (reserva con señal).
  * Utilizado por: Expo Router (dirección /producto/<id>); la enlazan app/catalogo.tsx, app/comparar.tsx, app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/admin/escaparate.tsx y components/CarruselProductosCategoria.tsx, AsistenteBlue.tsx, BarraBusqueda.tsx, ConversacionProducto.tsx; exporta FichaProducto, usada por app/servicio/[id].tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
@@ -110,7 +110,7 @@
  *
  * Analítica: al cargar el producto (sin contar visitas del propio admin) se
  * registra el paso "Producto {título}" y el scroll dentro de la ficha
- * dispara "Scroll" (lib/analytics.ts), para el embudo del panel de métricas.
+ * dispara "Scroll" (lib/analiticaPropia.ts), para el embudo del panel de métricas.
  * "Añadir a la cesta" y "Comprar ya" registran los eventos de conversión
  * "add_to_cart" y "buy_now" con { productId, price }.
  *
@@ -123,7 +123,7 @@
  *
  * Conectado con:
  * - lib/supabase.ts → tablas products, product_media, categories, profiles.
- * - lib/analytics.ts → registro de "Producto {título}" y "Scroll" para el
+ * - lib/analiticaPropia.ts → registro de "Producto {título}" y "Scroll" para el
  *   panel de métricas del admin.
  * - sql/product_likes.sql → columna like_count y función adjust_product_like.
  * - sql/product_views.sql → columna view_count y función increment_product_view.
@@ -157,9 +157,9 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { filaPerfilCliente, rolDeUsuario, supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/theme";
-import { sinEmojis } from "../../lib/admin/products.utils";
+import { sinEmojis } from "../../lib/admin/productos.utilidades";
 import { contarVistaProducto, fijarAvisoPrecio, fijarMeGusta, misAvisosPrecio } from "../../lib/interaccion";
-import { marcarOrigenRegistro, medirCargaPantalla, trackEvent, trackEventThrottled } from "../../lib/analytics";
+import { marcarOrigenRegistro, medirCargaPantalla, trackEvent, trackEventThrottled } from "../../lib/analiticaPropia";
 import {
   EXPLICACION_ARRAS,
   eurosReserva,
@@ -397,7 +397,7 @@ function asProductCondition(value: unknown): ProductCondition {
   return "GOOD";
 }
 
-// Mismo texto que labelCond() en app/admin/products/products.utils.ts, para
+// Mismo texto que labelCond() en lib/admin/productos.utilidades.ts, para
 // que el estado que ve el cliente coincida con el que elige el admin.
 function labelCondition(c: ProductCondition) {
   if (c === "NEW") return "Nuevo";
