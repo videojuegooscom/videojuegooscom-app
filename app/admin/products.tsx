@@ -117,7 +117,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { fmtKg, PESO_SIN_DATO_KG } from "../../lib/envio";
+import { formatearKg, PESO_SIN_DATO_KG } from "../../lib/envio";
 import { TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { esCategoriaServicios } from "../../components/PortadasCategoria";
 import {
@@ -175,15 +175,15 @@ import type {
 } from "../../lib/admin/productos.tipos";
 import {
   CIERRE_TECLADO,
-  buildMediaPath,
-  clampText,
+  rutaDeArchivo,
+  recortarTexto,
   contarEmojis,
-  fmtEUR,
-  getPrimaryMedia,
-  labelCond,
-  labelStatus,
-  pickMediaFilesWeb,
-  toPriceSafe,
+  formatearEurosPanel,
+  archivoPrincipal,
+  textoCondicionProducto,
+  textoEstadoPanel,
+  elegirFotosVideoWeb,
+  precioSeguro,
 } from "../../lib/admin/productos.utilidades";
 
 // Texto de partida del campo "Descripción" al crear un producto nuevo — la
@@ -521,7 +521,7 @@ const ProductListItem = React.memo(function ProductListItem({
   uploadStatus?: { title: string; done: number; total: number; error: string | null };
 }) {
   const estado = estadoProducto(p);
-  const primaryMedia = getPrimaryMedia(p.media);
+  const primaryMedia = archivoPrincipal(p.media);
   const primaryKind = primaryMedia ? getRowKind(primaryMedia) : null;
   const primaryUrl = primaryMedia ? getRowPublicUrl(primaryMedia) : null;
   const imageCount = p.media.filter((m) => getRowKind(m) === "image").length;
@@ -562,7 +562,7 @@ const ProductListItem = React.memo(function ProductListItem({
           accessibilityRole="button"
           accessibilityState={{ expanded: abierta }}
           {...({ "aria-expanded": abierta } as object)}
-          accessibilityLabel={`${p.title}, ${estado.texto}, ${fmtEUR(Number(p.price_eur ?? 0))}. ${abierta ? "Plegar" : "Ver el detalle"}`}
+          accessibilityLabel={`${p.title}, ${estado.texto}, ${formatearEurosPanel(Number(p.price_eur ?? 0))}. ${abierta ? "Plegar" : "Ver el detalle"}`}
           style={({ pressed }) => ({ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8, opacity: pressed ? 0.85 : 1 })}
         >
           {/* Foto pequeña (la portada), el icono del vídeo o, sin fotos, el mando. */}
@@ -580,7 +580,7 @@ const ProductListItem = React.memo(function ProductListItem({
             </View>
             {/* Precio, condición y categoría en una línea (en el ordenador, también la referencia; en el móvil va en el detalle). */}
             <Text numberOfLines={isMobile ? 1 : 2} style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>{fmtEUR(Number(p.price_eur ?? 0))}</Text> · {labelCond(p.condition)} · {p.catName}
+              <Text style={{ color: COLORS.text, fontWeight: "900" }}>{formatearEurosPanel(Number(p.price_eur ?? 0))}</Text> · {textoCondicionProducto(p.condition)} · {p.catName}
               {p.reference && !isMobile ? ` · Ref. ${p.reference}` : ""}
             </Text>
             {/* Las etiquetas en una línea seguida (cada una con su color), para que la fila siga siendo compacta en el móvil:
@@ -598,7 +598,7 @@ const ProductListItem = React.memo(function ProductListItem({
                     ? {
                         id: `producto-peso-${p.id}`,
                         color: !p.peso_kg ? COLORS.danger : p.peso_estimado ? TONOS.amarillo.color : COLORS.text,
-                        texto: p.peso_kg ? (p.peso_estimado ? `Peso estimado: ${fmtKg(p.peso_kg)}` : fmtKg(p.peso_kg)) : "Sin peso",
+                        texto: p.peso_kg ? (p.peso_estimado ? `Peso estimado: ${formatearKg(p.peso_kg)}` : formatearKg(p.peso_kg)) : "Sin peso",
                       }
                     : null,
                   p.solo_entrega_mano ? { id: `producto-solo-mano-${p.id}`, color: COLORS.danger, texto: "Solo en mano" } : null,
@@ -679,8 +679,8 @@ const ProductListItem = React.memo(function ProductListItem({
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             {/* Venta: precio, fase, si se ve en la tienda y lo que le ha pasado (vendido o reservado). */}
             <Bloque icono="pricetag-outline" titulo="Venta" ancho={isMobile ? "100%" : "30%"}>
-              <Dato etiqueta="Precio">{fmtEUR(Number(p.price_eur ?? 0))}</Dato>
-              <Dato etiqueta="Fase">{labelStatus(p.status)}</Dato>
+              <Dato etiqueta="Precio">{formatearEurosPanel(Number(p.price_eur ?? 0))}</Dato>
+              <Dato etiqueta="Fase">{textoEstadoPanel(p.status)}</Dato>
               <Dato etiqueta="En la tienda">{p.is_active ? "Visible" : "Oculto"}</Dato>
               {supportsFeaturedHome ? <Dato etiqueta="Portada">{p.is_featured_home ? "Destacado en Inicio" : "No destacado"}</Dato> : null}
               {p.vendido ? (
@@ -694,7 +694,7 @@ const ProductListItem = React.memo(function ProductListItem({
 
             {/* Ficha: condición, categoría, referencia, revisión, garantía y fotos. */}
             <Bloque icono="document-text-outline" titulo="Ficha" ancho={isMobile ? "100%" : "30%"}>
-              <Dato etiqueta="Condición">{labelCond(p.condition)}</Dato>
+              <Dato etiqueta="Condición">{textoCondicionProducto(p.condition)}</Dato>
               <Dato etiqueta="Categoría">{p.catName}</Dato>
               {p.reference ? <Dato etiqueta="Referencia">{p.reference}</Dato> : null}
               {p.revisado !== undefined ? <Dato etiqueta="Revisado por el equipo">{p.revisado ? "Sí" : "No"}</Dato> : null}
@@ -705,7 +705,7 @@ const ProductListItem = React.memo(function ProductListItem({
                 {imageCount} de {MAX_IMAGES}
                 {hasVideo ? " + 1 vídeo" : ""}
               </Dato>
-              {p.description ? <Detalle>{clampText(p.description, 160)}</Detalle> : null}
+              {p.description ? <Detalle>{recortarTexto(p.description, 160)}</Detalle> : null}
             </Bloque>
 
             {/* Envío: peso con embalaje y si solo se entrega en mano; VeoAura y fechas. */}
@@ -714,9 +714,9 @@ const ProductListItem = React.memo(function ProductListItem({
                 <Dato etiqueta="Peso con embalaje">
                   {p.peso_kg
                     ? p.peso_estimado
-                      ? `${fmtKg(p.peso_kg)} (estimado: revísalo al pesarlo)`
-                      : fmtKg(p.peso_kg)
-                    : `sin peso: el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}`}
+                      ? `${formatearKg(p.peso_kg)} (estimado: revísalo al pesarlo)`
+                      : formatearKg(p.peso_kg)
+                    : `sin peso: el envío cuenta ${formatearKg(PESO_SIN_DATO_KG)}`}
                 </Dato>
               ) : null}
               {p.solo_entrega_mano !== undefined ? <Dato etiqueta="Envío">{p.solo_entrega_mano ? "Solo entrega en mano (no se envía)" : "Se puede enviar"}</Dato> : null}
@@ -1337,7 +1337,7 @@ export default function AdminProducts() {
       // que no se puede convertir...) ya no hace desaparecer TODA la
       // selección sin avisar — las buenas se añaden igual y las que fallan
       // se listan en "skipped" para poder avisar de cuáles fueron.
-      const { items: picked, skipped } = await pickMediaFilesWeb();
+      const { items: picked, skipped } = await elegirFotosVideoWeb();
 
       const skippedNote = skipped.length
         ? `${skipped.length} archivo${skipped.length === 1 ? "" : "s"} no se ${
@@ -1470,7 +1470,7 @@ export default function AdminProducts() {
 
     for (let i = 0; i < media.length; i++) {
       const item = media[i];
-      const storagePath = buildMediaPath(productId, item, startIndex + i);
+      const storagePath = rutaDeArchivo(productId, item, startIndex + i);
 
       // Se reintenta un par de veces cada subida antes de rendirse: al
       // mandar de golpe 10-15 fotos seguidas, un corte de red de un
@@ -1682,7 +1682,7 @@ export default function AdminProducts() {
     // toPriceSafe (no toIntSafe): conserva los céntimos ("17,97" → 17.97) en
     // vez de redondear siempre a euro entero — products.price_eur ya admite
     // decimales en la base de datos.
-    const priceEur = toPriceSafe(price, 0);
+    const priceEur = precioSeguro(price, 0);
 
     if (!cleanTitle) {
       setModalErr("Introduce un título.");
@@ -2303,7 +2303,7 @@ export default function AdminProducts() {
                     {descExpanded
                       ? "Descripción"
                       : desc.trim()
-                        ? clampText(desc, 60)
+                        ? recortarTexto(desc, 60)
                         : "Descripción (opcional)"}
                   </Text>
                   <Ionicons
@@ -2434,7 +2434,7 @@ export default function AdminProducts() {
                       ? supportsPesoEstimado && editing?.peso_estimado && !pesoTocado
                         ? "Peso estimado (datos de fábrica + tu embalaje): cuando lo peses, escríbelo aquí y deja de ser estimado."
                         : "Correos cobra por kilos: con este peso se calcula el envío."
-                      : `Sin peso, el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}.`}
+                      : `Sin peso, el envío cuenta ${formatearKg(PESO_SIN_DATO_KG)}.`}
                   </Text>
                 </View>
               ) : null}
@@ -2607,7 +2607,7 @@ export default function AdminProducts() {
                     onChange={(v) => setStatus(v as ProductStatus)}
                     options={(["DRAFT", "REVIEW", "PUBLISHED"] as ProductStatus[]).map((s) => ({
                       value: s,
-                      label: labelStatus(s),
+                      label: textoEstadoPanel(s),
                     }))}
                   />
                 </View>
@@ -2619,7 +2619,7 @@ export default function AdminProducts() {
                     value={condition}
                     onChange={(v) => setCondition(v as ProductCondition)}
                     options={(["NEW", "LIKE_NEW", "GOOD", "FAIR", "PARTS"] as ProductCondition[]).map(
-                      (c) => ({ value: c, label: labelCond(c) })
+                      (c) => ({ value: c, label: textoCondicionProducto(c) })
                     )}
                   />
                 </View>

@@ -58,7 +58,7 @@ import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AuthRetryableFetchError, createClient, type AuthError, type Session, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { AppState, Platform } from "react-native";
-import { markEnd, markStart } from "./estadoCarga";
+import { marcarFinCarga, marcarInicioCarga } from "./estadoCarga";
 
 /**
  * Trozos de URL que NO deben encender la barra de carga global: llamadas
@@ -96,10 +96,10 @@ function trackedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Res
 
   const silent = isSilentRequest(url);
 
-  if (!silent) markStart();
+  if (!silent) marcarInicioCarga();
 
   return fetch(input as any, init).finally(() => {
-    if (!silent) markEnd();
+    if (!silent) marcarFinCarga();
   });
 }
 

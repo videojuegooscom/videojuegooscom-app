@@ -82,7 +82,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { rolDeUsuario, supabase } from "../lib/supabase";
-import { medirCargaPantalla, trackEvent, trackEventThrottled } from "../lib/analiticaPropia";
+import { medirCargaPantalla, medirEvento, medirEventoEspaciado } from "../lib/analiticaPropia";
 import BarraBusqueda, {
   SugerenciasCatalogo,
   buscarProductos,
@@ -525,12 +525,12 @@ export default function CatalogoScreen() {
   const priceMax = Math.max(minUrl, maxUrl);
   const setCondition = useCallback((c: FiltroEstadoCatalogo) => {
     router.setParams({ estado: estadoAUrl(c) });
-    if (c !== "ALL") trackEvent("catalogo_filtro", "Filtro: estado", { path: "/catalogo", metadata: { filtro: "estado", valor: c } });
+    if (c !== "ALL") medirEvento("catalogo_filtro", "Filtro: estado", { path: "/catalogo", metadata: { filtro: "estado", valor: c } });
   }, []);
   const setPrice = useCallback((min: number, max: number) => {
     router.setParams({ precio_min: min > PRECIO_MIN ? String(min) : undefined, precio_max: max < PRECIO_MAX ? String(max) : undefined });
     if (precioActivo(min, max)) {
-      trackEvent("catalogo_filtro", "Filtro: precio", { path: "/catalogo", metadata: { filtro: "precio", min, max: max >= PRECIO_MAX ? null : max } });
+      medirEvento("catalogo_filtro", "Filtro: precio", { path: "/catalogo", metadata: { filtro: "precio", min, max: max >= PRECIO_MAX ? null : max } });
     }
   }, []);
   const [sort, setSort] = useState<ClaveOrden>("NEWEST");
@@ -848,7 +848,7 @@ export default function CatalogoScreen() {
     analyticsCatKeyRef.current = key;
 
     const label = selectedCategory?.name ? `Categoría ${selectedCategory.name}` : "Categoría";
-    trackEvent("page_view", label, {
+    medirEvento("page_view", label, {
       path: "/catalogo",
       metadata: { cat: selectedCategory?.slug ?? rawCat ?? null },
     });
@@ -858,7 +858,7 @@ export default function CatalogoScreen() {
     setFilter("ALL");
     setQ("");
     setAppliedQuery("");
-    trackEvent("catalogo_filtro", "Filtro: borrar filtros", { path: "/catalogo", metadata: { filtro: "todos", accion: "borrar" } });
+    medirEvento("catalogo_filtro", "Filtro: borrar filtros", { path: "/catalogo", metadata: { filtro: "todos", accion: "borrar" } });
     // Estado, precio y búsqueda salen de la dirección; dentro de una categoría se queda en ella (solo se quitan sus filtros).
     const sinFiltros = { query: undefined, estado: undefined, precio_min: undefined, precio_max: undefined };
     if (enCategoria) {
@@ -872,7 +872,7 @@ export default function CatalogoScreen() {
   // Chips de lo que está filtrando ahora, cada uno con su «Quitar» (y «Borrar filtros» al lado).
   const quitarYMedir = (filtro: string, quitar: () => void) => () => {
     quitar();
-    trackEvent("catalogo_filtro", "Filtro: quitado", { path: "/catalogo", metadata: { filtro, accion: "quitar" } });
+    medirEvento("catalogo_filtro", "Filtro: quitado", { path: "/catalogo", metadata: { filtro, accion: "quitar" } });
   };
   const chipsActivos: { clave: string; texto: string; quitar: () => void }[] = [];
   if (appliedQuery.trim()) chipsActivos.push({ clave: "busqueda", texto: `Búsqueda: «${appliedQuery.trim().slice(0, 40)}»`, quitar: quitarYMedir("busqueda", () => aplicarBusqueda("")) });
@@ -913,7 +913,7 @@ export default function CatalogoScreen() {
   function handleScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
     const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
     if (contentOffset.y > 40) {
-      trackEventThrottled("catalogo-scroll", "scroll", "Scroll", { path: "/catalogo" });
+      medirEventoEspaciado("catalogo-scroll", "scroll", "Scroll", { path: "/catalogo" });
     }
     // Carga automática al acercarse al final (además del botón).
     const distanceToEnd = contentSize.height - (contentOffset.y + layoutMeasurement.height);

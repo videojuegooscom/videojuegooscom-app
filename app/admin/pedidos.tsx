@@ -121,7 +121,7 @@ import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View, useW
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { abrirDescarga, openExternalLink } from "../../lib/abrirEnlaceExterno";
+import { abrirDescarga, abrirEnlaceExterno } from "../../lib/abrirEnlaceExterno";
 import { supabase } from "../../lib/supabase";
 import { MOTIVO_MAX, MOTIVO_NO_DISPONIBLE, MOTIVOS_CANCELACION, motivoParaCliente, type CanalReposicion } from "../../lib/interaccion";
 import {
@@ -135,7 +135,7 @@ import {
   fechaHoyMadrid,
   nombreFranja,
   fechaHoraPaso,
-  fmtKg,
+  formatearKg,
   pasosDelPedido,
   type HistorialPedidos,
   type ZonaEnvio,
@@ -1256,7 +1256,7 @@ export default function PedidosAdmin() {
     // Al cliente, la referencia del pedido (nunca el número interno).
     const ref = p.codigo_seguimiento ? ` ${p.codigo_seguimiento}` : "";
     const texto = encodeURIComponent(`Hola ${p.nombre}, te escribimos por tu pedido${ref} en Videojuegoszaragoza.com.`);
-    openExternalLink(`https://wa.me/${conPrefijo}?text=${texto}`);
+    abrirEnlaceExterno(`https://wa.me/${conPrefijo}?text=${texto}`);
   }
 
   function irAFicha(p: Pedido) {
@@ -1415,7 +1415,7 @@ export default function PedidosAdmin() {
               <Text nativeID={`pedido-envio-${p.numero}`} style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                 Artículos {fmtEUR(Number(p.productos_eur ?? p.total_eur))} · Envío {Number(p.envio_eur ?? 0) === 0 ? "gratis" : fmtEUR(Number(p.envio_eur))}
                 {nombreZona(p.zona_envio) ? ` (${nombreZona(p.zona_envio)})` : ""}
-                {p.peso_kg ? ` · ${fmtKg(p.peso_kg)}` : ""} · {p.envio_manual ? "a mano" : "automático"}
+                {p.peso_kg ? ` · ${formatearKg(p.peso_kg)}` : ""} · {p.envio_manual ? "a mano" : "automático"}
               </Text>
             ) : null}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 6, borderTopWidth: 1, borderTopColor: COLORS.border }}>
@@ -1468,7 +1468,7 @@ export default function PedidosAdmin() {
                   </Text>
                 ) : null}
                 {enlaceStripe(p) ? (
-                  <AccionTexto nativeID={`pedido-pago-stripe-${p.numero}`} rol="link" icono="open-outline" texto="Ver el pago en Stripe" onPress={() => openExternalLink(enlaceStripe(p) as string)} />
+                  <AccionTexto nativeID={`pedido-pago-stripe-${p.numero}`} rol="link" icono="open-outline" texto="Ver el pago en Stripe" onPress={() => abrirEnlaceExterno(enlaceStripe(p) as string)} />
                 ) : null}
               </View>
             ) : null}
@@ -1853,7 +1853,7 @@ export default function PedidosAdmin() {
                   rol="link"
                   icono="navigate-outline"
                   texto="Ver el envío (lo que ve el cliente)"
-                  onPress={() => openExternalLink(enlaceSeguimientoEnvio(numerosEnvio[p.id]) as string)}
+                  onPress={() => abrirEnlaceExterno(enlaceSeguimientoEnvio(numerosEnvio[p.id]) as string)}
                 />
               ) : null}
               {numeroMsg?.id === p.id ? (

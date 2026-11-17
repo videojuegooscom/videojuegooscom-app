@@ -87,7 +87,7 @@ import EfectoPensando from "../components/EfectoPensando";
 import { PerfilObligatorio } from "../components/PerfilPublico";
 import EtiquetasCabeceraWeb from "../components/EtiquetasCabeceraWeb";
 import TirarParaActualizar from "../components/TirarParaActualizar";
-import { medirLlegadaDesdeRedes, trackEvent } from "../lib/analiticaPropia";
+import { medirLlegadaDesdeRedes, medirEvento } from "../lib/analiticaPropia";
 import { alIncidenciaDeSesion, registrarDispositivo, supabase } from "../lib/supabase";
 
 // Máximo que se espera a la fuente de iconos antes de mostrar la tienda igualmente.
@@ -176,7 +176,7 @@ export default function RootLayout() {
     () =>
       alIncidenciaDeSesion((tipo, datos) => {
         const etiqueta = tipo === "reloj_desfasado" ? "Sesión: reloj desfasado" : "Sesión: bucle de renovación frenado";
-        void trackEvent(`sesion_${tipo}`, etiqueta, { path: rutaActual.current, metadata: datos });
+        void medirEvento(`sesion_${tipo}`, etiqueta, { path: rutaActual.current, metadata: datos });
       }),
     []
   );
@@ -250,7 +250,7 @@ export default function RootLayout() {
       }
       // El aviso al panel de estadísticas no debe retrasar la recarga más de un instante.
       await Promise.race([
-        trackEvent("app_actualizada", "App actualizada sola", { path: rutaActual.current }),
+        medirEvento("app_actualizada", "App actualizada sola", { path: rutaActual.current }),
         new Promise((listo) => setTimeout(listo, 800)),
       ]);
       window.location.reload();
@@ -298,10 +298,10 @@ export default function RootLayout() {
         // Analítica propia (Administración → Analítica, «Pantalla de bienvenida»): sin ningún dato de la persona.
         const tramo = info.listaMs < 1000 ? "en menos de 1 s" : info.listaMs <= BIENVENIDA_MS ? "entre 1 y 3 s" : "en más de 3 s";
         const metadata = { lista_ms: info.listaMs, saltada: porToque, desde: info.desde };
-        void trackEvent("bienvenida", "Bienvenida: vista", { path: info.desde, metadata });
-        void trackEvent("bienvenida_lista", `Bienvenida: tienda lista ${tramo}`, { path: info.desde, metadata });
-        if (porToque) void trackEvent("bienvenida_saltada", "Bienvenida: saltada con un toque", { path: info.desde, metadata });
-        if (info.aInicio) void trackEvent("bienvenida_inicio", "Bienvenida: empieza en Inicio", { path: info.desde, metadata });
+        void medirEvento("bienvenida", "Bienvenida: vista", { path: info.desde, metadata });
+        void medirEvento("bienvenida_lista", `Bienvenida: tienda lista ${tramo}`, { path: info.desde, metadata });
+        if (porToque) void medirEvento("bienvenida_saltada", "Bienvenida: saltada con un toque", { path: info.desde, metadata });
+        if (info.aInicio) void medirEvento("bienvenida_inicio", "Bienvenida: empieza en Inicio", { path: info.desde, metadata });
       }
       setBienvenida((b) => (b === "visible" ? "saliendo" : b));
       // El fundido lo hace el CSS (BIENVENIDA_TRANSICION); al terminar se quita la capa.

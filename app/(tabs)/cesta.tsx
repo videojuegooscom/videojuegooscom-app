@@ -86,7 +86,7 @@ import {
   reservarProducto,
 } from "../../lib/reservas";
 import { supabase } from "../../lib/supabase";
-import { trackEvent } from "../../lib/analiticaPropia";
+import { medirEvento } from "../../lib/analiticaPropia";
 import { colorTextoAzul, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 
 const COLORS = {
@@ -335,7 +335,7 @@ function LineaCambioConsola({ titulos }: { titulos: string[] }) {
   useEffect(() => {
     if (!visible || cambioCestaMostrado) return;
     cambioCestaMostrado = true;
-    void trackEvent("cambio_cesta_mostrado", "Cesta: cambio de consola mostrado", { metadata: { origen } });
+    void medirEvento("cambio_cesta_mostrado", "Cesta: cambio de consola mostrado", { metadata: { origen } });
   }, [visible, origen]);
   if (!visible) return null;
   const tam = 14;
@@ -343,7 +343,7 @@ function LineaCambioConsola({ titulos }: { titulos: string[] }) {
     <Pressable
       nativeID="cesta-cambio-consola"
       onPress={() => {
-        void trackEvent("cambio_cesta_tocado", "Cesta: cambio de consola tocado", { metadata: { origen } });
+        void medirEvento("cambio_cesta_tocado", "Cesta: cambio de consola tocado", { metadata: { origen } });
         const para = consolaCesta ? `&para=${encodeURIComponent(consolaCesta.slice(0, 80))}` : "";
         pushRoute(`/vender?cambio=1&desde=cesta${para}` as Href);
       }}
@@ -374,7 +374,7 @@ function BotonBlueElegir({ conArticulos }: { conArticulos: boolean }) {
       nativeID="cesta-blue-elegir"
       onPress={() => {
         // Analítica propia (Administración → Analítica): cuántos lo tocan y si tenían algo en la cesta.
-        void trackEvent("cesta_blue_elegir", "Cesta: Blue, ayúdame a elegir", { metadata: { con_articulos: conArticulos } });
+        void medirEvento("cesta_blue_elegir", "Cesta: Blue, ayúdame a elegir", { metadata: { con_articulos: conArticulos } });
         pushRoute(`/blue-ia?q=${encodeURIComponent(PREGUNTA_ELEGIR)}` as Href);
       }}
       accessibilityRole="button"

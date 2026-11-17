@@ -199,7 +199,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { rolDeUsuario, supabase } from "../lib/supabase";
-import { getAnalyticsConsent, marcarOrigenRegistro, marcarOrigenVender, trackEvent, trasPrimeraPintura } from "../lib/analiticaPropia";
+import { leerConsentimientoAnalitica, marcarOrigenRegistro, marcarOrigenVender, medirEvento, trasPrimeraPintura } from "../lib/analiticaPropia";
 import {
   alCambiarAvisosPrecio,
   alCambiarAvisosReposicion,
@@ -527,7 +527,7 @@ function cambiarConsejos(apagar: boolean, desde: "consejo" | "panel") {
   avisarConsejos();
   if (apagar) AsyncStorage.setItem(CONSEJOS_OFF_KEY, "1").catch(() => {});
   else AsyncStorage.removeItem(CONSEJOS_OFF_KEY).catch(() => {});
-  if (apagar) void trackEvent("consejos_desactivados", "Blue: consejos desactivados", { metadata: { desde } });
+  if (apagar) void medirEvento("consejos_desactivados", "Blue: consejos desactivados", { metadata: { desde } });
 }
 
 type ContenidoConsejo = { titulo: string; texto?: string; pasos?: string[]; accion?: { texto: string; ruta: string } };
@@ -838,7 +838,7 @@ if (esWebConVentana()) {
   });
   window.addEventListener("appinstalled", () => {
     eventoInstalar = null;
-    trackEvent("app_instalada", "App instalada");
+    medirEvento("app_instalada", "App instalada");
     oyentesInstalar.forEach((f) => f());
   });
 }
@@ -890,12 +890,12 @@ const MENSAJE_VISIBLE_MS = 12000;
 // panel del dueño no cuentan; trackEvent ya respeta a quien rechazó la analítica.
 function contarMensaje(b: Bocadillo, como: "tocado" | "cerrado con la X" | "se cierra solo") {
   if (b.panel) return;
-  void trackEvent("blue_mensaje", `Blue: mensaje ${como}`, { metadata: { tipo: b.id.split(":")[0] } });
+  void medirEvento("blue_mensaje", `Blue: mensaje ${como}`, { metadata: { tipo: b.id.split(":")[0] } });
   // Mejora 5: los avisos de estado del pedido y de bajada de precio tocados (sin datos personales).
   if (como === "tocado" && b.id.startsWith("s:p:")) {
-    void trackEvent("pedido_aviso_estado_tocado", "Blue: aviso de estado del pedido tocado", { metadata: { estado: (b.id.split(":")[3] ?? "").split("|")[0] } });
+    void medirEvento("pedido_aviso_estado_tocado", "Blue: aviso de estado del pedido tocado", { metadata: { estado: (b.id.split(":")[3] ?? "").split("|")[0] } });
   } else if (como === "tocado" && b.id.startsWith("ap:")) {
-    void trackEvent("aviso_precio_tocado", "Blue: bajada de precio tocada", { metadata: { productId: b.id.split(":")[1] } });
+    void medirEvento("aviso_precio_tocado", "Blue: bajada de precio tocada", { metadata: { productId: b.id.split(":")[1] } });
   }
 }
 
@@ -903,7 +903,7 @@ function contarMensaje(b: Bocadillo, como: "tocado" | "cerrado con la X" | "se c
 // (el dueño en el panel no cuenta); trackEvent ya respeta a quien rechazó la analítica.
 function contarBlueAbierto(pathname: string) {
   const donde = pathname === "/" ? "Inicio" : pathname.startsWith("/producto/") ? "la ficha de producto" : pathname.startsWith("/servicio/") ? "la ficha de servicio" : null;
-  if (donde) void trackEvent("blue_flotante_abierto", `Blue flotante: abierto en ${donde}`, { metadata: { pantalla: donde } });
+  if (donde) void medirEvento("blue_flotante_abierto", `Blue flotante: abierto en ${donde}`, { metadata: { pantalla: donde } });
 }
 
 // Lo que se toca (botones, enlaces, campos y, en react-native-web, lo enfocable con tabindex 0) y que Blue no debe tapar.
@@ -1213,13 +1213,13 @@ export default function AsistenteBlue() {
   }, []);
   const instalarApp = useCallback(async () => {
     setPanelOpen(false);
-    trackEvent("instalar_toque", "Instalar app: toque");
+    medirEvento("instalar_toque", "Instalar app: toque");
     const ev = eventoInstalar;
     if (ev) {
       try {
         await ev.prompt();
         const r = await ev.userChoice;
-        if (r.outcome === "accepted") trackEvent("instalar_aceptada", "Instalar app: aceptada");
+        if (r.outcome === "accepted") medirEvento("instalar_aceptada", "Instalar app: aceptada");
       } catch {
         // el navegador no dejó abrir el diálogo
       }
@@ -1949,7 +1949,7 @@ export default function AsistenteBlue() {
     const t = setTimeout(async () => {
       try {
         // Con el aviso de cookies sin contestar, Blue no habla (lo taparía).
-        if (!vivo || (await getAnalyticsConsent()) === null || !vivo) return;
+        if (!vivo || (await leerConsentimientoAnalitica()) === null || !vivo) return;
         if ((await AsyncStorage.getItem(SELECTOR_VISTO_KEY)) === "1" || !vivo) return;
         yaDicho.add("selector-pestanas");
         AsyncStorage.setItem(SELECTOR_VISTO_KEY, "1").catch(() => {});
@@ -2042,7 +2042,7 @@ export default function AsistenteBlue() {
               .maybeSingle<{ title: string; description: string | null }>();
             if (!vivo || !data?.title) return;
             // Con el aviso de cookies aún sin contestar, Blue no habla (lo taparía).
-            if ((await getAnalyticsConsent()) === null || !vivo) return;
+            if ((await leerConsentimientoAnalitica()) === null || !vivo) return;
             yaDicho.add(`p:${id}`);
             const titulo = data.title.trim();
             const ruta = `/blue-ia?producto=${id}`;
@@ -2070,7 +2070,7 @@ export default function AsistenteBlue() {
         timers.push(
           setTimeout(async () => {
             // Con el aviso de cookies aún sin contestar, Blue no habla (lo taparía).
-            if (!vivo || (await getAnalyticsConsent()) === null || !vivo) return;
+            if (!vivo || (await leerConsentimientoAnalitica()) === null || !vivo) return;
             yaDicho.add(`n:${pendiente}`);
             decir({ id: `n:${pendiente}`, texto: pendiente, ...destinoDeAviso(pendiente) });
           }, NOTICIA_ESPERA_MS)
@@ -2121,7 +2121,7 @@ export default function AsistenteBlue() {
     if (!r) return;
     let vivo = true;
     (async () => {
-      if ((await getAnalyticsConsent()) === null || !vivo) return;
+      if ((await leerConsentimientoAnalitica()) === null || !vivo) return;
       yaDicho.add(`r:${r.id}:${r.hasta}`);
       const titulo = r.title.length > 40 ? `${r.title.slice(0, 39).trimEnd()}…` : r.title;
       decir({
@@ -2145,7 +2145,7 @@ export default function AsistenteBlue() {
     if (!candidatos.length) return;
     let vivo = true;
     (async () => {
-      if ((await getAnalyticsConsent()) === null || !vivo) return;
+      if ((await leerConsentimientoAnalitica()) === null || !vivo) return;
       // Una vez por cambio también entre visitas (mejora 5): lo ya dicho en este dispositivo no se repite.
       const dichos = await cargarDichos();
       if (!vivo) return;
@@ -2170,7 +2170,7 @@ export default function AsistenteBlue() {
     if (!candidatos.length) return;
     let vivo = true;
     (async () => {
-      if ((await getAnalyticsConsent()) === null || !vivo) return;
+      if ((await leerConsentimientoAnalitica()) === null || !vivo) return;
       const dichos = await cargarDichos();
       if (!vivo) return;
       const b = candidatos.find((x) => !dichos.has(`ap:${x.id}:${x.ahora}`));
@@ -2193,7 +2193,7 @@ export default function AsistenteBlue() {
     if (!candidatos.length) return;
     let vivo = true;
     (async () => {
-      if ((await getAnalyticsConsent()) === null || !vivo) return;
+      if ((await leerConsentimientoAnalitica()) === null || !vivo) return;
       const dichos = await cargarDichos();
       if (!vivo) return;
       const v = candidatos.find((x) => !dichos.has(`vp:${x.id}`));
@@ -2215,18 +2215,18 @@ export default function AsistenteBlue() {
     if (id.startsWith("s:p:")) {
       void apuntarDicho(id);
       const estado = (id.split(":")[3] ?? "").split("|")[0];
-      void trackEvent("pedido_aviso_estado_mostrado", "Blue: aviso de estado del pedido mostrado", { metadata: { estado } });
+      void medirEvento("pedido_aviso_estado_mostrado", "Blue: aviso de estado del pedido mostrado", { metadata: { estado } });
     } else if (id.startsWith("s:r:")) {
       void apuntarDicho(id);
     } else if (id.startsWith("vp:")) {
       void apuntarDicho(id);
       valorarResueltos.add(id.slice(3));
-      void trackEvent("valoracion_pedida", "Valoración del pedido: pedida", { metadata: { origen: "blue" } });
+      void medirEvento("valoracion_pedida", "Valoración del pedido: pedida", { metadata: { origen: "blue" } });
     } else if (id.startsWith("ap:")) {
       const [, productId, precio] = id.split(":");
       void apuntarDicho(id);
       void marcarBajadaAvisada(productId, Number(precio));
-      void trackEvent("aviso_precio_mostrado", "Blue: bajada de precio mostrada", { metadata: { productId } });
+      void medirEvento("aviso_precio_mostrado", "Blue: bajada de precio mostrada", { metadata: { productId } });
     }
   }, [bocadillo]);
 
@@ -2240,7 +2240,7 @@ export default function AsistenteBlue() {
     // Si Blue está diciendo otra cosa, espera 15 s y lo intenta de nuevo (hasta 8 veces).
     const intentar = async (veces: number) => {
       try {
-        if (!vivo || (await getAnalyticsConsent()) === null) return;
+        if (!vivo || (await leerConsentimientoAnalitica()) === null) return;
         const visto = Number((await AsyncStorage.getItem(INSTALAR_KEY)) ?? 0);
         if (!vivo || (visto && Date.now() - visto < INSTALAR_ESPERA_MS)) return;
         if (bocadilloRef.current) {
@@ -2249,7 +2249,7 @@ export default function AsistenteBlue() {
         }
         await AsyncStorage.setItem(INSTALAR_KEY, String(Date.now()));
         if (!vivo) return;
-        trackEvent("instalar_oferta", "Instalar app: oferta");
+        medirEvento("instalar_oferta", "Instalar app: oferta");
         decir({
           id: "instalar",
           texto: "Instala la tienda en tu móvil y ábrela con un toque desde la pantalla de inicio.",
@@ -2640,7 +2640,7 @@ export default function AsistenteBlue() {
     let vivo = true;
     (async () => {
       // Con el aviso de cookies sin contestar Blue no habla (lo taparía).
-      if ((await getAnalyticsConsent()) === null || !vivo || (await leerConsejosApagados())) return;
+      if ((await leerConsentimientoAnalitica()) === null || !vivo || (await leerConsejosApagados())) return;
       const dichos = await cargarDichos();
       if (!vivo) return;
       for (const m of pendientes) if (dichos.has(`consejo:${m}`)) yaDicho.add(`consejo:${m}`);
@@ -2663,7 +2663,7 @@ export default function AsistenteBlue() {
     if (!consejo?.consejo) return;
     yaDicho.add(consejo.id);
     void apuntarDicho(consejo.id);
-    void trackEvent("consejo_mostrado", "Blue: consejo mostrado", { metadata: { momento: consejo.consejo } });
+    void medirEvento("consejo_mostrado", "Blue: consejo mostrado", { metadata: { momento: consejo.consejo } });
     if (consejo.consejo === "comparar") setMomentoComparar(false);
   }, [consejo]);
   const cerrarConsejo = useCallback((como: "seguido" | "cerrado" | "solo") => {
@@ -2671,7 +2671,7 @@ export default function AsistenteBlue() {
     consejoRef.current = null;
     setConsejo(null);
     if (c?.consejo && como !== "solo") {
-      void trackEvent(como === "seguido" ? "consejo_seguido" : "consejo_cerrado", como === "seguido" ? "Blue: consejo seguido" : "Blue: consejo cerrado", {
+      void medirEvento(como === "seguido" ? "consejo_seguido" : "consejo_cerrado", como === "seguido" ? "Blue: consejo seguido" : "Blue: consejo cerrado", {
         metadata: { momento: c.consejo },
       });
     }
@@ -2761,7 +2761,7 @@ export default function AsistenteBlue() {
   // «Crear cuenta gratis» (sin sesión): los avisos de bajadas de precio y artículos nuevos son solo con cuenta. Se cuenta
   // el toque (y, si crea la cuenta, Administración → Analítica lo ve) y al entrar con la cuenta se vuelve aquí.
   const crearCuentaPorAvisos = useCallback(() => {
-    void trackEvent("blue_cuenta_avisos", "Blue: crear cuenta por avisos", { metadata: { pantalla: pathnameActualRef.current || "/" } });
+    void medirEvento("blue_cuenta_avisos", "Blue: crear cuenta por avisos", { metadata: { pantalla: pathnameActualRef.current || "/" } });
     marcarOrigenRegistro("blue_avisos");
     const ruta = pathnameActualRef.current;
     if (ruta && ruta.startsWith("/") && !ruta.startsWith("/perfil")) {
@@ -2807,7 +2807,7 @@ export default function AsistenteBlue() {
       setNoticiasNuevas(0);
       setNoticiaNueva(null);
       setNoticiasRecienActivadas(true);
-      void trackEvent("avisos_noticias_activados", "Blue: avisos de noticias activados", { metadata: { desde: "panel de Blue" } });
+      void medirEvento("avisos_noticias_activados", "Blue: avisos de noticias activados", { metadata: { desde: "panel de Blue" } });
     } else {
       setErrorAvisosNoticias("No se han podido activar. Inténtalo de nuevo.");
     }
@@ -2835,7 +2835,7 @@ export default function AsistenteBlue() {
       if (l.reposicion) {
         // «Avisarme cuando haya otro»: queda avisado (en la cuenta) y se mide el toque (sin datos personales).
         void marcarReposicionAvisada(l.aviso.id);
-        void trackEvent("aviso_reposicion_tocado", "Blue: aviso de reposición tocado", { metadata: { productos: l.productos.length } });
+        void medirEvento("aviso_reposicion_tocado", "Blue: aviso de reposición tocado", { metadata: { productos: l.productos.length } });
         ir(l.productos.length === 1 ? `/producto/${l.productos[0].id}` : `/catalogo?query=${encodeURIComponent(l.aviso.texto)}`);
         return;
       }
@@ -2855,7 +2855,7 @@ export default function AsistenteBlue() {
       if (b.seguido) {
         // «Avísame si baja de precio»: esta bajada ya está avisada (en la cuenta) y se mide el toque.
         void marcarBajadaAvisada(b.id, b.ahora);
-        void trackEvent("aviso_precio_tocado", "Blue: bajada de precio tocada", { metadata: { productId: b.id, donde: "panel" } });
+        void medirEvento("aviso_precio_tocado", "Blue: bajada de precio tocada", { metadata: { productId: b.id, donde: "panel" } });
         ir(`/producto/${b.id}`);
         return;
       }
@@ -3333,7 +3333,7 @@ export default function AsistenteBlue() {
                         accion="Ver seguimiento"
                         onPress={() => {
                           if (a.tipo === "pedido") {
-                            void trackEvent("pedido_aviso_estado_tocado", "Blue: aviso de estado del pedido tocado", { metadata: { estado: (a.clave.split(":")[2] ?? "").split("|")[0], donde: "panel" } });
+                            void medirEvento("pedido_aviso_estado_tocado", "Blue: aviso de estado del pedido tocado", { metadata: { estado: (a.clave.split(":")[2] ?? "").split("|")[0], donde: "panel" } });
                           }
                           ir("/perfil?tab=seguimientos");
                         }}
@@ -3402,7 +3402,7 @@ export default function AsistenteBlue() {
                           detalle={noticiaNueva?.titulo && noticiasNuevas > 1 ? `Y ${noticiasNuevas - 1} más en Noticias Gaming` : undefined}
                           accion="Leer la noticia"
                           onPress={() => {
-                            void trackEvent("blue_aviso_noticia", "Blue: noticia abierta desde el aviso", { metadata: { nuevas: noticiasNuevas } });
+                            void medirEvento("blue_aviso_noticia", "Blue: noticia abierta desde el aviso", { metadata: { nuevas: noticiasNuevas } });
                             ir(noticiaNueva ? `/chat-global?noticia=${noticiaNueva.id}` : "/chat-global?tab=news");
                           }}
                         />
@@ -5073,8 +5073,8 @@ function GuiaBlue({
   const eventoGuia = seccion ? "miniguia" : "guia";
   const rotuloGuia = seccion ? `Mini-guía ${NOMBRE_SECCION_GUIA[seccion]}` : "Guía Blue";
   useEffect(() => {
-    trackEvent(`${eventoGuia}_paso`, `${rotuloGuia}: ${numeroPaso(p)} ${p.titulo}`);
-    if (paso === total - 1) trackEvent(`${eventoGuia}_completada`, `${rotuloGuia}: completada`);
+    medirEvento(`${eventoGuia}_paso`, `${rotuloGuia}: ${numeroPaso(p)} ${p.titulo}`);
+    if (paso === total - 1) medirEvento(`${eventoGuia}_completada`, `${rotuloGuia}: completada`);
     // Si la guía ya enseñó el selector de pestañas del Foro, el aviso suelto no vuelve a salir.
     if (p.objetivo?.some((o) => o.includes("selector-pestanas"))) {
       AsyncStorage.setItem(SELECTOR_VISTO_KEY, "1").catch(() => {});
@@ -5109,8 +5109,8 @@ function GuiaBlue({
   const onCerrar = useCallback(() => {
     const i = pasoActualRef.current;
     if (i < total - 1) {
-      trackEvent(`${eventoGuia}_saltada`, `${rotuloGuia}: saltada`);
-      trackEvent(`${eventoGuia}_saltada_en`, `${rotuloGuia}: saltada en el paso ${numeroPaso(pasos[i])} ${pasos[i].titulo}`);
+      medirEvento(`${eventoGuia}_saltada`, `${rotuloGuia}: saltada`);
+      medirEvento(`${eventoGuia}_saltada_en`, `${rotuloGuia}: saltada en el paso ${numeroPaso(pasos[i])} ${pasos[i].titulo}`);
     }
     escribirEnBuscadorDemo(null);
     cerrarSinMedir(true);

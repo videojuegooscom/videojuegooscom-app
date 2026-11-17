@@ -106,13 +106,13 @@ function emit() {
 }
 
 /** Llamar justo antes de lanzar una petición o carga real. */
-export function markStart() {
+export function marcarInicioCarga() {
   activeCount += 1;
   emit();
 }
 
 /** Llamar en cuanto esa petición o carga termina (con éxito o con error). */
-export function markEnd() {
+export function marcarFinCarga() {
   activeCount = Math.max(0, activeCount - 1);
   emit();
 }
@@ -127,10 +127,10 @@ export function markEnd() {
  * acciones que pide el usuario, como recargar una pestaña con triple toque);
  * el mínimo visible (MIN_VISIBLE_MS) se respeta igual.
  */
-export function pulseLoading(durationMs = 450, inmediato = false) {
-  markStart();
+export function pulsoCarga(durationMs = 450, inmediato = false) {
+  marcarInicioCarga();
   if (inmediato) mostrarYa();
-  setTimeout(markEnd, durationMs);
+  setTimeout(marcarFinCarga, durationMs);
 }
 
 // Enciende el estado visible al momento (cancela la espera de entrada).
@@ -181,7 +181,7 @@ export function estaCargando(): boolean {
 }
 
 /** true mientras haya algo en marcha (contador > 0), sin umbrales. */
-export function useGlobalLoading(): boolean {
+export function useCargaGlobal(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 

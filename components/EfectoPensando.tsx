@@ -73,7 +73,7 @@ import React, { useEffect, useRef, useState, type CSSProperties, type ReactNode 
 import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
 import { usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useCargando, pulseLoading } from "../lib/estadoCarga";
+import { useCargando, pulsoCarga } from "../lib/estadoCarga";
 
 const AZUL_MARCA = "#1EA7E8";
 
@@ -238,7 +238,7 @@ export default function EfectoPensando() {
       isFirstPathRef.current = false;
       return;
     }
-    pulseLoading(NAV_PULSE_MS);
+    pulsoCarga(NAV_PULSE_MS);
   }, [pathname]);
 
   useEffect(() => {

@@ -53,7 +53,7 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import { COLORS } from "./productos.constantes";
 import { TACTIL, TAMANOS } from "../../constants/temaTienda";
 import type { LocalPickedMedia, ProductMediaRow, ProductMediaKind } from "./productos.tipos";
-import { smartBackAdminHome } from "./productos.utilidades";
+import { volverAlPanel } from "./productos.utilidades";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -69,7 +69,7 @@ export function AdminHeader({
   title,
   isMobile,
   maxWidth = 1040,
-  onBack = smartBackAdminHome,
+  onBack = volverAlPanel,
   backLabel = "Volver al panel",
 }: {
   title: string;

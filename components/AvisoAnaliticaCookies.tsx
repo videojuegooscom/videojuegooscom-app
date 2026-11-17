@@ -46,8 +46,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { router, usePathname } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { getAnalyticsConsent, setAnalyticsConsent } from "../lib/analiticaPropia";
-import { useTabBarBottomInset } from "../lib/barraPestanas";
+import { leerConsentimientoAnalitica, guardarConsentimientoAnalitica } from "../lib/analiticaPropia";
+import { useMargenInferiorBarraPestanas } from "../lib/barraPestanas";
 
 const COLORS = {
   card: "#FFFFFF",
@@ -89,7 +89,7 @@ export default function AvisoAnaliticaCookies() {
     let alive = true;
 
     (async () => {
-      const consent = await getAnalyticsConsent();
+      const consent = await leerConsentimientoAnalitica();
       if (!alive) return;
       setChecked(true);
       if (consent === null) {
@@ -115,11 +115,11 @@ export default function AvisoAnaliticaCookies() {
 
   const isAdminRoute = pathname?.startsWith("/admin");
   // Se coloca encima de la barra de pestañas, que crece con la zona segura del iPhone.
-  const tabBarInset = useTabBarBottomInset();
+  const tabBarInset = useMargenInferiorBarraPestanas();
 
   const handleDecision = async (value: "accepted" | "declined") => {
     setVisible(false);
-    await setAnalyticsConsent(value);
+    await guardarConsentimientoAnalitica(value);
   };
 
   // No se pinta nada en /admin (ese aviso es para clientes, no para Jefe

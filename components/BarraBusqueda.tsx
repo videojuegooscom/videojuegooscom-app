@@ -108,7 +108,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { supabase } from "../lib/supabase";
-import { trackEvent } from "../lib/analiticaPropia";
+import { medirEvento } from "../lib/analiticaPropia";
 import { colorTextoAzul } from "../constants/temaTienda";
 import ImagenInteligente from "./ImagenInteligente";
 
@@ -622,14 +622,14 @@ export function medirBusqueda(
   if (!texto || clave === ultimaBusquedaMedida) return;
   ultimaBusquedaMedida = clave;
   const path = origen === "inicio" ? "/" : "/catalogo";
-  trackEvent("busqueda", "Búsqueda", { path, metadata: { texto, resultados: r.total, sinonimo: r.sinonimo, correccion: r.correccion, origen } });
+  medirEvento("busqueda", "Búsqueda", { path, metadata: { texto, resultados: r.total, sinonimo: r.sinonimo, correccion: r.correccion, origen } });
   if (r.total === 0) {
-    trackEvent("busqueda_sin_resultados", "Búsqueda: sin resultados", { path, metadata: { texto, sugerencia: r.sugerencia ? normalizarBusqueda(r.sugerencia) : null, origen } });
+    medirEvento("busqueda_sin_resultados", "Búsqueda: sin resultados", { path, metadata: { texto, sugerencia: r.sugerencia ? normalizarBusqueda(r.sugerencia) : null, origen } });
   }
 }
 
 export function medirSugerenciaTocada(origen: "inicio" | "catalogo", textoCrudo: string, posicion: number) {
-  trackEvent("busqueda_sugerencia_tocada", "Búsqueda: sugerencia tocada", {
+  medirEvento("busqueda_sugerencia_tocada", "Búsqueda: sugerencia tocada", {
     path: origen === "inicio" ? "/" : "/catalogo",
     metadata: { texto: textoParaAnalitica(textoCrudo), posicion: posicion + 1, origen },
   });

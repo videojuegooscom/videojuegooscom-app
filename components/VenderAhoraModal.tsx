@@ -152,7 +152,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 import { supabase } from "../lib/supabase";
-import { leerOrigenVender, marcarOrigenVender, trackEvent } from "../lib/analiticaPropia";
+import { leerOrigenVender, marcarOrigenVender, medirEvento } from "../lib/analiticaPropia";
 import CabeceraMarca from "./CabeceraMarca";
 import { activarNotificaciones, estadoNotificaciones, type EstadoNotificaciones } from "../lib/notificaciones";
 import {
@@ -908,7 +908,7 @@ export default function VenderAhoraModal({
         if (campos > 0) {
           setAutoRellenado(true);
           // Analítica propia (Administración → Analítica): solo que ocurrió y cuántos campos, sin datos de la persona.
-          void trackEvent("vender_autorrelleno", "Vender: formulario autorrellenado", { metadata: { campos } });
+          void medirEvento("vender_autorrelleno", "Vender: formulario autorrellenado", { metadata: { campos } });
         }
       } catch {
         // sin datos: se escriben a mano, como siempre
@@ -1066,8 +1066,8 @@ export default function VenderAhoraModal({
   // Embudo: el formulario se ha abierto (y desde dónde: la guía de Blue u otro sitio).
   useEffect(() => {
     if (!visible) return;
-    trackEvent("vender_abierto", "Vender: abierto");
-    if (leerOrigenVender() === "guia") trackEvent("vender_abierto_guia", "Vender: abierto desde la guía");
+    medirEvento("vender_abierto", "Vender: abierto");
+    if (leerOrigenVender() === "guia") medirEvento("vender_abierto_guia", "Vender: abierto desde la guía");
   }, [visible]);
 
   function resetForm() {
@@ -1160,7 +1160,7 @@ export default function VenderAhoraModal({
               ? `Para enviarlo ${faltan === 1 ? "falta 1 foto" : `faltan ${faltan} fotos`} (mínimo ${MIN_SELL_IMAGES}).`
               : `Para enviarlo añade un vídeo de ${MIN_SELL_VIDEO_SECONDS} a ${MAX_SELL_VIDEO_SECONDS} segundos en el que se vea funcionando.`
         );
-        void trackEvent("vender_sin_media", "Vender: intento sin fotos o vídeo", {
+        void medirEvento("vender_sin_media", "Vender: intento sin fotos o vídeo", {
           metadata: { fotos: mediaImages.length, video: videoOk },
         });
       }
@@ -1315,7 +1315,7 @@ export default function VenderAhoraModal({
       if (error) throw error;
       const insertedRow = { id: requestId };
       // Analítica propia (Administración → Analítica, «Cambio de consola desde la cesta»): sin datos de la persona.
-      if (cambioDesdeCesta) void trackEvent("cambio_cesta_enviado", "Cesta: cambio de consola enviado", { metadata: { con_referencia: !!paraComprar } });
+      if (cambioDesdeCesta) void medirEvento("cambio_cesta_enviado", "Cesta: cambio de consola enviado", { metadata: { con_referencia: !!paraComprar } });
 
       // La solicitud ya está guardada. Las fotos y el vídeo se suben aparte: si alguno falla, la confirmación lo
       // dice claro (cuántos faltan) y deja «Reintentar la subida» solo con esos, en esta misma solicitud.
@@ -1374,8 +1374,8 @@ export default function VenderAhoraModal({
 
       setSentChatId(openedChatId);
       setSent(true);
-      trackEvent("vender_enviado", "Vender: enviado");
-      if (leerOrigenVender() === "guia") trackEvent("vender_enviado_guia", "Vender: enviado desde la guía");
+      medirEvento("vender_enviado", "Vender: enviado");
+      if (leerOrigenVender() === "guia") medirEvento("vender_enviado_guia", "Vender: enviado desde la guía");
     } catch (e: any) {
       setFormErr(
         e?.message ?? "No se pudo enviar el formulario. Inténtalo de nuevo en unos segundos."

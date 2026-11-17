@@ -147,8 +147,8 @@ import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../../components/PerfilPublico";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
-import { trackEvent } from "../../lib/analiticaPropia";
-import { markEnd, markStart } from "../../lib/estadoCarga";
+import { medirEvento } from "../../lib/analiticaPropia";
+import { marcarFinCarga, marcarInicioCarga } from "../../lib/estadoCarga";
 import { supabase } from "../../lib/supabase";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -229,7 +229,7 @@ function EnlaceNormasForo({ desde }: { desde: "foro" | "comentarios" }) {
   return (
     <Pressable
       onPress={() => {
-        trackEvent("foro_normas_abiertas", "Foro: normas abiertas", { metadata: { desde } });
+        medirEvento("foro_normas_abiertas", "Foro: normas abiertas", { metadata: { desde } });
         router.push("/politicas/normas-foro" as Href);
       }}
       accessibilityRole="link"
@@ -4880,11 +4880,11 @@ function useAvisoCargaFoto(activo: boolean, clave: string) {
   useEffect(() => {
     if (!activo) return;
     let abierto = true;
-    markStart();
+    marcarInicioCarga();
     const cerrar = () => {
       if (!abierto) return;
       abierto = false;
-      markEnd();
+      marcarFinCarga();
     };
     const t = setTimeout(cerrar, AVISO_CARGA_MAX_MS);
     return () => {

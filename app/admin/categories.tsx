@@ -147,7 +147,7 @@ import {
   useDesplegables,
   type NombreIconoPanel,
 } from "../../components/admin/PiezasPanelAdmin";
-import { CIERRE_TECLADO, pickMediaFilesWeb, reducirImagenWeb } from "../../lib/admin/productos.utilidades";
+import { CIERRE_TECLADO, elegirFotosVideoWeb, reducirImagenWeb } from "../../lib/admin/productos.utilidades";
 import { MEDIA_BUCKET } from "../../lib/admin/productos.constantes";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 
@@ -580,9 +580,9 @@ export default function AdminCategories() {
     setModalErr(null);
     setAvisoPortadas(null);
 
-    let elegidas: Awaited<ReturnType<typeof pickMediaFilesWeb>>;
+    let elegidas: Awaited<ReturnType<typeof elegirFotosVideoWeb>>;
     try {
-      elegidas = await pickMediaFilesWeb({ soloImagenes: true });
+      elegidas = await elegirFotosVideoWeb({ soloImagenes: true });
     } catch (e: any) {
       setModalErr(String(e?.message ?? "No se pudo abrir el selector de fotos."));
       return;

@@ -164,13 +164,13 @@ import VentanaValoracion, {
 import PieDePagina from "../../components/PieDePagina";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { medirCuentaCreada, trackEvent } from "../../lib/analiticaPropia";
+import { medirCuentaCreada, medirEvento } from "../../lib/analiticaPropia";
 import {
   CANALES_REPOSICION,
   fijarAvisoPrecio,
   fijarAvisoReposicion,
-  LIKED_PRODUCTS_KEY,
-  LIKED_SERVICES_KEY,
+  CLAVE_ME_GUSTA_PRODUCTOS,
+  CLAVE_ME_GUSTA_SERVICIOS,
   meGustaLocales,
   misAvisosPrecio,
   misAvisosReposicion,
@@ -181,7 +181,7 @@ import {
   type AvisoReposicion,
   type CanalReposicion,
 } from "../../lib/interaccion";
-import { abrirDescarga, openExternalLink } from "../../lib/abrirEnlaceExterno";
+import { abrirDescarga, abrirEnlaceExterno } from "../../lib/abrirEnlaceExterno";
 import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { eurosReserva, fechaReserva, rellenarCondicionesReserva } from "../../lib/reservas";
@@ -620,10 +620,10 @@ export default function PerfilScreen() {
   }, [perfilTab]);
   const cambiarPestana = useCallback((t: PerfilTab, como: "tocar" | "deslizar") => {
     if (perfilTabRef.current !== t && t === "seguimientos") {
-      trackEvent("seguimientos_abiertos", "Perfil: Mis seguimientos", { metadata: { como } });
+      medirEvento("seguimientos_abiertos", "Perfil: Mis seguimientos", { metadata: { como } });
     }
     if (perfilTabRef.current !== t && t === "megusta") {
-      trackEvent("megusta_abiertos", "Perfil: Me gusta", { metadata: { como } });
+      medirEvento("megusta_abiertos", "Perfil: Me gusta", { metadata: { como } });
     }
     perfilTabRef.current = t;
     setPerfilTab(t);
@@ -914,7 +914,7 @@ export default function PerfilScreen() {
   const medirContrasenaCorta = useCallback(() => {
     if (cortaMedida.current || !avisoContrasenaCorta(pass)) return;
     cortaMedida.current = true;
-    void trackEvent("contrasena_corta", "Contraseña: más corta del mínimo", { metadata: { motivo: "registro" } });
+    void medirEvento("contrasena_corta", "Contraseña: más corta del mínimo", { metadata: { motivo: "registro" } });
   }, [pass]);
 
   const signIn = useCallback(async () => {
@@ -1092,10 +1092,10 @@ export default function PerfilScreen() {
     // Mensajes de Supabase en español y medición (Administración → Usuarios, «Recuperar contraseña»): nunca el correo.
     const r = await pedirEnlaceContrasena(e);
     if (r.ok) {
-      void trackEvent("contrasena_enlace_pedido", "Contraseña: enlace pedido", { metadata: { desde: "perfil" } });
+      void medirEvento("contrasena_enlace_pedido", "Contraseña: enlace pedido", { metadata: { desde: "perfil" } });
       setOkMsg("Si ese email tiene una cuenta, te hemos enviado un enlace para crear una contraseña nueva (mira también en Spam).");
     } else {
-      void trackEvent("contrasena_enlace_error", "Contraseña: no se pudo pedir el enlace", { metadata: { desde: "perfil", motivo: r.motivo } });
+      void medirEvento("contrasena_enlace_error", "Contraseña: no se pudo pedir el enlace", { metadata: { desde: "perfil", motivo: r.motivo } });
       setMsg(r.mensaje);
     }
     setState("idle");
@@ -1493,7 +1493,7 @@ export default function PerfilScreen() {
                     <Pressable
                       nativeID="perfil-quienes-somos"
                       onPress={() => {
-                        void trackEvent("quienes_somos_abierto", "Quiénes somos: desde el acceso", {
+                        void medirEvento("quienes_somos_abierto", "Quiénes somos: desde el acceso", {
                           path: "/perfil",
                           metadata: { desde: "acceso", modo: formOpen ? mode : "ninguno" },
                         });
@@ -1800,7 +1800,7 @@ function FacturaDelPedido({ p, facturasOk }: { p: PedidoSeg; facturasOk: boolean
       });
       const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; error?: string } | null;
       if (r.ok && d?.ok && d.url) {
-        void trackEvent("factura_descargada", "Pedidos: factura descargada");
+        void medirEvento("factura_descargada", "Pedidos: factura descargada");
         abrirDescarga(d.url);
       } else if (r.status === 409) {
         setAviso("La factura se está generando. Inténtalo de nuevo en unos minutos.");
@@ -1949,7 +1949,7 @@ function CancelacionDelPedido({
     }
     onGuardado(r);
     if (cambios.activo !== activo) {
-      void trackEvent(cambios.activo ? "aviso_reposicion_activado" : "aviso_reposicion_desactivado", cambios.activo ? "Pedidos: aviso de reposición activado" : "Pedidos: aviso de reposición apagado", {
+      void medirEvento(cambios.activo ? "aviso_reposicion_activado" : "aviso_reposicion_desactivado", cambios.activo ? "Pedidos: aviso de reposición activado" : "Pedidos: aviso de reposición apagado", {
         metadata: cambios.activo ? { canal: cambios.canal } : {},
       });
     }
@@ -1962,14 +1962,14 @@ function CancelacionDelPedido({
   // «Ver artículos parecidos»: el catálogo de su categoría (si se sabe) o la búsqueda por el modelo del artículo.
   function verParecidos() {
     const destino = p.articuloCategoria ? "categoria" : titulo ? "busqueda" : "catalogo";
-    void trackEvent("cancelado_ver_parecidos", "Pedido cancelado: ver artículos parecidos", { metadata: { product_id: p.primerProducto ?? null, destino } });
+    void medirEvento("cancelado_ver_parecidos", "Pedido cancelado: ver artículos parecidos", { metadata: { product_id: p.primerProducto ?? null, destino } });
     if (p.articuloCategoria) router.push(`/catalogo?cat=${encodeURIComponent(p.articuloCategoria)}`);
     else if (titulo) router.push(`/catalogo?query=${encodeURIComponent(modelo || titulo)}`);
     else router.push("/catalogo");
   }
   function volverAComprar() {
     if (!p.primerProducto) return;
-    void trackEvent("cancelado_volver_comprar", "Pedido cancelado: volver a comprar", { metadata: { product_id: p.primerProducto } });
+    void medirEvento("cancelado_volver_comprar", "Pedido cancelado: volver a comprar", { metadata: { product_id: p.primerProducto } });
     router.push(`/producto/${p.primerProducto}`);
   }
   const puedeRecomprar = !!p.primerProducto && !!p.articuloALaVenta;
@@ -2403,7 +2403,7 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
       if (error) throw error;
       const r = (data ?? {}) as { ok?: boolean; motivo?: string; tipo?: "pedido" | "reparacion"; titulo?: string; numero?: number };
       if (r.ok && r.tipo) {
-        trackEvent("seguimiento_numero_anadido", "Perfil: número de seguimiento añadido", { metadata: { tipo: r.tipo } });
+        medirEvento("seguimiento_numero_anadido", "Perfil: número de seguimiento añadido", { metadata: { tipo: r.tipo } });
         // La referencia escrita, con el formato de la tienda (como la normaliza vincular_seguimiento): «VZ-7K3M-9QPD».
         const limpio = codigo.toUpperCase().replace(/[^A-Z0-9]/g, "");
         const referencia = `VZ-${limpio.slice(2, 6)}-${limpio.slice(6, 10)}`;
@@ -2417,7 +2417,7 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
         });
         onAnadido();
       } else {
-        trackEvent("seguimiento_numero_fallido", "Perfil: número de seguimiento no válido", { metadata: { motivo: r.motivo ?? "desconocido" } });
+        medirEvento("seguimiento_numero_fallido", "Perfil: número de seguimiento no válido", { metadata: { motivo: r.motivo ?? "desconocido" } });
         setAviso({ ok: false, texto: MOTIVOS_SEGUIMIENTO[r.motivo ?? ""] ?? "No hemos podido añadir el número. Inténtalo de nuevo." });
       }
     } catch (e) {
@@ -2435,7 +2435,7 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
         onPress={() => {
           setAbierto(true);
           // Administración → Analítica (embudo): cuántos abren el campo frente a cuántos lo añaden.
-          trackEvent("seguimiento_numero_abierto", "Perfil: abre «añadir número de seguimiento»");
+          medirEvento("seguimiento_numero_abierto", "Perfil: abre «añadir número de seguimiento»");
         }}
         accessibilityRole="button"
         accessibilityLabel="¿Tienes un número de seguimiento de un pedido o una reparación? Añádelo aquí"
@@ -2580,7 +2580,7 @@ function FiltrosPedidos({
             onPress={() => {
               onCambiar(o.f);
               // Administración → Analítica: qué filtro se usa.
-              trackEvent("seguimientos_filtro", `Perfil: filtro de pedidos · ${o.texto}`);
+              medirEvento("seguimientos_filtro", `Perfil: filtro de pedidos · ${o.texto}`);
             }}
             accessibilityRole="tab"
             accessibilityState={{ selected: elegido }}
@@ -2724,7 +2724,7 @@ function EnvioDeLaReparacion({
     try {
       const d = await pedirArchivoReparacion(r.id, "etiqueta");
       if (d.ok && d.url) {
-        void trackEvent("reparacion_envio", "Reparación por envío: etiqueta descargada");
+        void medirEvento("reparacion_envio", "Reparación por envío: etiqueta descargada");
         abrirDescarga(d.url);
       } else {
         setAviso(d.status === 404 ? "La etiqueta aún no está lista: te avisamos en cuanto la tengas." : "No hemos podido descargar la etiqueta. Inténtalo de nuevo en un rato.");
@@ -2748,7 +2748,7 @@ function EnvioDeLaReparacion({
         .select("presupuesto_aceptado_en");
       const fecha = (data as { presupuesto_aceptado_en?: string | null }[] | null)?.[0]?.presupuesto_aceptado_en;
       if (error || !fecha) throw error ?? new Error("sin respuesta");
-      void trackEvent("reparacion_envio", "Reparación por envío: presupuesto aceptado");
+      void medirEvento("reparacion_envio", "Reparación por envío: presupuesto aceptado");
       setConfirmando(false);
       onAceptado(r.id, fecha);
     } catch {
@@ -3024,7 +3024,7 @@ function PagoDeLaSolicitud({
       } else if (resp.ok && d?.url && typeof window !== "undefined") {
         // Se mide antes de salir a Stripe (como mucho medio segundo de espera).
         await Promise.race([
-          Promise.resolve(trackEvent("reparacion_envio", `Reparación por envío: pago con tarjeta · ${concepto === "etiqueta" ? "etiqueta" : "reparación"}`)).catch(() => {}),
+          Promise.resolve(medirEvento("reparacion_envio", `Reparación por envío: pago con tarjeta · ${concepto === "etiqueta" ? "etiqueta" : "reparación"}`)).catch(() => {}),
           new Promise((fin) => setTimeout(fin, 500)),
         ]);
         window.location.assign(d.url);
@@ -3054,7 +3054,7 @@ function PagoDeLaSolicitud({
         .select(campo);
       const fecha = (data as Record<string, string | null>[] | null)?.[0]?.[campo];
       if (error || !fecha) throw error ?? new Error("sin respuesta");
-      void trackEvent("reparacion_envio", `Reparación por envío: aviso de pago · ${concepto === "etiqueta" ? "etiqueta" : "reparación"}`);
+      void medirEvento("reparacion_envio", `Reparación por envío: aviso de pago · ${concepto === "etiqueta" ? "etiqueta" : "reparación"}`);
       onAvisado({ [campo]: fecha } as Partial<ReparacionSeg>);
     } catch {
       setAviso("No hemos podido guardar tu aviso. Inténtalo de nuevo o pregúntanos.");
@@ -3180,7 +3180,7 @@ function CobrosDeLaReparacion({
     try {
       const { data, error } = await supabase.from("service_requests").update({ sin_arreglo_eleccion: eleccion }).eq("id", r.id).select("sin_arreglo_eleccion");
       if (error || !(data as { sin_arreglo_eleccion?: string }[] | null)?.[0]?.sin_arreglo_eleccion) throw error ?? new Error("sin respuesta");
-      void trackEvent("reparacion_envio", eleccion === "comprar" ? "Reparación por envío: sin arreglo · te lo compramos" : "Reparación por envío: sin arreglo · devuélvemelo");
+      void medirEvento("reparacion_envio", eleccion === "comprar" ? "Reparación por envío: sin arreglo · te lo compramos" : "Reparación por envío: sin arreglo · devuélvemelo");
       cambiar({ sin_arreglo_eleccion: eleccion });
       if (eleccion === "comprar") abrirVender();
     } catch {
@@ -3220,7 +3220,7 @@ function CobrosDeLaReparacion({
         setAviso(/garantía|cuenta|entregada/i.test(m) ? m : "No hemos podido pedir la garantía. Inténtalo de nuevo o pregúntanos.");
         return;
       }
-      void trackEvent("reparacion_envio", "Reparación por envío: garantía pedida");
+      void medirEvento("reparacion_envio", "Reparación por envío: garantía pedida");
       setPidiendoGarantia(false);
       onGarantiaPedida();
     } catch {
@@ -3567,8 +3567,8 @@ function BotonSeguirEnvio({ id, numero, tipo }: { id: string; numero: string | n
     <Pressable
       nativeID={id}
       onPress={() => {
-        void trackEvent("seguir_envio", "Mis seguimientos: seguir el envío", { metadata: { tipo } });
-        openExternalLink(enlace);
+        void medirEvento("seguir_envio", "Mis seguimientos: seguir el envío", { metadata: { tipo } });
+        abrirEnlaceExterno(enlace);
       }}
       accessibilityRole="link"
       accessibilityLabel="Seguir el envío"
@@ -3599,7 +3599,7 @@ function BotonValorarCompra({ id, pedidoId, onPress }: { id: string; pedidoId: s
   useEffect(() => {
     if (valoracionPedidaVista.has(pedidoId)) return;
     valoracionPedidaVista.add(pedidoId);
-    void trackEvent("valoracion_pedida", "Valoración del pedido: pedida", { metadata: { origen: "mis_pedidos" } });
+    void medirEvento("valoracion_pedida", "Valoración del pedido: pedida", { metadata: { origen: "mis_pedidos" } });
   }, [pedidoId]);
   return (
     <Pressable
@@ -3759,7 +3759,7 @@ function MisReservasSenal() {
         const d = (await resp.json().catch(() => null)) as { pagado?: boolean; reserva?: string } | null;
         if (!vivo) return;
         if (resp.ok && d?.pagado && d.reserva) {
-          void trackEvent("reserva_pagada", "Reserva con señal: señal pagada");
+          void medirEvento("reserva_pagada", "Reserva con señal: señal pagada");
           setAviso({ ok: true, texto: "Señal recibida ✓ Tu reserva está activa: la ves aquí con su vencimiento." });
           cargar();
         } else setAviso({ ok: false, texto: "Aún no nos consta el pago de la señal. Si te lo han cobrado, en unos minutos aparecerá aquí." });
@@ -3923,7 +3923,7 @@ function AvisosPrecioSeccion({ cardPadding }: { cardPadding: number }) {
     setQuitando(null);
     if (r === "ok") {
       setFilas((f) => (f ?? []).filter((x) => x.productId !== id));
-      void trackEvent("aviso_precio_desactivado", "Aviso de precio: desactivado", { path: "/perfil", metadata: { productId: id, donde: "perfil" } });
+      void medirEvento("aviso_precio_desactivado", "Aviso de precio: desactivado", { path: "/perfil", metadata: { productId: id, donde: "perfil" } });
     } else setError("No se ha podido quitar el aviso. Inténtalo de nuevo.");
   }, []);
   if (!filas?.length) return null;
@@ -3980,8 +3980,8 @@ function MeGustaSeccion() {
     (async () => {
       try {
         const [localesP, localesS, cuenta] = await Promise.all([
-          meGustaLocales(LIKED_PRODUCTS_KEY),
-          meGustaLocales(LIKED_SERVICES_KEY),
+          meGustaLocales(CLAVE_ME_GUSTA_PRODUCTOS),
+          meGustaLocales(CLAVE_ME_GUSTA_SERVICIOS),
           misMeGustaServidor(),
         ]);
         // Primero los de la cuenta (ya vienen del más reciente al más antiguo) y luego los de este dispositivo.
@@ -4405,7 +4405,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
         const d = (await resp.json().catch(() => null)) as { ok?: boolean; pagado?: boolean } | null;
         if (!vivo) return;
         if (resp.ok && d?.pagado) {
-          void trackEvent("reparacion_envio", "Reparación por envío: pago con tarjeta confirmado");
+          void medirEvento("reparacion_envio", "Reparación por envío: pago con tarjeta confirmado");
           setAvisoPago({ ok: true, texto: "Pago recibido ✓ Gracias: ya lo ves en tu reparación." });
           cargar(true);
         } else {
@@ -4609,7 +4609,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
                   <Pressable
                     nativeID={`valorar-${r.id}`}
                     onPress={() => {
-                      trackEvent("resena_servicio_pedida", "Seguimientos: valorar el servicio", { metadata: { solicitud: r.id } });
+                      medirEvento("resena_servicio_pedida", "Seguimientos: valorar el servicio", { metadata: { solicitud: r.id } });
                       setValorando({ solicitudId: r.id, titulo: r.service_title });
                     }}
                     accessibilityRole="button"

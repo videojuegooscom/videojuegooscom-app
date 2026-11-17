@@ -76,13 +76,13 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 import { supabase } from "../lib/supabase";
-import { trackEvent } from "../lib/analiticaPropia";
+import { medirEvento } from "../lib/analiticaPropia";
 import {
   calcularEtiquetaReparacion,
   cargarAjustesReparacionEnvio,
   cargarPesoEnvioServicio,
   cargarTarifas,
-  fmtKg,
+  formatearKg,
   hayTarifaCorreos,
   pesoAparatoReparacion,
   type AjustesReparacionEnvio,
@@ -389,7 +389,7 @@ export default function ContratarServicioModal({
     setModalidad(
       modalidadInicial && modalidades.some((m) => m.nombre === modalidadInicial) ? modalidadInicial : modalidades[0]?.nombre ?? ""
     );
-    trackEvent("servicio_ventana", `Contratar: ventana abierta · ${service.title}`, { path: `/servicio/${service.id}` });
+    medirEvento("servicio_ventana", `Contratar: ventana abierta · ${service.title}`, { path: `/servicio/${service.id}` });
     let vivo = true;
     (async () => {
       try {
@@ -494,7 +494,7 @@ export default function ContratarServicioModal({
 
   function handleClose() {
     if (!enviadaRef.current && service) {
-      trackEvent("servicio_ventana", `Contratar: cerrada sin enviar · ${service.title}`, { path: ruta });
+      medirEvento("servicio_ventana", `Contratar: cerrada sin enviar · ${service.title}`, { path: ruta });
     }
     onClose();
     setTimeout(reset, 250);
@@ -505,7 +505,7 @@ export default function ContratarServicioModal({
     const primero = faltan[0];
     if (!primero) return;
     setIntentado(true);
-    trackEvent("servicio_ventana", `Contratar: le faltaba · ${NOMBRE_CAMPO[primero]}`, { path: ruta, metadata: { faltan } });
+    medirEvento("servicio_ventana", `Contratar: le faltaba · ${NOMBRE_CAMPO[primero]}`, { path: ruta, metadata: { faltan } });
     // El código postal y la casilla van dentro del bloque de Correos: su posición se suma a la del bloque.
     const pos = posiciones.current;
     const y =
@@ -559,11 +559,11 @@ export default function ContratarServicioModal({
 
       if (insertError) throw insertError;
       enviadaRef.current = true;
-      trackEvent("servicio_ventana", `Contratar: solicitud enviada · ${service.title}`, {
+      medirEvento("servicio_ventana", `Contratar: solicitud enviada · ${service.title}`, {
         path: ruta,
         metadata: { opcion: opcionElegida?.nombre ?? null, recogida: !porCorreos && !!direccion.trim(), metodo, correos: porCorreos },
       });
-      if (porCorreos) trackEvent("reparacion_envio", "Reparación por envío: solicitada", { path: ruta, metadata: { aparatos } });
+      if (porCorreos) medirEvento("reparacion_envio", "Reparación por envío: solicitada", { path: ruta, metadata: { aparatos } });
       setSent(true);
     } catch (e: any) {
       console.error("Error enviando la solicitud de servicio:", e);
@@ -952,7 +952,7 @@ export default function ContratarServicioModal({
                   onChange={(v) => {
                     setEntrega(v);
                     setError(null);
-                    if (v === "correos" && service) trackEvent("servicio_ventana", "Contratar: envío por Correos elegido", { path: ruta });
+                    if (v === "correos" && service) medirEvento("servicio_ventana", "Contratar: envío por Correos elegido", { path: ruta });
                   }}
                 />
               ) : null}
@@ -1002,7 +1002,7 @@ export default function ContratarServicioModal({
                     <Ionicons name="pricetag-outline" size={18} color={COLORS.accent} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14.5, lineHeight: 20, textAlign: "center", flexShrink: 1 }}>
                       {etiquetaEnvio?.estado === "ok"
-                        ? `Etiqueta de Correos: ${formatearEurosServicio(etiquetaEnvio.precio)} · ${fmtKg(etiquetaEnvio.pesoKg)}`
+                        ? `Etiqueta de Correos: ${formatearEurosServicio(etiquetaEnvio.precio)} · ${formatearKg(etiquetaEnvio.pesoKg)}`
                         : etiquetaEnvio?.estado === "local"
                           ? "En Zaragoza y Cuarte te lo recogemos: elige «Recogida en Zaragoza o Cuarte»."
                           : etiquetaEnvio?.estado === "sin_tarifa"

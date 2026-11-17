@@ -31,12 +31,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 // margen de abajo. Con 64 − 4 − 10 = 50 px no cabían el icono (22) y el nombre (13): el nombre
 // se encogía a 9 px y se recortaba por abajo («Inicio», «Perfil»…). Medido con el navegador
 // de pruebas. Ahora los botones tienen 62 px y quedan holgados.
-export const TAB_BAR_BASE_HEIGHT = 80;
+export const ALTO_BASE_BARRA_PESTANAS = 80;
 /** Margen inferior de la barra sin la zona segura (también separa de la barra del navegador). */
-export const TAB_BAR_BASE_PADDING_BOTTOM = 14;
+export const MARGEN_INFERIOR_BARRA_PESTANAS = 14;
 
 /** Píxeles extra que ocupa la zona segura inferior en la web (0 en nativo o sin zona segura). */
-export function useTabBarBottomInset(): number {
+export function useMargenInferiorBarraPestanas(): number {
   const insets = useSafeAreaInsets();
   return Platform.OS === "web" ? Math.max(0, Math.round(insets.bottom)) : 0;
 }

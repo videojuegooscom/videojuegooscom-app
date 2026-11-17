@@ -130,8 +130,8 @@ export async function fijarMeGustaServicio(id: string, activo: boolean): Promise
 
 // «Me gusta» de ESTE dispositivo (también sin sesión): la ficha de producto guarda los suyos en
 // LIKED_PRODUCTS_KEY (app/producto/[id].tsx, la misma clave) y la de servicio, en LIKED_SERVICES_KEY.
-export const LIKED_PRODUCTS_KEY = "videojuegoszaragoza:liked_products";
-export const LIKED_SERVICES_KEY = "videojuegoszaragoza:liked_services";
+export const CLAVE_ME_GUSTA_PRODUCTOS = "videojuegoszaragoza:liked_products";
+export const CLAVE_ME_GUSTA_SERVICIOS = "videojuegoszaragoza:liked_services";
 
 export async function meGustaLocales(clave: string): Promise<string[]> {
   try {

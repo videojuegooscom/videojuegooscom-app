@@ -141,9 +141,9 @@ import {
 } from "../../../components/VentanaValoracion";
 import { cargarHistorialPedidos, type HistorialPedidos } from "../../../lib/envio";
 import { datosDeFila, direccionEnUnaLinea, direccionesDeFila, textoEtiqueta } from "../../../components/PerfilPublico";
-import { openExternalLink } from "../../../lib/abrirEnlaceExterno";
+import { abrirEnlaceExterno } from "../../../lib/abrirEnlaceExterno";
 import { useGestoPestanas } from "../../../lib/admin/productos.componentes";
-import { fmtEUR } from "../../../lib/admin/productos.utilidades";
+import { formatearEurosPanel } from "../../../lib/admin/productos.utilidades";
 import { cargarArticulosChat, EtiquetaEstadoArticulo, type ArticuloChat } from "../../../components/ConversacionProducto";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
@@ -228,7 +228,7 @@ function PreguntasPorArticulos({ userId }: { userId: string }) {
               {f.articulo.titulo ?? "Artículo"}
             </Text>
             <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 13 }}>
-              {f.articulo.precio !== null ? `${fmtEUR(f.articulo.precio)} · ` : ""}
+              {f.articulo.precio !== null ? `${formatearEurosPanel(f.articulo.precio)} · ` : ""}
               {haceCuanto(f.fecha)}
             </Text>
           </View>
@@ -2075,7 +2075,7 @@ function PedidoFila({
       const { data: s } = await supabase.auth.getSession();
       const r = await fetch(`/api/factura?pedido=${encodeURIComponent(pedido.id)}&ver=1`, { headers: { Authorization: `Bearer ${s.session?.access_token ?? ""}` } });
       const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; error?: string } | null;
-      if (r.ok && d?.ok && d.url) openExternalLink(d.url);
+      if (r.ok && d?.ok && d.url) abrirEnlaceExterno(d.url);
       else setAviso({ ok: false, texto: r.status === 409 ? "El PDF aún está llegando de VeoAura: prueba en unos minutos." : `No se pudo abrir la factura: ${d?.error ?? "sin respuesta del servidor"}.` });
     } catch {
       setAviso({ ok: false, texto: "No se pudo abrir la factura: sin conexión." });

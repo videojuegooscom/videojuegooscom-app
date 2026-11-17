@@ -48,7 +48,7 @@ import type {
 // solo se usa en nativo. Mismo criterio que el resto de pantallas del panel.
 export const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
-export function softShadow() {
+export function sombraSuave() {
   return Platform.select<any>({
     ios: {
       shadowColor: "#000",
@@ -61,7 +61,7 @@ export function softShadow() {
   });
 }
 
-export function fmtEUR(n: number) {
+export function formatearEurosPanel(n: number) {
   const safe = Number.isFinite(n) ? n : 0;
   // Siempre dos decimales y punto de miles, igual que en la tienda: 1.299,00€.
   const [entero, cent] = (Math.round(safe * 100) / 100).toFixed(2).split(".");
@@ -86,14 +86,14 @@ export function sinEmojis(texto: string | null | undefined): string {
     .trim();
 }
 
-export function clampText(s: string, max = 180) {
+export function recortarTexto(s: string, max = 180) {
   const t = String(s ?? "").trim();
   if (!t) return "";
   if (t.length <= max) return t;
   return `${t.slice(0, max - 1).trimEnd()}…`;
 }
 
-export function toIntSafe(v: string, fallback = 0) {
+export function enteroSeguro(v: string, fallback = 0) {
   const s = String(v ?? "").trim();
   if (!s) return fallback;
 
@@ -128,7 +128,7 @@ export function toIntSafe(v: string, fallback = 0) {
 // Se usa solo para el precio de producto — products.price_eur ya admite
 // decimales en la base de datos (columna numeric(10,2)), a diferencia de
 // services.price_eur, que sigue en euros enteros y sigue usando toIntSafe.
-export function toPriceSafe(v: string, fallback = 0) {
+export function precioSeguro(v: string, fallback = 0) {
   const s = String(v ?? "").trim();
   if (!s) return fallback;
 
@@ -158,13 +158,13 @@ export function toPriceSafe(v: string, fallback = 0) {
   return Math.round(n * 100) / 100;
 }
 
-export function labelStatus(s: ProductStatus) {
+export function textoEstadoPanel(s: ProductStatus) {
   if (s === "PUBLISHED") return "Publicado";
   if (s === "REVIEW") return "Por revisar";
   return "Borrador";
 }
 
-export function labelCond(c: ProductCondition) {
+export function textoCondicionProducto(c: ProductCondition) {
   if (c === "NEW") return "Nuevo";
   if (c === "LIKE_NEW") return "Como nuevo";
   if (c === "GOOD") return "Bueno";
@@ -172,7 +172,7 @@ export function labelCond(c: ProductCondition) {
   return "Para piezas";
 }
 
-export function smartBackAdminHome() {
+export function volverAlPanel() {
   try {
     if (typeof router.canGoBack === "function" && router.canGoBack()) {
       router.back();
@@ -184,7 +184,7 @@ export function smartBackAdminHome() {
   router.replace("/admin");
 }
 
-export function statusVisual(status: ProductStatus, palette: any) {
+export function aspectoEstadoProducto(status: ProductStatus, palette: any) {
   if (status === "PUBLISHED") {
     return {
       text: "Publicado",
@@ -206,18 +206,18 @@ export function statusVisual(status: ProductStatus, palette: any) {
   };
 }
 
-export function normalizeMediaKind(value: unknown): ProductMediaKind | null {
+export function normalizarTipoArchivo(value: unknown): ProductMediaKind | null {
   const v = String(value ?? "").trim().toLowerCase();
   if (v === "image") return "image";
   if (v === "video") return "video";
   return null;
 }
 
-export function getMediaKind(media: Pick<ProductMediaRow, "kind" | "media_type">) {
-  return normalizeMediaKind(media.kind ?? media.media_type);
+export function tipoDeArchivo(media: Pick<ProductMediaRow, "kind" | "media_type">) {
+  return normalizarTipoArchivo(media.kind ?? media.media_type);
 }
 
-export function getMediaDuration(
+export function duracionDeArchivo(
   media: Pick<ProductMediaRow, "duration_seconds" | "duration_sec">
 ) {
   const raw = media.duration_seconds ?? media.duration_sec;
@@ -225,30 +225,30 @@ export function getMediaDuration(
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export function getMediaPublicUrl(media: Pick<ProductMediaRow, "public_url">) {
+export function urlPublicaDeArchivo(media: Pick<ProductMediaRow, "public_url">) {
   const url = String(media.public_url ?? "").trim();
   return url || null;
 }
 
-export function getPrimaryMedia(media: ProductMediaRow[]) {
+export function archivoPrincipal(media: ProductMediaRow[]) {
   if (!media?.length) return null;
 
   return (
-    media.find((m) => Boolean(m.is_cover) && getMediaKind(m) === "image") ||
-    media.find((m) => getMediaKind(m) === "image") ||
-    media.find((m) => getMediaKind(m) === "video") ||
+    media.find((m) => Boolean(m.is_cover) && tipoDeArchivo(m) === "image") ||
+    media.find((m) => tipoDeArchivo(m) === "image") ||
+    media.find((m) => tipoDeArchivo(m) === "video") ||
     media[0]
   );
 }
 
-export function extFromName(fileName: string, fallback: string) {
+export function extensionDelNombre(fileName: string, fallback: string) {
   const clean = String(fileName ?? "").trim();
   const parts = clean.split(".");
   if (parts.length < 2) return fallback;
   return parts.pop()?.toLowerCase() || fallback;
 }
 
-export function safeFileName(name: string) {
+export function nombreArchivoSeguro(name: string) {
   return String(name ?? "")
     .trim()
     .toLowerCase()
@@ -257,15 +257,15 @@ export function safeFileName(name: string) {
     .replace(/^-|-$/g, "");
 }
 
-export function buildMediaPath(productId: string, item: LocalPickedMedia, index: number) {
+export function rutaDeArchivo(productId: string, item: LocalPickedMedia, index: number) {
   const fallbackExt = item.kind === "video" ? "mp4" : "jpg";
-  const ext = extFromName(item.name, fallbackExt);
+  const ext = extensionDelNombre(item.name, fallbackExt);
   const stamp = Date.now();
   const rand = Math.random().toString(36).slice(2, 8);
-  return `${productId}/${stamp}-${index + 1}-${rand}-${safeFileName(item.name || item.kind)}.${ext}`;
+  return `${productId}/${stamp}-${index + 1}-${rand}-${nombreArchivoSeguro(item.name || item.kind)}.${ext}`;
 }
 
-export async function getVideoDurationSeconds(file: File): Promise<number> {
+export async function segundosDeVideo(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
     if (typeof document === "undefined") {
       reject(new Error("No se pudo leer la duración del vídeo."));
@@ -292,7 +292,7 @@ export async function getVideoDurationSeconds(file: File): Promise<number> {
 }
 
 function inferMimeTypeFromName(fileName: string) {
-  const ext = extFromName(fileName, "").toLowerCase();
+  const ext = extensionDelNombre(fileName, "").toLowerCase();
 
   if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
   if (ext === "png") return "image/png";
@@ -309,7 +309,7 @@ function inferMimeTypeFromName(fileName: string) {
 
 function isHeicLike(file: File) {
   const mime = String(file.type ?? "").toLowerCase();
-  const ext = extFromName(file.name, "").toLowerCase();
+  const ext = extensionDelNombre(file.name, "").toLowerCase();
 
   return (
     mime === "image/heic" ||
@@ -463,9 +463,9 @@ async function normalizePickedFile(file: File): Promise<File> {
   throw new Error("Este tipo de archivo no es compatible.");
 }
 
-export type SkippedPickedFile = { name: string; reason: string };
+export type ArchivoDescartado = { name: string; reason: string };
 
-export type PickMediaResult = {
+export type ResultadoElegirArchivos = {
   items: LocalPickedMedia[];
   // Archivos que el usuario seleccionó pero que NO se pudieron procesar
   // (formato no soportado, HEIC sin convertir, etc.). Antes, un solo
@@ -475,11 +475,11 @@ export type PickMediaResult = {
   // mensaje visible. Ahora cada archivo se procesa por separado: los
   // válidos se añaden siempre, y los que fallan se listan aquí para poder
   // avisar de cuáles fueron y por qué, sin bloquear al resto.
-  skipped: SkippedPickedFile[];
+  skipped: ArchivoDescartado[];
 };
 
 // soloImagenes: el selector solo ofrece fotos y los vídeos se descartan (portadas de categorías).
-export async function pickMediaFilesWeb(opciones?: { soloImagenes?: boolean }): Promise<PickMediaResult> {
+export async function elegirFotosVideoWeb(opciones?: { soloImagenes?: boolean }): Promise<ResultadoElegirArchivos> {
   if (Platform.OS !== "web" || typeof document === "undefined") {
     throw new Error("La subida de archivos solo está disponible desde la versión web del panel.");
   }
@@ -505,7 +505,7 @@ export async function pickMediaFilesWeb(opciones?: { soloImagenes?: boolean }): 
     let settled = false;
     let focusTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const finish = (result: PickMediaResult) => {
+    const finish = (result: ResultadoElegirArchivos) => {
       if (settled) return;
       settled = true;
       if (focusTimer) clearTimeout(focusTimer);
@@ -535,7 +535,7 @@ export async function pickMediaFilesWeb(opciones?: { soloImagenes?: boolean }): 
       }
 
       const out: LocalPickedMedia[] = [];
-      const skipped: SkippedPickedFile[] = [];
+      const skipped: ArchivoDescartado[] = [];
 
       for (const originalFile of originalFiles) {
         try {
@@ -561,7 +561,7 @@ export async function pickMediaFilesWeb(opciones?: { soloImagenes?: boolean }): 
           let durationSeconds: number | null = null;
           if (isVideo) {
             try {
-              durationSeconds = await getVideoDurationSeconds(file);
+              durationSeconds = await segundosDeVideo(file);
             } catch {
               durationSeconds = null;
             }

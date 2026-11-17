@@ -126,9 +126,9 @@ import {
 } from "react-native";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { abrirChatEquipo } from "../../components/ConversacionProducto";
-import { trackEvent } from "../../lib/analiticaPropia";
+import { medirEvento } from "../../lib/analiticaPropia";
 import { estadoAtencion, HORARIO_CORTO, type EstadoAtencion } from "../../lib/horarioAtencion";
-import { abrirDescarga, openExternalLink } from "../../lib/abrirEnlaceExterno";
+import { abrirDescarga, abrirEnlaceExterno } from "../../lib/abrirEnlaceExterno";
 import { supabase } from "../../lib/supabase";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -402,7 +402,7 @@ function openSocialChip(href: string) {
     // Síncrono a propósito — ver la nota de components/EnlacesRedesSociales.tsx: el
     // truco de abrir en Chrome (lib/abrirEnlaceExterno.ts) necesita ocurrir
     // dentro del mismo toque del usuario.
-    openExternalLink(href);
+    abrirEnlaceExterno(href);
   } catch {
     // Silencioso: un enlace mal formado no debe romper la conversación.
   }
@@ -720,7 +720,7 @@ export default function BlueIAScreen() {
         setContextoGuardado(conv.contexto);
         dejarSaludoQuieto();
         setMessages([WELCOME_MESSAGE, ...msgs]);
-        void trackEvent("blue_ia_conversacion_retomada", "Blue IA: conversación retomada");
+        void medirEvento("blue_ia_conversacion_retomada", "Blue IA: conversación retomada");
       } catch (e) {
         console.warn("Blue IA: error abriendo la última conversación", e);
       } finally {
@@ -819,7 +819,7 @@ export default function BlueIAScreen() {
       setMessages([WELCOME_MESSAGE]);
       setHistorialOpen(false);
       saludarSiguiente();
-      void trackEvent("blue_ia_conversacion_nueva", "Blue IA: nueva conversación", { metadata: { desde } });
+      void medirEvento("blue_ia_conversacion_nueva", "Blue IA: nueva conversación", { metadata: { desde } });
     },
     [saludarSiguiente]
   );
@@ -1050,7 +1050,7 @@ export default function BlueIAScreen() {
         const accionChips = leerAccionChips(data.accionChips);
         if (accionChips) {
           for (const c of accionChips) {
-            void trackEvent("blue_ia_boton", `Blue IA: botón mostrado · ${ACCIONES_BLUE[c.tipo].label({ tipo: c.tipo })}`, { metadata: { tipo: c.tipo } });
+            void medirEvento("blue_ia_boton", `Blue IA: botón mostrado · ${ACCIONES_BLUE[c.tipo].label({ tipo: c.tipo })}`, { metadata: { tipo: c.tipo } });
           }
         }
 
@@ -1145,18 +1145,18 @@ export default function BlueIAScreen() {
       return;
     }
     setAvisoHorario(true);
-    void trackEvent("blue_ia_equipo_fuera_horario", "Blue IA: fuera de horario, aviso", { metadata: { accion: "aviso" } });
+    void medirEvento("blue_ia_equipo_fuera_horario", "Blue IA: fuera de horario, aviso", { metadata: { accion: "aviso" } });
   }, [handleHablarEquipo]);
 
   const seguirConBlue = useCallback(() => {
     setAvisoHorario(false);
-    void trackEvent("blue_ia_equipo_fuera_horario", "Blue IA: fuera de horario, sigue con Blue", { metadata: { accion: "seguir_blue" } });
+    void medirEvento("blue_ia_equipo_fuera_horario", "Blue IA: fuera de horario, sigue con Blue", { metadata: { accion: "seguir_blue" } });
     campoRef.current?.focus();
   }, []);
 
   const escribirIgualmente = useCallback(() => {
     setAvisoHorario(false);
-    void trackEvent("blue_ia_equipo_fuera_horario", "Blue IA: fuera de horario, escribe al equipo", { metadata: { accion: "escribir" } });
+    void medirEvento("blue_ia_equipo_fuera_horario", "Blue IA: fuera de horario, escribe al equipo", { metadata: { accion: "escribir" } });
     handleHablarEquipo();
   }, [handleHablarEquipo]);
 
@@ -1819,7 +1819,7 @@ function BlueIAAccionChips({ chips, refPedido }: { chips: AccionChip[]; refPedid
         const def = ACCIONES_BLUE[chip.tipo];
         if (!def) return null;
         const tocar = () => {
-          void trackEvent("blue_ia_boton", `Blue IA: botón tocado · ${def.label({ tipo: chip.tipo })}`, { metadata: { tipo: chip.tipo, con_datos: !!(chip.articulo || chip.busqueda) } });
+          void medirEvento("blue_ia_boton", `Blue IA: botón tocado · ${def.label({ tipo: chip.tipo })}`, { metadata: { tipo: chip.tipo, con_datos: !!(chip.articulo || chip.busqueda) } });
           router.push(def.ruta(chip) as never);
         };
         if (chip.tipo === "facturas") return <BlueIAFacturas key={chip.tipo} refPedido={refPedido} onVer={tocar} />;
@@ -1934,7 +1934,7 @@ function BlueIAFacturas({ refPedido, onVer }: { refPedido?: string; onVer: () =>
   }, [refPedido]);
 
   const ver = () => {
-    void trackEvent("blue_ver_facturas", "Blue: ver mis facturas", { metadata: { con_factura: info.estado === "listo" && !!info.factura } });
+    void medirEvento("blue_ver_facturas", "Blue: ver mis facturas", { metadata: { con_factura: info.estado === "listo" && !!info.factura } });
     onVer();
   };
 
@@ -1949,7 +1949,7 @@ function BlueIAFacturas({ refPedido, onVer }: { refPedido?: string; onVer: () =>
       });
       const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string } | null;
       if (r.ok && d?.ok && d.url) {
-        void trackEvent("blue_factura_descargada", "Blue: factura descargada");
+        void medirEvento("blue_factura_descargada", "Blue: factura descargada");
         abrirDescarga(d.url);
       } else if (r.status === 409) {
         setAviso("La factura está llegando, prueba en unos minutos.");
@@ -1970,7 +1970,7 @@ function BlueIAFacturas({ refPedido, onVer }: { refPedido?: string; onVer: () =>
         icono="log-in-outline"
         label={AVISO_LOGIN_FACTURAS}
         onPress={() => {
-          void trackEvent("blue_ver_facturas", "Blue: ver mis facturas", { metadata: { sin_sesion: true } });
+          void medirEvento("blue_ver_facturas", "Blue: ver mis facturas", { metadata: { sin_sesion: true } });
           router.push(`/perfil?acceso=entrar&aviso=${encodeURIComponent(AVISO_LOGIN_FACTURAS)}` as never);
         }}
       />

@@ -51,7 +51,7 @@ import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
 import { useRecarga } from "../components/TirarParaActualizar";
-import { trackEvent } from "../lib/analiticaPropia";
+import { medirEvento } from "../lib/analiticaPropia";
 import { CAMPO } from "../constants/temaTienda";
 
 const COLORS = {
@@ -118,7 +118,7 @@ function TarjetaVideo({ video, ancho }: { video: VideoServicio; ancho: number })
   const ver = () => {
     setAbierto(true);
     // Administración → Analítica (#analitica-videos-servicios).
-    trackEvent("servicios_video", `Nuestros Servicios: vídeo visto · ${video.titulo || enlace.plataforma}`, {
+    medirEvento("servicios_video", `Nuestros Servicios: vídeo visto · ${video.titulo || enlace.plataforma}`, {
       path: "/servicios",
       metadata: { plataforma: enlace.plataforma },
     });

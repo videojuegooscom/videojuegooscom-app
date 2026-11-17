@@ -87,8 +87,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
-import { trackEvent } from "../lib/analiticaPropia";
-import { fmtEUR } from "../lib/admin/productos.utilidades";
+import { medirEvento } from "../lib/analiticaPropia";
+import { formatearEurosPanel } from "../lib/admin/productos.utilidades";
 import ImagenInteligente from "./ImagenInteligente";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 
@@ -202,7 +202,7 @@ export function TarjetaArticuloChat({ articulo, modo, nativeID = "chat-producto-
         <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 8, rowGap: 2 }}>
           {articulo.precio !== null && articulo.titulo ? (
             <Text nativeID={`${nativeID}-precio`} style={{ color: COLORES_TEXTO.texto, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>
-              {fmtEUR(articulo.precio)}
+              {formatearEurosPanel(articulo.precio)}
             </Text>
           ) : null}
           {modo === "admin" || !enVenta ? <EtiquetaEstadoArticulo estado={articulo.estado} nativeID={`${nativeID}-estado`} /> : null}
@@ -306,7 +306,7 @@ export async function abrirChatEquipo({
  */
 export async function abrirChatProducto(productId: string): Promise<"ok" | "login"> {
   const r = await abrirChatEquipo({ productId });
-  if (r === "ok") void trackEvent("chat_producto_abierto", "Chat con el producto: abierto", { path: `/producto/${productId}`, metadata: { productId } });
+  if (r === "ok") void medirEvento("chat_producto_abierto", "Chat con el producto: abierto", { path: `/producto/${productId}`, metadata: { productId } });
   return r;
 }
 
@@ -540,7 +540,7 @@ export default function ConversacionProducto({
     setDraft(texto);
     sugerenciaUsada.current = texto;
     campoRef.current?.focus();
-    if (articulo) void trackEvent("chat_producto_sugerencia", `Chat con el producto: sugerencia «${texto}»`, { path: `/producto/${articulo.id}`, metadata: { productId: articulo.id, sugerencia: texto } });
+    if (articulo) void medirEvento("chat_producto_sugerencia", `Chat con el producto: sugerencia «${texto}»`, { path: `/producto/${articulo.id}`, metadata: { productId: articulo.id, sugerencia: texto } });
   }
 
   async function handleSend() {
@@ -554,7 +554,7 @@ export default function ConversacionProducto({
       setDraft("");
       // Pregunta por un artículo (solo el cliente; nunca el texto): si era la primera y si salió de una sugerencia.
       if (chatKind === "product" && soyCliente && articulo) {
-        void trackEvent("chat_producto_enviado", "Chat con el producto: mensaje enviado", {
+        void medirEvento("chat_producto_enviado", "Chat con el producto: mensaje enviado", {
           path: `/producto/${articulo.id}`,
           metadata: { productId: articulo.id, primera: !yaPreguntoAntes, sugerencia: sugerenciaUsada.current !== null && sugerenciaUsada.current === body },
         });
