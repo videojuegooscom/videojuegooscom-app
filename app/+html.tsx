@@ -2,7 +2,7 @@
  * Archivo: app/+html.tsx
  * Función: plantilla HTML de la exportación web estática (solo se usa al exportar, no se ejecuta en el navegador).
  * Para qué sirve: fija idioma español, viewport, datos estructurados para Google (JSON-LD), resumen sin JavaScript y precarga de Supabase; mejora el SEO y la carga inicial para el cliente.
- * Conectado con: scripts/inject-seo-html.js, components/EtiquetasCabeceraWeb.tsx, lib/tabBar.ts, lib/horarioAtencion.ts y public/llms.txt (mismos datos); no llama a Supabase (solo hace preconnect a su dominio).
+ * Conectado con: scripts/inject-seo-html.js, components/EtiquetasCabeceraWeb.tsx, lib/barraPestanas.ts, lib/horarioAtencion.ts y public/llms.txt (mismos datos); no llama a Supabase (solo hace preconnect a su dominio).
  * Utilizado por: Expo Router (la usa sola al exportar la web; ningún archivo la importa).
  * Dependencias: expo-router/html, react (tipos).
  * Estado: ACTIVO
@@ -21,7 +21,7 @@
  * a Supabase (datos y fotos) y fondo blanco inline en body/#root (sin parpadeo inicial).
  *
  * Conectado con: Expo Router (la usa sola al exportar; ningún archivo la importa), scripts/inject-seo-html.js y
- * components/EtiquetasCabeceraWeb.tsx (título y meta), lib/tabBar.ts (usa su viewport-fit=cover) y los mismos datos que
+ * components/EtiquetasCabeceraWeb.tsx (título y meta), lib/barraPestanas.ts (usa su viewport-fit=cover) y los mismos datos que
  * app/quienes-somos.tsx, public/llms.txt y lib/horarioAtencion.ts.
  */
 import { ScrollViewStyleReset } from "expo-router/html";
@@ -140,7 +140,7 @@ export default function Root({ children }: PropsWithChildren) {
       <head>
         <meta charSet="utf-8" />
         {/* viewport-fit=cover: el iPhone informa de la zona segura inferior (barra de inicio)
-            para que la barra de pestañas la respete (lib/tabBar.ts). */}
+            para que la barra de pestañas la respete (lib/barraPestanas.ts). */}
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"

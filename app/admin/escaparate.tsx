@@ -2,7 +2,7 @@
  * Archivo: app/admin/escaparate.tsx
  * Función: pantalla de administración «Escaparate VeoAura», en la dirección /admin/escaparate.
  * Para qué sirve: el administrador ve el puente con VeoAura: ventas hechas en la tienda y si ya se avisó, artículos llegados de VeoAura a la venta, y el registro de mensajes y facturas con sus fallos.
- * Conectado con: lib/supabase.ts (tablas del escaparate y escaparate_registro), components/marca/CargaMarca.tsx, constants/theme.ts, lib/admin/products.components.ts, components/admin/PiezasPanelAdmin.tsx; api/escaparate-retorno.ts.
+ * Conectado con: lib/supabase.ts (tablas del escaparate y escaparate_registro), components/marca/CargaMarca.tsx, constants/theme.ts, lib/admin/productos.componentes.tsx, components/admin/PiezasPanelAdmin.tsx; api/escaparate-retorno.ts.
  * Utilizado por: Expo Router (dirección /admin/escaparate, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Escaparate VeoAura» de app/admin/index.tsx.
  * Dependencias: react, react-native, expo-router.
  * Estado: ACTIVO
@@ -50,7 +50,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
-import { AdminHeader } from "../../lib/admin/products.components";
+import { AdminHeader } from "../../lib/admin/productos.componentes";
 import {
   AccionTexto,
   Bloque,

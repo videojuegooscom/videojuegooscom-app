@@ -35,7 +35,7 @@
  *   archivos). Si falla la subida, la solicitud ya guardada no se pierde:
  *   devuelve los archivos que faltan y VenderAhoraModal.tsx lo dice claro y
  *   deja «Reintentar la subida» solo con esos.
- * - Reutiliza el mismo criterio que app/admin/products/products.utils.ts
+ * - Reutiliza el mismo criterio que lib/admin/productos.utilidades.ts
  *   (conversión HEIC→JPEG con heic2any, medir duración de vídeo con un
  *   <video> oculto) pero de forma independiente: este módulo lo usa el
  *   formulario público, así que no depende de nada del panel admin.

@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/cesta.tsx
  * Función: pantalla de la cesta de la compra (pestaña «Cesta»), en la dirección /cesta (admite ?add=<id>).
  * Para qué sirve: el cliente ve los artículos que ha añadido, cambia cantidades, los quita, ve el total y el envío, y pasa a pagar.
- * Conectado con: lib/supabase.ts (tabla products), lib/envio.ts (tarifas), lib/reservas.ts, lib/analytics.ts, constants/theme.ts, components/CarruselProductosCategoria.tsx, PieDePagina.tsx, ImagenInteligente.tsx, TirarParaActualizar.tsx, components/marca/*; guarda la cesta en AsyncStorage (misma clave que app/checkout.tsx).
+ * Conectado con: lib/supabase.ts (tabla products), lib/envio.ts (tarifas), lib/reservas.ts, lib/analiticaPropia.ts, constants/theme.ts, components/CarruselProductosCategoria.tsx, PieDePagina.tsx, ImagenInteligente.tsx, TirarParaActualizar.tsx, components/marca/*; guarda la cesta en AsyncStorage (misma clave que app/checkout.tsx).
  * Utilizado por: Expo Router (dirección /cesta, pestaña de app/(tabs)/_layout.tsx); la abre app/producto/[id].tsx («Añadir a la cesta») y app/comparar.tsx (?add=).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage, @react-navigation/native.
  * Estado: ACTIVO
@@ -86,7 +86,7 @@ import {
   reservarProducto,
 } from "../../lib/reservas";
 import { supabase } from "../../lib/supabase";
-import { trackEvent } from "../../lib/analytics";
+import { trackEvent } from "../../lib/analiticaPropia";
 import { colorTextoAzul, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 const COLORS = {

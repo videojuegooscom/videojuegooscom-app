@@ -2,7 +2,7 @@
  * Archivo: components/EnlacesRedesSociales.tsx
  * Función: componente del bloque «Síguenos» con los iconos de redes sociales.
  * Para qué sirve: lee de Supabase las redes que el dueño ha activado y pinta sus iconos en fila, cada uno con su enlace real; no pinta nada si no hay ninguna activa.
- * Conectado con: lib/supabase.ts, lib/openExternalLink.ts, lib/analytics.ts, tablas social_links y site_settings (social_links_title).
+ * Conectado con: lib/supabase.ts, lib/abrirEnlaceExterno.ts, lib/analiticaPropia.ts, tablas social_links y site_settings (social_links_title).
  * Utilizado por: components/PieDePagina.tsx y app/(tabs)/index.tsx.
  * Dependencias: react, react-native, @expo/vector-icons.
  * Estado: ACTIVO
@@ -65,7 +65,7 @@
  * Eso sí — EN QUÉ NAVEGADOR se abre ese enlace real es otra cosa: por
  * defecto se abriría en el mismo navegador que ya está mostrando la tienda
  * (Safari en iPhone). Daniel pidió que se abra en Chrome cuando esté
- * instalado — ver lib/openExternalLink.ts, que sí usa el truco documentado
+ * instalado — ver lib/abrirEnlaceExterno.ts, que sí usa el truco documentado
  * por Google para ESE caso concreto (a diferencia de "abrir la app de
  * Instagram", aquí sí hay un esquema oficial y estable que probar).
  *
@@ -91,7 +91,7 @@
  * - lib/supabase.ts → cliente para leer `social_links` y
  *   `site_settings.social_links_title` (ya cuenta como petición
  *   "trackeada": la barra "Pensando" se enciende sola mientras carga, ver
- *   lib/loadingBus.ts).
+ *   lib/estadoCarga.ts).
  * - app/admin/redes-sociales.tsx → donde Daniel añade/activa/quita cada red
  *   y edita el título de este bloque.
  * - app/(tabs)/index.tsx (pie de página), app/(tabs)/perfil.tsx,
@@ -102,8 +102,8 @@ import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
-import { openExternalLink } from "../lib/openExternalLink";
-import { trackEvent } from "../lib/analytics";
+import { openExternalLink } from "../lib/abrirEnlaceExterno";
+import { trackEvent } from "../lib/analiticaPropia";
 
 export type SocialPlatform =
   | "instagram"

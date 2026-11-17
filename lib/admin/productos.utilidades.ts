@@ -1,9 +1,9 @@
 /**
- * Archivo: lib/admin/products.utils.ts
+ * Archivo: lib/admin/productos.utilidades.ts
  * Función: utilidades de la administración de productos y de uso general (formato de precios, fotos y vídeos, novedades del panel).
  * Para qué sirve: formatea precios y textos (fmtEUR, sinEmojis), elige y valida fotos y vídeos del navegador con conversión HEIC (pickMediaFilesWeb, reducirImagenWeb), navegación «volver» y fechas de «visto» de las secciones del panel.
- * Conectado con: lib/supabase.ts, lib/admin/products.types.ts, expo-router.
- * Utilizado por: app/admin/products.tsx, services.tsx, categories.tsx, inventario.tsx, cotizaciones.tsx, index.tsx, _layout.tsx, app/admin/cliente/[userId].tsx, app/producto/[id].tsx, app/(tabs)/index.tsx, components/PerfilPublico.tsx, ConversacionProducto.tsx, AsistenteBlue.tsx y lib/admin/products.components.tsx.
+ * Conectado con: lib/supabase.ts, lib/admin/productos.tipos.ts, expo-router.
+ * Utilizado por: app/admin/products.tsx, services.tsx, categories.tsx, inventario.tsx, cotizaciones.tsx, index.tsx, _layout.tsx, app/admin/cliente/[userId].tsx, app/producto/[id].tsx, app/(tabs)/index.tsx, components/PerfilPublico.tsx, ConversacionProducto.tsx, AsistenteBlue.tsx y lib/admin/productos.componentes.tsx.
  * Dependencias: @react-native-async-storage/async-storage, expo-router, react-native, heic2any (conversión HEIC, según la cabecera).
  * Estado: ACTIVO
  */
@@ -25,8 +25,8 @@
  * LocalPickedMedia lista para previsualizar y subir a Supabase Storage.
  *
  * Conectado con:
- * - app/admin/products/products.types.ts → tipos usados por estas funciones.
- * - app/admin/products/products.constants.ts → MEDIA_BUCKET y límites de
+ * - lib/admin/productos.tipos.ts → tipos usados por estas funciones.
+ * - lib/admin/productos.constantes.ts → MEDIA_BUCKET y límites de
  *   subida (importados directamente en app/admin/products.tsx, no aquí).
  * - app/admin/products.tsx → usa todas estas funciones para el formulario
  *   de alta/edición de productos y la subida de media.
@@ -41,7 +41,7 @@ import type {
   ProductMediaKind,
   ProductMediaRow,
   ProductStatus,
-} from "./products.types";
+} from "./productos.tipos";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el
 // que hace el propio navegador al enfocar un campo (el campo se cerraba solo):

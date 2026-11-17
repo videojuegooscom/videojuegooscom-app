@@ -1,8 +1,8 @@
 /**
- * Archivo: lib/admin/products.components.tsx
+ * Archivo: lib/admin/productos.componentes.tsx
  * Función: componentes visuales reutilizables del panel de administración (y selector iOS).
  * Para qué sirve: cabecera de pantalla, avisos, estados vacíos, botones, filtros, miniaturas de media, pestañas con gesto y selector tipo iOS que comparten todas las pantallas del panel y algunos formularios públicos.
- * Conectado con: components/marca/CargaMarca.tsx, lib/admin/products.constants.ts, products.types.ts, products.utils.ts, constants/theme.ts.
+ * Conectado con: components/marca/CargaMarca.tsx, lib/admin/productos.constantes.ts, productos.tipos.ts, productos.utilidades.ts, constants/theme.ts.
  * Utilizado por: casi todas las pantallas de app/admin (products, services, categories, analytics, reservas, etc.), app/servicio/[id].tsx y components/ContratarServicioModal.tsx.
  * Dependencias: react, react-native, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -31,10 +31,10 @@
  * Supabase como con archivos locales todavía sin subir.
  *
  * Conectado con:
- * - app/admin/products/products.constants.ts → de donde viene COLORS.
- * - app/admin/products/products.types.ts → tipos LocalPickedMedia,
+ * - lib/admin/productos.constantes.ts → de donde viene COLORS.
+ * - lib/admin/productos.tipos.ts → tipos LocalPickedMedia,
  *   ProductMediaRow, ProductMediaKind usados por MediaThumb.
- * - app/admin/products/products.utils.ts → smartBackAdminHome (botón volver).
+ * - lib/admin/productos.utilidades.ts → smartBackAdminHome (botón volver).
  * - app/admin/products.tsx → pantalla principal que usa todos estos
  *   componentes para construir la lista y el formulario de productos.
  * - app/admin/services.tsx, categories.tsx, inventario.tsx,
@@ -50,10 +50,10 @@ import { Animated, Image, Modal, PanResponder, Platform, Pressable, ScrollView, 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import CargaMarca from "../../components/marca/CargaMarca";
-import { COLORS } from "./products.constants";
+import { COLORS } from "./productos.constantes";
 import { TACTIL, TAMANOS } from "../../constants/theme";
-import type { LocalPickedMedia, ProductMediaRow, ProductMediaKind } from "./products.types";
-import { smartBackAdminHome } from "./products.utils";
+import type { LocalPickedMedia, ProductMediaRow, ProductMediaKind } from "./productos.tipos";
+import { smartBackAdminHome } from "./productos.utilidades";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 

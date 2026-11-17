@@ -2,7 +2,7 @@
  * Archivo: app/admin/alquileres.tsx
  * Función: pantalla de administración «Alquileres», en la dirección /admin/alquileres.
  * Para qué sirve: el administrador gestiona el alquiler de artículos (unidades, alquileres, pagos, entrega, renovación, recogida, fianza, recargo) y sus ajustes. Está apagado: los clientes no ven nada.
- * Conectado con: lib/supabase.ts (tablas de alquiler como alquiler_pagos), lib/alquiler.ts, lib/envio.ts, lib/admin/products.components.ts, constants/theme.ts, components/marca/CargaMarca.tsx, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tablas de alquiler como alquiler_pagos), lib/alquiler.ts, lib/envio.ts, lib/admin/productos.componentes.tsx, constants/theme.ts, components/marca/CargaMarca.tsx, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/alquileres, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Alquileres» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -58,7 +58,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
-import { AdminHeader, AdminLoading } from "../../lib/admin/products.components";
+import { AdminHeader, AdminLoading } from "../../lib/admin/productos.componentes";
 import { esCategoriaServicios } from "../../components/PortadasCategoria";
 import {
   AccionTexto,

@@ -2,7 +2,7 @@
  * Archivo: app/admin/_layout.tsx
  * Función: layout «guardián» de todas las rutas /admin (Expo Router).
  * Para qué sirve: antes de mostrar cualquier pantalla de administración comprueba que hay sesión y rol admin; si no, redirige a /perfil o a /. Además marca como vistas las secciones con novedades del panel.
- * Conectado con: lib/supabase.ts (supabase.auth y tabla profiles, columna role), lib/admin/products.utils.ts (marcarPanelVisto), components/marca/CargaMarca.tsx; las pantallas hijas app/admin/*.tsx.
+ * Conectado con: lib/supabase.ts (supabase.auth y tabla profiles, columna role), lib/admin/productos.utilidades.ts (marcarPanelVisto), components/marca/CargaMarca.tsx; las pantallas hijas app/admin/*.tsx.
  * Utilizado por: Expo Router (envuelve todas las direcciones /admin/…); lo registra app/_layout.tsx como ruta «admin».
  * Dependencias: react, react-native, expo-router.
  * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño
@@ -47,7 +47,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { StatusBar, Text, View } from "react-native";
 import { Stack, router, usePathname } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { marcarPanelVisto, SECCIONES_CON_NOVEDADES, type SeccionConNovedades } from "../../lib/admin/products.utils";
+import { marcarPanelVisto, SECCIONES_CON_NOVEDADES, type SeccionConNovedades } from "../../lib/admin/productos.utilidades";
 import CargaMarca from "../../components/marca/CargaMarca";
 
 const COLORS = {
@@ -150,7 +150,7 @@ export default function AdminLayout() {
   }, [validateAccess]);
 
   // Al entrar en una sección con novedades (desde su recuadro o desde un aviso), lo que había ya está visto: su
-  // contador del Panel de control vuelve a empezar (lib/admin/products.utils.ts).
+  // contador del Panel de control vuelve a empezar (lib/admin/productos.utilidades.ts).
   const ruta = usePathname();
   useEffect(() => {
     const seccion = /^\/admin\/([^/?#]+)/.exec(ruta ?? "")?.[1];

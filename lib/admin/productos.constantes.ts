@@ -1,9 +1,9 @@
 /**
- * Archivo: lib/admin/products.constants.ts
+ * Archivo: lib/admin/productos.constantes.ts
  * Función: constantes de la administración de productos.
  * Para qué sirve: límites de subida de fotos y vídeo, tipos MIME admitidos, textos de error, nombre del bucket de media y paleta COLORS del panel.
  * Conectado con: constants/theme.ts (COLORES_TEXTO).
- * Utilizado por: app/admin/products.tsx, app/admin/services.tsx, app/admin/categories.tsx y lib/admin/products.components.tsx.
+ * Utilizado por: app/admin/products.tsx, app/admin/services.tsx, app/admin/categories.tsx y lib/admin/productos.componentes.tsx.
  * Dependencias: ninguna externa.
  * Estado: ACTIVO
  */
@@ -19,9 +19,9 @@
  *
  * Conectado con:
  * - app/admin/products.tsx → importa COLORS y los límites de subida.
- * - app/admin/products/products.components.tsx → importa COLORS para los
+ * - lib/admin/productos.componentes.tsx → importa COLORS para los
  *   componentes visuales compartidos (ChipButton, StatCard, etc.).
- * - app/admin/products/products.utils.ts → importa los límites (MAX_*) y
+ * - lib/admin/productos.utilidades.ts → importa los límites (MAX_*) y
  *   MEDIA_BUCKET para las funciones de subida de media.
  * - constants/theme.ts → COLORES_TEXTO: los grises y el azul de texto del panel salen de ahí (grupo 4 de los
  *   tamaños del móvil, 2026-11-12).

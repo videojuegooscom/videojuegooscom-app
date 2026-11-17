@@ -2,7 +2,7 @@
  * Archivo: components/ConversacionProducto.tsx
  * Función: componente de la conversación privada cliente-tienda (chat de producto, de venta o de atención al cliente).
  * Para qué sirve: carga mensajes en tiempo real de un chat (product_chats), permite escribir, borrar la conversación para uno mismo y abrir el chat con el equipo (abrirChatEquipo); lo comparten la pantalla del cliente y la bandeja del administrador.
- * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/admin/products.utils.ts (fmtEUR), components/ImagenInteligente.tsx, constants/theme.ts, tablas product_chats y mensajes, funciones SQL get_or_create_*_chat y delete_chat_for_me.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/admin/productos.utilidades.ts (fmtEUR), components/ImagenInteligente.tsx, constants/theme.ts, tablas product_chats y mensajes, funciones SQL get_or_create_*_chat y delete_chat_for_me.
  * Utilizado por: app/chat/[chatId].tsx, app/admin/chats.tsx, components/VentanaValoracion.tsx (abrirChatEquipo) y pantallas que abren el chat del equipo (checkout, producto, perfil, Blue IA, Foro, analítica).
  * Dependencias: react, react-native, @expo/vector-icons, expo-router.
  * Estado: ACTIVO
@@ -87,8 +87,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
-import { trackEvent } from "../lib/analytics";
-import { fmtEUR } from "../lib/admin/products.utils";
+import { trackEvent } from "../lib/analiticaPropia";
+import { fmtEUR } from "../lib/admin/productos.utilidades";
 import SmartImage from "./ImagenInteligente";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 

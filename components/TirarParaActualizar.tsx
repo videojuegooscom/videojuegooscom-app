@@ -2,7 +2,7 @@
  * Archivo: components/TirarParaActualizar.tsx
  * Función: componente y hook de «Desliza para actualizar».
  * Para qué sirve: gesto de tirar hacia abajo para recargar la pantalla actual (con la mascota); exporta useRecarga y alRecargar para que las pantallas y Blue recarguen sus datos.
- * Conectado con: components/marca/MarcaAnimada.tsx, lib/loadingBus.ts.
+ * Conectado con: components/marca/MarcaAnimada.tsx, lib/estadoCarga.ts.
  * Utilizado por: app/_layout.tsx (montaje), components/AsistenteBlue.tsx, components/CarruselProductosCategoria.tsx, components/Resenas.tsx y las pantallas que usan useRecarga (catálogo, producto, servicio, noticias, blog, cesta, políticas, Inicio…).
  * Dependencias: react, react-native, expo-router, @react-navigation/native.
  * Estado: ACTIVO
@@ -29,18 +29,18 @@
  *
  * Detalles: el contenido se mueve con transform sobre el contenedor que se desplaza (se quita al acabar); el
  * aviso es una capa fija con pointerEvents="none" como PROPIEDAD (lección: en estilo en línea no vale y bloquearía
- * la tienda). Espera a que terminen las peticiones (lib/loadingBus.ts): mínimo 0,9 s para que se vea y como mucho
+ * la tienda). Espera a que terminen las peticiones (lib/estadoCarga.ts): mínimo 0,9 s para que se vea y como mucho
  * 8 s.
  *
  * Conectado con: app/_layout.tsx (se monta una vez), components/AsistenteBlue.tsx (alRecargar), las pantallas que
- * usan useRecarga, components/marca/MarcaAnimada.tsx (mascota) y lib/loadingBus.ts (barra «Pensando»).
+ * usan useRecarga, components/marca/MarcaAnimada.tsx (mascota) y lib/estadoCarga.ts (barra «Pensando»).
  */
 import React, { useEffect, useRef, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { usePathname } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import MarcaAnimada from "./marca/MarcaAnimada";
-import { estaCargando, pulseLoading } from "../lib/loadingBus";
+import { estaCargando, pulseLoading } from "../lib/estadoCarga";
 
 // --- aviso a las pantallas ---------------------------------------------------------------------------
 

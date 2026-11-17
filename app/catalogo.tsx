@@ -2,7 +2,7 @@
  * Archivo: app/catalogo.tsx
  * Función: pantalla de catálogo de productos, en la dirección /catalogo (admite ?cat=, ?query=, ?estado=, ?precio_min=, ?precio_max=).
  * Para qué sirve: el cliente busca, filtra y ordena los productos de la tienda (y el administrador ve además el estado interno) en una rejilla paginada.
- * Conectado con: lib/supabase.ts (tablas products, categories, product_media, profiles), lib/analytics.ts, components/BarraBusqueda.tsx (buscador), FiltrosCatalogo.tsx, CarruselProductosCategoria.tsx, PortadasCategoria.tsx, AsistenteBlue.tsx, TirarParaActualizar.tsx, CabeceraMarca.tsx, components/marca/*, constants/theme.ts.
+ * Conectado con: lib/supabase.ts (tablas products, categories, product_media, profiles), lib/analiticaPropia.ts, components/BarraBusqueda.tsx (buscador), FiltrosCatalogo.tsx, CarruselProductosCategoria.tsx, PortadasCategoria.tsx, AsistenteBlue.tsx, TirarParaActualizar.tsx, CabeceraMarca.tsx, components/marca/*, constants/theme.ts.
  * Utilizado por: Expo Router (dirección /catalogo); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx, app/(tabs)/blue-ia.tsx, app/checkout.tsx, app/comparar.tsx, app/producto/[id].tsx, app/quienes-somos.tsx, app/noticias/[id].tsx, components/BarraBusqueda.tsx, PieDePagina.tsx y AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -47,12 +47,12 @@
  *   y catalogo_filtro (Administración → Analítica → «Búsquedas (30 días)»).
  *
  * Analítica: registra el paso "Categoría" (o "Categoría {nombre}") al entrar
- * y cada vez que cambia la categoría elegida (lib/analytics.ts).
+ * y cada vez que cambia la categoría elegida (lib/analiticaPropia.ts).
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase (products, categories,
  *   product_media, profiles).
- * - lib/analytics.ts → paso "Categoría" para el panel de métricas.
+ * - lib/analiticaPropia.ts → paso "Categoría" para el panel de métricas.
  * - components/FiltrosCatalogo.tsx → botón "Filtros" con contador y panel
  *   (hoja inferior en móvil) con todos los filtros, orden y "Quitar filtros".
  * - components/BarraBusqueda.tsx → buscador (modo "input").
@@ -82,7 +82,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { rolDeUsuario, supabase } from "../lib/supabase";
-import { medirCargaPantalla, trackEvent, trackEventThrottled } from "../lib/analytics";
+import { medirCargaPantalla, trackEvent, trackEventThrottled } from "../lib/analiticaPropia";
 import Barramagic, {
   SugerenciasCatalogo,
   buscarProductos,

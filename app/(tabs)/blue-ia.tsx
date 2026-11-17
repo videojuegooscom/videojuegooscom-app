@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/blue-ia.tsx
  * Función: pantalla «Blue IA» (pestaña del asistente), en la dirección /blue-ia (admite ?q=, ?producto=, ?servicio=, ?pedido=, ?reparacion=, ?tema=).
  * Para qué sirve: el cliente conversa con el asistente de la tienda, que responde con datos reales del catálogo, enlaza a páginas útiles, enseña facturas y pasa la conversación al equipo cuando hace falta.
- * Conectado con: api/blue-ia.ts (respuestas), api/factura.ts (descarga de facturas), lib/supabase.ts (tablas blue_ia_conversaciones, blue_ia_mensajes, pedidos y facturas), lib/analytics.ts, lib/horarioAtencion.ts, lib/openExternalLink.ts, components/ConversacionProducto.tsx (abrirChatEquipo), components/marca/MarcaAnimada.tsx.
+ * Conectado con: api/blue-ia.ts (respuestas), api/factura.ts (descarga de facturas), lib/supabase.ts (tablas blue_ia_conversaciones, blue_ia_mensajes, pedidos y facturas), lib/analiticaPropia.ts, lib/horarioAtencion.ts, lib/abrirEnlaceExterno.ts, components/ConversacionProducto.tsx (abrirChatEquipo), components/marca/MarcaAnimada.tsx.
  * Utilizado por: Expo Router (dirección /blue-ia, pestaña de app/(tabs)/_layout.tsx); la abren app/(tabs)/index.tsx (preguntas frecuentes), app/(tabs)/cesta.tsx («Blue, ayúdame a elegir»), app/servicio/[id].tsx y app/producto/[id].tsx (preguntar) y components/AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, expo-linear-gradient, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
@@ -92,7 +92,7 @@
  * - «Ver mis facturas» (botón «facturas», dueño, 2026-11-11): abre Perfil → «Mis pedidos» con el
  *   filtro «Facturas» (/perfil?tab=seguimientos&filtro=facturas). BlueIAFacturas consulta con la
  *   sesión del cliente sus pedidos y facturas (no se fía del modelo) y, si alguna tiene PDF, añade
- *   «Descargar factura F-…» (/api/factura?pedido=… y abrirDescarga de lib/openExternalLink.ts); sin
+ *   «Descargar factura F-…» (/api/factura?pedido=… y abrirDescarga de lib/abrirEnlaceExterno.ts); sin
  *   factura, el plazo; sin sesión, «Inicia sesión para ver tus facturas». Analítica propia: «Blue: ver
  *   mis facturas» y «Blue: factura descargada» (app/admin/analytics.tsx, #analitica-facturas).
  * - Cada respuesta lleva al lado a Blue, la mascota de atención al cliente
@@ -126,9 +126,9 @@ import {
 } from "react-native";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { abrirChatEquipo } from "../../components/ConversacionProducto";
-import { trackEvent } from "../../lib/analytics";
+import { trackEvent } from "../../lib/analiticaPropia";
 import { estadoAtencion, HORARIO_CORTO, type EstadoAtencion } from "../../lib/horarioAtencion";
-import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
+import { abrirDescarga, openExternalLink } from "../../lib/abrirEnlaceExterno";
 import { supabase } from "../../lib/supabase";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -400,7 +400,7 @@ const SOCIAL_CHIP_ICONS: Record<
 function openSocialChip(href: string) {
   try {
     // Síncrono a propósito — ver la nota de components/EnlacesRedesSociales.tsx: el
-    // truco de abrir en Chrome (lib/openExternalLink.ts) necesita ocurrir
+    // truco de abrir en Chrome (lib/abrirEnlaceExterno.ts) necesita ocurrir
     // dentro del mismo toque del usuario.
     openExternalLink(href);
   } catch {

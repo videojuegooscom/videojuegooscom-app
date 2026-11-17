@@ -2,7 +2,7 @@
  * Archivo: app/admin/aprendizajes.tsx
  * Función: pantalla de administración «Centro De Aprendizajes», en la dirección /admin/aprendizajes.
  * Para qué sirve: el administrador guarda, edita, activa o desactiva las lecciones y correcciones que debe aplicar Claude (textos, diseño, reglas del negocio, código), para no repetirlas.
- * Conectado con: lib/supabase.ts (tabla aprendizajes), lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; CLAUDE.md obliga a Claude a consultar esa tabla.
+ * Conectado con: lib/supabase.ts (tabla aprendizajes), lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; CLAUDE.md obliga a Claude a consultar esa tabla.
  * Utilizado por: Expo Router (dirección /admin/aprendizajes, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Centro De Aprendizajes» de app/admin/index.tsx.
  * Dependencias: react, react-native, @expo/vector-icons.
  * Estado: ACTIVO
@@ -52,7 +52,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { AdminHeader, AdminLoading, AdminNotice, BotonFlotante, EmptyState, IconButton, PieVentana } from "../../lib/admin/products.components";
+import { AdminHeader, AdminLoading, AdminNotice, BotonFlotante, EmptyState, IconButton, PieVentana } from "../../lib/admin/productos.componentes";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import {
   AccionTexto,

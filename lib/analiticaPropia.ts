@@ -1,5 +1,5 @@
 /**
- * Archivo: lib/analytics.ts
+ * Archivo: lib/analiticaPropia.ts
  * Función: utilidad de analítica propia de la tienda (cliente de eventos).
  * Para qué sirve: genera la sesión de visita, gestiona el consentimiento (RGPD) y envía eventos (trackEvent) a Supabase para reconstruir el recorrido de cada visita en Administración; no envía nada de quien rechazó.
  * Conectado con: lib/supabase.ts, tabla analytics_events, components/AvisoAnaliticaCookies.tsx.

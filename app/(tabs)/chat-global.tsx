@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/chat-global.tsx
  * Función: pantalla «Foro» (pestaña del Foro), en la dirección /chat-global (admite ?tab= y ?noticia=).
  * Para qué sirve: el cliente lee noticias gaming y comenta, participa en el chat público en tiempo real y, con sesión, ve su bandeja privada de conversaciones con la tienda; Novedades y Torneos aún dicen «Próximamente».
- * Conectado con: lib/supabase.ts (tablas chat_messages, noticias_gaming, noticias_likes, noticias_comentarios, preferencias_usuario; Realtime), lib/analytics.ts, lib/loadingBus.ts, constants/theme.ts, components/PerfilPublico.tsx, ImagenInteligente.tsx, components/marca/*; api/noticias-gaming.ts; app/chat/[chatId].tsx y app/noticias/[id].tsx (enlaces).
+ * Conectado con: lib/supabase.ts (tablas chat_messages, noticias_gaming, noticias_likes, noticias_comentarios, preferencias_usuario; Realtime), lib/analiticaPropia.ts, lib/estadoCarga.ts, constants/theme.ts, components/PerfilPublico.tsx, ImagenInteligente.tsx, components/marca/*; api/noticias-gaming.ts; app/chat/[chatId].tsx y app/noticias/[id].tsx (enlaces).
  * Utilizado por: Expo Router (dirección /chat-global, pestaña de app/(tabs)/_layout.tsx); la abre también app/noticias/[id].tsx («Comentar en el Foro»).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, expo-image, expo-linear-gradient, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
@@ -147,8 +147,8 @@ import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../../components/PerfilPublico";
 import SmartImage from "../../components/ImagenInteligente";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
-import { trackEvent } from "../../lib/analytics";
-import { markEnd, markStart } from "../../lib/loadingBus";
+import { trackEvent } from "../../lib/analiticaPropia";
+import { markEnd, markStart } from "../../lib/estadoCarga";
 import { supabase } from "../../lib/supabase";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -4874,7 +4874,7 @@ function HuecoFoto({ brillo }: { brillo: boolean }) {
   );
 }
 
-// Avisa a la barra de carga global (lib/loadingBus) mientras la foto se
+// Avisa a la barra de carga global (lib/estadoCarga) mientras la foto se
 // descarga, igual que SmartImage.
 function useAvisoCargaFoto(activo: boolean, clave: string) {
   useEffect(() => {

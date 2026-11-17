@@ -2,7 +2,7 @@
  * Archivo: app/quienes-somos.tsx
  * Función: página «Quiénes somos», en la dirección /quienes-somos.
  * Para qué sirve: el cliente conoce quién está detrás de la tienda, su historia, cómo se revisa cada consola, entregas y horario, con botones para dar el siguiente paso.
- * Conectado con: components/CabeceraMarca.tsx, lib/analytics.ts (evento quienes_somos_visto); mismos datos que app/+html.tsx, public/llms.txt y lib/horarioAtencion.ts; no llama a Supabase.
+ * Conectado con: components/CabeceraMarca.tsx, lib/analiticaPropia.ts (evento quienes_somos_visto); mismos datos que app/+html.tsx, public/llms.txt y lib/horarioAtencion.ts; no llama a Supabase.
  * Utilizado por: Expo Router (dirección /quienes-somos); la enlazan app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, components/PieDePagina.tsx y components/BarraBusqueda.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -38,7 +38,7 @@ import { Pressable, ScrollView, StatusBar, Text, useWindowDimensions, View } fro
 import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import CabeceraMarca from "../components/CabeceraMarca";
-import { trackEvent } from "../lib/analytics";
+import { trackEvent } from "../lib/analiticaPropia";
 
 const COLORS = {
   bg: "#FFFFFF",

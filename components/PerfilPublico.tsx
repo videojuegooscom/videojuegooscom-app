@@ -2,7 +2,7 @@
  * Archivo: components/PerfilPublico.tsx
  * Función: componente de «Mi perfil» del cliente y de la obligación de completarlo.
  * Para qué sirve: formulario del perfil (usuario, foto, nombre, país, edad, direcciones de envío, teléfono, seguridad de la cuenta), pantalla obligatoria de completar perfil (PerfilObligatorio) y utilidades para el Foro (perfilesPublicos, datosDeFila).
- * Conectado con: lib/supabase.ts, lib/analytics.ts, lib/admin/products.utils.ts, components/marca/CargaMarca.tsx, components/ImagenInteligente.tsx, constants/theme.ts, tabla perfiles y función perfiles_publicos.
+ * Conectado con: lib/supabase.ts, lib/analiticaPropia.ts, lib/admin/productos.utilidades.ts, components/marca/CargaMarca.tsx, components/ImagenInteligente.tsx, constants/theme.ts, tabla perfiles y función perfiles_publicos.
  * Utilizado por: app/(tabs)/perfil.tsx, app/_layout.tsx, app/checkout.tsx, app/producto/[id].tsx, app/(tabs)/chat-global.tsx, app/admin/users.tsx, app/admin/cliente/[userId].tsx, components/VenderAhoraModal.tsx, components/Resenas.tsx y components/AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -62,8 +62,8 @@
  *
  * Conectado con: app/(tabs)/perfil.tsx, app/_layout.tsx, app/(tabs)/chat-global.tsx, components/Resenas.tsx,
  * components/AsistenteBlue.tsx, app/checkout.tsx, app/admin/cliente/[userId].tsx y app/admin/categories.tsx (RecortarFoto).
- * Usa lib/supabase.ts (tabla perfiles_cliente, función perfiles_publicos, almacén «avatares»), lib/analytics.ts,
- * lib/admin/products.utils.ts, components/ImagenInteligente.tsx, components/marca/CargaMarca.tsx y constants/theme.ts (CAMPO).
+ * Usa lib/supabase.ts (tabla perfiles_cliente, función perfiles_publicos, almacén «avatares»), lib/analiticaPropia.ts,
+ * lib/admin/productos.utilidades.ts, components/ImagenInteligente.tsx, components/marca/CargaMarca.tsx y constants/theme.ts (CAMPO).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
@@ -83,8 +83,8 @@ import {
   sesionActual,
   supabase,
 } from "../lib/supabase";
-import { trackEvent } from "../lib/analytics";
-import { pickMediaFilesWeb, reducirImagenWeb } from "../lib/admin/products.utils";
+import { trackEvent } from "../lib/analiticaPropia";
+import { pickMediaFilesWeb, reducirImagenWeb } from "../lib/admin/productos.utilidades";
 import CargaMarca from "./marca/CargaMarca";
 import SmartImage from "./ImagenInteligente";
 import { CAMPO, TACTIL, colorTextoAzul } from "../constants/theme";

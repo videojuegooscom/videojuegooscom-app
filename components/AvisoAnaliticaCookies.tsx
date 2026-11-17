@@ -1,8 +1,8 @@
 /**
  * Archivo: components/AvisoAnaliticaCookies.tsx
  * Función: componente del aviso de analítica propia (consentimiento).
- * Para qué sirve: pide al visitante aceptar o rechazar la analítica (RGPD), guarda su respuesta con lib/analytics.ts y no se muestra en el panel de administración ni cuando ya contestó.
- * Conectado con: lib/analytics.ts (getAnalyticsConsent, setAnalyticsConsent), lib/tabBar.ts (useTabBarBottomInset), política de privacidad (app/politicas/[slug].tsx).
+ * Para qué sirve: pide al visitante aceptar o rechazar la analítica (RGPD), guarda su respuesta con lib/analiticaPropia.ts y no se muestra en el panel de administración ni cuando ya contestó.
+ * Conectado con: lib/analiticaPropia.ts (getAnalyticsConsent, setAnalyticsConsent), lib/barraPestanas.ts (useTabBarBottomInset), política de privacidad (app/politicas/[slug].tsx).
  * Utilizado por: app/_layout.tsx (se monta una vez).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -22,7 +22,7 @@
  * más formal que el resto del contenido comercial.
  *
  * Cómo funciona:
- * - Al montar, comprueba lib/analytics.ts → getAnalyticsConsent(). Si ya
+ * - Al montar, comprueba lib/analiticaPropia.ts → getAnalyticsConsent(). Si ya
  *   contestó antes ("accepted" o "declined"), el aviso no se muestra nunca
  *   más en este dispositivo. Si todavía no ha contestado (null), aparece con
  *   una pequeña animación tras tres cuartos de segundo (para no interrumpir
@@ -38,7 +38,7 @@
  *   donde se explica con más detalle qué se registra.
  *
  * Conectado con:
- * - lib/analytics.ts → getAnalyticsConsent()/setAnalyticsConsent().
+ * - lib/analiticaPropia.ts → getAnalyticsConsent()/setAnalyticsConsent().
  * - app/_layout.tsx → se monta aquí, junto a components/AsistenteBlue.tsx.
  * - app/politicas/[slug].tsx → destino del enlace "Política de privacidad".
  */
@@ -46,8 +46,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { router, usePathname } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { getAnalyticsConsent, setAnalyticsConsent } from "../lib/analytics";
-import { useTabBarBottomInset } from "../lib/tabBar";
+import { getAnalyticsConsent, setAnalyticsConsent } from "../lib/analiticaPropia";
+import { useTabBarBottomInset } from "../lib/barraPestanas";
 
 const COLORS = {
   card: "#FFFFFF",

@@ -2,7 +2,7 @@
  * Archivo: app/admin/pedidos.tsx
  * Función: pantalla de administración «Pedidos», en la dirección /admin/pedidos (admite ?buscar=).
  * Para qué sirve: el administrador ve los pedidos que los clientes confirman en el checkout, su pago, entrega y valoraciones, y cambia su estado (pendiente, confirmado, preparado, enviado, entregado, cancelado con motivo).
- * Conectado con: lib/supabase.ts (tablas pedidos y pedido_items, función crear_pedido), lib/envio.ts, lib/interaccion.ts, lib/openExternalLink.ts, components/AvisosMovil.tsx, components/VentanaValoracion.tsx, components/marca/CargaMarca.tsx, constants/theme.ts; api/factura.ts y api/pago.ts.
+ * Conectado con: lib/supabase.ts (tablas pedidos y pedido_items, función crear_pedido), lib/envio.ts, lib/interaccion.ts, lib/abrirEnlaceExterno.ts, components/AvisosMovil.tsx, components/VentanaValoracion.tsx, components/marca/CargaMarca.tsx, constants/theme.ts; api/factura.ts y api/pago.ts.
  * Utilizado por: Expo Router (dirección /admin/pedidos, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Pedidos» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -121,7 +121,7 @@ import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View, useW
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
+import { abrirDescarga, openExternalLink } from "../../lib/abrirEnlaceExterno";
 import { supabase } from "../../lib/supabase";
 import { MOTIVO_MAX, MOTIVO_NO_DISPONIBLE, MOTIVOS_CANCELACION, motivoParaCliente, type CanalReposicion } from "../../lib/interaccion";
 import {

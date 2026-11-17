@@ -2,7 +2,7 @@
  * Archivo: components/EfectoPensando.tsx
  * Función: componente del efecto «Pensando» tipo Siri (marco luminoso de carga).
  * Para qué sirve: ilumina el borde de la pantalla mientras algo carga y exporta BrilloIconoSeccion (halo del icono de pestaña) y la paleta/máscara Siri que reutiliza la pantalla de bienvenida.
- * Conectado con: lib/loadingBus.ts (useCargando, pulseLoading), expo-router (usePathname).
+ * Conectado con: lib/estadoCarga.ts (useCargando, pulseLoading), expo-router (usePathname).
  * Utilizado por: app/_layout.tsx (marco), app/(tabs)/_layout.tsx (BrilloIconoSeccion) y components/PantallaCargaMarca.tsx (paleta).
  * Dependencias: react, react-native, expo-router, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -11,7 +11,7 @@
  * Notas:
  * Qué hace: el efecto "Pensando" tipo Siri. Mientras algo carga (una
  * petición a Supabase, fotos, un cambio de pantalla o una pestaña recargada
- * con triple toque — ver lib/loadingBus.ts), el borde del área visible se
+ * con triple toque — ver lib/estadoCarga.ts), el borde del área visible se
  * ilumina con un aro fino de 3 px, igual en los cuatro lados, con colores de
  * brillo parecido (azul de marca #1EA7E8, cian, lavanda, violeta, rosa y azul
  * cielo) que giran sin parar y un resplandor suave y simétrico hacia dentro.
@@ -41,7 +41,7 @@
  * app/(tabs)/_layout.tsx).
  *
  * Cómo funciona:
- * - useCargando() (lib/loadingBus.ts) ya trae los umbrales: no se enciende
+ * - useCargando() (lib/estadoCarga.ts) ya trae los umbrales: no se enciende
  *   en cargas de menos de 180 ms, aguanta al menos 500 ms y se apaga
  *   siempre al terminar. Marco e icono comparten ese mismo estado.
  * - En web todo es CSS inyectado una vez en el <head> (asegurarCssSiri): una
@@ -63,7 +63,7 @@
  *   una señal al cambiar de sitio, aunque esa pantalla no pida nada.
  *
  * Conectado con:
- * - lib/loadingBus.ts → useCargando() y pulseLoading().
+ * - lib/estadoCarga.ts → useCargando() y pulseLoading().
  * - lib/supabase.ts y components/ImagenInteligente.tsx → encienden el contador.
  * - app/_layout.tsx → monta el marco una única vez, por encima del Stack.
  * - app/(tabs)/_layout.tsx → usa BrilloIconoSeccion en los iconos y enciende
@@ -73,7 +73,7 @@ import React, { useEffect, useRef, useState, type CSSProperties, type ReactNode 
 import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
 import { usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useCargando, pulseLoading } from "../lib/loadingBus";
+import { useCargando, pulseLoading } from "../lib/estadoCarga";
 
 const AZUL_MARCA = "#1EA7E8";
 

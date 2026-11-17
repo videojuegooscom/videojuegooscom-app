@@ -2,7 +2,7 @@
  * Archivo: app/admin/redes-sociales.tsx
  * Función: pantalla de administración «Redes sociales», en la dirección /admin/redes-sociales.
  * Para qué sirve: el administrador pone el enlace de cada red o plataforma (Instagram, TikTok, WhatsApp…), elige cuáles están activas y en qué orden, el título del bloque y los seguidores que se ven junto al logo.
- * Conectado con: lib/supabase.ts (tablas social_links y site_settings), components/EnlacesRedesSociales.tsx (formatearSeguidores; lo que se ve en la tienda), lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/blue-ia.ts usa las redes activas.
+ * Conectado con: lib/supabase.ts (tablas social_links y site_settings), components/EnlacesRedesSociales.tsx (formatearSeguidores; lo que se ve en la tienda), lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx; api/blue-ia.ts usa las redes activas.
  * Utilizado por: Expo Router (dirección /admin/redes-sociales, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Redes sociales» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -61,7 +61,7 @@
  *   falta ninguna configuración aquí (ver la nota larga en
  *   components/EnlacesRedesSociales.tsx). El propio icono, en cambio, sí se intenta
  *   abrir en Chrome en vez de en el navegador actual — ver
- *   lib/openExternalLink.ts.
+ *   lib/abrirEnlaceExterno.ts.
  *
  * Sin "burbujas": las tarjetas de esta pantalla ya no llevan borde ni sombra
  * (Daniel pidió un aspecto limpio en toda la app) — el espaciado entre ellas
@@ -107,7 +107,7 @@ import {
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { AdminHeader, AdminLoading, AdminNotice } from "../../lib/admin/products.components";
+import { AdminHeader, AdminLoading, AdminNotice } from "../../lib/admin/productos.componentes";
 import { formatearSeguidores } from "../../components/EnlacesRedesSociales";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import { BloqueFormulario, Cifra, Detalle, EtiquetaColor, FilaCifras, Seccion } from "../../components/admin/PiezasPanelAdmin";

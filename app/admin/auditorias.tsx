@@ -2,7 +2,7 @@
  * Archivo: app/admin/auditorias.tsx
  * Función: pantalla de administración «Revisiones», en la dirección /admin/auditorias.
  * Para qué sirve: el administrador consulta el registro de las revisiones de calidad web automáticas (20 puntos) con su resultado y el detalle punto por punto.
- * Conectado con: lib/supabase.ts (tabla auditorias_web, que escribe api/auditoria-web.ts por cron), lib/admin/products.components.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tabla auditorias_web, que escribe api/auditoria-web.ts por cron), lib/admin/productos.componentes.tsx, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/auditorias, protegida por app/admin/_layout.tsx); la enlaza la tarjeta correspondiente de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -35,7 +35,7 @@ import { ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-na
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { AdminHeader, AdminLoading, AdminNotice, EmptyState } from "../../lib/admin/products.components";
+import { AdminHeader, AdminLoading, AdminNotice, EmptyState } from "../../lib/admin/productos.componentes";
 import { TAMANOS } from "../../constants/theme";
 import {
   Bloque,

@@ -1,5 +1,5 @@
 /**
- * Archivo: lib/tabBar.ts
+ * Archivo: lib/barraPestanas.ts
  * Función: utilidad con las medidas de la barra de pestañas inferior.
  * Para qué sirve: calcula el hueco inferior (zona segura del iPhone) que se suma a la barra y a lo que se coloca encima (buscador flotante, «volver arriba», aviso de cookies).
  * Conectado con: react-native-safe-area-context (zona segura); app/+html.tsx define viewport-fit=cover.

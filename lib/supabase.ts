@@ -2,7 +2,7 @@
  * Archivo: lib/supabase.ts
  * Función: utilidad con el cliente único de Supabase, la sesión y utilidades de cuenta.
  * Para qué sirve: crea el cliente de Supabase (inicio de sesión y acceso a la base de datos) que usa toda la app, con la sesión guardada, el registro de peticiones para el efecto «Pensando», el rol del usuario, el nombre del dispositivo, mensajes de error de autenticación en español y utilidades como haceCuanto.
- * Conectado con: lib/loadingBus.ts (markStart / markEnd), variables EXPO_PUBLIC_SUPABASE_URL y EXPO_PUBLIC_SUPABASE_ANON_KEY, Supabase Auth y base de datos.
+ * Conectado con: lib/estadoCarga.ts (markStart / markEnd), variables EXPO_PUBLIC_SUPABASE_URL y EXPO_PUBLIC_SUPABASE_ANON_KEY, Supabase Auth y base de datos.
  * Utilizado por: prácticamente todas las pantallas, componentes y utilidades de la tienda y del panel de administración.
  * Dependencias: react-native-url-polyfill, @react-native-async-storage/async-storage, @supabase/supabase-js, react-native.
  * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño
@@ -21,7 +21,7 @@
  * si el archivo se vuelve a importar (hot reload, etc.).
  *
  * Barra de carga global ("Pensando"): el cliente usa `trackedFetch` en vez
- * del fetch normal, que simplemente avisa a lib/loadingBus.ts justo antes de
+ * del fetch normal, que simplemente avisa a lib/estadoCarga.ts justo antes de
  * lanzar cada petición real y en cuanto termina (éxito o error). Así,
  * components/GlobalLoadingBar.tsx sabe, sin que ninguna pantalla tenga que
  * avisar a mano, cuándo hay algo cargando en cualquier parte de la app.
@@ -51,20 +51,20 @@
  * Conectado con: prácticamente todas las pantallas que leen o escriben
  * datos (app/(tabs)/*.tsx, app/admin/*.tsx, app/producto/[id].tsx,
  * app/catalogo.tsx) importan `supabase` desde aquí. app/_layout.tsx llama a registrarDispositivo();
- * app/admin/cliente/[userId].tsx, app/admin/users.tsx y app/admin/analytics.tsx leen esa tabla. lib/loadingBus.ts +
+ * app/admin/cliente/[userId].tsx, app/admin/users.tsx y app/admin/analytics.tsx leen esa tabla. lib/estadoCarga.ts +
  * components/GlobalLoadingBar.tsx → la barra de carga global.
  */
 import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AuthRetryableFetchError, createClient, type AuthError, type Session, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { AppState, Platform } from "react-native";
-import { markEnd, markStart } from "./loadingBus";
+import { markEnd, markStart } from "./estadoCarga";
 
 /**
  * Trozos de URL que NO deben encender la barra de carga global: llamadas
  * silenciosas de fondo que no bloquean nada que el usuario esté esperando
  * ver en pantalla.
- * - analytics_events: registro propio de visitas (lib/analytics.ts).
+ * - analytics_events: registro propio de visitas (lib/analiticaPropia.ts).
  * - increment_product_view: suma 1 a las visitas de un producto en segundo
  *   plano al abrir su ficha.
  * - get_unread_chat_count: sondeo de la campanita cada 45s

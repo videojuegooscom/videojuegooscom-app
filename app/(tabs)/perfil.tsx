@@ -2,7 +2,7 @@
  * Archivo: app/(tabs)/perfil.tsx
  * Función: pantalla «Mi cuenta» (pestaña Perfil), en la dirección /perfil (admite ?tab=seguimientos y ?filtro=).
  * Para qué sirve: el cliente inicia sesión o crea cuenta, completa su perfil, sigue sus pedidos y reparaciones (facturas, pagos, valoraciones), ve sus «me gusta» y avisos de precio; el administrador accede desde aquí al panel.
- * Conectado con: lib/supabase.ts (Supabase Auth, tablas profiles, pedidos, pedido_facturas y las de reparaciones), lib/envio.ts, lib/interaccion.ts, lib/reservas.ts, lib/openExternalLink.ts, lib/analytics.ts, constants/theme.ts, components/PerfilPublico.tsx, AsistenteBlue.tsx, CarruselProductosCategoria.tsx, VentanaValoracion.tsx, VisorFotos.tsx, PieDePagina.tsx, ImagenInteligente.tsx, components/marca/*; api/pago.ts y api/factura.ts.
+ * Conectado con: lib/supabase.ts (Supabase Auth, tablas profiles, pedidos, pedido_facturas y las de reparaciones), lib/envio.ts, lib/interaccion.ts, lib/reservas.ts, lib/abrirEnlaceExterno.ts, lib/analiticaPropia.ts, constants/theme.ts, components/PerfilPublico.tsx, AsistenteBlue.tsx, CarruselProductosCategoria.tsx, VentanaValoracion.tsx, VisorFotos.tsx, PieDePagina.tsx, ImagenInteligente.tsx, components/marca/*; api/pago.ts y api/factura.ts.
  * Utilizado por: Expo Router (dirección /perfil, pestaña de app/(tabs)/_layout.tsx); la abren app/(tabs)/chat-global.tsx (iniciar sesión), app/(tabs)/blue-ia.tsx (facturas), app/producto/[id].tsx y components/AsistenteBlue.tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage.
  * Estado: ACTIVO · ZONA DELICADA: no tocar sin revisión del dueño (inicio de sesión, cuenta, pagos y facturas)
@@ -78,7 +78,7 @@
  *   trae al usuario a esta pantalla para autenticarse.
  * - app/(tabs)/_layout.tsx → define esta pestaña dentro de la barra inferior.
  * - «Mis pedidos» → «Descargar factura» (facturas de VeoAura: tabla pedido_facturas, migración
- *   20261110100000; descarga por api/factura.ts y lib/openExternalLink.ts → abrirDescarga). Se mide
+ *   20261110100000; descarga por api/factura.ts y lib/abrirEnlaceExterno.ts → abrirDescarga). Se mide
  *   con «Pedidos: factura descargada» (app/admin/analytics.tsx). «Ver mis facturas» de Blue IA
  *   (app/(tabs)/blue-ia.tsx) abre /perfil?tab=seguimientos&filtro=facturas: el filtro «Facturas» ya puesto.
  * - «Reparaciones y Mantenimientos» → reparación por envío (migración 20261111100000): barra de nueve
@@ -164,7 +164,7 @@ import ReviewModal, {
 import SiteFooter from "../../components/PieDePagina";
 import SmartImage from "../../components/ImagenInteligente";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { medirCuentaCreada, trackEvent } from "../../lib/analytics";
+import { medirCuentaCreada, trackEvent } from "../../lib/analiticaPropia";
 import {
   CANALES_REPOSICION,
   fijarAvisoPrecio,
@@ -181,7 +181,7 @@ import {
   type AvisoReposicion,
   type CanalReposicion,
 } from "../../lib/interaccion";
-import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
+import { abrirDescarga, openExternalLink } from "../../lib/abrirEnlaceExterno";
 import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import { eurosReserva, fechaReserva, rellenarCondicionesReserva } from "../../lib/reservas";

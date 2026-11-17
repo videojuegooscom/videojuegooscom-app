@@ -19,7 +19,7 @@ Todos vienen de la plantilla con la que se creó el proyecto en Expo y no los us
 | Archivo | Motivo |
 |---|---|
 | `app/modal.tsx` | Pantalla de ejemplo de la plantilla; ningún botón ni enlace la abre. Si se borra, quitar también su `Stack.Screen name="modal"` en `app/_layout.tsx`. |
-| `components/external-link.tsx` | Nadie lo importa; la tienda abre los enlaces con `lib/openExternalLink.ts`. |
+| `components/external-link.tsx` | Nadie lo importa; la tienda abre los enlaces con `lib/abrirEnlaceExterno.ts`. |
 | `components/hello-wave.tsx` | Nadie lo importa. |
 | `components/parallax-scroll-view.tsx` | Nadie lo importa. |
 | `components/haptic-tab.tsx` | Nadie lo importa. |
@@ -73,14 +73,14 @@ nombre nuevo existe ya.
 | `components/Barramagic.tsx` | `BarraBusqueda.tsx` | Hecho en la tanda 2a (2026-11-17) |
 | `components/lineapensadoraefectosiri.tsx` | `EfectoPensando.tsx` | Hecho en la tanda 2a (2026-11-17) |
 | `components/admin/PanelUI.tsx` | `PiezasPanelAdmin.tsx` | Hecho en la tanda 2a (2026-11-17) |
-| `lib/loadingBus.ts` | `estadoCarga.ts` | Pendiente |
-| `lib/tabBar.ts` | `barraPestanas.ts` | Pendiente |
-| `lib/openExternalLink.ts` | `abrirEnlaceExterno.ts` | Pendiente |
-| `lib/analytics.ts` | `analitica.ts` | Pendiente |
-| `lib/admin/products.types.ts` | `lib/admin/productos.tipos.ts` | Pendiente |
-| `lib/admin/products.utils.ts` | `lib/admin/productos.utilidades.ts` | Pendiente |
-| `lib/admin/products.components.tsx` | `lib/admin/productos.componentes.tsx` | Pendiente |
-| `lib/admin/products.constants.ts` | `lib/admin/productos.constantes.ts` | Pendiente |
+| `lib/loadingBus.ts` | `estadoCarga.ts` | Hecho en la tanda 2b (2026-11-17) |
+| `lib/tabBar.ts` | `barraPestanas.ts` | Hecho en la tanda 2b (2026-11-17) |
+| `lib/openExternalLink.ts` | `abrirEnlaceExterno.ts` | Hecho en la tanda 2b (2026-11-17) |
+| `lib/analytics.ts` | `analiticaPropia.ts` (la propuesta era `analitica.ts`, pero «analitica» ya existía como palabra en el proyecto: `AvisoAnaliticaCookies`, `analitica_ritmo`, `pruebas/analitica-sql.mjs`…; `analiticaPropia` evita confusiones) | Hecho en la tanda 2b (2026-11-17) |
+| `lib/admin/products.types.ts` | `lib/admin/productos.tipos.ts` | Hecho en la tanda 2b (2026-11-17) |
+| `lib/admin/products.utils.ts` | `lib/admin/productos.utilidades.ts` | Hecho en la tanda 2b (2026-11-17) |
+| `lib/admin/products.components.tsx` | `lib/admin/productos.componentes.tsx` | Hecho en la tanda 2b (2026-11-17) |
+| `lib/admin/products.constants.ts` | `lib/admin/productos.constantes.ts` | Hecho en la tanda 2b (2026-11-17) |
 | `constants/theme.ts` | `constants/tema.ts` | Pendiente |
 
 Se quedan igual: `lib/supabase.ts` (nombre propio del servicio) y los archivos de `app/` y `api/`.
@@ -108,3 +108,18 @@ componentes y tipos de dentro conservan su nombre (eso va en otra tanda).
 | `components/Barramagic.tsx` | `components/BarraBusqueda.tsx` |
 | `components/lineapensadoraefectosiri.tsx` | `components/EfectoPensando.tsx` |
 | `components/admin/PanelUI.tsx` | `components/admin/PiezasPanelAdmin.tsx` |
+
+Tanda 2b (2026-11-17): igual que la 2a, solo el nombre del archivo y las rutas de imports, cabeceras, índice y registro;
+las funciones, tipos y constantes conservan su nombre, y también los valores guardados (tablas, eventos de analítica,
+claves). `app/admin/analytics.tsx` no cambia: es una dirección de la web.
+
+| Antes | Después |
+|---|---|
+| `lib/loadingBus.ts` | `lib/estadoCarga.ts` |
+| `lib/tabBar.ts` | `lib/barraPestanas.ts` |
+| `lib/openExternalLink.ts` | `lib/abrirEnlaceExterno.ts` |
+| `lib/analytics.ts` | `lib/analiticaPropia.ts` |
+| `lib/admin/products.types.ts` | `lib/admin/productos.tipos.ts` |
+| `lib/admin/products.utils.ts` | `lib/admin/productos.utilidades.ts` |
+| `lib/admin/products.components.tsx` | `lib/admin/productos.componentes.tsx` |
+| `lib/admin/products.constants.ts` | `lib/admin/productos.constantes.ts` |

@@ -2,7 +2,7 @@
  * Archivo: app/noticias/index.tsx
  * Función: pantalla índice de noticias, en la dirección /noticias.
  * Para qué sirve: el cliente ve las 30 últimas noticias publicadas, las filtra por categoría y entra a cada una.
- * Conectado con: lib/supabase.ts (tabla noticias_gaming), lib/analytics.ts, components/ImagenInteligente.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/CargaMarca.tsx, app/noticias/[id].tsx y app/servicio/[id].tsx (funciones compartidas).
+ * Conectado con: lib/supabase.ts (tabla noticias_gaming), lib/analiticaPropia.ts, components/ImagenInteligente.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/CargaMarca.tsx, app/noticias/[id].tsx y app/servicio/[id].tsx (funciones compartidas).
  * Utilizado por: Expo Router (dirección /noticias); la enlazan components/PieDePagina.tsx («Noticias») y app/noticias/[id].tsx («Ver noticias», «Más noticias»).
  * Dependencias: react, react-native, expo-router.
  * Estado: ACTIVO
@@ -27,7 +27,7 @@ import React, { useEffect, useState } from "react";
 import { Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
 import { Link, type Href } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { trackEvent } from "../../lib/analytics";
+import { trackEvent } from "../../lib/analiticaPropia";
 import SmartImage from "../../components/ImagenInteligente";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";

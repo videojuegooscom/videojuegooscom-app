@@ -2,7 +2,7 @@
  * Archivo: components/VisorFotos.tsx
  * Función: componente visor de fotos a pantalla completa.
  * Para qué sirve: muestra las fotos de una ficha con zoom (pellizco, doble toque, rueda), arrastre, navegación entre imágenes y cierre deslizando; avisa de su uso a la analítica.
- * Conectado con: components/ImagenInteligente.tsx, lib/analytics.ts, components/AsistenteBlue.tsx (suscribirVisorFotos / visorFotosAbierto).
+ * Conectado con: components/ImagenInteligente.tsx, lib/analiticaPropia.ts, components/AsistenteBlue.tsx (suscribirVisorFotos / visorFotosAbierto).
  * Utilizado por: app/producto/[id].tsx, app/servicio/[id].tsx, app/admin/services.tsx y components/AsistenteBlue.tsx.
  * Dependencias: react, react-native, @expo/vector-icons, react-native-safe-area-context.
  * Estado: ACTIVO
@@ -45,14 +45,14 @@
  * mensajes para cuando se cierre. No usa ninguna librería nueva: los gestos son PanResponder de React Native.
  *
  * Conectado con: app/producto/[id].tsx, app/servicio/[id].tsx, app/admin/services.tsx y components/AsistenteBlue.tsx
- * (lo usan); usa components/ImagenInteligente.tsx (las fotos) y lib/analytics.ts (trackEvent).
+ * (lo usan); usa components/ImagenInteligente.tsx (las fotos) y lib/analiticaPropia.ts (trackEvent).
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PanResponder, Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SmartImage from "./ImagenInteligente";
-import { trackEvent } from "../lib/analytics";
+import { trackEvent } from "../lib/analiticaPropia";
 
 export type LightboxImage = {
   id: string;

@@ -2,7 +2,7 @@
  * Archivo: app/admin/cotizaciones.tsx
  * Función: pantalla de administración «Cotizaciones», en la dirección /admin/cotizaciones.
  * Para qué sirve: el administrador revisa las solicitudes de venta que los clientes envían con «Vender ahora» (datos, fotos y vídeo), cambia su estado (nuevo, revisado, contactado, descartado) y las borra.
- * Conectado con: lib/supabase.ts (tablas sell_requests y sell_request_media, bucket privado sell-request-media), components/FotosVideoVenta.tsx, components/VenderAhoraModal.tsx, lib/admin/products.components.ts y products.utils.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
+ * Conectado con: lib/supabase.ts (tablas sell_requests y sell_request_media, bucket privado sell-request-media), components/FotosVideoVenta.tsx, components/VenderAhoraModal.tsx, lib/admin/productos.componentes.tsx y productos.utilidades.ts, constants/theme.ts, components/admin/PiezasPanelAdmin.tsx.
  * Utilizado por: Expo Router (dirección /admin/cotizaciones, protegida por app/admin/_layout.tsx); la enlaza la tarjeta «Cotizaciones» de app/admin/index.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -86,8 +86,8 @@ import {
   EmptyState,
   IconButton,
   PieVentana,
-} from "../../lib/admin/products.components";
-import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "../../lib/admin/products.utils";
+} from "../../lib/admin/productos.componentes";
+import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "../../lib/admin/productos.utilidades";
 import { COLORES_TEXTO, colorTextoAzul, TAMANOS } from "../../constants/theme";
 import { leerMarcaCambioCesta } from "../../components/VenderAhoraModal";
 import {

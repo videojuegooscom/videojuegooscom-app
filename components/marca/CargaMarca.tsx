@@ -3,7 +3,7 @@
  * Función: componente del indicador de «cargando…» con la mascota.
  * Para qué sirve: sustituye a la ruedita gris por la mascota dando saltitos, centrada y ligera.
  * Conectado con: components/marca/MarcaAnimada.tsx.
- * Utilizado por: casi todas las pantallas de la tienda y de Administración, components/PerfilPublico.tsx y lib/admin/products.components.tsx.
+ * Utilizado por: casi todas las pantallas de la tienda y de Administración, components/PerfilPublico.tsx y lib/admin/productos.componentes.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
  */
@@ -14,7 +14,7 @@
  *
  * Conectado con: pantallas de la tienda mientras cargan (catálogo, ficha, cesta,
  * pago, servicios…), casi todas las del panel de Administración (app/admin/…,
- * lib/admin/products.components.tsx) y components/PerfilPublico.tsx. Usa
+ * lib/admin/productos.componentes.tsx) y components/PerfilPublico.tsx. Usa
  * components/marca/MarcaAnimada.tsx para la mascota.
  */
 import React, { useEffect, useRef } from "react";

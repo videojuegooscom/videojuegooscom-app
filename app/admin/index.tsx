@@ -2,7 +2,7 @@
  * Archivo: app/admin/index.tsx
  * Función: pantalla de inicio del panel de administración, en la dirección /admin.
  * Para qué sirve: el administrador ve las cifras de lo nuevo (pedidos, chats, solicitudes, cotizaciones) y una rejilla de accesos agrupados a todas las secciones del panel, con contadores de novedades.
- * Conectado con: lib/admin/products.components.ts (AdminHeader), lib/admin/products.utils.ts (leerPanelVistos), lib/supabase.ts (recuentos de novedades en varias tablas), constants/theme.ts, components/AvisosMovil.tsx, components/admin/PiezasPanelAdmin.tsx; enlaza a todas las pantallas app/admin/*.tsx.
+ * Conectado con: lib/admin/productos.componentes.tsx (AdminHeader), lib/admin/productos.utilidades.ts (leerPanelVistos), lib/supabase.ts (recuentos de novedades en varias tablas), constants/theme.ts, components/AvisosMovil.tsx, components/admin/PiezasPanelAdmin.tsx; enlaza a todas las pantallas app/admin/*.tsx.
  * Utilizado por: Expo Router (dirección /admin, protegida por app/admin/_layout.tsx); la abre el botón «Panel de control» de app/(tabs)/perfil.tsx.
  * Dependencias: react, react-native, react-native-safe-area-context, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -71,7 +71,7 @@
  *   app/admin/pedidos.tsx, app/admin/escaparate.tsx → destino de las tarjetas de "Gestión principal".
  * - app/admin/_layout.tsx → si el acceso no es válido redirige a /perfil
  *   (sin sesión) o a / (sesión sin rol admin).
- * - app/admin/products/products.components.tsx → AdminHeader (cabecera común).
+ * - lib/admin/productos.componentes.tsx → AdminHeader (cabecera común).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -87,8 +87,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { AdminHeader } from "../../lib/admin/products.components";
-import { leerPanelVistos, type SeccionConNovedades } from "../../lib/admin/products.utils";
+import { AdminHeader } from "../../lib/admin/productos.componentes";
+import { leerPanelVistos, type SeccionConNovedades } from "../../lib/admin/productos.utilidades";
 import { supabase } from "../../lib/supabase";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import AvisosMovil from "../../components/AvisosMovil";
@@ -136,7 +136,7 @@ function softShadow() {
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Novedades de cada recuadro: solo lo que llega de fuera (clientes, VeoAura o la revisión automática) desde la última vez
-// que se abrió esa sección en este móvil (lib/admin/products.utils.ts; la primera vez, lo de los últimos 7 días). El chat
+// que se abrió esa sección en este móvil (lib/admin/productos.utilidades.ts; la primera vez, lo de los últimos 7 días). El chat
 // cuenta las conversaciones con mensajes del cliente sin leer, como la campanita (get_unread_chat_count), se haya abierto
 // o no la sección. Se cuenta sin descargar filas (solo el número). Si algo falla, ese recuadro no enseña nada: nunca un
 // número inventado. Los recuadros sin movimiento de fuera (Categorías, Inventario, Políticas…) no llevan contador.
