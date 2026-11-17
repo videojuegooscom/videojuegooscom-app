@@ -157,7 +157,7 @@ const COLORS = {
 // Preguntas frecuentes de Inicio: desplegables con la respuesta ya escrita. Solo se dice lo
 // que la tienda ya publica (reserva de 15 min, envíos y recogida, Servicios, «Vender
 // ahora»); lo demás (garantía, plazos) se deriva a la ficha o a Blue IA, sin inventar nada.
-const HOME_FAQ: { pregunta: string; respuesta: string }[] = [
+const PREGUNTAS_INICIO: { pregunta: string; respuesta: string }[] = [
   {
     pregunta: "¿Cómo compro un artículo?",
     respuesta:
@@ -190,7 +190,7 @@ const HOME_FAQ: { pregunta: string; respuesta: string }[] = [
   },
 ];
 
-type FeaturedProduct = {
+type ProductoDestacado = {
   id: string;
   title: string;
   description: string | null;
@@ -203,7 +203,7 @@ type FeaturedProduct = {
   hasVideo: boolean;
 };
 
-type HomeCategory = {
+type CategoriaInicio = {
   title: string;
   icon: IoniconName;
   cat: string;
@@ -239,9 +239,9 @@ type ProductMediaRow = {
   duration_seconds?: number | null;
 };
 
-type SearchSnapPosition = "top" | "bottom";
+type PosicionBuscador = "top" | "bottom";
 
-const HOME_CATEGORIES: HomeCategory[] = [
+const CATEGORIAS_INICIO: CategoriaInicio[] = [
   { title: "PlayStation 5", icon: "game-controller-outline", cat: "playstation-5", cta: "Ver categoría →" },
   { title: "PlayStation 4", icon: "game-controller-outline", cat: "playstation-4", cta: "Ver categoría →" },
   { title: "Nintendo Switch", icon: "game-controller-outline", cat: "nintendo-switch", cta: "Ver categoría →" },
@@ -262,7 +262,7 @@ const HOME_CATEGORIES: HomeCategory[] = [
   },
 ];
 
-const SEARCH_LAYOUT = {
+const MEDIDAS_BUSCADOR = {
   // Sin la franja de Noticias Flash, el buscador "arriba" va pegado al borde
   // superior con el mismo margen que reserva el padding del contenido.
   topSnapMobile: 12,
@@ -408,7 +408,7 @@ function pushRoute(route: Href) {
   router.push(route);
 }
 
-async function fetchFeaturedProductSafe(): Promise<ProductRow | null> {
+async function leerProductoDestacado(): Promise<ProductRow | null> {
   const selectWithJoinAndImages =
     "id,title,description,price_eur,status,is_active,updated_at,created_at,images,category:categories(name)";
   const selectWithJoinBase =
@@ -498,7 +498,7 @@ async function fetchFeaturedProductSafe(): Promise<ProductRow | null> {
   return null;
 }
 
-async function fetchProductMediaRowsSafe(productId: string): Promise<ProductMediaRow[]> {
+async function leerArchivosProductoDestacado(productId: string): Promise<ProductMediaRow[]> {
   const selects = [
     "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_seconds",
     "id,product_id,kind,public_url,file_name,sort_order,is_cover",
@@ -712,7 +712,7 @@ function TituloOferta({ isMobile }: { isMobile?: boolean }) {
 // Pregunta frecuente desplegable: fondo limpio (sin burbuja), línea fina entre preguntas, la
 // flecha gira y la respuesta se abre con una animación suave de altura y fundido. La
 // respuesta se mide en una capa absoluta para conocer su alto real sin que se corte.
-function FaqItem({
+function PreguntaFrecuente({
   pregunta,
   respuesta,
   abierta,
@@ -820,9 +820,9 @@ function Pill({
 // Ahora viven aquí, debajo de "Categorías", como información sencilla (solo
 // icono + texto, sin fondo ni borde) — y al tocarlas se abre un "Pop" con el
 // detalle (ver InfoPopModal más abajo).
-type TrustInfoItem = { icon: IoniconName; title: string; detail: string };
+type DatoConfianza = { icon: IoniconName; title: string; detail: string };
 
-const TRUST_INFO: TrustInfoItem[] = [
+const DATOS_CONFIANZA: DatoConfianza[] = [
   {
     icon: "checkmark-circle-outline",
     title: "Garantía",
@@ -846,12 +846,12 @@ const TRUST_INFO: TrustInfoItem[] = [
   },
 ];
 
-function TrustInfoRow({
+function FilaConfianza({
   isMobile,
   onPressItem,
 }: {
   isMobile?: boolean;
-  onPressItem: (item: TrustInfoItem) => void;
+  onPressItem: (item: DatoConfianza) => void;
 }) {
   return (
     <View
@@ -863,7 +863,7 @@ function TrustInfoRow({
         rowGap: TACTIL.separacion,
       }}
     >
-      {TRUST_INFO.map((item) => (
+      {DATOS_CONFIANZA.map((item) => (
         <Pressable
           key={item.title}
           onPress={() => onPressItem(item)}
@@ -894,11 +894,11 @@ function TrustInfoRow({
   );
 }
 
-function InfoPopModal({
+function VentanaInformacion({
   item,
   onClose,
 }: {
-  item: TrustInfoItem | null;
+  item: DatoConfianza | null;
   onClose: () => void;
 }) {
   return (
@@ -1060,7 +1060,7 @@ function PrimaryButton({
   );
 }
 
-function SecondaryButton({
+function BotonSecundario({
   title,
   subtitle,
   onPress,
@@ -1116,7 +1116,7 @@ function SecondaryButton({
   );
 }
 
-function CategoryCard({
+function TarjetaCategoria({
   title,
   icon,
   onPress,
@@ -1203,7 +1203,7 @@ function CategoryCard({
 // salir de Inicio. Muestra puntos de página y, mientras queden fotos por
 // delante, un indicador "…+N" (N = fotos que faltan por ver desde la que se
 // está viendo) que va bajando a medida que se avanza.
-function FeaturedMediaCarousel({
+function CarruselOfertaDestacada({
   images,
   alt,
   mediaHeight,
@@ -1407,7 +1407,7 @@ function FeaturedMediaCarousel({
   );
 }
 
-function FeaturedOfferCard({
+function TarjetaOfertaDestacada({
   item,
   isDesktopish,
   isWide,
@@ -1416,7 +1416,7 @@ function FeaturedOfferCard({
   onPressChat,
   chatBusy,
 }: {
-  item: FeaturedProduct | null;
+  item: ProductoDestacado | null;
   isDesktopish: boolean;
   isWide?: boolean;
   isMobile: boolean;
@@ -1453,7 +1453,7 @@ function FeaturedOfferCard({
 
           <View style={{ flex: 1 }}>
             {/* Atención dentro de la tienda: primero Blue IA y, si hace falta, el equipo. */}
-            <SecondaryButton
+            <BotonSecundario
               title="Preguntar a Blue IA"
               icon="sparkles-outline"
               onPress={() => pushRoute("/blue-ia" as Href)}
@@ -1475,7 +1475,7 @@ function FeaturedOfferCard({
     >
       <View style={{ flexDirection: isDesktopish ? "row" : "column" }}>
         <View style={{ flex: isDesktopish ? 1.05 : undefined }}>
-          <FeaturedMediaCarousel
+          <CarruselOfertaDestacada
             images={item.images}
             alt={item.title}
             mediaHeight={mediaHeight}
@@ -1559,7 +1559,7 @@ function FeaturedOfferCard({
             </View>
 
             <View style={{ flex: 1 }}>
-              <SecondaryButton
+              <BotonSecundario
                 title="Consultar por Chat"
                 subtitle={chatBusy ? "Abriendo…" : undefined}
                 icon="chatbubble-ellipses-outline"
@@ -1608,20 +1608,20 @@ function EsqueletoOferta({ isDesktopish, isWide, isMobile }: { isDesktopish: boo
   );
 }
 
-export default function HomeScreen() {
+export default function PantallaInicio() {
   // La barra de pestañas crece con la zona segura del iPhone (lib/barraPestanas.ts): lo que flota
   // justo encima (buscador y "volver arriba") se desplaza lo mismo para no quedar tapado.
   const tabBarInset = useMargenInferiorBarraPestanas();
-  const mobileTabBarHeight = SEARCH_LAYOUT.mobileTabBarHeight + tabBarInset;
-  const desktopTabBarHeight = SEARCH_LAYOUT.desktopTabBarHeight + tabBarInset;
-  const [featured, setFeatured] = useState<FeaturedProduct | null>(null);
+  const mobileTabBarHeight = MEDIDAS_BUSCADOR.mobileTabBarHeight + tabBarInset;
+  const desktopTabBarHeight = MEDIDAS_BUSCADOR.desktopTabBarHeight + tabBarInset;
+  const [featured, setFeatured] = useState<ProductoDestacado | null>(null);
   const [featuredLoading, setFeaturedLoading] = useState(true);
   const [featuredChatBusy, setFeaturedChatBusy] = useState(false);
 
   // Empieza donde empieza el buscador flotante (arriba, posicionInicial de FloatingBarramagic): antes empezaba en
   // «bottom» y, al avisar el buscador, todo Inicio bajaba 70 px de golpe (salto de diseño; carga rápida, 2026-11-14).
-  const [searchSnapPosition, setSearchSnapPosition] = useState<SearchSnapPosition>("top");
-  const [infoPop, setInfoPop] = useState<TrustInfoItem | null>(null);
+  const [searchSnapPosition, setSearchSnapPosition] = useState<PosicionBuscador>("top");
+  const [infoPop, setInfoPop] = useState<DatoConfianza | null>(null);
   // Pregunta frecuente abierta (solo una a la vez).
   const [faqAbierta, setFaqAbierta] = useState<number | null>(null);
   // Botón flotante "volver arriba" ⬆️: aparece tras bajar bastante.
@@ -1880,7 +1880,7 @@ export default function HomeScreen() {
       if (recarga === 0) setFeaturedLoading(true);
 
       try {
-        const data = await fetchFeaturedProductSafe();
+        const data = await leerProductoDestacado();
         if (!alive) return;
 
         if (!data) {
@@ -1888,7 +1888,7 @@ export default function HomeScreen() {
           return;
         }
 
-        const mediaRows = await fetchProductMediaRowsSafe(data.id);
+        const mediaRows = await leerArchivosProductoDestacado(data.id);
         if (!alive) return;
 
         // mediaRows ya viene ordenado (portada primero, luego por sort_order)
@@ -1947,13 +1947,13 @@ export default function HomeScreen() {
   }, [featuredLoading]);
 
   const searchBarHeight = isMobile
-    ? SEARCH_LAYOUT.searchBarHeightMobile
-    : SEARCH_LAYOUT.searchBarHeightDesktop;
+    ? MEDIDAS_BUSCADOR.searchBarHeightMobile
+    : MEDIDAS_BUSCADOR.searchBarHeightDesktop;
 
   const topOverlaySpace =
     searchSnapPosition === "top"
       ? searchBarHeight +
-        (isMobile ? SEARCH_LAYOUT.topContentGapMobile : SEARCH_LAYOUT.topContentGapDesktop)
+        (isMobile ? MEDIDAS_BUSCADOR.topContentGapMobile : MEDIDAS_BUSCADOR.topContentGapDesktop)
       : 0;
 
   return (
@@ -2066,7 +2066,7 @@ export default function HomeScreen() {
             {featuredLoading ? (
               <EsqueletoOferta isDesktopish={isDesktopish} isWide={isWide} isMobile={isMobile} />
             ) : (
-              <FeaturedOfferCard
+              <TarjetaOfertaDestacada
                 item={featured}
                 isDesktopish={isDesktopish}
                 isWide={isWide}
@@ -2101,7 +2101,7 @@ export default function HomeScreen() {
                 justifyContent: "center",
               }}
             >
-              {HOME_CATEGORIES.map((category) => {
+              {CATEGORIAS_INICIO.map((category) => {
                 const ir =
                   category.cat === "reparaciones"
                     ? () => pushRoute("/servicios" as Href)
@@ -2115,7 +2115,7 @@ export default function HomeScreen() {
                 };
 
                 return (
-                  <CategoryCard
+                  <TarjetaCategoria
                     key={category.cat}
                     title={category.title}
                     icon={category.icon}
@@ -2137,7 +2137,7 @@ export default function HomeScreen() {
 
           <View>
             <SectionTitle title="Compra con confianza" isMobile={isMobile} />
-            <TrustInfoRow isMobile={isMobile} onPressItem={setInfoPop} />
+            <FilaConfianza isMobile={isMobile} onPressItem={setInfoPop} />
           </View>
 
           <Separador isMobile={isMobile} />
@@ -2183,8 +2183,8 @@ export default function HomeScreen() {
             <SectionTitle title="Preguntas frecuentes" isMobile={isMobile} />
 
             <View style={{ width: "100%", maxWidth: 640, alignSelf: "center", borderTopWidth: 1, borderTopColor: COLORS.border }}>
-              {HOME_FAQ.map((item, i) => (
-                <FaqItem
+              {PREGUNTAS_INICIO.map((item, i) => (
+                <PreguntaFrecuente
                   key={item.pregunta}
                   pregunta={item.pregunta}
                   respuesta={item.respuesta}
@@ -2223,7 +2223,7 @@ export default function HomeScreen() {
           bottom:
             (isMobile ? mobileTabBarHeight : desktopTabBarHeight) +
             14 +
-            (isMobile && searchSnapPosition === "bottom" ? SEARCH_LAYOUT.searchBarHeightMobile + 14 : 0),
+            (isMobile && searchSnapPosition === "bottom" ? MEDIDAS_BUSCADOR.searchBarHeightMobile + 14 : 0),
           opacity: scrollTopAnim,
           transform: [
             {
@@ -2252,19 +2252,19 @@ export default function HomeScreen() {
 
       <BarraBusquedaFlotante
         isMobile={isMobile}
-        topSnapY={isMobile ? SEARCH_LAYOUT.topSnapMobile : SEARCH_LAYOUT.topSnapDesktop}
+        topSnapY={isMobile ? MEDIDAS_BUSCADOR.topSnapMobile : MEDIDAS_BUSCADOR.topSnapDesktop}
         mobileTabBarHeight={mobileTabBarHeight}
         desktopTabBarHeight={desktopTabBarHeight}
-        bottomGapMobile={SEARCH_LAYOUT.bottomGapMobile}
-        bottomGapDesktop={SEARCH_LAYOUT.bottomGapDesktop}
-        widthMobilePercent={SEARCH_LAYOUT.widthMobilePercent}
-        widthDesktopPercent={SEARCH_LAYOUT.widthDesktopPercent}
-        maxWidth={SEARCH_LAYOUT.maxWidth}
+        bottomGapMobile={MEDIDAS_BUSCADOR.bottomGapMobile}
+        bottomGapDesktop={MEDIDAS_BUSCADOR.bottomGapDesktop}
+        widthMobilePercent={MEDIDAS_BUSCADOR.widthMobilePercent}
+        widthDesktopPercent={MEDIDAS_BUSCADOR.widthDesktopPercent}
+        maxWidth={MEDIDAS_BUSCADOR.maxWidth}
         onSnapChange={setSearchSnapPosition}
         hidden={headerHidden}
       />
 
-      <InfoPopModal item={infoPop} onClose={() => setInfoPop(null)} />
+      <VentanaInformacion item={infoPop} onClose={() => setInfoPop(null)} />
     </View>
   );
 }

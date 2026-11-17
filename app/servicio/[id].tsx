@@ -142,7 +142,7 @@ type ResenaServicio = { id: string; created_at: string; display_name: string; ra
 
 // Reseñas de los clientes que contrataron ESTE servicio (las une a su solicitud la base de datos, migración
 // 20261103210000_resenas_servicios.sql). null: aún no se pueden leer (sin la migración, el bloque no sale).
-async function fetchResenas(serviceId: string): Promise<ResenaServicio[] | null> {
+async function leerResenasServicio(serviceId: string): Promise<ResenaServicio[] | null> {
   const { data, error } = await supabase
     .from("store_reviews")
     .select("id,created_at,display_name,rating,comment")
@@ -172,7 +172,7 @@ export function fotoDeOpcion(s: { media: ServiceMedia[] }, opcion: ModalidadServ
 }
 
 // También la usa la página «Contratar servicio» (app/contratar/[id].tsx).
-export async function fetchService(serviceId: string): Promise<Service | null> {
+export async function leerServicio(serviceId: string): Promise<Service | null> {
   const consulta = (columnas: string) =>
     supabase.from("services").select(columnas).eq("id", serviceId).eq("status", "PUBLISHED").eq("is_active", true).maybeSingle();
   let { data: row, error } = await consulta("id,title,description,price_eur,like_count,modalidades");
@@ -251,7 +251,7 @@ export default function ServicioScreen() {
     if (!silencioso) setLoading(true);
     setErr(null);
     try {
-      const row = await fetchService(serviceId);
+      const row = await leerServicio(serviceId);
       if (!row) {
         setS(null);
         setErr("Este servicio no existe o ya no está disponible. Vuelve al listado de servicios para ver el resto.");
@@ -265,7 +265,7 @@ export default function ServicioScreen() {
       setSelectedImageUrl(fotoDeOpcion(row, elegida) ?? cover?.publicUrl ?? null);
       setLikeCount(row.likeCount);
       meGustaLocales(CLAVE_ME_GUSTA_SERVICIOS).then((ids) => setLiked(ids.includes(row.id)));
-      fetchResenas(row.id).then(setResenas);
+      leerResenasServicio(row.id).then(setResenas);
 
       if (!silencioso) {
         contarVistaServicio(row.id).then((total) => {

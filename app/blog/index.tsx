@@ -60,7 +60,7 @@ type Article = { slug: string; title: string; excerpt: string; body: string };
 
 // Mismo contenido que tenía esta pantalla antes del panel de administración:
 // se usa solo si Supabase falla o todavía no hay ningún artículo publicado.
-const FALLBACK_ARTICLES: Article[] = [
+const ARTICULOS_DE_RESERVA: Article[] = [
   {
     slug: "elegir-consola-segunda-mano",
     title: "Cómo elegir una consola de segunda mano sin sorpresas",
@@ -84,7 +84,7 @@ const FALLBACK_ARTICLES: Article[] = [
   },
 ];
 
-async function fetchBlogPostsSafe(): Promise<Article[]> {
+async function leerArticulosBlog(): Promise<Article[]> {
   try {
     const { data, error } = await supabase
       .from("blog_posts")
@@ -112,13 +112,13 @@ async function fetchBlogPostsSafe(): Promise<Article[]> {
       })
       .filter((a): a is Article => a !== null);
 
-    return articles.length > 0 ? articles : FALLBACK_ARTICLES;
+    return articles.length > 0 ? articles : ARTICULOS_DE_RESERVA;
   } catch {
-    return FALLBACK_ARTICLES;
+    return ARTICULOS_DE_RESERVA;
   }
 }
 
-function ArticleCard({
+function TarjetaArticulo({
   article,
   open,
   onToggle,
@@ -200,7 +200,7 @@ export default function BlogScreen() {
   useEffect(() => {
     let alive = true;
 
-    fetchBlogPostsSafe().then((loaded) => {
+    leerArticulosBlog().then((loaded) => {
       if (!alive) return;
       setArticles(loaded);
       setLoading(false);
@@ -268,7 +268,7 @@ export default function BlogScreen() {
               </Text>
             ) : (
               articles.map((article) => (
-                <ArticleCard
+                <TarjetaArticulo
                   key={article.slug}
                   article={article}
                   open={openSlug === article.slug}
