@@ -66,13 +66,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import {
-  AdminHeader,
-  AdminIntro,
-  AdminLoading,
-  AdminNotice,
+  CabeceraPanel,
+  IntroPanel,
+  CargandoPanel,
+  AvisoPanel,
   BotonFlotante,
-  EmptyState,
-  IconButton,
+  EstadoVacioPanel,
+  BotonIconoPanel,
   PieVentana,
 } from "../../lib/admin/productos.componentes";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
@@ -478,10 +478,10 @@ export default function AdminPolicies() {
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. Lo demás va en un solo
           scroll. */}
-      <AdminHeader title="Políticas" isMobile={isMobile} />
+      <CabeceraPanel title="Políticas" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando políticas…" />
+        <CargandoPanel texto="Cargando políticas…" />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
@@ -496,7 +496,7 @@ export default function AdminPolicies() {
           keyboardDismissMode={CIERRE_TECLADO}
         >
           <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
-            <AdminIntro text="Envíos, devoluciones, privacidad y términos: el pie de página enlaza a los slugs «envios», «devoluciones», «privacidad» y «terminos»." />
+            <IntroPanel text="Envíos, devoluciones, privacidad y términos: el pie de página enlaza a los slugs «envios», «devoluciones», «privacidad» y «terminos»." />
 
             {/* 1) Cifras que filtran la lista (otro toque en la misma, todas). */}
             <FilaCifras nativeID="politicas-cifras">
@@ -538,7 +538,7 @@ export default function AdminPolicies() {
               </FilaPastillas>
             </View>
 
-            {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
+            {!!screenErr && <AvisoPanel tone="danger" text={screenErr} />}
 
             {/* 3) Cuántas salen, «Abrir todas» y las filas compactas. */}
             <View style={{ gap: 4 }}>
@@ -554,7 +554,7 @@ export default function AdminPolicies() {
                 items.length && hayFiltro ? (
                   <ListaVacia nativeID="politicas-vacio" icono="document-text-outline" titulo="No hay políticas para este filtro." texto="Prueba a borrar el buscador o a elegir «Todas»." />
                 ) : (
-                  <EmptyState icon="document-text-outline" title="Todavía no hay políticas." text="Crea la primera con el «+»: si la publicas, se verá en /politicas/ y su slug." />
+                  <EstadoVacioPanel icon="document-text-outline" title="Todavía no hay políticas." text="Crea la primera con el «+»: si la publicas, se verá en /politicas/ y su slug." />
                 )
               ) : (
                 <View nativeID="politicas-lista">
@@ -587,8 +587,8 @@ export default function AdminPolicies() {
                         }
                         derecha={
                           <BotonesFila>
-                            <IconButton icon="create-outline" label={`Editar ${row.title}`} variant="primary" onPress={() => openEdit(row)} />
-                            <IconButton icon="trash-outline" label={`Borrar ${row.title}`} variant="danger" onPress={() => askRemove(row)} />
+                            <BotonIconoPanel icon="create-outline" label={`Editar ${row.title}`} variant="primary" onPress={() => openEdit(row)} />
+                            <BotonIconoPanel icon="trash-outline" label={`Borrar ${row.title}`} variant="danger" onPress={() => askRemove(row)} />
                           </BotonesFila>
                         }
                       >
@@ -804,7 +804,7 @@ export default function AdminPolicies() {
                       }}
                     />
                     <View style={{ alignSelf: "flex-start" }}>
-                      <IconButton icon="trash-outline" label={`Quitar la sección ${index + 1}`} variant="danger" onPress={() => removeSection(index)} />
+                      <BotonIconoPanel icon="trash-outline" label={`Quitar la sección ${index + 1}`} variant="danger" onPress={() => removeSection(index)} />
                     </View>
                   </View>
                 ))}

@@ -58,7 +58,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
-import { AdminHeader, AdminLoading } from "../../lib/admin/productos.componentes";
+import { CabeceraPanel, CargandoPanel } from "../../lib/admin/productos.componentes";
 import { esCategoriaServicios } from "../../components/PortadasCategoria";
 import {
   AccionTexto,
@@ -1546,10 +1546,10 @@ export default function AdminAlquileres() {
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
-      <AdminHeader title="Alquileres" isMobile={isMobile} />
+      <CabeceraPanel title="Alquileres" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando…" />
+        <CargandoPanel texto="Cargando…" />
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView

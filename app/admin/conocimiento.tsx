@@ -51,7 +51,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { AdminHeader, AdminLoading, AdminNotice, BotonFlotante, EmptyState, IconButton, PieVentana } from "../../lib/admin/productos.componentes";
+import { CabeceraPanel, CargandoPanel, AvisoPanel, BotonFlotante, EstadoVacioPanel, BotonIconoPanel, PieVentana } from "../../lib/admin/productos.componentes";
 import { guardarConocimiento, TEMAS_CONOCIMIENTO, type ItemConocimiento } from "../../lib/conocimiento";
 import { CAMPO, COLORES_TEXTO, TAMANOS } from "../../constants/temaTienda";
 import {
@@ -209,10 +209,10 @@ export default function AdminConocimiento() {
     <View style={{ flex: 1, backgroundColor: PANEL.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      <AdminHeader title="Lo que Blue sabe" isMobile={isMobile} />
+      <CabeceraPanel title="Lo que Blue sabe" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando…" />
+        <CargandoPanel texto="Cargando…" />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
@@ -246,7 +246,7 @@ export default function AdminConocimiento() {
 
             <Detalle>Respuestas reales de la tienda. Blue IA las usa para contestar a tus clientes con precisión, sin inventar nada.</Detalle>
 
-            {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
+            {!!screenErr && <AvisoPanel tone="danger" text={screenErr} />}
 
             {/* 2) Lo que Blue propone: al tocar un tema, se abre el formulario con su pregunta. */}
             {pendientes.length ? (
@@ -288,7 +288,7 @@ export default function AdminConocimiento() {
                 items.length && hayFiltro ? (
                   <ListaVacia nativeID="conocimiento-vacio" icono="bulb-outline" titulo="No hay temas para este filtro." texto="Prueba a borrar el buscador o a elegir «Todos»." />
                 ) : (
-                  <EmptyState icon="bulb-outline" title="Todavía no hay información." text="Toca uno de los temas de Blue o añade lo tuyo con el «+»." />
+                  <EstadoVacioPanel icon="bulb-outline" title="Todavía no hay información." text="Toca uno de los temas de Blue o añade lo tuyo con el «+»." />
                 )
               ) : (
                 <View nativeID="conocimiento-lista">
@@ -317,8 +317,8 @@ export default function AdminConocimiento() {
                         derecha={
                           <BotonesFila>
                             {/* Acciones con iconos (su nombre, para el lector de pantalla y al pasar el ratón). */}
-                            <IconButton icon="create-outline" label={`Editar «${row.tema}»`} variant="primary" onPress={() => abrir(row.tema, row.respuesta, null, true)} />
-                            <IconButton icon="trash-outline" label={`Borrar «${row.tema}»`} variant="danger" onPress={() => setBorrar(row)} />
+                            <BotonIconoPanel icon="create-outline" label={`Editar «${row.tema}»`} variant="primary" onPress={() => abrir(row.tema, row.respuesta, null, true)} />
+                            <BotonIconoPanel icon="trash-outline" label={`Borrar «${row.tema}»`} variant="danger" onPress={() => setBorrar(row)} />
                           </BotonesFila>
                         }
                       >

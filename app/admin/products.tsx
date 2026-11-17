@@ -141,37 +141,37 @@ import {
   type Tono,
 } from "../../components/admin/PiezasPanelAdmin";
 import {
-  AdminHeader,
-  AdminLoading,
-  AdminNotice,
+  CabeceraPanel,
+  CargandoPanel,
+  AvisoPanel,
   BarraSeleccionFotos,
   BotonFlotante,
-  ChipButton,
-  EmptyState,
-  FilterPill,
-  IconButton,
-  MediaThumb,
+  BotonChipPanel,
+  EstadoVacioPanel,
+  PastillaFiltroPanel,
+  BotonIconoPanel,
+  MiniaturaArchivoPanel,
   PieVentana,
-  PrimaryButton,
+  BotonPrincipalPanel,
   SelectorIOS,
   useSeleccionFotos,
 } from "../../lib/admin/productos.componentes";
 import {
   COLORS,
-  MAX_FILE_SIZE_MB,
-  MAX_IMAGES,
-  MAX_VIDEO_SECONDS,
-  MEDIA_BUCKET,
+  MAX_TAMANO_ARCHIVO_MB,
+  MAX_FOTOS_PRODUCTO,
+  MAX_SEGUNDOS_VIDEO_PRODUCTO,
+  CUBO_ARCHIVOS_PRODUCTO,
 } from "../../lib/admin/productos.constantes";
 import type {
-  CategoryRow,
-  LocalPickedMedia,
-  ProductCondition,
-  ProductMediaRow,
-  ProductRow,
-  ProductStatus,
-  StatusFilter,
-  VisibilityFilter,
+  FilaCategoriaPanel,
+  ArchivoElegidoLocal,
+  CondicionProductoPanel,
+  FilaArchivoProductoPanel,
+  FilaProductoPanel,
+  EstadoProductoPanel,
+  FiltroEstadoProductos,
+  FiltroVisibilidadProductos,
 } from "../../lib/admin/productos.tipos";
 import {
   CIERRE_TECLADO,
@@ -198,7 +198,7 @@ const DEFAULT_DESCRIPTION =
   "Limpieza realizada para un estado impecable.\n\n" +
   "Envíos y Entregas Rápidas.";
 
-function revokeLocalMedia(items: LocalPickedMedia[]) {
+function revokeLocalMedia(items: ArchivoElegidoLocal[]) {
   items.forEach((m) => {
     try {
       URL.revokeObjectURL(m.previewUrl);
@@ -236,21 +236,21 @@ function normalizeMediaKind(value: unknown): "image" | "video" | null {
   return null;
 }
 
-function getRowKind(row: Partial<ProductMediaRow>) {
+function getRowKind(row: Partial<FilaArchivoProductoPanel>) {
   return normalizeMediaKind(row.kind);
 }
 
-function getRowDuration(row: Partial<ProductMediaRow>) {
+function getRowDuration(row: Partial<FilaArchivoProductoPanel>) {
   const n = Number(row.duration_seconds ?? null);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function getRowSortOrder(row: Partial<ProductMediaRow>) {
+function getRowSortOrder(row: Partial<FilaArchivoProductoPanel>) {
   const n = Number(row.sort_order);
   return Number.isFinite(n) ? n : 0;
 }
 
-function getRowPublicUrl(row: Partial<ProductMediaRow>) {
+function getRowPublicUrl(row: Partial<FilaArchivoProductoPanel>) {
   const url = String(row.public_url ?? "").trim();
   return url || null;
 }
@@ -266,7 +266,7 @@ function isMissingRelationError(error: unknown, relationName: string) {
   );
 }
 
-function sortMediaRows(a: ProductMediaRow, b: ProductMediaRow) {
+function sortMediaRows(a: FilaArchivoProductoPanel, b: FilaArchivoProductoPanel) {
   const aCover = Boolean(a.is_cover);
   const bCover = Boolean(b.is_cover);
 
@@ -276,7 +276,7 @@ function sortMediaRows(a: ProductMediaRow, b: ProductMediaRow) {
   return getRowSortOrder(a) - getRowSortOrder(b);
 }
 
-function sanitizeMediaRow(row: any): ProductMediaRow {
+function sanitizeMediaRow(row: any): FilaArchivoProductoPanel {
   return {
     id: String(row.id),
     product_id: String(row.product_id),
@@ -294,7 +294,7 @@ function sanitizeMediaRow(row: any): ProductMediaRow {
 
 async function fetchProductMediaRowsSafe(
   productId?: string | string[]
-): Promise<ProductMediaRow[]> {
+): Promise<FilaArchivoProductoPanel[]> {
   const selects = [
     "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_seconds,created_at",
     "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,created_at",
@@ -351,14 +351,14 @@ async function fetchProductMediaRowsSafe(
   return [];
 }
 
-function sanitizeProductRow(row: any): ProductRow {
+function sanitizeProductRow(row: any): FilaProductoPanel {
   return {
     id: String(row.id),
     title: String(row.title ?? ""),
     description: typeof row.description === "string" ? row.description : null,
     price_eur: Number.isFinite(Number(row.price_eur)) ? Number(row.price_eur) : null,
-    status: (row.status ?? "DRAFT") as ProductStatus,
-    condition: (row.condition ?? "GOOD") as ProductCondition,
+    status: (row.status ?? "DRAFT") as EstadoProductoPanel,
+    condition: (row.condition ?? "GOOD") as CondicionProductoPanel,
     category_id: row.category_id ? String(row.category_id) : null,
     is_active: Boolean(row.is_active),
     created_at: String(row.created_at ?? ""),
@@ -437,11 +437,11 @@ async function fetchAdminProductsSafe(): Promise<{
 // Estado, Condición y Categoría del formulario de producto: SelectorIOS (lib/admin/productos.componentes.tsx), el mismo
 // desplegable de Servicios, que abre el selector del propio móvil (en el iPhone, la rueda de iOS; dueño, 2026-11-04).
 
-type ProductListItemData = ProductRow & { catName: string };
+type ProductListItemData = FilaProductoPanel & { catName: string };
 
 // Filtros de la segunda fila de pastillas (además de la fase, la visibilidad y la revisión).
 type FiltroExtra = "ALL" | "DESTACADOS" | "VENDIDOS" | "RESERVADOS" | "SIN_FOTOS" | "SIN_PESO" | "ESTIMADO" | "SOLO_MANO";
-function cumpleExtra(p: ProductRow, f: FiltroExtra) {
+function cumpleExtra(p: FilaProductoPanel, f: FiltroExtra) {
   if (f === "ALL") return true;
   if (f === "DESTACADOS") return !!p.is_featured_home;
   if (f === "VENDIDOS") return !!p.vendido;
@@ -453,7 +453,7 @@ function cumpleExtra(p: ProductRow, f: FiltroExtra) {
 }
 
 // Etiqueta de color del estado de un producto (rediseño PANRED2): vendido, reservado, oculto o, si se ve, su fase.
-function estadoProducto(p: ProductRow): { texto: string; tono: Tono; vendido?: boolean } {
+function estadoProducto(p: FilaProductoPanel): { texto: string; tono: Tono; vendido?: boolean } {
   if (p.vendido) return { texto: p.vendido.referencia ? `Vendido (pedido ${p.vendido.referencia})` : "Vendido", tono: "indigo", vendido: true };
   if (p.reservado_hasta) return { texto: "Reservado", tono: "turquesa" };
   if (p.alquiler) return { texto: "Para alquilar", tono: "turquesa" };
@@ -505,15 +505,15 @@ const ProductListItem = React.memo(function ProductListItem({
   onAlternar: (id: string) => void;
   isMobile: boolean;
   supportsFeaturedHome: boolean;
-  onEdit: (p: ProductRow) => void;
-  onPublish: (p: ProductRow) => void;
-  onToggleFeatured: (p: ProductRow) => void;
-  onMarkSold: (p: ProductRow) => void;
-  onDelete: (p: ProductRow) => void;
-  onToggleActive: (p: ProductRow) => void;
+  onEdit: (p: FilaProductoPanel) => void;
+  onPublish: (p: FilaProductoPanel) => void;
+  onToggleFeatured: (p: FilaProductoPanel) => void;
+  onMarkSold: (p: FilaProductoPanel) => void;
+  onDelete: (p: FilaProductoPanel) => void;
+  onToggleActive: (p: FilaProductoPanel) => void;
   // «Para alquilar» (alquiler, fase 2): solo con la columna products.modo. Devuelve el error a enseñar o null.
   supportsAlquiler: boolean;
-  onParaAlquilar: (p: ProductRow, coste: string) => Promise<string | null>;
+  onParaAlquilar: (p: FilaProductoPanel, coste: string) => Promise<string | null>;
   // Presente mientras las fotos/vídeo de ESTE producto se están subiendo en
   // segundo plano (ver runBackgroundMediaSync en el componente de pantalla).
   // "error" solo se rellena si la subida falla — en ese caso ya no está
@@ -635,7 +635,7 @@ const ProductListItem = React.memo(function ProductListItem({
           <Ionicons name={abierta ? "chevron-up" : "chevron-down"} size={18} color={COLORS.muted} />
         </Pressable>
         {/* Editar: el lápiz, siempre a mano (icono de 44 px, con su nombre para el lector de pantalla). */}
-        <IconButton icon="create-outline" label={`Editar ${p.title}`} variant="primary" onPress={() => onEdit(p)} disabled={isUploading} />
+        <BotonIconoPanel icon="create-outline" label={`Editar ${p.title}`} variant="primary" onPress={() => onEdit(p)} disabled={isUploading} />
       </View>
 
           {!!uploadStatus && (
@@ -702,7 +702,7 @@ const ProductListItem = React.memo(function ProductListItem({
                 <Dato etiqueta="Garantía">{p.garantia_meses ? `${p.garantia_meses} ${p.garantia_meses === 1 ? "mes" : "meses"}` : "Sin indicar"}</Dato>
               ) : null}
               <Dato etiqueta="Fotos">
-                {imageCount} de {MAX_IMAGES}
+                {imageCount} de {MAX_FOTOS_PRODUCTO}
                 {hasVideo ? " + 1 vídeo" : ""}
               </Dato>
               {p.description ? <Detalle>{recortarTexto(p.description, 160)}</Detalle> : null}
@@ -739,18 +739,18 @@ const ProductListItem = React.memo(function ProductListItem({
               <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.cuerpo }}>{p.is_active ? "Visible" : "Oculto"}</Text>
             </View>
             {p.status !== "PUBLISHED" ? (
-              <IconButton icon="paper-plane-outline" label={`Publicar ${p.title}`} variant="success" onPress={() => onPublish(p)} />
+              <BotonIconoPanel icon="paper-plane-outline" label={`Publicar ${p.title}`} variant="success" onPress={() => onPublish(p)} />
             ) : null}
             {supportsFeaturedHome ? (
-              <IconButton
+              <BotonIconoPanel
                 icon={p.is_featured_home ? "star" : "star-outline"}
                 label={p.is_featured_home ? `Quitar ${p.title} de destacados en portada` : `Destacar ${p.title} en portada`}
                 variant={p.is_featured_home ? "primary" : "ghost"}
                 onPress={() => onToggleFeatured(p)}
               />
             ) : null}
-            <IconButton icon="pricetag-outline" label={`Marcar ${p.title} como vendido`} onPress={() => onMarkSold(p)} />
-            <IconButton icon="trash-outline" label={`Borrar ${p.title}`} variant="danger" onPress={() => onDelete(p)} disabled={isUploading} />
+            <BotonIconoPanel icon="pricetag-outline" label={`Marcar ${p.title} como vendido`} onPress={() => onMarkSold(p)} />
+            <BotonIconoPanel icon="trash-outline" label={`Borrar ${p.title}`} variant="danger" onPress={() => onDelete(p)} disabled={isUploading} />
             {supportsAlquiler && !p.alquiler && !p.vendido ? (
               <AccionTexto
                 nativeID={`producto-para-alquilar-${p.id}`}
@@ -809,12 +809,12 @@ export default function AdminProducts() {
   const [screenErr, setScreenErr] = useState<string | null>(null);
   const [mediaDebugErr, setMediaDebugErr] = useState<string | null>(null);
 
-  const [categories, setCategories] = useState<CategoryRow[]>([]);
-  const [items, setItems] = useState<ProductRow[]>([]);
+  const [categories, setCategories] = useState<FilaCategoriaPanel[]>([]);
+  const [items, setItems] = useState<FilaProductoPanel[]>([]);
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
-  const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>("ALL");
+  const [statusFilter, setStatusFilter] = useState<FiltroEstadoProductos>("ALL");
+  const [visibilityFilter, setVisibilityFilter] = useState<FiltroVisibilidadProductos>("ALL");
 
   const [supportsFeaturedHome, setSupportsFeaturedHome] = useState(true);
   const [supportsReference, setSupportsReference] = useState(true);
@@ -835,7 +835,7 @@ export default function AdminProducts() {
   const desplegables = useDesplegables();
   const [supportsProductMedia, setSupportsProductMedia] = useState(true);
 
-  const itemsRef = useRef<ProductRow[]>([]);
+  const itemsRef = useRef<FilaProductoPanel[]>([]);
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
@@ -844,17 +844,17 @@ export default function AdminProducts() {
   const [saving, setSaving] = useState(false);
   const [modalErr, setModalErr] = useState<string | null>(null);
 
-  const [confirmDelete, setConfirmDelete] = useState<ProductRow | null>(null);
-  const [markSoldTarget, setMarkSoldTarget] = useState<ProductRow | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<FilaProductoPanel | null>(null);
+  const [markSoldTarget, setMarkSoldTarget] = useState<FilaProductoPanel | null>(null);
 
-  const [editing, setEditing] = useState<ProductRow | null>(null);
+  const [editing, setEditing] = useState<FilaProductoPanel | null>(null);
   const isEdit = !!editing;
 
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [price, setPrice] = useState("");
-  const [status, setStatus] = useState<ProductStatus>("DRAFT");
-  const [condition, setCondition] = useState<ProductCondition>("GOOD");
+  const [status, setStatus] = useState<EstadoProductoPanel>("DRAFT");
+  const [condition, setCondition] = useState<CondicionProductoPanel>("GOOD");
   const [reference, setReference] = useState("");
   // Peso con embalaje en kg (texto, con coma). Solo se guarda si la columna existe (migración 20261107120000).
   const [peso, setPeso] = useState("");
@@ -871,9 +871,9 @@ export default function AdminProducts() {
   const [isActive, setIsActive] = useState(true);
   const [isFeaturedHome, setIsFeaturedHome] = useState(false);
 
-  const [existingMedia, setExistingMedia] = useState<ProductMediaRow[]>([]);
-  const [removedMedia, setRemovedMedia] = useState<ProductMediaRow[]>([]);
-  const [newMedia, setNewMedia] = useState<LocalPickedMedia[]>([]);
+  const [existingMedia, setExistingMedia] = useState<FilaArchivoProductoPanel[]>([]);
+  const [removedMedia, setRemovedMedia] = useState<FilaArchivoProductoPanel[]>([]);
+  const [newMedia, setNewMedia] = useState<ArchivoElegidoLocal[]>([]);
   const [descExpanded, setDescExpanded] = useState(false);
   const [picking, setPicking] = useState(false);
   // «Seleccionar varias» fotos para quitarlas a la vez (dueño, 2026-11-04), como en Servicios.
@@ -899,7 +899,7 @@ export default function AdminProducts() {
   // SIEMPRE la misma identidad entre renders — así ProductListItem (más
   // abajo) nunca se ve obligado a re-renderizarse solo porque el usuario
   // añadió o quitó una foto pendiente en el formulario.
-  const newMediaRef = useRef<LocalPickedMedia[]>([]);
+  const newMediaRef = useRef<ArchivoElegidoLocal[]>([]);
   useEffect(() => {
     newMediaRef.current = newMedia;
   }, [newMedia]);
@@ -960,7 +960,7 @@ export default function AdminProducts() {
     const featured = items.filter((x) => !!x.is_featured_home).length;
     const revisados = items.filter((x) => x.revisado === true).length;
     const conGarantia = items.filter((x) => !!x.garantia_meses).length;
-    const porFase = (s: ProductStatus) => items.filter((x) => x.status === s).length;
+    const porFase = (s: EstadoProductoPanel) => items.filter((x) => x.status === s).length;
     const extra = (f: FiltroExtra) => items.filter((x) => cumpleExtra(x, f)).length;
 
     return {
@@ -1082,10 +1082,10 @@ export default function AdminProducts() {
       if (catsRes.error) throw catsRes.error;
 
       const supportsFeatured = prodResult.supportsFeatured;
-      const productsData: ProductRow[] = prodResult.rows.map((row) => sanitizeProductRow(row));
+      const productsData: FilaProductoPanel[] = prodResult.rows.map((row) => sanitizeProductRow(row));
 
       let supportsMedia = true;
-      let mediaRows: ProductMediaRow[] = [];
+      let mediaRows: FilaArchivoProductoPanel[] = [];
       const productIds = productsData.map((p) => p.id);
 
       try {
@@ -1110,7 +1110,7 @@ export default function AdminProducts() {
         }
       }
 
-      const mediaByProduct = new Map<string, ProductMediaRow[]>();
+      const mediaByProduct = new Map<string, FilaArchivoProductoPanel[]>();
 
       for (const media of mediaRows) {
         const list = mediaByProduct.get(media.product_id) ?? [];
@@ -1232,7 +1232,7 @@ export default function AdminProducts() {
       setSupportsAlquiler(conModo);
       setSupportsProductMedia(supportsMedia);
       // Sin «Reparación / Limpieza»: solo guarda la portada del recuadro de Inicio que lleva a Servicios (no lleva productos).
-      setCategories(((Array.isArray(catsRes.data) ? catsRes.data : []) as CategoryRow[]).filter((c) => !esCategoriaServicios(c.slug)));
+      setCategories(((Array.isArray(catsRes.data) ? catsRes.data : []) as FilaCategoriaPanel[]).filter((c) => !esCategoriaServicios(c.slug)));
       setItems(merged);
     } catch (e: any) {
       console.error(
@@ -1283,7 +1283,7 @@ export default function AdminProducts() {
   }, [resetForm]);
 
   const openEditProduct = useCallback(
-    (p: ProductRow) => {
+    (p: FilaProductoPanel) => {
       resetForm();
       setEditing(p);
       setTitle(p.title ?? "");
@@ -1350,11 +1350,11 @@ export default function AdminProducts() {
         return;
       }
 
-      const oversize = picked.find((m) => m.size > MAX_FILE_SIZE_MB * 1024 * 1024);
+      const oversize = picked.find((m) => m.size > MAX_TAMANO_ARCHIVO_MB * 1024 * 1024);
       if (oversize) {
         revokeLocalMedia(picked);
         setModalErr(
-          `Uno de los archivos supera el máximo de ${MAX_FILE_SIZE_MB}MB permitido por archivo.${
+          `Uno de los archivos supera el máximo de ${MAX_TAMANO_ARCHIVO_MB}MB permitido por archivo.${
             skippedNote ? ` ${skippedNote}` : ""
           }`
         );
@@ -1370,10 +1370,10 @@ export default function AdminProducts() {
         return;
       }
 
-      if (currentImageCount + pickedImages.length > MAX_IMAGES) {
+      if (currentImageCount + pickedImages.length > MAX_FOTOS_PRODUCTO) {
         revokeLocalMedia(picked);
         setModalErr(
-          `Máximo ${MAX_IMAGES} imágenes por producto.${skippedNote ? ` ${skippedNote}` : ""}`
+          `Máximo ${MAX_FOTOS_PRODUCTO} imágenes por producto.${skippedNote ? ` ${skippedNote}` : ""}`
         );
         return;
       }
@@ -1385,13 +1385,13 @@ export default function AdminProducts() {
       }
 
       const invalidDuration = pickedVideos.find(
-        (v) => !v.durationSeconds || Number(v.durationSeconds) > MAX_VIDEO_SECONDS
+        (v) => !v.durationSeconds || Number(v.durationSeconds) > MAX_SEGUNDOS_VIDEO_PRODUCTO
       );
 
       if (invalidDuration) {
         revokeLocalMedia(picked);
         setModalErr(
-          `El vídeo no puede superar ${MAX_VIDEO_SECONDS} segundos.${skippedNote ? ` ${skippedNote}` : ""}`
+          `El vídeo no puede superar ${MAX_SEGUNDOS_VIDEO_PRODUCTO} segundos.${skippedNote ? ` ${skippedNote}` : ""}`
         );
         return;
       }
@@ -1459,7 +1459,7 @@ export default function AdminProducts() {
   // "setEstado" fijo que ya no correspondería al producto correcto.
   async function uploadMediaBatch(
     productId: string,
-    media: LocalPickedMedia[],
+    media: ArchivoElegidoLocal[],
     startIndex: number,
     onProgress: (done: number, total: number) => void
   ) {
@@ -1477,7 +1477,7 @@ export default function AdminProducts() {
       // instante en UNA de ellas ya no aborta el resto ni obliga a
       // repetir todo desde cero.
       const uploadRes = await withRetries(() =>
-        supabase.storage.from(MEDIA_BUCKET).upload(storagePath, item.file, {
+        supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).upload(storagePath, item.file, {
           cacheControl: "3600",
           upsert: false,
           contentType: item.mimeType || undefined,
@@ -1486,7 +1486,7 @@ export default function AdminProducts() {
 
       if (uploadRes.error) throw uploadRes.error;
 
-      const { data: publicData } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath);
+      const { data: publicData } = supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).getPublicUrl(storagePath);
       const publicUrl = publicData?.publicUrl ?? "";
 
       const basePayload: Record<string, any> = {
@@ -1531,14 +1531,14 @@ export default function AdminProducts() {
     }
   }
 
-  async function deleteMediaBatch(media: ProductMediaRow[]) {
+  async function deleteMediaBatch(media: FilaArchivoProductoPanel[]) {
     if (!media.length) return;
 
     const paths = media.map((m) => m.storage_path).filter(Boolean) as string[];
     const ids = media.map((m) => m.id);
 
     if (paths.length) {
-      const storageDelete = await supabase.storage.from(MEDIA_BUCKET).remove(paths);
+      const storageDelete = await supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).remove(paths);
       if (storageDelete.error) throw storageDelete.error;
     }
 
@@ -1556,8 +1556,8 @@ export default function AdminProducts() {
   async function runBackgroundMediaSync(
     productId: string,
     title: string,
-    mediaToUpload: LocalPickedMedia[],
-    mediaToRemove: ProductMediaRow[],
+    mediaToUpload: ArchivoElegidoLocal[],
+    mediaToRemove: FilaArchivoProductoPanel[],
     uploadStartIndex: number
   ) {
     setBgUploads((prev) => ({
@@ -1719,8 +1719,8 @@ export default function AdminProducts() {
       existingMedia.filter((m) => getRowKind(m) === "video").length +
       newMedia.filter((m) => m.kind === "video").length;
 
-    if (totalImages > MAX_IMAGES) {
-      setModalErr(`Máximo ${MAX_IMAGES} imágenes por producto.`);
+    if (totalImages > MAX_FOTOS_PRODUCTO) {
+      setModalErr(`Máximo ${MAX_FOTOS_PRODUCTO} imágenes por producto.`);
       setSaving(false);
       return;
     }
@@ -1731,10 +1731,10 @@ export default function AdminProducts() {
       return;
     }
 
-    const oversize = newMedia.find((m) => m.size > MAX_FILE_SIZE_MB * 1024 * 1024);
+    const oversize = newMedia.find((m) => m.size > MAX_TAMANO_ARCHIVO_MB * 1024 * 1024);
     if (oversize) {
       setModalErr(
-        `Uno de los archivos supera el máximo de ${MAX_FILE_SIZE_MB}MB permitido por archivo.`
+        `Uno de los archivos supera el máximo de ${MAX_TAMANO_ARCHIVO_MB}MB permitido por archivo.`
       );
       setSaving(false);
       return;
@@ -1859,7 +1859,7 @@ export default function AdminProducts() {
     }
   }
 
-  const askRemove = useCallback((p: ProductRow) => {
+  const askRemove = useCallback((p: FilaProductoPanel) => {
     setConfirmDelete(p);
   }, []);
 
@@ -1874,7 +1874,7 @@ export default function AdminProducts() {
       if (supportsProductMedia && p.media?.length) {
         const paths = p.media.map((m) => m.storage_path).filter(Boolean) as string[];
         if (paths.length) {
-          const storageRes = await supabase.storage.from(MEDIA_BUCKET).remove(paths);
+          const storageRes = await supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).remove(paths);
           if (storageRes.error) throw storageRes.error;
         }
       }
@@ -1892,10 +1892,10 @@ export default function AdminProducts() {
     }
   }
 
-  const quickPublish = useCallback(async (p: ProductRow) => {
+  const quickPublish = useCallback(async (p: FilaProductoPanel) => {
     const prev = itemsRef.current;
     const next = prev.map((x) =>
-      x.id === p.id ? { ...x, status: "PUBLISHED" as ProductStatus } : x
+      x.id === p.id ? { ...x, status: "PUBLISHED" as EstadoProductoPanel } : x
     );
     setItems(next);
 
@@ -1911,7 +1911,7 @@ export default function AdminProducts() {
     }
   }, []);
 
-  const toggleActive = useCallback(async (p: ProductRow) => {
+  const toggleActive = useCallback(async (p: FilaProductoPanel) => {
     const prev = itemsRef.current;
     const next = prev.map((x) => (x.id === p.id ? { ...x, is_active: !x.is_active } : x));
     setItems(next);
@@ -1931,11 +1931,11 @@ export default function AdminProducts() {
   // «Para alquilar» (alquiler, fase 2; mientras VeoAura no tenga su botón): el artículo pasa a products.modo 'alquiler' y a
   // la categoría «Alquílalo ahora», y se crea su fila en alquiler_unidades con el coste (opcional) y la categoría de antes
   // (para devolverlo a ella con «Pasar a la venta» en Alquileres). Devuelve el error que hay que enseñar o null.
-  const categoriasRef = useRef<CategoryRow[]>([]);
+  const categoriasRef = useRef<FilaCategoriaPanel[]>([]);
   useEffect(() => {
     categoriasRef.current = categories;
   }, [categories]);
-  const pasarAAlquiler = useCallback(async (p: ProductRow, costeTexto: string): Promise<string | null> => {
+  const pasarAAlquiler = useCallback(async (p: FilaProductoPanel, costeTexto: string): Promise<string | null> => {
     const limpio = costeTexto.trim().replace(/\s/g, "").replace(",", ".");
     const coste = limpio ? (/^\d{1,7}(\.\d{1,2})?$/.test(limpio) ? Number(limpio) : NaN) : null;
     if (Number.isNaN(coste)) return "El coste no es un importe válido (por ejemplo, 310 o 310,50).";
@@ -1957,7 +1957,7 @@ export default function AdminProducts() {
   }, []);
 
   const toggleFeaturedHome = useCallback(
-    async (p: ProductRow) => {
+    async (p: FilaProductoPanel) => {
       if (!supportsFeaturedHome) {
         setScreenErr("No se puede destacar en portada: esta función no está disponible en este catálogo.");
         return;
@@ -2008,10 +2008,10 @@ export default function AdminProducts() {
           en todo el panel. Todo lo demás (estadísticas, buscador, filtros,
           botón de crear y la lista de productos) vive dentro de un único
           ScrollView y se desplaza junto. */}
-      <AdminHeader title="Productos" isMobile={isMobile} maxWidth={1160} />
+      <CabeceraPanel title="Productos" isMobile={isMobile} maxWidth={1160} />
 
       {loading ? (
-        <AdminLoading texto="Cargando productos…" />
+        <CargandoPanel texto="Cargando productos…" />
       ) : (
       <ScrollView
         style={{ flex: 1 }}
@@ -2073,7 +2073,7 @@ export default function AdminProducts() {
                   ["DRAFT", "Borrador", stats.borradores],
                   ["REVIEW", "Por revisar", stats.porRevisar],
                   ["PUBLISHED", "Publicado", stats.published],
-                ] as [StatusFilter, string, number][]
+                ] as [FiltroEstadoProductos, string, number][]
               ).map(([v, t, n]) => (
                 <Chip key={v} nativeID={`productos-fase-${v.toLowerCase()}`} label={`${t} (${n})`} activo={statusFilter === v} onPress={() => setStatusFilter(v)} />
               ))}
@@ -2096,7 +2096,7 @@ export default function AdminProducts() {
                   ["ALL", "Todos", stats.total],
                   ["VISIBLE", "Visibles", stats.visible],
                   ["HIDDEN", "Ocultos", stats.hidden],
-                ] as [VisibilityFilter, string, number][]
+                ] as [FiltroVisibilidadProductos, string, number][]
               ).map(([v, t, n]) => (
                 <Chip key={v} nativeID={`productos-visibilidad-${v.toLowerCase()}`} label={`${t} (${n})`} activo={visibilityFilter === v} onPress={() => setVisibilityFilter(v)} />
               ))}
@@ -2144,10 +2144,10 @@ export default function AdminProducts() {
             ) : null}
           </View>
 
-          {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
+          {!!screenErr && <AvisoPanel tone="danger" text={screenErr} />}
 
           {!supportsProductMedia && (
-            <AdminNotice
+            <AvisoPanel
               tone="warning"
               text={mediaDebugErr || "No se han podido cargar las fotos y vídeos de los productos."}
             />
@@ -2173,7 +2173,7 @@ export default function AdminProducts() {
               items.length ? (
                 <ListaVacia nativeID="productos-vacio" icono="game-controller-outline" titulo="No hay productos en esta lista." texto="Prueba a borrar el buscador o a quitar los filtros." />
               ) : (
-                <EmptyState
+                <EstadoVacioPanel
                   icon="game-controller-outline"
                   title="No hay productos para este filtro."
                   text="Cambia la búsqueda o crea el primero: un catálogo vacío no genera ventas."
@@ -2470,7 +2470,7 @@ export default function AdminProducts() {
                   <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}>Garantía</Text>
                   <View nativeID="producto-garantia-opciones" style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                     {(["", "3", "6", "12"] as const).map((v) => (
-                      <FilterPill
+                      <PastillaFiltroPanel
                         key={v || "sin"}
                         label={v ? `${v} meses` : "Sin indicar"}
                         active={garantia.trim() === v}
@@ -2516,7 +2516,7 @@ export default function AdminProducts() {
               <BloqueFormulario icono="images-outline" titulo="Fotos y vídeo" nativeID="producto-bloque-fotos">
               <View style={{ gap: 12 }}>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                  <ChipButton
+                  <BotonChipPanel
                     label={picking ? "Procesando…" : "Añadir imágenes / vídeo"}
                     variant="primary"
                     onPress={addMediaFromPicker}
@@ -2527,7 +2527,7 @@ export default function AdminProducts() {
                 </View>
 
                 <Text style={{ color: COLORS.muted, lineHeight: 19 }}>
-                  Actualmente: {currentImageCount}/{MAX_IMAGES} imágenes · {currentVideoCount}/1 vídeo
+                  Actualmente: {currentImageCount}/{MAX_FOTOS_PRODUCTO} imágenes · {currentVideoCount}/1 vídeo
                 </Text>
 
                 {/* Quitar varias a la vez (dueño, 2026-11-04), como en Servicios. */}
@@ -2547,7 +2547,7 @@ export default function AdminProducts() {
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={{ flexDirection: "row", gap: 10 }}>
                         {existingMedia.map((m) => (
-                          <MediaThumb
+                          <MiniaturaArchivoPanel
                             key={m.id}
                             media={m}
                             isMobile={isMobile}
@@ -2568,7 +2568,7 @@ export default function AdminProducts() {
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={{ flexDirection: "row", gap: 10 }}>
                         {newMedia.map((m) => (
-                          <MediaThumb
+                          <MiniaturaArchivoPanel
                             key={m.id}
                             media={m}
                             isMobile={isMobile}
@@ -2604,8 +2604,8 @@ export default function AdminProducts() {
                     nativeID="producto-estado"
                     label="Estado"
                     value={status}
-                    onChange={(v) => setStatus(v as ProductStatus)}
-                    options={(["DRAFT", "REVIEW", "PUBLISHED"] as ProductStatus[]).map((s) => ({
+                    onChange={(v) => setStatus(v as EstadoProductoPanel)}
+                    options={(["DRAFT", "REVIEW", "PUBLISHED"] as EstadoProductoPanel[]).map((s) => ({
                       value: s,
                       label: textoEstadoPanel(s),
                     }))}
@@ -2617,8 +2617,8 @@ export default function AdminProducts() {
                     nativeID="producto-condicion"
                     label="Condición"
                     value={condition}
-                    onChange={(v) => setCondition(v as ProductCondition)}
-                    options={(["NEW", "LIKE_NEW", "GOOD", "FAIR", "PARTS"] as ProductCondition[]).map(
+                    onChange={(v) => setCondition(v as CondicionProductoPanel)}
+                    options={(["NEW", "LIKE_NEW", "GOOD", "FAIR", "PARTS"] as CondicionProductoPanel[]).map(
                       (c) => ({ value: c, label: textoCondicionProducto(c) })
                     )}
                   />
@@ -2700,7 +2700,7 @@ export default function AdminProducts() {
               </Text>
               </BloqueFormulario>
 
-              {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
+              {!!modalErr && <AvisoPanel tone="danger" text={modalErr} />}
               </ScrollView>
 
               {/* Guardar y, a su derecha, la X para cerrar sin guardar (antes la X iba arriba). */}
@@ -2713,7 +2713,7 @@ export default function AdminProducts() {
                   }}
                 >
                   <View style={{ flex: 1 }}>
-                    <PrimaryButton
+                    <BotonPrincipalPanel
                       label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear producto"}
                       onPress={save}
                       disabled={saving}
@@ -2768,7 +2768,7 @@ export default function AdminProducts() {
             <View style={{ marginTop: 6 }}>
               <PieVentana onCerrar={() => setConfirmDelete(null)}>
                 <View style={{ flex: 1 }}>
-                  <ChipButton label="Sí, borrar" variant="danger" onPress={removeProductConfirmed} isMobile={isMobile} fullWidth />
+                  <BotonChipPanel label="Sí, borrar" variant="danger" onPress={removeProductConfirmed} isMobile={isMobile} fullWidth />
                 </View>
               </PieVentana>
             </View>
@@ -2800,7 +2800,7 @@ function MarkSoldModal({
   isMobile,
   onClose,
 }: {
-  product: ProductRow | null;
+  product: FilaProductoPanel | null;
   isMobile: boolean;
   onClose: () => void;
 }) {
@@ -2910,7 +2910,7 @@ function MarkSoldModal({
           </Text>
 
           {existingSale ? (
-            <AdminNotice
+            <AvisoPanel
               tone="success"
               text={markedName ? `Marcado como vendido a ${markedName}.` : "Este producto ya tiene una venta registrada."}
             />

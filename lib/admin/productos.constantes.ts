@@ -28,45 +28,45 @@
  */
 import { COLORES_TEXTO } from "../../constants/temaTienda";
 
-export const MEDIA_BUCKET = "product-media";
+export const CUBO_ARCHIVOS_PRODUCTO = "product-media";
 
 // Límites funcionales
 // 30: lo mismo que puede mandar VeoAura (api/escaparate-veoaura.ts), para poder editar esos productos en el panel.
-export const MAX_IMAGES = 30;
-export const MAX_VIDEO_SECONDS = 15;
+export const MAX_FOTOS_PRODUCTO = 30;
+export const MAX_SEGUNDOS_VIDEO_PRODUCTO = 15;
 
 // Límite de peso por archivo
-export const MAX_FILE_SIZE_MB = 20;
-export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+export const MAX_TAMANO_ARCHIVO_MB = 20;
+export const MAX_TAMANO_ARCHIVO_BYTES = MAX_TAMANO_ARCHIVO_MB * 1024 * 1024;
 
 // MIME soportados finales
-export const SUPPORTED_IMAGE_MIME = [
+export const TIPOS_FOTO_ADMITIDOS = [
   "image/jpeg",
   "image/png",
   "image/webp",
   "image/avif",
 ] as const;
 
-export const SUPPORTED_VIDEO_MIME = [
+export const TIPOS_VIDEO_ADMITIDOS = [
   "video/mp4",
   "video/webm",
   "video/quicktime",
 ] as const;
 
 // MIME convertibles en cliente
-export const CONVERTIBLE_IMAGE_MIME = [
+export const TIPOS_FOTO_CONVERTIBLES = [
   "image/heic",
   "image/heif",
   "image/heic-sequence",
   "image/heif-sequence",
 ] as const;
 
-export const ERRORS = {
-  FILE_TOO_LARGE: `El archivo supera el máximo de ${MAX_FILE_SIZE_MB} MB.`,
+export const ERRORES_PANEL = {
+  FILE_TOO_LARGE: `El archivo supera el máximo de ${MAX_TAMANO_ARCHIVO_MB} MB.`,
   INVALID_IMAGE_TYPE: "Formato de imagen no compatible.",
   INVALID_VIDEO_TYPE: "Formato de vídeo no compatible.",
-  VIDEO_TOO_LONG: `El vídeo no puede superar ${MAX_VIDEO_SECONDS} segundos.`,
-  MAX_IMAGES: `Máximo ${MAX_IMAGES} imágenes por producto.`,
+  VIDEO_TOO_LONG: `El vídeo no puede superar ${MAX_SEGUNDOS_VIDEO_PRODUCTO} segundos.`,
+  MAX_IMAGES: `Máximo ${MAX_FOTOS_PRODUCTO} imágenes por producto.`,
   MAX_VIDEO: "Solo se permite 1 vídeo por producto.",
   GENERIC_UPLOAD: "No se pudieron subir los archivos.",
 } as const;

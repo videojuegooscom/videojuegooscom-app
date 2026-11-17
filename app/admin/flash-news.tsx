@@ -67,13 +67,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import {
-  AdminHeader,
-  AdminIntro,
-  AdminLoading,
-  AdminNotice,
+  CabeceraPanel,
+  IntroPanel,
+  CargandoPanel,
+  AvisoPanel,
   BotonFlotante,
-  EmptyState,
-  IconButton,
+  EstadoVacioPanel,
+  BotonIconoPanel,
   PieVentana,
 } from "../../lib/admin/productos.componentes";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
@@ -498,10 +498,10 @@ export default function AdminFlashNews() {
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. Lo demás va en un solo
           scroll. */}
-      <AdminHeader title="Noticias Flash · Blue IA" isMobile={isMobile} />
+      <CabeceraPanel title="Noticias Flash · Blue IA" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando noticias…" />
+        <CargandoPanel texto="Cargando noticias…" />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
@@ -516,7 +516,7 @@ export default function AdminFlashNews() {
           keyboardDismissMode={CIERRE_TECLADO}
         >
           <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
-            <AdminIntro text={`Hasta ${MAX_ITEMS} avisos para Blue IA: el asistente flotante los muestra a los clientes y los tiene en cuenta al responder.`} />
+            <IntroPanel text={`Hasta ${MAX_ITEMS} avisos para Blue IA: el asistente flotante los muestra a los clientes y los tiene en cuenta al responder.`} />
 
             {/* 1) Cifras que filtran la lista (otro toque en la misma, todas). «Huecos libres» solo informa. */}
             <FilaCifras nativeID="noticias-cifras">
@@ -566,8 +566,8 @@ export default function AdminFlashNews() {
               </FilaPastillas>
             </View>
 
-            {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
-            {lleno ? <AdminNotice tone="warning" text={`Ya hay ${MAX_ITEMS} noticias, el máximo. Borra una para poder crear otra.`} /> : null}
+            {!!screenErr && <AvisoPanel tone="danger" text={screenErr} />}
+            {lleno ? <AvisoPanel tone="warning" text={`Ya hay ${MAX_ITEMS} noticias, el máximo. Borra una para poder crear otra.`} /> : null}
 
             {/* 3) Cuántas salen, «Abrir todas» y las filas compactas. */}
             <View style={{ gap: 4 }}>
@@ -583,7 +583,7 @@ export default function AdminFlashNews() {
                 items.length && hayFiltro ? (
                   <ListaVacia nativeID="noticias-vacio" icono="flash-outline" titulo="No hay noticias para este filtro." texto="Prueba a borrar el buscador o a elegir «Todas»." />
                 ) : (
-                  <EmptyState icon="flash-outline" title="Todavía no hay noticias." text="Crea la primera con el «+» para que Blue IA la muestre como aviso y la use al responder." />
+                  <EstadoVacioPanel icon="flash-outline" title="Todavía no hay noticias." text="Crea la primera con el «+» para que Blue IA la muestre como aviso y la use al responder." />
                 )
               ) : (
                 <View nativeID="noticias-lista">
@@ -613,8 +613,8 @@ export default function AdminFlashNews() {
                         idSubtitulo={`noticia-datos-${row.id}`}
                         derecha={
                           <BotonesFila>
-                            <IconButton icon="create-outline" label="Editar la noticia" variant="primary" onPress={() => openEdit(row)} />
-                            <IconButton icon="trash-outline" label="Borrar la noticia" variant="danger" onPress={() => askRemove(row)} />
+                            <BotonIconoPanel icon="create-outline" label="Editar la noticia" variant="primary" onPress={() => openEdit(row)} />
+                            <BotonIconoPanel icon="trash-outline" label="Borrar la noticia" variant="danger" onPress={() => askRemove(row)} />
                           </BotonesFila>
                         }
                       >

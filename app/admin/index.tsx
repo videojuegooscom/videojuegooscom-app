@@ -87,7 +87,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { AdminHeader } from "../../lib/admin/productos.componentes";
+import { CabeceraPanel } from "../../lib/admin/productos.componentes";
 import { leerPanelVistos, type SeccionConNovedades } from "../../lib/admin/productos.utilidades";
 import { supabase } from "../../lib/supabase";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
@@ -550,7 +550,7 @@ export default function AdminHome() {
 
         {/* Misma cabecera fija y compacta que el resto del panel; aquí la
             flecha vuelve a la tienda. */}
-        <AdminHeader
+        <CabeceraPanel
           title="Panel de control"
           isMobile={isMobile}
           onBack={() => router.replace("/")}

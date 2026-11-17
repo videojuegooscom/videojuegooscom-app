@@ -62,12 +62,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import {
-  AdminHeader,
-  AdminLoading,
-  AdminNotice,
+  CabeceraPanel,
+  CargandoPanel,
+  AvisoPanel,
   BotonFlotante,
-  EmptyState,
-  IconButton,
+  EstadoVacioPanel,
+  BotonIconoPanel,
   PieVentana,
 } from "../../lib/admin/productos.componentes";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
@@ -440,10 +440,10 @@ export default function AdminBlog() {
 
       {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. Lo demás va en un solo
           scroll. */}
-      <AdminHeader title="Blog" isMobile={isMobile} />
+      <CabeceraPanel title="Blog" isMobile={isMobile} />
 
       {loading ? (
-        <AdminLoading texto="Cargando artículos…" />
+        <CargandoPanel texto="Cargando artículos…" />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
@@ -496,7 +496,7 @@ export default function AdminBlog() {
               </FilaPastillas>
             </View>
 
-            {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
+            {!!screenErr && <AvisoPanel tone="danger" text={screenErr} />}
 
             {/* 3) Cuántos salen, «Abrir todos» y las filas compactas. */}
             <View style={{ gap: 4 }}>
@@ -511,7 +511,7 @@ export default function AdminBlog() {
                 items.length && hayFiltro ? (
                   <ListaVacia nativeID="blog-vacio" icono="newspaper-outline" titulo="No hay artículos para este filtro." texto="Prueba a borrar el buscador o a elegir «Todos»." />
                 ) : (
-                  <EmptyState icon="newspaper-outline" title="Todavía no hay artículos." text="Crea el primero con el «+»: si lo publicas, aparecerá en el Blog de la tienda." />
+                  <EstadoVacioPanel icon="newspaper-outline" title="Todavía no hay artículos." text="Crea el primero con el «+»: si lo publicas, aparecerá en el Blog de la tienda." />
                 )
               ) : (
                 <View nativeID="blog-lista">
@@ -542,8 +542,8 @@ export default function AdminBlog() {
                         }
                         derecha={
                           <BotonesFila>
-                            <IconButton icon="create-outline" label={`Editar ${row.title}`} variant="primary" onPress={() => openEdit(row)} />
-                            <IconButton icon="trash-outline" label={`Borrar ${row.title}`} variant="danger" onPress={() => askRemove(row)} />
+                            <BotonIconoPanel icon="create-outline" label={`Editar ${row.title}`} variant="primary" onPress={() => openEdit(row)} />
+                            <BotonIconoPanel icon="trash-outline" label={`Borrar ${row.title}`} variant="danger" onPress={() => askRemove(row)} />
                           </BotonesFila>
                         }
                       >

@@ -196,3 +196,18 @@ tanda 4 (unificar copias idénticas).
 | `fetchResenas` · `fetchService` | `leerResenasServicio` · `leerServicio` |
 | `FALLBACK_ARTICLES` · `fetchBlogPostsSafe` · `ArticleCard` | `ARTICULOS_DE_RESERVA` · `leerArticulosBlog` · `TarjetaArticulo` |
 | `FALLBACK_POLICIES` · `fetchPolicySafe` | `POLITICAS_DE_RESERVA` · `leerPolitica` |
+
+Tanda 3, zona panel (2026-11-17): 34 piezas, tipos y constantes compartidas del panel (`lib/admin/productos.*`), 377 usos
+en 24 archivos. Las claves de `ERRORES_PANEL` (p. ej. `MAX_IMAGES`) y el nombre del almacén (`product-media`) no cambian.
+`COLORS` se queda igual (cada pantalla tiene el suyo: se verá en la tanda 4).
+
+| Antes | Después |
+|---|---|
+| `AdminHeader` · `AdminIntro` · `AdminLoading` · `AdminNotice` · `EmptyState` | `CabeceraPanel` · `IntroPanel` · `CargandoPanel` · `AvisoPanel` · `EstadoVacioPanel` |
+| `PrimaryButton` · `PRIMARY_BUTTON` · `ChipButton` · `IconButton` · `FilterPill` | `BotonPrincipalPanel` · `BOTON_PRINCIPAL_PANEL` · `BotonChipPanel` · `BotonIconoPanel` · `PastillaFiltroPanel` |
+| `SectionTitle` · `StatCard` · `MediaThumb` | `TituloSeccionPanel` · `TarjetaCifraPanel` · `MiniaturaArchivoPanel` |
+| `CategoryRow` · `ProductRow` · `ProductMediaRow` · `ProductMediaKind` | `FilaCategoriaPanel` · `FilaProductoPanel` · `FilaArchivoProductoPanel` · `TipoArchivoProductoPanel` |
+| `ProductStatus` · `ProductCondition` · `StatusFilter` · `VisibilityFilter` | `EstadoProductoPanel` · `CondicionProductoPanel` · `FiltroEstadoProductos` · `FiltroVisibilidadProductos` |
+| `LocalPickedMedia` · `ProductFormState` · `ProductStats` · `ProductMediaCounts` | `ArchivoElegidoLocal` · `EstadoFormularioProducto` · `CifrasProductosPanel` · `RecuentoArchivosProducto` |
+| `MEDIA_BUCKET` · `MAX_IMAGES` · `MAX_VIDEO_SECONDS` · `MAX_FILE_SIZE_MB` · `MAX_FILE_SIZE_BYTES` | `CUBO_ARCHIVOS_PRODUCTO` · `MAX_FOTOS_PRODUCTO` · `MAX_SEGUNDOS_VIDEO_PRODUCTO` · `MAX_TAMANO_ARCHIVO_MB` · `MAX_TAMANO_ARCHIVO_BYTES` |
+| `SUPPORTED_IMAGE_MIME` · `SUPPORTED_VIDEO_MIME` · `CONVERTIBLE_IMAGE_MIME` · `ERRORS` | `TIPOS_FOTO_ADMITIDOS` · `TIPOS_VIDEO_ADMITIDOS` · `TIPOS_FOTO_CONVERTIBLES` · `ERRORES_PANEL` |

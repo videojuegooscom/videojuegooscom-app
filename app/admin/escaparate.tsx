@@ -50,7 +50,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
-import { AdminHeader } from "../../lib/admin/productos.componentes";
+import { CabeceraPanel } from "../../lib/admin/productos.componentes";
 import {
   AccionTexto,
   Bloque,
@@ -383,7 +383,7 @@ export default function AdminEscaparate() {
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
-      <AdminHeader title="Escaparate VeoAura" isMobile={isMobile} />
+      <CabeceraPanel title="Escaparate VeoAura" isMobile={isMobile} />
 
       <ScrollView
         style={{ flex: 1 }}
