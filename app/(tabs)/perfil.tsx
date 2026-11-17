@@ -4415,16 +4415,21 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
 
   if (cargando) return <CargaMarca texto="Cargando tus seguimientos…" />;
   if (!conSesion) return null;
+  const sinPedidos = !pedidos || pedidos.length === 0;
 
   return (
     // Móvil (dueño, 2026-11-10): en cada pedido, primero lo que compraste y su estado, luego pago y factura, y entrega y
-    // número de seguimiento en una línea. «Añadir un número de seguimiento», plegado y AL FINAL (dueño, 2026-11-16).
+    // número de seguimiento en una línea. «Añadir un número de seguimiento», plegado: AL FINAL si hay pedidos y ARRIBA si
+    // aún no hay ninguno (dueño, 2026-11-16).
     <View style={{ gap: 32, alignItems: "center" }}>
       {avisoPago ? (
         <LineaIcono id="seguimiento-pago-vuelta" icono={avisoPago.ok ? "checkmark-circle" : "information-circle-outline"} color={avisoPago.ok ? SEG.ok : SEG.muted}>
           {avisoPago.texto}
         </LineaIcono>
       ) : null}
+      {/* Sin pedidos aún (dueño, 2026-11-16): «¿Tienes un número de seguimiento…?» arriba, como antes, porque ahí no
+          estorba y quien compró en la tienda lo encuentra a la primera; con pedidos va al final. */}
+      {numerosOk && sinPedidos ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
       {/* Reservar con señal (mejora 14): sin reservas, no sale nada. */}
       <MisReservasSenal />
       {pedidos !== null ? (
@@ -4619,8 +4624,8 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
         )}
       </View>
 
-      {/* Al final, debajo de pedidos y reparaciones (también con la pestaña vacía): una línea discreta, plegada. */}
-      {numerosOk ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
+      {/* Con pedidos, al final, debajo de pedidos y reparaciones: una línea discreta, plegada (arriba estorbaba). */}
+      {numerosOk && !sinPedidos ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
 
       <ReviewModal
         visible={!!valorando}

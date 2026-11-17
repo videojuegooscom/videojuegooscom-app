@@ -20564,6 +20564,23 @@ async function seccionCANDIS() {
     });
     ok(enlace.hay && enlace.debajo && enlace.alto >= 44 && enlace.texto === "¿Tienes un número de seguimiento de un pedido o una reparación? Añádelo aquí", `CANDIS1: «¿Tienes un número de seguimiento…? Añádelo aquí» al final, de 44 px (${JSON.stringify(enlace)})`);
     ok(!/Te hemos dado/.test(await p.evaluate(() => document.body.innerText)), "CANDIS1: ya no sale «¿Te hemos dado un número de seguimiento?»");
+    // Sin pedidos aún (dueño, 2026-11-16): el enlace vuelve ARRIBA, encima de «Mis pedidos», como antes (y una sola vez).
+    {
+      const s0 = { pedidos: [] };
+      const { ctx: ctx0 } = await cliente(s0);
+      const p0 = await pagina(ctx0, "/perfil?tab=seguimientos");
+      await p0.locator("#seguimiento-anadir-abrir").waitFor({ timeout: 40000 }).catch(() => {});
+      await p0.waitForTimeout(600);
+      const arriba = await p0.evaluate(() => {
+        const a = document.querySelectorAll("#seguimiento-anadir-abrir");
+        const titulo = [...document.querySelectorAll("div")].find((d) => /^Mis pedidos$/.test(d.innerText.trim()) && !d.querySelector("div"));
+        return { cuantos: a.length, encima: !!a[0] && !!titulo && a[0].getBoundingClientRect().bottom <= titulo.getBoundingClientRect().top, alto: Math.round(a[0]?.getBoundingClientRect().height ?? 0) };
+      });
+      ok(arriba.cuantos === 1 && arriba.encima && arriba.alto >= 44, `CANDIS1: sin pedidos, «¿Tienes un número de seguimiento…?» arriba, encima de «Mis pedidos» (${JSON.stringify(arriba)})`);
+      await capturar(p0, "CANDIS1-sin-pedidos-390");
+      ok(p0.errores.length === 0, `CANDIS1: sin pedidos, sin errores de JavaScript (${p0.errores[0] ?? "ninguno"})`);
+      await ctx0.close();
+    }
     // El pedido en curso sigue igual, sin tarjeta.
     ok((await cuantos(p, "#cancelacion-pedido-404")) === 0 && (await cuantos(p, "#pasos-pedido-404")) === 1, "CANDIS1: el pedido en curso, sin tarjeta de cancelado");
     const altos = await Promise.all(["#cancelado-parecidos-401", "#cancelado-parecidos-402", "#cancelado-recomprar-402", "#cancelado-ayuda-402"].map((x) => alto(p, x)));
