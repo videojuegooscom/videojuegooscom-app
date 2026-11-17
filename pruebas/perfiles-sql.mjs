@@ -145,6 +145,9 @@
  *    solo para el administrador; cada cliente lee y crea solo sus alquileres con los importes de la base de datos; uno en
  *    curso por unidad; un artículo de alquiler no se compra como venta; la categoría «Alquílalo ahora» oculta con el alquiler
  *    apagado; sin security definer; se aplica dos veces (con su «prueba de la prueba»).
+ *  - Alquiler de artículos, fase 2 (20261117120000_alquiler_fase2.sql): la categoría de antes de cada unidad; el registro de
+ *    cobros solo para el administrador, con la hora y quién lo apunta de la base de datos, sin cambios ni borrados; recargo
+ *    más descuento como mucho la fianza y el descuento con motivo; se aplica dos veces (con su «prueba de la prueba»).
  *  - Motivo de la cancelación y «Avisarme cuando haya otro» (20261116100000_cancelacion_motivo_aviso.sql): motivo ≤ 200
  *    que pone el administrador (el cliente lo lee y no lo cambia) y hora de la cancelación de la base de datos;
  *    avisos_reposicion solo de pedidos propios cancelados porque el artículo ya no está disponible, de quien la crea, una
@@ -2526,6 +2529,102 @@ try {
     const fuga = await como(cA2, "authenticated", U1, "select user_id from public.alquileres");
     await cA2.end();
     ok(sinGestor.ok && fuga.filas?.length === 1, `(control) con las reglas rotas, se activa sin revisar y un cliente ve los alquileres de otro: la prueba SÍ lo detecta (${sinGestor.mensaje ?? "ok"}, ${fuga.filas?.length})`);
+  }
+
+  // Alquiler de artículos, fase 2 (2026-11-17): 20261117120000_alquiler_fase2.sql sobre la fase 1. Con roles reales: la
+  // categoría de antes de cada unidad; el registro de cobros (alquiler_pagos) solo para el administrador, con la hora y quién
+  // lo apunta puestos por la base de datos y sin que nadie lo cambie ni lo borre; recargo más descuento nunca más que la
+  // fianza y el descuento siempre con su motivo; se aplica dos veces; sin permisos delicados.
+  {
+    const ALQ = readFileSync("supabase/migrations/20261117100000_alquiler_base.sql", "utf8");
+    const F2 = readFileSync("supabase/migrations/20261117120000_alquiler_fase2.sql", "utf8");
+    const PA = "c1c1c1c1-c1c1-4c1c-8c1c-c1c1c1c1c1c2";
+    const ESQUEMA_F2 = `
+      create table public.products (id uuid primary key default gen_random_uuid(), title text not null, price_eur numeric not null default 0,
+        status text not null default 'PUBLISHED', is_active boolean not null default true);
+      alter table public.products enable row level security;
+      create policy products_select_public_or_admin on public.products for select using (((status = 'PUBLISHED') and (is_active = true)) or public.is_admin());
+      create table public.pedido_items (id uuid primary key default gen_random_uuid(), pedido_id uuid, product_id uuid, titulo text not null default 'x',
+        precio_eur numeric not null default 0);
+      create table public.categories (id uuid primary key default gen_random_uuid(), name text not null, slug text not null unique,
+        sort_order integer not null default 0, is_active boolean not null default true);
+      alter table public.categories enable row level security;
+      create policy categories_select_public_or_admin on public.categories for select using ((is_active = true) or public.is_admin());
+      insert into public.categories (name, slug, sort_order) values ('PlayStation 5', 'playstation-5', 4);
+      insert into public.products (id, title, price_eur) values ('${PA}', 'PlayStation 5 Slim', 550);`;
+    const cF = await nuevaBase("vz_aislada_alquiler_fase2", ESQUEMA_F2);
+    let repetida = true;
+    try {
+      for (const m of [ALQ, F2, F2]) await cF.query(m);
+    } catch (e) {
+      repetida = false;
+      console.log(String(e.message));
+    }
+    ok(repetida, "Alquiler fase 2: la migración se aplica (sobre la fase 1) dos veces sin error");
+    const n = async (sql) => Number((await cF.query(sql)).rows[0].n);
+    ok((await n("select count(*) as n from information_schema.columns where table_name = 'alquiler_unidades' and column_name = 'categoria_anterior_id'")) === 1, "Alquiler fase 2: alquiler_unidades.categoria_anterior_id existe");
+    ok((await n("select count(*) as n from pg_policies where tablename = 'alquiler_pagos'")) === 2 && (await n("select count(*) as n from pg_class where relname = 'alquiler_pagos' and relrowsecurity")) === 1, "Alquiler fase 2: el registro de cobros con RLS y sus 2 reglas (leer y apuntar), sin duplicar");
+    ok((await n("select count(*) as n from pg_trigger where tgname = 'alquiler_pagos_validar'")) === 1 && (await n("select count(*) as n from pg_proc where proname = 'alquiler_pagos_validar' and prosecdef")) === 0, "Alquiler fase 2: su disparador, uno y sin security definer");
+    ok((await n("select count(*) as n from pg_constraint where conname in ('alquileres_fianza_suma_check', 'alquileres_descuento_motivo_check')")) === 2, "Alquiler fase 2: las dos comprobaciones de la fianza, sin duplicar");
+
+    // La categoría de antes: si se borra la categoría, queda vacía.
+    const catId = (await cF.query("select id from public.categories where slug = 'playstation-5'")).rows[0].id;
+    const uni = await como(cF, "authenticated", ADMIN, `insert into public.alquiler_unidades (product_id, coste_eur, categoria_anterior_id) values ('${PA}', 310, '${catId}') returning categoria_anterior_id`, { confirmar: true });
+    ok(uni.ok && uni.filas[0].categoria_anterior_id === catId, `Alquiler fase 2: el administrador guarda la categoría de antes de la unidad (${uni.mensaje ?? "ok"})`);
+
+    // Un alquiler para apuntar cobros (lo crea el servidor, como hará la fase 3).
+    await cF.query(`update public.products set modo = 'alquiler' where id = '${PA}'`);
+    const AL = (await cF.query(`insert into public.alquileres (user_id, product_id, plan_meses, precio_venta_eur, precio_plan_eur, fianza_eur, fianza_modo, contrato_texto, estado, fianza_estado)
+      values ('${U1}', '${PA}', 3, 550, 139, 150, 'entrega', 'Contrato aceptado.', 'activo', 'cobrada') returning id`)).rows[0].id;
+
+    // Registro de cobros: el administrador apunta y lee; la hora y quién lo apunta, de la base de datos.
+    const apunta = await como(cF, "authenticated", ADMIN, `insert into public.alquiler_pagos (alquiler_id, concepto, meses, importe_eur, modo, referencia, creado_en, creado_por)
+      values ('${AL}', 'alquiler', 3, 139, 'bizum', '  ', '2020-01-01', '${U2}') returning creado_en, creado_por, referencia`, { confirmar: true });
+    const f = apunta.filas?.[0] ?? {};
+    ok(apunta.ok && f.creado_por === ADMIN && new Date(f.creado_en).getFullYear() >= 2026 && f.referencia === null, `Alquiler fase 2: el administrador apunta un cobro; la hora y quién lo apunta los pone la base de datos (${JSON.stringify(f)})`);
+    const malos = [];
+    for (const v of ["'regalo', null, 10, 'bizum'", "'alquiler', null, 0, 'bizum'", "'alquiler', null, 10, 'paypal'", "'renovacion', 13, 10, 'efectivo'"]) {
+      malos.push((await como(cF, "authenticated", ADMIN, `insert into public.alquiler_pagos (alquiler_id, concepto, meses, importe_eur, modo) values ('${AL}', ${v})`)).codigo);
+    }
+    ok(malos.every((c) => c === "23514"), `Alquiler fase 2: concepto, importe, modo y meses fuera de lo permitido no entran (${malos.join(", ")})`);
+    const verU1 = await como(cF, "authenticated", U1, "select * from public.alquiler_pagos");
+    const verAnon = await como(cF, "anon", null, "select * from public.alquiler_pagos");
+    const apuntaU1 = await como(cF, "authenticated", U1, `insert into public.alquiler_pagos (alquiler_id, concepto, importe_eur, modo) values ('${AL}', 'alquiler', 1, 'bizum')`);
+    const verAdmin = await como(cF, "authenticated", ADMIN, "select * from public.alquiler_pagos");
+    ok(verU1.ok && verU1.filas.length === 0 && (!verAnon.ok || verAnon.filas.length === 0) && !apuntaU1.ok && verAdmin.filas?.length === 1, "Alquiler fase 2: un cliente o un visitante no leen ni apuntan cobros; el administrador los ve");
+    const cambia = await como(cF, "authenticated", ADMIN, "update public.alquiler_pagos set importe_eur = 1", { confirmar: true });
+    const borra = await como(cF, "authenticated", ADMIN, "delete from public.alquiler_pagos", { confirmar: true });
+    ok(cambia.cuantas === 0 && borra.cuantas === 0 && (await n("select count(*) as n from public.alquiler_pagos where importe_eur = 139")) === 1, "Alquiler fase 2: nadie cambia ni borra un cobro apuntado");
+
+    // Fianza: recargo + descuento como mucho la fianza; el descuento, con su motivo.
+    const suma = await como(cF, "authenticated", ADMIN, `update public.alquileres set recargo_eur = 100, fianza_descuento_eur = 60, fianza_descuento_motivo = 'Falta el cable.' where id = '${AL}'`);
+    ok(!suma.ok && suma.codigo === "23514", `Alquiler fase 2: recargo (100 €) más descuento (60 €) no pasan de la fianza (150 €) (${suma.codigo ?? "entró"})`);
+    const sinMotivo = await como(cF, "authenticated", ADMIN, `update public.alquileres set fianza_descuento_eur = 20, fianza_descuento_motivo = '  ' where id = '${AL}'`);
+    ok(!sinMotivo.ok && sinMotivo.codigo === "23514", `Alquiler fase 2: un descuento sin motivo no entra (${sinMotivo.codigo ?? "entró"})`);
+    const bien = await como(cF, "authenticated", ADMIN, `update public.alquileres set recargo_eur = 12, fianza_descuento_eur = 20, fianza_descuento_motivo = 'Falta el cable HDMI original.', fianza_estado = 'descontada' where id = '${AL}' returning fianza_estado`, { confirmar: true });
+    ok(bien.ok && bien.filas[0].fianza_estado === "descontada", `Alquiler fase 2: 12 € de recargo y 20 € de descuento con su motivo, sí (${bien.mensaje ?? "ok"})`);
+    // Las acciones del panel: cambio de unidad (la unidad pasa a ser la nueva), recogida y venta tras el alquiler.
+    const acciones = await como(cF, "authenticated", ADMIN, `update public.alquileres set estado = 'revision', devuelto_en = now(), compra_eur = 461, comprado_en = now() where id = '${AL}' returning estado`, { confirmar: true });
+    ok(acciones.ok && acciones.filas[0].estado === "revision", `Alquiler fase 2: el administrador puede apuntar la recogida y la compra (el disparador no lo bloquea) (${acciones.mensaje ?? "ok"})`);
+    const textoF2 = F2.replace(/^--.*$/gm, "").toLowerCase();
+    ok(!/\b(drop\s|delete\s+from|truncate|grant\b|revoke\b|security\s+definer|to\s+(anon|public)\b|using\s*\(\s*true\s*\)|auth\.(users|identities|sessions|refresh_tokens))/.test(textoF2) && !F2.includes("\\"), "Alquiler fase 2: la migración no borra, no toca permisos delicados ni lleva barras invertidas (nada que bloquee el guardián)");
+    await cF.end();
+
+    // PRUEBA DE LAS PRUEBAS: con la lectura del registro abierta, un cliente vería los cobros; sin la comprobación de la suma,
+    // recargo y descuento pasarían de la fianza.
+    const rotaF2 = F2.replace("for select to authenticated using ((select public.is_admin()));", "for select to authenticated using (auth.uid() is not null);")
+      .replace("check (fianza_descuento_eur + recargo_eur <= fianza_eur);", "check (fianza_descuento_eur + recargo_eur >= 0);");
+    ok(rotaF2 !== F2, "(control) se han podido romper las reglas de la fase 2 en la copia de prueba");
+    const cF2 = await nuevaBase("vz_aislada_alquiler_fase2_rota", ESQUEMA_F2);
+    await cF2.query(ALQ);
+    await cF2.query(rotaF2);
+    await cF2.query(`update public.products set modo = 'alquiler' where id = '${PA}'`);
+    const AL2 = (await cF2.query(`insert into public.alquileres (user_id, product_id, plan_meses, precio_venta_eur, precio_plan_eur, fianza_eur, fianza_modo, contrato_texto) values ('${U1}', '${PA}', 1, 550, 54.9, 150, 'entrega', 'x') returning id`)).rows[0].id;
+    await cF2.query(`insert into public.alquiler_pagos (alquiler_id, concepto, importe_eur, modo) values ('${AL2}', 'alquiler', 54.9, 'efectivo')`);
+    const fugaPagos = await como(cF2, "authenticated", U1, "select * from public.alquiler_pagos");
+    const pasa = await como(cF2, "authenticated", ADMIN, `update public.alquileres set recargo_eur = 100, fianza_descuento_eur = 60, fianza_descuento_motivo = 'Falta el cable.' where id = '${AL2}'`, { confirmar: true });
+    await cF2.end();
+    ok(fugaPagos.filas?.length === 1 && pasa.ok, `(control) con las reglas rotas, un cliente ve los cobros y el recargo más el descuento pasan de la fianza: la prueba SÍ lo detecta (${fugaPagos.filas?.length}, ${pasa.mensaje ?? "ok"})`);
   }
 
   // Opciones de los servicios (20261108230000_servicios_opciones.sql): el administrador escribe las opciones (Básica,

@@ -82,6 +82,9 @@ export type ProductRow = {
   // Reservado con señal hasta esta fecha (products.reservado_hasta, migración 20261115150000; lo pone api/pago.ts al
   // cobrar la señal). undefined = sin reserva vigente o sin la columna.
   reservado_hasta?: string;
+  // Unidad de alquiler (products.modo = 'alquiler', migración 20261117100000; fase 2 del alquiler): se gestiona en
+  // Administración → Alquileres. undefined = de venta o sin la columna.
+  alquiler?: boolean;
   media: ProductMediaRow[];
 };
 
