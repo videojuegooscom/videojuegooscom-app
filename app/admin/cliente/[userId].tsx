@@ -2,7 +2,7 @@
  * Archivo: app/admin/cliente/[userId].tsx
  * Función: ficha de un cliente en el panel, en la dirección /admin/cliente/<userId>.
  * Para qué sirve: el administrador ve en un solo sitio lo que la tienda sabe de esa persona (perfil, compras, ventas que intentó, servicios, dispositivos, pedidos) y sus notas internas.
- * Conectado con: lib/supabase.ts (tablas product_sales, sell_requests, service_requests, perfiles_cliente, cliente_dispositivos y notas), lib/envio.ts, lib/abrirEnlaceExterno.ts, lib/admin/productos.componentes.tsx y productos.utilidades.ts, components/VentanaValoracion.tsx, PerfilPublico.tsx, ConversacionProducto.tsx, ImagenInteligente.tsx, marca/CargaMarca.tsx.
+ * Conectado con: lib/supabase.ts (tablas product_sales, sell_requests, service_requests, perfiles_cliente, cliente_dispositivos, notas y, desde 2026-11-18, blue_ia_conversaciones y blue_ia_mensajes para «Conversaciones con Blue IA»), lib/envio.ts, lib/abrirEnlaceExterno.ts, lib/admin/productos.componentes.tsx y productos.utilidades.ts, components/VentanaValoracion.tsx, PerfilPublico.tsx, ConversacionProducto.tsx, ImagenInteligente.tsx, marca/CargaMarca.tsx.
  * Utilizado por: Expo Router (dirección /admin/cliente/<userId>, protegida por app/admin/_layout.tsx); la abre cada fila de app/admin/users.tsx.
  * Dependencias: react, react-native.
  * Estado: ACTIVO
@@ -32,7 +32,8 @@
  * - Pestañas deslizables (#ficha-pestanas): Resumen · Pedidos · Reparaciones · Ventas · Actividad · Notas, con su número;
  *   la elegida queda en la URL (?tab=pedidos) para volver a ella, y deslizando el dedo se pasa a la siguiente (en bucle).
  *   - Resumen: la nota interna fijada (fondo amarillo suave), los 3 últimos movimientos, los datos del perfil (edad sin
- *     fecha de nacimiento, dirección de envío) y los dispositivos.
+ *     fecha de nacimiento, dirección de envío), los dispositivos y «Conversaciones con Blue IA» (#ficha-blue-ia, dueño
+ *     2026-11-18: si ha hablado con Blue IA, cuándo y qué; cada conversación se despliega al tocarla; BlueIACliente).
  *   - Pedidos: filas compactas (miniatura del artículo si la hay, referencia VZ-, importe, etapa con color, factura y «Ver
  *     factura»); al tocar uno se despliega (nº interno, artículos, entrega, pago con tarjeta y los botones de etapa de 44 px
  *     separados 8 px) y se vuelve a plegar. Debajo, «Pagos e intentos de compra» y «Compras a la tienda».
@@ -1442,6 +1443,8 @@ export default function ClienteFicha() {
                           )}
                         </Seccion>
                       ) : null}
+
+                      <BlueIACliente userId={userId} />
                     </>
                   ) : null}
 
@@ -1858,6 +1861,158 @@ function ForoCliente({
         </View>
       ) : (
         <EmptyRow text="Sin nada en el registro de moderación." />
+      )}
+    </Seccion>
+  );
+}
+
+// --- Conversaciones con Blue IA (dueño, 2026-11-18) -------------------------------------------------------------------
+// «Saber si ya ha mantenido conversación con Blue y qué ha hablado». Lee blue_ia_conversaciones y blue_ia_mensajes de este
+// cliente (solo se guardan con la sesión iniciada; la política de privacidad lo dice). El administrador solo puede leerlas
+// con la migración 20261118160000_blue_ia_historial_admin.sql; sin ella, la base de datos no devuelve nada y la sección lo
+// explica sin inventar. Cada conversación se despliega al tocarla y enseña los mensajes en orden (el cliente y Blue).
+
+type ConversacionBlue = { id: string; titulo: string | null; contexto: string | null; created_at: string; updated_at: string; archivada: boolean | null };
+type MensajeBlue = { id: string; conversacion_id: string; created_at: string; rol: string; texto: string };
+
+function BlueIACliente({ userId }: { userId: string }) {
+  const [conversaciones, setConversaciones] = useState<ConversacionBlue[] | null>(null);
+  const [error, setError] = useState(false);
+  const [abierta, setAbierta] = useState<string | null>(null);
+  const [mensajes, setMensajes] = useState<Record<string, MensajeBlue[] | "cargando" | "error">>({});
+  const [verTodas, setVerTodas] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    setConversaciones(null);
+    setError(false);
+    supabase
+      .from("blue_ia_conversaciones")
+      .select("id,titulo,contexto,created_at,updated_at,archivada")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(50)
+      .then(
+        ({ data, error: e }) => {
+          if (!vivo) return;
+          if (e) setError(true);
+          else setConversaciones((data ?? []) as ConversacionBlue[]);
+        },
+        () => vivo && setError(true)
+      );
+    return () => {
+      vivo = false;
+    };
+  }, [userId]);
+
+  async function abrir(id: string) {
+    if (abierta === id) {
+      setAbierta(null);
+      return;
+    }
+    setAbierta(id);
+    if (Array.isArray(mensajes[id])) return;
+    setMensajes((m) => ({ ...m, [id]: "cargando" }));
+    const { data, error: e } = await supabase
+      .from("blue_ia_mensajes")
+      .select("id,conversacion_id,created_at,rol,texto")
+      .eq("conversacion_id", id)
+      .order("created_at", { ascending: true })
+      .limit(200);
+    setMensajes((m) => ({ ...m, [id]: e ? "error" : ((data ?? []) as MensajeBlue[]) }));
+  }
+
+  const lista = conversaciones ?? [];
+  const visibles = verTodas ? lista : lista.slice(0, 5);
+  const titulo = (c: ConversacionBlue) => (c.titulo?.trim() ? c.titulo.trim() : "Conversación sin título");
+
+  return (
+    <Seccion nativeID="ficha-blue-ia" icon="sparkles-outline" title="Conversaciones con Blue IA" count={conversaciones ? lista.length : undefined}>
+      {error ? (
+        <EmptyRow text="No se han podido cargar las conversaciones con Blue IA." />
+      ) : conversaciones === null ? (
+        <EmptyRow text="Cargando…" />
+      ) : lista.length === 0 ? (
+        <EmptyRow text="No hay conversaciones guardadas con Blue IA. Solo se guardan las que tiene con la sesión iniciada." />
+      ) : (
+        <View>
+          <Text nativeID="ficha-blue-ia-resumen" style={{ color: COLORS.muted, fontSize: 13, fontWeight: "700", paddingBottom: 4 }}>
+            Ha hablado con Blue IA · última vez {haceCuanto(lista[0].updated_at)}
+          </Text>
+          {visibles.map((c, i) => {
+            const msgs = mensajes[c.id];
+            const desplegada = abierta === c.id;
+            return (
+              <View key={c.id} style={{ borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border }}>
+                <Pressable
+                  nativeID={`ficha-blue-ia-${c.id}`}
+                  onPress={() => abrir(c.id)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: desplegada }}
+                  accessibilityLabel={`${titulo(c)}, ${fmtFechaHora(c.updated_at)}. ${desplegada ? "Plegar" : "Ver la conversación"}`}
+                  style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, opacity: pressed ? 0.7 : 1 })}
+                >
+                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15 }}>
+                      {titulo(c)}
+                    </Text>
+                    <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18 }}>
+                      {fmtFechaHora(c.updated_at)}
+                      {c.archivada ? " · Archivada por el cliente" : ""}
+                    </Text>
+                  </View>
+                  <Ionicons name={desplegada ? "chevron-up" : "chevron-down"} size={20} color={COLORS.muted} />
+                </Pressable>
+                {desplegada ? (
+                  <View nativeID={`ficha-blue-ia-mensajes-${c.id}`} style={{ gap: 8, paddingBottom: 12 }}>
+                    {msgs === "cargando" || msgs === undefined ? (
+                      <EmptyRow text="Cargando la conversación…" />
+                    ) : msgs === "error" ? (
+                      <EmptyRow text="No se ha podido cargar la conversación." />
+                    ) : msgs.length === 0 ? (
+                      <EmptyRow text="Esta conversación no tiene mensajes guardados." />
+                    ) : (
+                      msgs.map((m) => {
+                        const esCliente = m.rol === "user";
+                        return (
+                          <View
+                            key={m.id}
+                            style={{
+                              alignSelf: esCliente ? "flex-end" : "flex-start",
+                              maxWidth: "88%",
+                              // Cliente en azul muy suave y Blue en gris claro: texto oscuro siempre (se lee bien).
+                              backgroundColor: esCliente ? "#E3F3FC" : COLORS.card,
+                              borderWidth: 1,
+                              borderColor: esCliente ? "#BFE4F7" : COLORS.border,
+                              borderRadius: 14,
+                              paddingHorizontal: 12,
+                              paddingVertical: 8,
+                              gap: 2,
+                            }}
+                          >
+                            <Text style={{ color: COLORS.muted, fontSize: 13, fontWeight: "800" }}>
+                              {esCliente ? "Cliente" : "Blue IA"} · {fmtHora(m.created_at)}
+                            </Text>
+                            <Text selectable style={{ color: COLORS.text, fontSize: 15, lineHeight: 21 }}>
+                              {m.texto}
+                            </Text>
+                          </View>
+                        );
+                      })
+                    )}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+          {lista.length > 5 ? (
+            <BotonTexto
+              icon={verTodas ? "chevron-up" : "chevron-down"}
+              texto={verTodas ? "Ver menos" : `Ver todas (${lista.length})`}
+              onPress={() => setVerTodas((v) => !v)}
+            />
+          ) : null}
+        </View>
       )}
     </Seccion>
   );

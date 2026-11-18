@@ -12151,6 +12151,83 @@ async function seccionFC() {
   }
 }
 
+// ===== FBIA) Ficha del cliente → «Conversaciones con Blue IA» (dueño, 2026-11-18): si ha hablado con Blue IA y qué. En el
+// Resumen, cada conversación con su título y fecha; al tocarla se despliegan los mensajes en orden (cliente y Blue IA) y se
+// vuelve a plegar. Sin conversaciones, lo dice sin inventar. Solo pide las de ESTE cliente. A 390, 360 y 1280 px.
+async function seccionFBIA() {
+  const hace = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  const ruta = `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}&createdAt=2026-09-15T10%3A00%3A00Z`;
+  const C1 = "c0000000-0000-4000-8000-0000000b1a01";
+  const C2 = "c0000000-0000-4000-8000-0000000b1a02";
+  const base = (conversaciones, mensajes) => ({
+    guardados: [],
+    tarifas: [],
+    filas: [{ user_id: CLIENTE.id, nombre: "Dani García", usuario: "dani", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "2000-05-02", foto_url: null, updated_at: "2026-11-01T10:00:00Z" }],
+    pedidosFicha: [],
+    dispositivos: { filas: [] },
+    tablas: { products: [], customer_notes: [], sell_requests: [], product_sales: [] },
+    fch: { chats: [], mensajes: [] },
+    blueHistorial: { conversaciones, mensajes },
+  });
+  const conversaciones = [
+    { id: C1, titulo: "¿Hacéis limpieza de PS5?", contexto: null, created_at: hace(90), updated_at: hace(60), archivada: false },
+    { id: C2, titulo: "Estado de mi pedido", contexto: null, created_at: hace(3000), updated_at: hace(2900), archivada: true },
+  ];
+  const mensajes = [
+    { id: "b1", conversacion_id: C1, user_id: CLIENTE.id, created_at: hace(90), rol: "user", texto: "¿Hacéis limpieza de PS5?" },
+    { id: "b2", conversacion_id: C1, user_id: CLIENTE.id, created_at: hace(89), rol: "assistant", texto: "Sí, hacemos mantenimiento y limpieza de PS5. Te cuento cómo pedirlo." },
+    { id: "b3", conversacion_id: C2, user_id: CLIENTE.id, created_at: hace(2900), rol: "user", texto: "¿Dónde está mi pedido?" },
+  ];
+  const vistas = [
+    ["390", {}],
+    ["360", { viewport: { width: 360, height: 780 } }],
+    ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ];
+  for (const [nombre, vista] of vistas) {
+    const estado = base(conversaciones, mensajes);
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const pedidas = [];
+    ctx.on("request", (q) => {
+      if (/\/rest\/v1\/blue_ia_(conversaciones|mensajes)/.test(q.url())) pedidas.push(decodeURIComponent(q.url()));
+    });
+    const f = await pagina(ctx, ruta);
+    await f.locator("#ficha-blue-ia").waitFor({ timeout: 40000 }).catch(() => {});
+    await f.locator("#ficha-blue-ia-resumen").waitFor({ timeout: 15000 }).catch(() => {});
+    const texto = (await f.locator("#ficha-blue-ia").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/Conversaciones con Blue IA 2/.test(texto) && /Ha hablado con Blue IA · última vez hace/.test(texto), `FBIA (${nombre}): el Resumen dice que ha hablado con Blue IA, cuántas veces y cuándo (${texto.slice(0, 120)})`);
+    ok(texto.indexOf("¿Hacéis limpieza de PS5?") < texto.indexOf("Estado de mi pedido") && /Archivada por el cliente/.test(texto), `FBIA (${nombre}): cada conversación con su título, la más reciente primero, y si la archivó`);
+    ok(pedidas.some((u) => /blue_ia_conversaciones/.test(u) && u.includes(`user_id=eq.${CLIENTE.id}`)), `FBIA (${nombre}): solo pide las conversaciones de este cliente`);
+    ok((await f.locator(`#ficha-blue-ia-mensajes-${C1}`).count()) === 0, `FBIA (${nombre}): plegadas al entrar (no se descargan los mensajes hasta tocar)`);
+    await f.locator(`#ficha-blue-ia-${C1}`).click();
+    await f.locator(`#ficha-blue-ia-mensajes-${C1}`).waitFor({ timeout: 15000 }).catch(() => {});
+    await f.locator(`#ficha-blue-ia-mensajes-${C1}`).getByText("Sí, hacemos mantenimiento", { exact: false }).first().waitFor({ timeout: 15000 }).catch(() => {});
+    const conv = (await f.locator(`#ficha-blue-ia-mensajes-${C1}`).innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/Cliente · .*¿Hacéis limpieza de PS5\?.*Blue IA · .*Sí, hacemos mantenimiento/.test(conv) && !conv.includes("¿Dónde está mi pedido?"), `FBIA (${nombre}): al tocarla se ven sus mensajes en orden, quién dice cada uno y la hora (${conv.slice(0, 140)})`);
+    const medidas = await f.evaluate((id) => {
+      const caja = document.getElementById(id)?.getBoundingClientRect();
+      const tocar = document.getElementById(id.replace("-mensajes", ""))?.getBoundingClientRect();
+      return { dentro: !!caja && caja.right <= window.innerWidth + 1 && caja.left >= -1, alto: tocar?.height ?? 0, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), pantalla: window.innerWidth };
+    }, `ficha-blue-ia-mensajes-${C1}`);
+    ok(medidas.dentro && medidas.alto >= 44 && medidas.ancho <= medidas.pantalla + 1, `FBIA (${nombre}): la conversación cabe, la fila se toca bien (44 px) y la página no se ensancha (${JSON.stringify(medidas)})`);
+    await capturar(f, `FBIA-${nombre}-abierta`);
+    await f.locator(`#ficha-blue-ia-${C1}`).click();
+    await f.waitForTimeout(300);
+    ok((await f.locator(`#ficha-blue-ia-mensajes-${C1}`).count()) === 0, `FBIA (${nombre}): al volver a tocarla se pliega`);
+    ok(f.errores.length === 0, `FBIA (${nombre}): sin errores de JavaScript (${f.errores.length}${f.errores[0] ? ": " + f.errores[0] : ""})`);
+    await ctx.close();
+  }
+  // Sin conversaciones: lo dice, sin inventar.
+  {
+    const ctx = await contexto(navegador, ADMIN, "admin", base([], []));
+    const f = await pagina(ctx, ruta);
+    await f.locator("#ficha-blue-ia").waitFor({ timeout: 40000 }).catch(() => {});
+    await f.waitForTimeout(800);
+    const texto = (await f.locator("#ficha-blue-ia").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/No hay conversaciones guardadas con Blue IA/.test(texto) && !/Ha hablado/.test(texto), `FBIA: sin conversaciones lo dice claro (${texto})`);
+    await ctx.close();
+  }
+}
+
 // ===== FCH) Ficha del cliente, acciones del chat y de Pedidos (dueño, 2026-11-13, mejora 2): «Escribir por el chat» ya no
 // sale en gris sin conversación (el administrador la EMPIEZA con el user_id del cliente y lleva al hilo; con conversación
 // previa abre esa), la ficha y Chat dicen quién la empezó, y «Ver en Pedidos» abre Pedidos con el buscador relleno con el
@@ -23898,6 +23975,7 @@ try {
   if (SOLO === "TM2") await seccionTM2();
   if (SOLO === "FC") await seccionFC();
   if (SOLO === "FCH") await seccionFCH();
+  if (SOLO === "FBIA") await seccionFBIA();
   if (SOLO === "AC") await seccionAC();
   if (SOLO === "N") await seccionN();
   if (SOLO === "P") await seccionP();
@@ -24966,6 +25044,7 @@ try {
   await seccionAC();
   await seccionFC();
   await seccionFCH();
+  await seccionFBIA();
   await seccionTM();
   await seccionUP();
   await seccionTM2();
