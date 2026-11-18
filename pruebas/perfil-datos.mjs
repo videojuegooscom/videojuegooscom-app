@@ -17520,9 +17520,9 @@ async function seccionCHATP() {
     await p.locator("#chats-filtro-producto").click();
     await p.waitForTimeout(400);
     ok((await p.locator("#chats-grupo-atencion").count()) === 0 && (await p.locator('[id^="chats-producto-d2000000"]').count()) === 3, `CHATP (${nombre}): el filtro «Con producto» deja solo las 3 con producto`);
-    // (desde PANRED3, cuatro pastillas: Todas, Con producto, Atención y Ventas)
+    // (desde PANRED3, cuatro pastillas: Todas, Con producto, Atención y Ventas; desde el 2026-11-18, cinco con «Sin leer»)
     const chipsFiltro = await p.evaluate(() => [...document.querySelectorAll('#chats-filtro [role="button"]')].map((b) => Math.round(b.getBoundingClientRect().height)));
-    ok(chipsFiltro.length === 4 && chipsFiltro.every((h) => h >= 44), `CHATP (${nombre}): los filtros miden 44 px (${chipsFiltro.join(", ")})`);
+    ok(chipsFiltro.length === 5 && chipsFiltro.every((h) => h >= 44), `CHATP (${nombre}): los filtros miden 44 px (${chipsFiltro.join(", ")})`);
     let d = await sinDesborde(p);
     ok(d.a <= d.v + 1, `CHATP (${nombre}): la lista no se ensancha (${d.a}/${d.v})`);
     await capturar(p, `CHATP5-admin-con-producto-${nombre}`);
