@@ -2576,6 +2576,27 @@ async function seccionS() {
   await capturar(p, "S2-panel-ancho");
   ok(p.errores.length === 0, `S: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
   await ctx.close();
+
+  // Otro dispositivo (dueño, 2026-11-18): el móvil no tiene nada guardado, pero la cuenta sabe que Pedidos y Servicios
+  // ya se vieron hace 30 min; no salen como nuevos. Al entrar en una sección se guarda también en la cuenta.
+  const otro = {
+    ...estado,
+    guardados: [],
+    novedades: { ...estado.novedades, pedidos: [hace(H), hace(2 * D)], service_requests: [hace(3 * H)], fallan: [], chatsSinLeer: 0 },
+    preferencias: { user_id: ADMIN.id, panel_vistos: { pedidos: hace(30 * 60000), services: hace(30 * 60000), roto: "x" } },
+  };
+  const ctx2 = await contexto(navegador, ADMIN, "admin", otro);
+  const p2 = await pagina(ctx2, "/admin");
+  await p2.locator("#novedades-users").waitFor({ timeout: 30000 }).catch(() => {});
+  await p2.waitForTimeout(800);
+  const numero2 = async (s) => ((await p2.locator(`#novedades-${s}:visible`).count()) ? (await p2.locator(`#novedades-${s}:visible`).first().innerText()).trim() : "");
+  ok((await numero2("pedidos")) === "" && (await numero2("services")) === "" && (await numero2("users")) === "4", `S: en otro dispositivo, lo ya visto en la cuenta no sale como nuevo (${await numero2("pedidos")}/${await numero2("services")}/${await numero2("users")})`);
+  await p2.goto(`${BASE}/admin/users`, { waitUntil: "load" });
+  await p2.waitForTimeout(1500);
+  const guardadoCuenta = (otro.preferenciasGuardadas ?? []).map((g) => g.panel_vistos).filter(Boolean).pop() ?? {};
+  ok(!!guardadoCuenta.users && Math.abs(Date.parse(guardadoCuenta.users) - Date.now()) < 120000 && guardadoCuenta.pedidos === otro.preferencias.panel_vistos.pedidos && !("roto" in guardadoCuenta), `S: al entrar en Usuarios se guarda en la cuenta, sin perder lo anterior (${JSON.stringify(guardadoCuenta)})`);
+  ok(p2.errores.length === 0, `S: otro dispositivo sin errores de JavaScript (${p2.errores.length}${p2.errores[0] ? ": " + p2.errores[0] : ""})`);
+  await ctx2.close();
 }
 
 // ===== T) TikTok e Instagram junto al logo de Inicio, con sus seguidores, y su parte en Administración =================
