@@ -109,6 +109,11 @@ components/admin/servicios/CobroReparaciones.tsx | Cobro y envío de una reparac
 components/ficha/DatosFicha.tsx | Datos de la ficha de producto (tipos, lectura del producto y sus fotos, cesta y «me gusta») | lib/supabase, async-storage | producto/[id], ficha/* | ACTIVO
 components/ficha/FichaProducto.tsx | Bloque «Características · Mantenimiento · Descripción» de una ficha | ficha/DatosFicha, constants/temaTienda | producto/[id], servicio/[id] | ACTIVO
 components/ficha/ExtrasFicha.tsx | Preguntar por el artículo, aviso de bajada de precio, insignias de confianza y entrega estimada | lib/supabase, interaccion, envio, analiticaPropia, ConversacionProducto, ficha/DatosFicha | producto/[id] | ACTIVO
+components/blue/DatosBlue.tsx | Datos de Blue: colores, claves del dispositivo, avisos de seguimiento, consejos y «Avísame cuando llegue» | lib/supabase, async-storage | AsistenteBlue, blue/* | ACTIVO
+components/blue/AyudasBlue.tsx | Ayudas de Blue: reposición, tiempos, propuestas, posición en pantalla y mensajes | blue/DatosBlue, lib/supabase, BarraBusqueda, analiticaPropia | AsistenteBlue, blue/* | ACTIVO
+components/blue/PiezasBlue.tsx | Piezas que se ven de Blue: tarjeta de consejo, botones, iconos, filas y avisos del panel | blue/DatosBlue, blue/AyudasBlue | AsistenteBlue, blue/* | ACTIVO
+components/blue/PasosGuia.tsx | Pasos y piezas de la guía de Blue (sombra, mano, secciones, ejemplos del buscador, foro) | blue/DatosBlue, blue/AyudasBlue, blue/PiezasBlue | blue/GuiaBlue, AsistenteBlue | ACTIVO
+components/blue/GuiaBlue.tsx | La guía de Blue «Te enseño la tienda», paso a paso | blue/PasosGuia, blue/PiezasBlue, blue/AyudasBlue, blue/DatosBlue, analiticaPropia | AsistenteBlue | ACTIVO
 components/foro/PiezasForo.tsx | Piezas comunes del Foro (colores, moderación, normas, claves, avatar, preferencias) | lib/supabase, analiticaPropia, ImagenInteligente, constants/temaTienda | app/(tabs)/chat-global, foro/NoticiasForo | ACTIVO
 components/foro/NoticiasForo.tsx | Pestaña «Noticias Gaming» del Foro (lista, carrusel, comentarios, compartir, campana) | lib/supabase, estadoCarga, foro/PiezasForo, PerfilPublico, marca/*; api/noticias-gaming | app/(tabs)/chat-global | ACTIVO
 components/marca/CargaMarca.tsx | Indicador «cargando» con la mascota | MarcaAnimada | casi todas las pantallas | ACTIVO
