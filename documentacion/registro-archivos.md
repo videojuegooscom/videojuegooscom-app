@@ -13,6 +13,10 @@ El índice completo de todos los archivos está en `estructura_proyecto.txt` (ra
 | 2026-11-17 | `scripts/renombrar-simbolos.mjs` | Renombrar símbolos con el motor de TypeScript | 3 |
 | 2026-11-17 | `scripts/mover-declaraciones.mjs` | Partir un archivo moviendo declaraciones enteras con el motor de TypeScript | 6 |
 | 2026-11-17 | `components/foro/PiezasForo.tsx` | Piezas comunes del Foro, separadas de `app/(tabs)/chat-global.tsx` (449 líneas) | 6 |
+| 2026-11-18 | `components/admin/servicios/PiezasServicios.tsx` | Piezas comunes de Servicios del panel, separadas de `app/admin/services.tsx` (339 líneas) | 6 |
+| 2026-11-18 | `components/admin/servicios/VideosServicios.tsx` | Editor de vídeos de Servicios, separado de `app/admin/services.tsx` (155 líneas) | 6 |
+| 2026-11-18 | `components/admin/servicios/EnvioReparaciones.tsx` | Seguimiento y ajustes del envío de reparaciones, separados de `app/admin/services.tsx` (295 líneas) | 6 |
+| 2026-11-18 | `components/admin/servicios/CobroReparaciones.tsx` | Cobro y envío de una reparación, separado tal cual de `app/admin/services.tsx` (368 líneas; el dueño: «Muévela también») | 6 |
 | 2026-11-17 | `components/foro/NoticiasForo.tsx` | Pestaña «Noticias Gaming» del Foro, separada de `app/(tabs)/chat-global.tsx` (2.115 líneas) | 6 |
 
 ## Candidatos a eliminar
