@@ -287,7 +287,12 @@ const importados = [...usadosPorElOrigen].sort();
 const reexportados = [...reexportar].sort();
 const lineasNuevas = [];
 if (importados.length) lineasNuevas.push(`import { ${importados.join(", ")} } from "${especNuevo}";`);
-if (reexportados.length) lineasNuevas.push(`export { ${reexportados.join(", ")} } from "${especNuevo}";`);
+// Los tipos se reexportan con «export type» (una reexportación de valor de algo que solo es un tipo no es correcta).
+const esTipo = (n) => movidas.some((m) => m.nombres.includes(n) && (ts.isInterfaceDeclaration(m.st) || ts.isTypeAliasDeclaration(m.st)));
+const reexValores = reexportados.filter((n) => !esTipo(n));
+const reexTipos = reexportados.filter(esTipo);
+if (reexValores.length) lineasNuevas.push(`export { ${reexValores.join(", ")} } from "${especNuevo}";`);
+if (reexTipos.length) lineasNuevas.push(`export type { ${reexTipos.join(", ")} } from "${especNuevo}";`);
 const ultimoImport = importsOrigen[importsOrigen.length - 1];
 if (lineasNuevas.length) cambios.push({ ini: ultimoImport.end, fin: ultimoImport.end, texto: `\n${lineasNuevas.join("\n")}` });
 
