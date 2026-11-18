@@ -598,6 +598,9 @@ export async function elegirFotosVideoWeb(opciones?: { soloImagenes?: boolean })
 // Novedades del Panel de control: cada recuadro (app/admin/index.tsx) enseña cuántas cosas nuevas hay desde la última vez
 // que el administrador abrió esa sección. Esa fecha se guarda en el móvil, por cuenta (como los avisos de Blue), y la
 // marca app/admin/_layout.tsx al entrar en la sección, se llegue desde el recuadro o desde un aviso.
+// Desde 2026-11-18 (dueño: «en otros dispositivos me aparece como que todo es nuevo») se guarda TAMBIÉN en la cuenta
+// (preferencias_usuario.panel_vistos, migración 20261118140000): al leer se toma, por sección, la fecha más reciente
+// de las dos, así lo visto en un dispositivo cuenta como visto en todos. Sin la columna, sigue solo con el móvil.
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** Secciones del panel que cuentan novedades (la clave es su ruta: /admin/<clave>). */
@@ -616,27 +619,72 @@ async function cuentaAdmin(): Promise<string | null> {
   }
 }
 
-/** Cuándo abrió el administrador cada sección por última vez en este móvil (fecha ISO). */
-export async function leerPanelVistos(): Promise<PanelVistos> {
-  const uid = await cuentaAdmin();
-  if (!uid) return {};
+// Solo fechas válidas de las secciones conocidas (lo guardado puede venir de otra versión o estar roto).
+function limpiarPanelVistos(valor: unknown): PanelVistos {
+  const limpio: PanelVistos = {};
+  if (!valor || typeof valor !== "object") return limpio;
+  for (const s of SECCIONES_CON_NOVEDADES) {
+    const v = (valor as Record<string, unknown>)[s];
+    if (typeof v === "string" && !Number.isNaN(Date.parse(v))) limpio[s] = v;
+  }
+  return limpio;
+}
+
+// Por sección, la fecha más reciente de las dos.
+function juntarPanelVistos(a: PanelVistos, b: PanelVistos): PanelVistos {
+  const junto: PanelVistos = { ...a };
+  for (const s of SECCIONES_CON_NOVEDADES) {
+    const v = b[s];
+    if (v && (!junto[s] || Date.parse(v) > Date.parse(junto[s] as string))) junto[s] = v;
+  }
+  return junto;
+}
+
+async function panelVistosDelMovil(uid: string): Promise<PanelVistos> {
   try {
-    const guardado = JSON.parse((await AsyncStorage.getItem(PANEL_VISTOS_PREFIJO + uid)) ?? "{}");
-    return guardado && typeof guardado === "object" ? (guardado as PanelVistos) : {};
+    return limpiarPanelVistos(JSON.parse((await AsyncStorage.getItem(PANEL_VISTOS_PREFIJO + uid)) ?? "{}"));
   } catch {
     return {};
   }
 }
 
-/** Apunta que el administrador acaba de abrir esa sección: lo anterior ya está visto. */
+// Lo guardado en la cuenta (null si no se puede leer: sin la columna o sin conexión).
+async function panelVistosDeLaCuenta(uid: string): Promise<PanelVistos | null> {
+  try {
+    const { data, error } = await supabase.from("preferencias_usuario").select("panel_vistos").eq("user_id", uid).maybeSingle();
+    if (error) return null;
+    return limpiarPanelVistos((data as { panel_vistos?: unknown } | null)?.panel_vistos);
+  } catch {
+    return null;
+  }
+}
+
+/** Cuándo abrió el administrador cada sección por última vez, en cualquiera de sus dispositivos (fecha ISO). */
+export async function leerPanelVistos(): Promise<PanelVistos> {
+  const uid = await cuentaAdmin();
+  if (!uid) return {};
+  const [movil, cuenta] = await Promise.all([panelVistosDelMovil(uid), panelVistosDeLaCuenta(uid)]);
+  return cuenta ? juntarPanelVistos(movil, cuenta) : movil;
+}
+
+/** Apunta que el administrador acaba de abrir esa sección: lo anterior ya está visto (en el móvil y en la cuenta). */
 export async function marcarPanelVisto(seccion: SeccionConNovedades): Promise<void> {
   const uid = await cuentaAdmin();
   if (!uid) return;
+  const [movil, cuenta] = await Promise.all([panelVistosDelMovil(uid), panelVistosDeLaCuenta(uid)]);
+  const vistos = cuenta ? juntarPanelVistos(movil, cuenta) : movil;
+  vistos[seccion] = new Date().toISOString();
   try {
-    const vistos = await leerPanelVistos();
-    vistos[seccion] = new Date().toISOString();
     await AsyncStorage.setItem(PANEL_VISTOS_PREFIJO + uid, JSON.stringify(vistos));
   } catch {
-    // sin almacenamiento: el contador seguirá enseñando lo de los últimos días
+    // sin almacenamiento en el móvil: queda la cuenta
+  }
+  if (!cuenta) return; // sin la columna (o sin conexión) no se intenta escribir
+  try {
+    await supabase
+      .from("preferencias_usuario")
+      .upsert({ user_id: uid, panel_vistos: vistos, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+  } catch {
+    // sin conexión: la próxima visita lo vuelve a guardar
   }
 }
