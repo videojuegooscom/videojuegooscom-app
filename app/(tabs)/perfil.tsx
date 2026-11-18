@@ -14,8 +14,9 @@
  * «Mi perfil» (foto, usuario, nombre, país, provincia y edad:
  * components/PerfilPublico.tsx, que también obliga a completarlo en el resto
  * de la tienda) con la cuenta dentro (subtítulo «Tu cuenta está activa», el
- * correo de la sesión en un recuadro más y, al pie, «Cerrar sesión» y, si el
- * rol es admin, «Panel de control» en la misma fila; encima, «Mejoras en la
+ * correo de la sesión en un recuadro más; «Cerrar sesión» dentro del desplegable
+ * «Inicio de sesión y seguridad» (dueño, 2026-11-18) y, al pie, si el rol es
+ * admin, «Panel de control»; encima, «Mejoras en la
  * tienda», que abre la cajita de ideas de components/VentanaValoracion.tsx) y la
  * pestaña «Mis seguimientos»; se cambia de pestaña tocándola o deslizando el
  * dedo. Al final, el pie de página (con las redes sociales, una sola vez).
@@ -1126,9 +1127,17 @@ export default function PerfilScreen() {
     router.push("/admin");
   }, []);
 
-  // Botones de la cuenta, al final de «Mi perfil» (abierta o plegada): «Cerrar sesión» y, al administrador, «Panel de
-  // control» a su derecha (al alcance del pulgar), con el aviso del panel justo encima. «Tu cuenta está activa» es el
-  // subtítulo de «Mi perfil» y el correo de la sesión va en su recuadro, con los datos (components/PerfilPublico.tsx).
+  // «Cerrar sesión» (dueño, 2026-11-18): dentro del desplegable «Inicio de sesión y seguridad» de «Mi perfil»
+  // (components/PerfilPublico.tsx); si «Mi perfil» no se puede enseñar, va con lo demás de la cuenta.
+  const botonSalir = (
+    <View nativeID="perfil-salir" style={{ flexDirection: "row" }}>
+      <BotonCuenta titulo="Cerrar sesión" onPress={signOut} cargando={isSigningOut} textoCargando="Cerrando…" />
+    </View>
+  );
+
+  // Al final de «Mi perfil» (abierta o plegada): «Mejoras en la tienda» y, al administrador, el aviso del panel y «Panel
+  // de control», donde estaba. «Tu cuenta está activa» es el subtítulo de «Mi perfil» y el correo de la sesión va en su
+  // recuadro, con los datos (components/PerfilPublico.tsx).
   const accionesCuenta = (
     <View nativeID="perfil-cuenta" style={{ gap: 8, alignItems: "center" }}>
       {/* «Mejoras en la tienda»: la cajita de ideas (components/VentanaValoracion.tsx), con la sesión ya iniciada. */}
@@ -1149,10 +1158,11 @@ export default function PerfilScreen() {
           Esta cuenta tiene acceso al panel de administración.
         </Text>
       ) : null}
-      <View style={{ flexDirection: "row", gap: 10, alignSelf: "stretch" }}>
-        <BotonCuenta titulo="Cerrar sesión" onPress={signOut} cargando={isSigningOut} textoCargando="Cerrando…" />
-        {sessionRole === "admin" ? <BotonCuenta titulo="Panel de control" principal onPress={openAdminPanel} /> : null}
-      </View>
+      {sessionRole === "admin" ? (
+        <View style={{ flexDirection: "row", gap: 10, alignSelf: "stretch" }}>
+          <BotonCuenta titulo="Panel de control" principal onPress={openAdminPanel} />
+        </View>
+      ) : null}
     </View>
   );
 
@@ -1233,6 +1243,7 @@ export default function PerfilScreen() {
                     uid={sessionUserId}
                     correo={sessionEmail}
                     cuenta={accionesCuenta}
+                    cerrarSesion={botonSalir}
                     onDisponible={setPerfilDisponible}
                     recargar={recargarPerfil}
                   />
@@ -1530,6 +1541,7 @@ export default function PerfilScreen() {
                     </View>
 
                     {accionesCuenta}
+                    {botonSalir}
                   </View>
                 )}
               </SectionCard>

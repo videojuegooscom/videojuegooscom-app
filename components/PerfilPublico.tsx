@@ -40,6 +40,11 @@
  *   al de antes y al nuevo; se cambia al confirmar los dos y, mientras, sale «Cambio pendiente») y la contraseña (pide la
  *   actual, que se comprueba volviendo a entrar; la nueva dos veces; «Mostrar»; «¿No recuerdas la actual?»). Al volver de
  *   un enlace (/perfil?cuenta=correo) la tarjeta se abre y dice en español cómo va.
+ *   Más limpio en el móvil (dueño, 2026-11-18): en Mi cuenta la foto se cambia tocando la foto pequeña de la cabecera
+ *   (#perfil-foto, con su camarita; ya no hay una foto grande repetida dentro; «Quitar foto» debajo de la cabecera si hay
+ *   una); «Inicio de sesión y seguridad» es un desplegable (#perfil-seguridad-cabecera, cerrado salvo al volver de un enlace)
+ *   y «Cerrar sesión» va dentro (`cerrarSesion`, la pantalla lo pasa); «Guardar perfil» y «Deshacer» solo salen cuando hay
+ *   algo cambiado. En «Completa tu perfil» (obligatorio) todo sigue como antes (foto grande y «Guardar y continuar»).
  *   Si no se pueden leer los datos (sesión caducada o sin conexión; fallo real del 2026-11-14 en el iPhone), NUNCA se
  *   enseña el formulario vacío como si no hubiera datos: se reintenta una vez tras renovar la sesión y, si sigue fallando,
  *   «No hemos podido cargar tus datos · Reintentar», sin «Guardar» (no se pueden sobrescribir con vacíos). Se vuelve a
@@ -625,6 +630,7 @@ export default function PerfilPublico({
   alCompletar,
   correo,
   cuenta,
+  cerrarSesion,
   onDisponible,
   recargar,
 }: {
@@ -634,8 +640,10 @@ export default function PerfilPublico({
   alCompletar?: () => void;
   /** Correo de la sesión: la cabecera dice «Tu cuenta está activa» y el correo sale en un recuadro más (no se cambia aquí). */
   correo?: string | null;
-  /** Los botones de la cuenta («Cerrar sesión» y, al administrador, «Panel de control»): al final de la tarjeta, abierta o plegada. */
+  /** Lo de la cuenta que va siempre a mano («Mejoras en la tienda» y, al administrador, «Panel de control»): al final de la tarjeta, abierta o plegada. */
   cuenta?: React.ReactNode;
+  /** «Cerrar sesión»: dentro del desplegable «Inicio de sesión y seguridad» (si no hay correo, con lo de `cuenta`). */
+  cerrarSesion?: React.ReactNode;
   /** Dice si «Mi perfil» se puede enseñar (si la tabla aún no existe, la pantalla enseña la cuenta por su cuenta). */
   onDisponible?: (disponible: boolean) => void;
   /** Cambia al volver a la pantalla (Mi cuenta): se vuelve a leer el perfil sin «Cargando…». */
@@ -931,7 +939,10 @@ export default function PerfilPublico({
         .upload(ruta, archivo, { cacheControl: "31536000", upsert: false, contentType: "image/jpeg" });
       if (error) throw error;
       cambiar("foto", supabase.storage.from(ALMACEN_FOTOS).getPublicUrl(ruta).data.publicUrl);
+      // Elegida desde la cabecera con la tarjeta plegada: se abre para que se vea «Guardar perfil».
+      setAbierto(true);
     } catch {
+      setAbierto(true);
       setAviso({ tipo: "error", texto: "No se ha podido subir la foto. Inténtalo de nuevo." });
     } finally {
       setSubiendoFoto(false);
@@ -1151,7 +1162,13 @@ export default function PerfilPublico({
             <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Reintentar</Text>
           </Pressable>
         </View>
-        {!obligatorio && cuenta ? <View style={{ width: "100%", maxWidth: 460 }}>{cuenta}</View> : null}
+        {/* Sin datos (p. ej. sesión caducada) no hay desplegable de seguridad: «Cerrar sesión» va aquí, siempre a mano. */}
+        {!obligatorio && (cuenta || cerrarSesion) ? (
+          <View style={{ width: "100%", maxWidth: 460, gap: 10 }}>
+            {cuenta}
+            {cerrarSesion}
+          </View>
+        ) : null}
       </View>
     );
   }
@@ -1414,7 +1431,8 @@ export default function PerfilPublico({
 
   const formulario = (
     <View style={{ width: "100%", maxWidth: 460, gap: 10 }}>
-      {conFoto ? (
+      {/* La foto grande solo en «Completa tu perfil»: en Mi cuenta se cambia tocando la de la cabecera (dueño, 2026-11-18). */}
+      {conFoto && obligatorio ? (
         <View style={{ alignItems: "center", gap: 6, paddingBottom: 2 }}>
           <Pressable
             nativeID="perfil-foto"
@@ -1542,6 +1560,8 @@ export default function PerfilPublico({
         <Text style={{ color: P.muted, fontWeight: "800", textAlign: "center", lineHeight: 19 }}>Falta: {pendientes.join(", ")}.</Text>
       ) : null}
 
+      {/* Sin nada cambiado, en Mi cuenta no salen «Guardar perfil» ni «Deshacer»: más sitio (dueño, 2026-11-18). */}
+      {obligatorio || hayCambios || guardando ? (
       <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
         <Pressable
           onPress={guardar}
@@ -1587,6 +1607,7 @@ export default function PerfilPublico({
           </Pressable>
         ) : null}
       </View>
+      ) : null}
     </View>
   );
 
@@ -1619,14 +1640,12 @@ export default function PerfilPublico({
 
   return (
     <View nativeID="perfil-datos" style={{ gap: 14, alignItems: "center" }}>
-      {/* Cabecera plegable: foto pequeña, «Mi perfil» y «@usuario · Completo». */}
-      <Pressable
-        nativeID="perfil-cabecera"
-        onPress={() => setAbierto((v) => !v)}
-        accessibilityRole="button"
-        accessibilityLabel={abierto ? "Plegar mi perfil" : "Abrir mi perfil"}
-        {...({ "aria-expanded": abierto } as object)}
-        style={({ pressed }) => ({
+      {/* Cabecera plegable: foto pequeña, «Mi perfil» y «@usuario · Completo». La foto es también el botón para cambiarla
+          (con su camarita; dueño, 2026-11-18: «utilizar el que ya aparece en Mi perfil, que ahora está repetido»); el resto
+          de la cabecera abre y pliega. */}
+      <View
+        nativeID="perfil-cabecera-caja"
+        style={{
           width: "100%",
           maxWidth: 460,
           minHeight: 62,
@@ -1636,12 +1655,60 @@ export default function PerfilPublico({
           backgroundColor: "#FFFFFF",
           flexDirection: "row",
           alignItems: "center",
-          paddingHorizontal: 12,
-          gap: 10,
+          paddingLeft: 12,
+          gap: 4,
+        }}
+      >
+        {conFoto ? (
+          <Pressable
+            nativeID="perfil-foto"
+            onPress={elegirFoto}
+            disabled={subiendoFoto}
+            accessibilityRole="button"
+            accessibilityLabel={datos.foto ? "Cambiar la foto de perfil" : "Añadir una foto de perfil"}
+            style={({ pressed }) => ({ minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.85 : 1 })}
+          >
+            <View style={{ position: "relative" }}>
+              <Foto uri={datos.foto} lado={correo ? 46 : 40} alt="Tu foto de perfil" />
+              <View
+                style={{
+                  position: "absolute",
+                  right: -4,
+                  bottom: -4,
+                  width: 22,
+                  height: 22,
+                  borderRadius: 11,
+                  backgroundColor: P.accent,
+                  borderWidth: 2,
+                  borderColor: "#FFFFFF",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {subiendoFoto ? <ActivityIndicator color="#FFFFFF" size="small" style={{ transform: [{ scale: 0.6 }] }} /> : <Ionicons name="camera" size={12} color="#FFFFFF" />}
+              </View>
+            </View>
+          </Pressable>
+        ) : (
+          <Foto uri={guardado.foto} lado={correo ? 46 : 40} alt="Foto de perfil" />
+        )}
+      <Pressable
+        nativeID="perfil-cabecera"
+        onPress={() => setAbierto((v) => !v)}
+        accessibilityRole="button"
+        accessibilityLabel={abierto ? "Plegar mi perfil" : "Abrir mi perfil"}
+        {...({ "aria-expanded": abierto } as object)}
+        style={({ pressed }) => ({
+          flex: 1,
+          minWidth: 0,
+          minHeight: 60,
+          flexDirection: "row",
+          alignItems: "center",
+          paddingRight: 12,
+          gap: 6,
           opacity: pressed ? 0.9 : 1,
         })}
       >
-        <Foto uri={guardado.foto} lado={correo ? 46 : 40} alt="Foto de perfil" />
         <View style={{ flex: 1, minWidth: 0, alignItems: "center", paddingVertical: correo ? 8 : 0 }}>
           <Text style={{ color: P.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>Mi perfil</Text>
           {/* Subtítulo: la sesión está iniciada (punto verde). */}
@@ -1659,6 +1726,24 @@ export default function PerfilPublico({
           <Ionicons name={abierto ? "chevron-up" : "chevron-down"} size={20} color={P.muted} />
         </View>
       </Pressable>
+      </View>
+      {/* La foto: subiéndose, o «Quitar foto» si hay una (se guarda con «Guardar perfil», como antes). */}
+      {conFoto && (subiendoFoto || (abierto && datos.foto)) ? (
+        <View style={{ width: "100%", maxWidth: 460, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, marginTop: -6 }}>
+          {subiendoFoto ? (
+            <Text style={{ color: P.muted, fontWeight: "800", fontSize: 13.5 }}>Subiendo la foto…</Text>
+          ) : (
+            <Pressable
+              nativeID="perfil-foto-quitar"
+              onPress={() => cambiar("foto", "")}
+              accessibilityRole="button"
+              style={({ pressed }) => ({ minHeight: 44, justifyContent: "center", paddingHorizontal: 8, opacity: pressed ? 0.7 : 1 })}
+            >
+              <Text style={{ color: P.muted, fontWeight: "800", fontSize: 13.5, textDecorationLine: "underline" }}>Quitar foto</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : null}
       {/* Recién guardado y ya plegado: se dice aquí (dentro ya no se ve). */}
       {!abierto && aviso?.tipo === "ok" ? (
         <Text accessibilityRole="alert" style={{ color: P.ok, fontWeight: "800", textAlign: "center" }}>
@@ -1667,11 +1752,13 @@ export default function PerfilPublico({
       ) : null}
       {abierto ? formulario : null}
       {/* Inicio de sesión y seguridad: cambiar el correo y la contraseña (con la tarjeta abierta). */}
-      {abierto && correo ? <SeguridadCuenta correo={correo} retorno={retornoCorreo} /> : null}
-      {/* Los botones de la cuenta, siempre a mano (también plegado); abierto, separados de los datos por una línea fina. */}
-      {cuenta ? (
-        <View style={{ width: "100%", maxWidth: 460, ...(abierto ? { borderTopWidth: 1, borderTopColor: P.line, paddingTop: 14 } : null) }}>
+      {abierto && correo ? <SeguridadCuenta correo={correo} retorno={retornoCorreo} cerrarSesion={cerrarSesion} /> : null}
+      {/* Lo de la cuenta que va siempre a mano (también plegado); abierto, separado de los datos por una línea fina. Sin
+          correo no hay «Inicio de sesión y seguridad»: entonces «Cerrar sesión» va aquí, para que nunca falte. */}
+      {cuenta || (!correo && cerrarSesion) ? (
+        <View style={{ width: "100%", maxWidth: 460, gap: 10, ...(abierto ? { borderTopWidth: 1, borderTopColor: P.line, paddingTop: 14 } : null) }}>
           {cuenta}
+          {!correo ? cerrarSesion : null}
         </View>
       ) : null}
       {ventanaRecorte}
@@ -1766,7 +1853,9 @@ function FilaSeguridad({
   );
 }
 
-function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: RetornoCorreo }) {
+function SeguridadCuenta({ correo, retorno, cerrarSesion }: { correo: string; retorno: RetornoCorreo; cerrarSesion?: React.ReactNode }) {
+  // Desplegable (dueño, 2026-11-18): cerrado al entrar; abierto si se vuelve de un enlace de cambio de correo (dice cómo va).
+  const [desplegada, setDesplegada] = useState(!!retorno);
   const [abierta, setAbierta] = useState<"correo" | "contrasena" | null>(null);
   const [aviso, setAviso] = useState<{ tipo: "ok" | "error"; texto: string } | null>(
     retorno ? { tipo: retorno.tipo === "error" ? "error" : "ok", texto: retorno.texto } : null
@@ -1971,12 +2060,22 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
   );
 
   return (
-    <View nativeID="perfil-seguridad" style={{ width: "100%", maxWidth: 460, gap: 10, borderTopWidth: 1, borderTopColor: P.line, paddingTop: 14 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+    <View nativeID="perfil-seguridad" style={{ width: "100%", maxWidth: 460, gap: 10, borderTopWidth: 1, borderTopColor: P.line, paddingTop: 6 }}>
+      <Pressable
+        nativeID="perfil-seguridad-cabecera"
+        onPress={() => setDesplegada((v) => !v)}
+        accessibilityRole="button"
+        accessibilityLabel={desplegada ? "Plegar inicio de sesión y seguridad" : "Abrir inicio de sesión y seguridad"}
+        {...({ "aria-expanded": desplegada } as object)}
+        style={({ pressed }) => ({ minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+      >
         <Ionicons name="shield-checkmark-outline" size={18} color={P.accent} />
         <Text style={{ color: P.text, fontWeight: "900", fontSize: 15.5 }}>Inicio de sesión y seguridad</Text>
-      </View>
+        <Ionicons name={desplegada ? "chevron-up" : "chevron-down"} size={18} color={P.muted} />
+      </Pressable>
 
+      {desplegada ? (
+      <>
       <FilaSeguridad
         id="perfil-seguridad-correo"
         icono="mail-outline"
@@ -2045,6 +2144,11 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
         >
           {aviso.texto}
         </Text>
+      ) : null}
+
+      {/* «Cerrar sesión», dentro del desplegable (dueño, 2026-11-18). */}
+      {cerrarSesion ? <View nativeID="perfil-seguridad-salir" style={{ paddingTop: 4 }}>{cerrarSesion}</View> : null}
+      </>
       ) : null}
     </View>
   );
