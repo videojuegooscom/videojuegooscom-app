@@ -106,6 +106,9 @@ components/admin/servicios/PiezasServicios.tsx | Piezas comunes de Administraci�
 components/admin/servicios/VideosServicios.tsx | Editor de los vídeos de la página Servicios | lib/supabase, app/servicios, admin/servicios/PiezasServicios | admin/services | ACTIVO
 components/admin/servicios/EnvioReparaciones.tsx | Seguimiento de cada reparación y ajustes de la reparación por envío | lib/supabase, envio, admin/servicios/PiezasServicios | admin/services | ACTIVO
 components/admin/servicios/CobroReparaciones.tsx | Cobro y envío de una reparación («Marcar como pagado», etiqueta y su pago) | lib/supabase, envio, admin/servicios/PiezasServicios; api/pago | admin/services | ACTIVO
+components/ficha/DatosFicha.tsx | Datos de la ficha de producto (tipos, lectura del producto y sus fotos, cesta y «me gusta») | lib/supabase, async-storage | producto/[id], ficha/* | ACTIVO
+components/ficha/FichaProducto.tsx | Bloque «Características · Mantenimiento · Descripción» de una ficha | ficha/DatosFicha, constants/temaTienda | producto/[id], servicio/[id] | ACTIVO
+components/ficha/ExtrasFicha.tsx | Preguntar por el artículo, aviso de bajada de precio, insignias de confianza y entrega estimada | lib/supabase, interaccion, envio, analiticaPropia, ConversacionProducto, ficha/DatosFicha | producto/[id] | ACTIVO
 components/foro/PiezasForo.tsx | Piezas comunes del Foro (colores, moderación, normas, claves, avatar, preferencias) | lib/supabase, analiticaPropia, ImagenInteligente, constants/temaTienda | app/(tabs)/chat-global, foro/NoticiasForo | ACTIVO
 components/foro/NoticiasForo.tsx | Pestaña «Noticias Gaming» del Foro (lista, carrusel, comentarios, compartir, campana) | lib/supabase, estadoCarga, foro/PiezasForo, PerfilPublico, marca/*; api/noticias-gaming | app/(tabs)/chat-global | ACTIVO
 components/marca/CargaMarca.tsx | Indicador «cargando» con la mascota | MarcaAnimada | casi todas las pantallas | ACTIVO
