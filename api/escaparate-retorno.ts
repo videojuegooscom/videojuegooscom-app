@@ -28,6 +28,14 @@
  *    de privacidad lo explica (supabase/migrations/20261103180000_privacidad_veoaura.sql).
  *    Las ventas en mano que llegan DE VeoAura (pedidos.origen = 'tienda_fisica', evento «venta_tienda» del puente de
  *    ida, migración 20261111170000) nunca se le devuelven: ni «pedido» ni el aviso de pagado.
+ *    Comisión de Stripe (VeoAura, 2026-11-18; contrato «Comisión de Stripe del pedido»): si el pedido se pagó con tarjeta
+ *    en la web, el «pedido» y el de pagado llevan dentro de "pedido" "comision": la comisión real del cobro en euros
+ *    (fee de la balance_transaction del cargo, que incluye sus impuestos; Stripe la da en céntimos), leída de Stripe en
+ *    SOLO LECTURA (GET /payment_intents/<pi>?expand[]=latest_charge.balance_transaction) con la clave del pago. Si el
+ *    pedido lleva varios artículos, a cada aviso le toca la parte proporcional a su precio (la comisión es del cobro
+ *    entero). Si Stripe aún no la da, el de pagado espera hasta 30 min desde el pago y después sale sin ella; el «pedido»
+ *    nunca espera. No sale en «pedido_anulado», ni si el pago no es con tarjeta, ni si el pago es de otro modo (prueba o
+ *    real) que la clave puesta. VeoAura la suma a los costes de esa venta una sola vez y la ignora si no tiene sentido.
  * 3. Productos creados a mano en la tienda (sin id_veoaura; dueño, 2026-11-13): evento «producto_tienda» con SOLO datos del
  *    producto (id de la tienda, título, descripción, precio, estado, condición, categoría, fotos y fecha); VeoAura lo da de
  *    alta en su Stock y responde {ok:true, id_veoaura}, que la tienda guarda en el producto (sin pisar uno existente) para
@@ -56,6 +64,8 @@
  *   Es distinto del de ida (VEOAURA_ESCAPARATE_SECRETO).
  * - CRON_SECRET: lo manda Vercel en el cron diario.
  * - EXPO_PUBLIC_SUPABASE_URL y SUPABASE_CLAVE_SERVIDOR: leer pedidos y apuntar los avisos.
+ * - STRIPE_SECRET_KEY (la misma de api/pago.ts): solo para leer la comisión del cobro. Sin ella, los avisos salen sin
+ *   "comision", como antes.
  * Sin VEOAURA_RETORNO_URL o su secreto los avisos se apuntan igual y quedan pendientes.
  *
  * Variable opcional: VEOAURA_PRODUCTOS_DESDE (fecha ISO; solo los productos creados desde entonces se avisan; por defecto
@@ -225,6 +235,10 @@ type PedidoFila = {
   // Pago con tarjeta (migraciones 20261105120000 y 20261106100000; pueden no existir aún).
   pago_estado?: string | null;
   devuelto_en?: string | null;
+  // El cobro de Stripe (pi_…), si se hizo en «real» o en «prueba», y cuándo: para leer la comisión.
+  pago_referencia?: string | null;
+  pago_modo?: string | null;
+  pagado_en?: string | null;
   // 'tienda_fisica' = venta en mano que llegó DE VeoAura (evento «venta_tienda», migración 20261111170000): nunca se le
   // devuelve ni como «pedido» ni como «pedido_pagado» (ya la tiene, y sus datos no deben volver a salir).
   origen?: string | null;
@@ -245,6 +259,54 @@ function datosCliente(p: PedidoFila | undefined) {
     ...(correo && correo.length <= 160 ? { correo } : {}),
     ...(telefono ? { telefono } : {}),
   };
+}
+
+// --- Comisión de Stripe del pedido (contrato de VeoAura, «Comisión de Stripe del pedido», 2026-11-18) ------------------
+// Solo LECTURA en Stripe. "pendiente" = Stripe aún no da la comisión (o no responde): se puede volver a mirar; null = no
+// hay comisión que dar (no se pagó con tarjeta, falta la clave o el pago es de otro modo que la clave).
+const STRIPE = "https://api.stripe.com/v1";
+const ESPERA_STRIPE_MS = 8000;
+const ESPERA_COMISION_MS = 30 * 60 * 1000;
+const PI_RE = /^pi_[A-Za-z0-9]+$/;
+
+function modoDeLaClave(clave: string): "real" | "prueba" | null {
+  if (/^(sk|rk)_test_\S+$/.test(clave)) return "prueba";
+  if (/^(sk|rk)_live_\S+$/.test(clave)) return "real";
+  return null;
+}
+
+async function comisionDelCobro(clave: string, p: PedidoFila | undefined): Promise<number | null | "pendiente"> {
+  if (!p || p.pago_estado !== "pagado" || !p.pago_referencia || !PI_RE.test(p.pago_referencia)) return null;
+  const modo = modoDeLaClave(clave);
+  if (!modo || p.pago_modo !== modo) return null;
+  let r: Response;
+  try {
+    r = await fetch(`${STRIPE}/payment_intents/${encodeURIComponent(p.pago_referencia)}?expand[]=latest_charge.balance_transaction`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${clave}` },
+      signal: AbortSignal.timeout(ESPERA_STRIPE_MS),
+    });
+  } catch {
+    return "pendiente";
+  }
+  if (r.status >= 500 || r.status === 429) return "pendiente";
+  if (!r.ok) return null;
+  const datos = (await r.json().catch(() => null)) as { latest_charge?: { balance_transaction?: { fee?: unknown; currency?: unknown } | string | null } | string | null } | null;
+  const cargo = datos?.latest_charge;
+  const transaccion = cargo && typeof cargo === "object" ? cargo.balance_transaction : null;
+  if (!transaccion || typeof transaccion !== "object") return "pendiente";
+  const fee = Number(transaccion.fee);
+  if (!Number.isFinite(fee) || fee < 0 || String(transaccion.currency ?? "").toLowerCase() !== "eur") return null;
+  return fee / 100;
+}
+
+// La parte de la comisión que toca a una línea del pedido (la comisión es del cobro entero: si hay varios artículos, se
+// reparte según su precio). Válida para VeoAura: ≥ 0 y menor que el precio de esa línea; si no, no se envía.
+function comisionDeLaLinea(total: number, p: PedidoFila | undefined, precioLinea: number): number | null {
+  const suma = (p?.pedido_items ?? []).reduce((s, it) => s + (Number.isFinite(Number(it.precio_eur)) ? Number(it.precio_eur) : 0), 0);
+  if (!(suma > 0) || !(precioLinea > 0)) return null;
+  const parte = Math.round(((total * precioLinea) / suma) * 100) / 100;
+  return parte >= 0 && parte < precioLinea ? parte : null;
 }
 
 // Última vuelta sin cron en esta instancia: evita que muchas llamadas seguidas repitan el trabajo.
@@ -330,14 +392,14 @@ async function pedidosRecientes(supabase: SupabaseClient): Promise<PedidoFila[]>
   // Cada grupo de columnas nuevas puede no existir aún (su migración sin aplicar): se quita el que falte y se repite.
   let conOrigen = true;
   let conPago = true;
-  const columnas = () => `${BASE}${conPago ? ",pago_estado,devuelto_en" : ""}${conOrigen ? ",origen" : ""}`;
+  const columnas = () => `${BASE}${conPago ? ",pago_estado,devuelto_en,pago_referencia,pago_modo,pagado_en" : ""}${conOrigen ? ",origen" : ""}`;
   let { data, error } = await consulta(columnas());
   for (let vuelta = 0; vuelta < 2 && error; vuelta++) {
     const msg = String(error.message ?? "");
     // Sin pedidos.origen (migración 20261111170000 sin aplicar): aún no puede haber ventas en mano.
     if (conOrigen && /origen/.test(msg)) conOrigen = false;
     // Sin las columnas del pago con tarjeta (migración sin aplicar): como antes, solo «entregado» cuenta como pagado.
-    else if (conPago && /pago_estado|devuelto_en/.test(msg)) conPago = false;
+    else if (conPago && /pago_estado|devuelto_en|pago_referencia|pago_modo|pagado_en/.test(msg)) conPago = false;
     else break;
     ({ data, error } = await consulta(columnas()));
   }
@@ -424,6 +486,14 @@ async function enviarAvisos(
   if (error) throw new Error("no se pudieron leer los avisos pendientes");
 
   const porVeoaura = new Map([...articulos.entries()].map(([idTienda, idV]) => [idV, idTienda]));
+  // La comisión de cada cobro se pide a Stripe una vez por vuelta.
+  const claveStripe = String(process.env.STRIPE_SECRET_KEY ?? "").trim();
+  const comisiones = new Map<string, Promise<number | null | "pendiente">>();
+  const comisionDe = (p: PedidoFila | undefined) => {
+    if (!p || !claveStripe) return Promise.resolve(null);
+    if (!comisiones.has(p.id)) comisiones.set(p.id, comisionDelCobro(claveStripe, p));
+    return comisiones.get(p.id)!;
+  };
   for (const s of (data ?? []) as Salida[]) {
     if (enviados + fallidos >= MAX_POR_VUELTA || Date.now() - inicio > PRESUPUESTO_MS) break;
     const ultimo = s.ultimo_intento ? Date.parse(s.ultimo_intento) : 0;
@@ -456,6 +526,15 @@ async function enviarAvisos(
       if (previo?.estado !== "enviado") continue;
     }
 
+    // Comisión de Stripe: en «pedido» y en el de pagado (nunca en la anulación). El de pagado espera a que Stripe la dé,
+    // hasta 30 min desde el pago; el «pedido» no espera nunca (avisa a VeoAura de que el artículo ya no está libre).
+    const pedidoAviso = pedidos.find((p) => p.id === s.pedido_id);
+    const comision = s.evento === "pedido_anulado" ? null : await comisionDe(pedidoAviso);
+    if (comision === "pendiente" && s.evento === "pedido_pagado") {
+      const pagadoEn = pedidoAviso?.pagado_en ? Date.parse(pedidoAviso.pagado_en) : 0;
+      if (Number.isFinite(pagadoEn) && Date.now() - pagadoEn < ESPERA_COMISION_MS) continue;
+    }
+
     // Se reserva el aviso (si otra llamada lo cogió antes, no se envía dos veces).
     const { data: reservado } = await supabase
       .from("escaparate_salida")
@@ -471,6 +550,7 @@ async function enviarAvisos(
     const linea = pedido?.pedido_items?.find((it) => it.product_id === idTienda);
     const precio = Number(linea?.precio_eur);
     const pagado = s.evento === "pedido_pagado";
+    const comisionLinea = typeof comision === "number" && Number.isFinite(precio) ? comisionDeLaLinea(comision, pedido, precio) : null;
     const r = await enviar(url, secreto, {
       version: 1,
       // El aviso de pagado viaja como un segundo «pedido» (mismo número, id_mensaje nuevo): VeoAura no cuenta otra
@@ -485,6 +565,8 @@ async function enviarAvisos(
         moneda: "EUR",
         // Solo en el de pagado: nombre, correo y teléfono del cliente (nunca la dirección ni nada más).
         ...(pagado ? { cliente: datosCliente(pedido) } : {}),
+        // Comisión real de Stripe de este artículo, en euros y como número (solo si se conoce y tiene sentido).
+        ...(comisionLinea !== null ? { comision: comisionLinea } : {}),
       },
       enviado_en: new Date().toISOString(),
     });
