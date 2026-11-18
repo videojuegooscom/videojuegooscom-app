@@ -20,6 +20,11 @@ El índice completo de todos los archivos está en `estructura_proyecto.txt` (ra
 | 2026-11-18 | `components/admin/servicios/VideosServicios.tsx` | Editor de vídeos de Servicios, separado de `app/admin/services.tsx` (155 líneas) | 6 |
 | 2026-11-18 | `components/admin/servicios/EnvioReparaciones.tsx` | Seguimiento y ajustes del envío de reparaciones, separados de `app/admin/services.tsx` (295 líneas) | 6 |
 | 2026-11-18 | `components/admin/servicios/CobroReparaciones.tsx` | Cobro y envío de una reparación, separado tal cual de `app/admin/services.tsx` (368 líneas; el dueño: «Muévela también») | 6 |
+| 2026-11-18 | `components/blue/DatosBlue.tsx` | Datos de Blue (colores, claves, avisos de seguimiento, consejos), separados de `components/AsistenteBlue.tsx` (423 líneas) | 6 |
+| 2026-11-18 | `components/blue/AyudasBlue.tsx` | Ayudas de Blue (reposición, tiempos, propuestas, posición, mensajes), separadas de `components/AsistenteBlue.tsx` (318 líneas; «instalar la app» se queda) | 6 |
+| 2026-11-18 | `components/blue/PiezasBlue.tsx` | Piezas que se ven de Blue (consejo, botones, iconos, filas, avisos), separadas de `components/AsistenteBlue.tsx` (349 líneas) | 6 |
+| 2026-11-18 | `components/blue/PasosGuia.tsx` | Pasos y piezas de la guía de Blue, separados de `components/AsistenteBlue.tsx` (929 líneas) | 6 |
+| 2026-11-18 | `components/blue/GuiaBlue.tsx` | La guía de Blue «Te enseño la tienda», separada de `components/AsistenteBlue.tsx` (907 líneas) | 6 |
 | 2026-11-17 | `components/foro/NoticiasForo.tsx` | Pestaña «Noticias Gaming» del Foro, separada de `app/(tabs)/chat-global.tsx` (2.115 líneas) | 6 |
 
 ## Candidatos a eliminar
