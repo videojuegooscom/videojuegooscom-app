@@ -12170,7 +12170,8 @@ async function seccionFBIA() {
     dispositivos: { filas: [] },
     tablas: { products: [], customer_notes: [], sell_requests: [], product_sales: [] },
     fch: { chats: [], mensajes: [] },
-    blueHistorial: { conversaciones, mensajes },
+    // Copias: cada vista cambia las suyas (lo que llega en directo) sin tocar las de la siguiente.
+    blueHistorial: { conversaciones: conversaciones.map((c) => ({ ...c })), mensajes: [...mensajes] },
   });
   const conversaciones = [
     { id: C1, titulo: "¿Hacéis limpieza de PS5?", contexto: null, created_at: hace(90), updated_at: hace(60), archivada: false },
@@ -12213,6 +12214,17 @@ async function seccionFBIA() {
     }, `ficha-blue-ia-mensajes-${C1}`);
     ok(medidas.dentro && medidas.alto >= 44 && medidas.ancho <= medidas.pantalla + 1, `FBIA (${nombre}): la conversación cabe, la fila se toca bien (44 px) y la página no se ensancha (${JSON.stringify(medidas)})`);
     await capturar(f, `FBIA-${nombre}-abierta`);
+    // En directo: el cliente sigue hablando con Blue IA y la ficha lo enseña sola (repaso cada 10 s), sin recargar.
+    ok((await f.locator(`#ficha-blue-ia-ahora-${C1}`).count()) === 0, `FBIA (${nombre}): sin mensajes recientes no sale «Ahora mismo»`);
+    estado.blueHistorial.mensajes.push(
+      { id: `b-vivo-${nombre}-1`, conversacion_id: C1, user_id: CLIENTE.id, created_at: hace(0.2), rol: "user", texto: "¿Cuánto tardáis en la limpieza?" },
+      { id: `b-vivo-${nombre}-2`, conversacion_id: C1, user_id: CLIENTE.id, created_at: hace(0.1), rol: "assistant", texto: "Normalmente la tenemos lista en el mismo día." }
+    );
+    estado.blueHistorial.conversaciones[0] = { ...estado.blueHistorial.conversaciones[0], updated_at: hace(0.1) };
+    const vivo = await f.locator(`#ficha-blue-ia-mensajes-${C1}`).getByText("Normalmente la tenemos lista en el mismo día.", { exact: true }).waitFor({ timeout: 25000 }).then(() => true, () => false);
+    const vivoTexto = (await f.locator(`#ficha-blue-ia-mensajes-${C1}`).innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(vivo && vivoTexto.indexOf("Sí, hacemos mantenimiento") < vivoTexto.indexOf("¿Cuánto tardáis en la limpieza?") && (vivoTexto.match(/¿Hacéis limpieza de PS5\?/g) ?? []).length === 1, `FBIA (${nombre}): lo nuevo que habla con Blue IA aparece solo, al final y sin repetir lo anterior (${vivoTexto.slice(-120)})`);
+    ok((await f.locator(`#ficha-blue-ia-ahora-${C1}`).count()) === 1, `FBIA (${nombre}): la conversación en curso sale con «Ahora mismo»`);
     await f.locator(`#ficha-blue-ia-${C1}`).click();
     await f.waitForTimeout(300);
     ok((await f.locator(`#ficha-blue-ia-mensajes-${C1}`).count()) === 0, `FBIA (${nombre}): al volver a tocarla se pliega`);
