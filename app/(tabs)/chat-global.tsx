@@ -619,7 +619,9 @@ export default function ChatGlobalScreen() {
       })();
 
       const channel = supabase
-        .channel("chat_messages_live")
+        // Nombre propio en cada suscripción: si se pide uno igual mientras el anterior se cierra (volver rápido a la
+        // pestaña), Supabase devuelve el que se está cerrando y se dejan de recibir mensajes (2026-11-18).
+        .channel(`chat_messages_live_${Math.random().toString(36).slice(2, 10)}`)
         .on(
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "chat_messages" },

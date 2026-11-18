@@ -893,8 +893,11 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
           const cuerpo = JSON.parse(peticion.postData() ?? "{}");
           cp.enviados = [...(cp.enviados ?? []), cuerpo];
           const ahoraIso = new Date().toISOString();
-          cp.mensajes = [...cp.mensajes, { id: `m${cp.mensajes.length + 1}`, created_at: ahoraIso, chat_id: cuerpo.chat_id, sender_user_id: usuario.id, sender_role: rol === "admin" ? "admin" : "customer", sender_name: rol === "admin" ? "Tienda" : "Ana", body: String(cuerpo.body ?? "").trim() }];
+          const fila = { id: `m${cp.mensajes.length + 1}`, created_at: ahoraIso, chat_id: cuerpo.chat_id, sender_user_id: usuario.id, sender_role: rol === "admin" ? "admin" : "customer", sender_name: rol === "admin" ? "Tienda" : "Ana", body: String(cuerpo.body ?? "").trim() };
+          cp.mensajes = [...cp.mensajes, fila];
           cp.chats = cp.chats.map((c) => (c.id === cuerpo.chat_id ? { ...c, last_message_at: ahoraIso, last_message_preview: String(cuerpo.body ?? "").slice(0, 140), last_sender_role: rol === "admin" ? "admin" : "customer" } : c));
+          // Como Supabase: si se pide la fila guardada (select tras insert), se devuelve; si no, vacío.
+          if (url.searchParams.get("select")) return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(fila, 201) : json([fila], 201);
           return r.fulfill({ status: 201, headers: CORS, body: "" });
         }
         if (metodo === "GET") {
@@ -17393,6 +17396,13 @@ async function seccionCHATP() {
     const env = estado.chatp.enviados ?? [];
     ok(env.length === 1 && env[0].chat_id === chatId && env[0].body === "¿Sigue disponible? ¿Lleva la caja?" && Object.keys(env[0]).sort().join(",") === "body,chat_id", `CHATP: «Enviar» manda solo la conversación y el texto (quién escribe lo pone la base de datos) (${JSON.stringify(env)})`);
     ok((await p.locator("#chat-campo").inputValue().catch(() => "x")) === "" && (await p.locator("#chat-producto-sugerencias").count()) === 0, "CHATP: tras enviar, el campo se vacía y las sugerencias se van");
+    // Sin tiempo real (aquí no hay): el mensaje propio se ve al momento y el de la otra parte llega con el repaso de 15 s
+    // (dueño, 2026-11-18: «he tenido que salir y volver a entrar para que apareciera el mensaje»).
+    ok((await p.getByText("¿Sigue disponible? ¿Lleva la caja?", { exact: true }).count()) > 0, "CHATP: el mensaje enviado se ve al momento en la conversación, sin salir ni recargar");
+    estado.chatp.mensajes = [...estado.chatp.mensajes, { id: "m-tienda-1", created_at: new Date(Date.now() + 1000).toISOString(), chat_id: chatId, sender_user_id: "c0000000-0000-4000-8000-00000000ad01", sender_role: "admin", sender_name: "Tienda", body: "Sí, sigue disponible y lleva su caja" }];
+    const llega = await p.getByText("Sí, sigue disponible y lleva su caja", { exact: true }).first().waitFor({ timeout: 20000 }).then(() => true, () => false);
+    ok(llega, "CHATP: la respuesta de la tienda aparece sola (repaso cada 15 s), sin salir ni recargar");
+    ok((await p.getByText("¿Sigue disponible? ¿Lleva la caja?", { exact: true }).count()) === 1, "CHATP: el mensaje propio no sale repetido tras el repaso");
     await esperar(p, () => evento(estado, "chat_producto_enviado").length > 0);
     const en = evento(estado, "chat_producto_enviado").map((e) => e.metadata);
     ok(en.length === 1 && en[0]?.primera === true && en[0]?.sugerencia === false && en[0]?.productId === ID(1), `CHATP: se mide el envío (primera, sin el texto) (${JSON.stringify(en)})`);
