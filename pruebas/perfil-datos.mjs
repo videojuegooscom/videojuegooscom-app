@@ -22220,7 +22220,8 @@ async function seccionPANRED3() {
   const chatFila = (n, extra, min, vista) => ({ id: CH(n), created_at: hace(min + 5), product_id: null, sell_request_id: null, customer_user_id: CLIENTE.id, last_message_at: hace(min), last_message_preview: vista, last_sender_role: "customer", admin_deleted_at: null, customer_deleted_at: null, customer_last_read_at: hace(min), admin_last_read_at: hace(min), ...extra });
   const mensaje = (n, rol, min, body) => ({ id: `mp${n}-${min}`, created_at: hace(min), chat_id: CH(n), sender_user_id: rol === "admin" ? ADMIN.id : CLIENTE.id, sender_role: rol, sender_name: rol === "admin" ? "Tienda" : "Ana", body });
   const chatp = () => ({
-    chats: [chatFila(1, { product_id: PROD }, 5, "¿Sigue disponible?"), chatFila(2, {}, 10, "Tengo un mando que no carga"), chatFila(3, { sell_request_id: VENTA }, 15, "Os vendo mi PS4")],
+    // La 2 está sin leer: su último mensaje (del cliente, hace 10 min) es posterior a la última vez que la abrió la tienda.
+    chats: [chatFila(1, { product_id: PROD }, 5, "¿Sigue disponible?"), chatFila(2, { admin_last_read_at: hace(20) }, 10, "Tengo un mando que no carga"), chatFila(3, { sell_request_id: VENTA }, 15, "Os vendo mi PS4")],
     mensajes: [mensaje(1, "customer", 5, "¿Sigue disponible?"), mensaje(2, "admin", 12, "Hola Ana, ¿qué tal va el mando?"), mensaje(2, "customer", 10, "Tengo un mando que no carga"), mensaje(3, "customer", 15, "Os vendo mi PS4")],
     ventas: [{ product_id: PROD, buyer_user_id: CLIENTE.id }],
     usuarios: [{ id: CLIENTE.id, full_name: "Ana García", username: "ana_g", email: CLIENTE.email }],
@@ -22470,7 +22471,16 @@ async function seccionPANRED3() {
       const bb = await caja(p, "#chats-buscar-caja");
       ok(!!bb && bb.h >= 44 && (await letra(p, "#chats-buscar")) >= 16, `PANRED3 (${nombre}): Chats, el buscador de 16 px`);
       const pas = await pastillas(p, "#chats-filtro");
-      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Con producto (1) · Atención (1) · Ventas (1)" && pas.every((x) => x.h >= 44), `PANRED3 (${nombre}): Chats, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      ok(pas.map((x) => x.t).join(" · ") === "Todas (3) · Sin leer (1) · Con producto (1) · Atención (1) · Ventas (1)" && pas.every((x) => x.h >= 44), `PANRED3 (${nombre}): Chats, pastillas con su recuento (${pas.map((x) => x.t).join(" · ")})`);
+      // SINLEER (dueño, 2026-11-18: «me sale que hay mensajes y cuando entro no hay nada por leer»): la conversación sin leer
+      // lleva su etiqueta, «Sin leer» la cuenta y filtra, y al abrirla deja de estar «Sin leer».
+      ok(/1 Sin leer/.test(cifras) && (await p.locator(`#chat-sin-leer-${CH(2)}`).count()) === 1 && (await p.locator(`#chat-sin-leer-${CH(1)}`).count()) === 0 && (await p.locator(`#chat-sin-leer-${CH(3)}`).count()) === 0, `PANRED3 (${nombre}): Chats, SINLEER: la cifra y la etiqueta «Sin leer» solo en la conversación sin leer`);
+      await p.locator("#chats-filtro-sin_leer").click();
+      await p.waitForTimeout(300);
+      const filasSinLeer = await p.evaluate(() => [...document.querySelectorAll('[id^="chat-fila-"]')].map((e) => e.id));
+      await p.locator("#chats-filtro-todas").click();
+      await p.waitForTimeout(300);
+      ok(JSON.stringify(filasSinLeer) === JSON.stringify([`chat-fila-${CH(2)}`]), `PANRED3 (${nombre}): Chats, SINLEER: «Sin leer» deja solo esa (${filasSinLeer.join(", ")})`);
       const inv = await alturas(p, '#chat-invitar-registro [role="button"]');
       ok(/¿Te escriben por WhatsApp o Instagram\?/.test(await texto(p, "#chat-invitar-registro")) && inv.length === 2 && inv.every((h) => h >= 44), `PANRED3 (${nombre}): Chats, la invitación a registrarse sigue arriba, con copiar y WhatsApp de 44 px (${inv.join(",")})`);
       ok(/Atención al cliente/.test(await texto(p, "#chats-grupo-atencion")) && /Vende: PS4 Pro 1 TB/.test(await texto(p, "#chats-grupo-ventas")) && /Preguntas por artículos/.test(await texto(p, "#chats-grupo-productos")) && /PlayStation 5 Slim con mando/.test(await texto(p, `[id="chats-tarjeta-${PROD}"]`)), `PANRED3 (${nombre}): Chats, los tres grupos (atención, ventas y artículos con su tarjeta)`);
@@ -22502,6 +22512,7 @@ async function seccionPANRED3() {
       ok((await p.locator("#chat-asignar-seguimiento").count()) === 1 && /Conversación empezada por la tienda/.test(await texto(p, "#chat-empezo-tienda")) && (await p.getByText("Hola Ana, ¿qué tal va el mando?").count()) >= 1, `PANRED3 (${nombre}): Chats, al tocar la fila se abre su hilo con sus mensajes y «Asignar seguimiento»`);
       if (nombre === "1280") {
         ok((await fondo(p, `#chat-fila-${CH(2)}`)) !== "rgba(0, 0, 0, 0)" && (await p.locator(`#chat-fila-${CH(1)}`).count()) === 1, `PANRED3 (${nombre}): Chats, en el ordenador la lista sigue al lado y la elegida se marca (${await fondo(p, `#chat-fila-${CH(2)}`)})`);
+        ok((await p.locator(`#chat-sin-leer-${CH(2)}`).count()) === 0 && !/Sin leer \(1\)/.test(await texto(p, "#chats-filtro")), `PANRED3 (${nombre}): Chats, SINLEER: al abrirla deja de estar «Sin leer» (${await texto(p, "#chats-filtro")})`);
       } else {
         ok((await p.getByRole("button", { name: "Volver a las conversaciones" }).count()) === 1, `PANRED3 (${nombre}): Chats, en el móvil el hilo ocupa la pantalla y se vuelve con «Volver a las conversaciones»`);
       }
@@ -23758,8 +23769,74 @@ async function seccionPEDRED() {
   }
 }
 
+// ===== PANSCROLL) El Panel de control se desplaza bien hasta abajo (dueño, 2026-11-18: «que scrollea perfectamente cuando
+// voy hacia abajo, a como lo tenemos en toda la app»): en 360/390 con el dedo y en 1280 con la rueda, cada gesto avanza, no
+// rebota hacia arriba, la página entera no se mueve (solo su lista) y se llega a «Volver a la tienda».
+async function seccionPANSCROLL() {
+  const vistas = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 640 } }, dedo: true },
+    { nombre: "390", vista: { viewport: { width: 390, height: 844 } }, dedo: true },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 }, dedo: false },
+  ];
+  for (const v of vistas) {
+    const ctx = await contexto(navegador, ADMIN, "admin", { filas: [], guardados: [] }, v.vista);
+    const p = await pagina(ctx, "/admin");
+    await p.locator("#panel-cifras").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    // La lista que se desplaza: el antepasado de las cifras con desplazamiento vertical.
+    const medir = () =>
+      p.evaluate(() => {
+        let el = document.getElementById("panel-cifras");
+        while (el && !(el.scrollHeight > el.clientHeight + 4 && /(auto|scroll)/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
+        const volver = [...document.querySelectorAll("div")].find((d) => d.innerText?.trim() === "Volver a la tienda" && !d.querySelector("div"));
+        const r = volver?.getBoundingClientRect();
+        return { hay: !!el, top: el ? Math.round(el.scrollTop) : -1, alto: el ? el.scrollHeight - el.clientHeight : 0, ventana: Math.round(window.scrollY), volverAbajo: r ? Math.round(r.bottom) : 99999, vh: window.innerHeight };
+      });
+    const inicio = await medir();
+    ok(inicio.hay && inicio.alto > 100, `PANSCROLL (${v.nombre}): el Panel de control tiene su lista desplazable (${inicio.alto} px por debajo)`);
+    const cdp = v.dedo ? await ctx.newCDPSession(p) : null;
+    const gesto = async () => {
+      if (v.dedo) {
+        const x = Math.round(inicio.vh ? 180 : 180);
+        const y0 = Math.round(inicio.vh * 0.75);
+        const y1 = Math.round(inicio.vh * 0.3);
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: y0 }] });
+        for (let i = 1; i <= 10; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y0 + ((y1 - y0) * i) / 10 }] });
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      } else {
+        await p.mouse.move(640, 400);
+        await p.mouse.wheel(0, 500);
+      }
+      await p.waitForTimeout(700);
+    };
+    const pasos = [];
+    let antes = inicio.top;
+    let rebotes = 0;
+    for (let i = 0; i < 25; i++) {
+      const m = await medir();
+      if (m.volverAbajo <= m.vh) break;
+      await gesto();
+      const despues = await medir();
+      await p.waitForTimeout(500);
+      const asentado = await medir();
+      pasos.push(despues.top - antes);
+      if (asentado.top < despues.top - 4) rebotes++;
+      antes = asentado.top;
+    }
+    const fin = await medir();
+    ok(pasos.length > 0 && pasos.every((d) => d > 0), `PANSCROLL (${v.nombre}): cada ${v.dedo ? "deslizamiento" : "giro de rueda"} avanza (${pasos.join(", ")} px)`);
+    ok(rebotes === 0, `PANSCROLL (${v.nombre}): no rebota hacia arriba al soltar (${rebotes})`);
+    ok(fin.ventana === 0, `PANSCROLL (${v.nombre}): solo se mueve la lista, no la página entera (ventana en ${fin.ventana})`);
+    ok(fin.volverAbajo <= fin.vh, `PANSCROLL (${v.nombre}): se llega hasta «Volver a la tienda» (a ${fin.volverAbajo} de ${fin.vh} px, en ${pasos.length} gestos)`);
+    ok(p.errores.length === 0, `PANSCROLL (${v.nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await capturar(p, `PANSCROLL-${v.nombre}-final`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "PANSCROLL") await seccionPANSCROLL();
   if (SOLO === "CANCAV") await seccionCANCAV();
   if (SOLO === "CANDIS") await seccionCANDIS();
   if (SOLO === "PANRED1") await seccionPANRED1();

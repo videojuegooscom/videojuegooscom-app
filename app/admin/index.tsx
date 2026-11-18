@@ -85,7 +85,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { CabeceraPanel } from "../../lib/admin/productos.componentes";
 import { leerPanelVistos, sombraSuave, type SeccionConNovedades } from "../../lib/admin/productos.utilidades";
@@ -569,7 +569,14 @@ export default function AdminHome() {
                   icono={icono}
                   ancho={isMobile ? "45%" : 0}
                   alerta={n > 0}
-                  onPress={accion ? () => abrir(accion.key, accion.onPress) : undefined}
+                  // «Chats sin leer» abre Chats con solo las conversaciones sin leer (dueño, 2026-11-18).
+                  onPress={
+                    accion
+                      ? key === "chats" && n > 0
+                        ? () => abrir(accion.key, () => router.push("/admin/chats?filtro=sin_leer" as Href))
+                        : () => abrir(accion.key, accion.onPress)
+                      : undefined
+                  }
                 />
               );
             })}

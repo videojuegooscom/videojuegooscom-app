@@ -158,10 +158,13 @@ type ChatRow = {
   customer_name: string;
   // Quién escribió el primer mensaje: «tienda» si el administrador empezó la conversación (desde la ficha del cliente).
   empezo: "tienda" | "cliente" | null;
+  // Sin leer (dueño, 2026-11-18: «me sale que hay mensajes y cuando entro no hay nada por leer»): el último mensaje es del
+  // cliente y es posterior a la última vez que el administrador la abrió; lo mismo que cuenta get_unread_chat_count.
+  sin_leer: boolean;
 };
 
-// Filtro de la lista: todas, las de un producto (mejora 10), las consultas generales o las ventas de clientes.
-type FiltroChats = "todas" | "producto" | "atencion" | "ventas";
+// Filtro de la lista: todas, las sin leer, las de un producto (mejora 10), las consultas generales o las ventas de clientes.
+type FiltroChats = "todas" | "sin_leer" | "producto" | "atencion" | "ventas";
 
 type ProductGroup = {
   product_id: string;
@@ -556,7 +559,8 @@ export default function AdminChats() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   // Conversación pedida por la URL (?chat=) y la última que ya se abrió.
-  const { chat: chatUrl } = useLocalSearchParams<{ chat?: string }>();
+  // ?filtro=sin_leer: desde la cifra «Chats sin leer» del Panel de control, la lista ya filtrada.
+  const { chat: chatUrl, filtro: filtroUrl } = useLocalSearchParams<{ chat?: string; filtro?: string }>();
   const chatUrlRef = useRef<string>(typeof chatUrl === "string" ? chatUrl : "");
   chatUrlRef.current = typeof chatUrl === "string" ? chatUrl : "";
   const abiertaPorUrl = useRef("");
@@ -566,7 +570,7 @@ export default function AdminChats() {
     try {
       const { data: chats, error } = await supabase
         .from("product_chats")
-        .select("id,product_id,sell_request_id,customer_user_id,last_message_at,last_message_preview")
+        .select("id,product_id,sell_request_id,customer_user_id,last_message_at,last_message_preview,last_sender_role,admin_last_read_at")
         // Solo las que NO he borrado yo (admin) de mi bandeja — ver
         // delete_chat_for_me. Si el cliente la borró de la suya pero yo no,
         // aquí sigue apareciendo.
@@ -575,7 +579,12 @@ export default function AdminChats() {
 
       if (error) throw error;
 
-      const chatRows = (chats ?? []) as Omit<ChatRow, "customer_name" | "empezo">[];
+      const chatRows = ((chats ?? []) as (Omit<ChatRow, "customer_name" | "empezo" | "sin_leer"> & { last_sender_role?: string | null; admin_last_read_at?: string | null })[]).map(
+        ({ last_sender_role, admin_last_read_at, ...c }) => ({
+          ...c,
+          sin_leer: last_sender_role === "customer" && (!admin_last_read_at || c.last_message_at > admin_last_read_at),
+        })
+      );
       if (chatRows.length === 0) {
         setGroups([]);
         setSupportChats([]);
@@ -734,24 +743,28 @@ export default function AdminChats() {
 
   // Filtro de la lista (mejora 10 y PANRED3): todas, las que tienen un producto adjunto, las consultas generales o las
   // ventas de clientes; y el buscador (cliente, último mensaje, producto o artículo que vende).
-  const [filtro, setFiltro] = useState<FiltroChats>("todas");
+  const [filtro, setFiltro] = useState<FiltroChats>(filtroUrl === "sin_leer" ? "sin_leer" : "todas");
   const [buscar, setBuscar] = useState("");
+  // Las que se abren en esta visita dejan de estar «Sin leer» al momento (la conversación la marca leída en la base de datos).
+  const [abiertasAhora, setAbiertasAhora] = useState<Set<string>>(() => new Set());
+  const sinLeer = (c: ChatRow) => c.sin_leer && !abiertasAhora.has(c.id);
   const chatsConProducto = useMemo(() => groups.reduce((sum, g) => sum + g.chats.length, 0), [groups]);
   const chatsVentas = useMemo(() => sellGroups.reduce((sum, g) => sum + g.chats.length, 0), [sellGroups]);
 
   const totalChats = chatsConProducto + chatsVentas + supportChats.length;
-  const cuenta: Record<FiltroChats, number> = { todas: totalChats, producto: chatsConProducto, atencion: supportChats.length, ventas: chatsVentas };
+  const chatsSinLeer = [...supportChats, ...groups.flatMap((g) => g.chats), ...sellGroups.flatMap((g) => g.chats)].filter(sinLeer).length;
+  const cuenta: Record<FiltroChats, number> = { todas: totalChats, sin_leer: chatsSinLeer, producto: chatsConProducto, atencion: supportChats.length, ventas: chatsVentas };
 
   const q = buscar.trim().toLowerCase();
   const coincide = (chat: ChatRow, extra = "") =>
-    !q || `${chat.customer_name} ${chat.last_message_preview ?? ""} ${extra}`.toLowerCase().includes(q);
+    (filtro !== "sin_leer" || sinLeer(chat)) && (!q || `${chat.customer_name} ${chat.last_message_preview ?? ""} ${extra}`.toLowerCase().includes(q));
   // (Listas pequeñas: como mucho unos cientos de conversaciones; se filtran en cada pintado.)
   const soporteVisibles = supportChats.filter((c) => coincide(c, TITULO_ATENCION_CLIENTE));
   const ventasVisibles = sellGroups.map((g) => ({ ...g, chats: g.chats.filter((c) => coincide(c, g.articulo)) })).filter((g) => g.chats.length > 0);
   const gruposVisibles = groups.map((g) => ({ ...g, chats: g.chats.filter((c) => coincide(c, g.product_title)) })).filter((g) => g.chats.length > 0);
-  const verAtencion = filtro === "todas" || filtro === "atencion";
-  const verVentas = filtro === "todas" || filtro === "ventas";
-  const verProductos = filtro === "todas" || filtro === "producto";
+  const verAtencion = filtro === "todas" || filtro === "sin_leer" || filtro === "atencion";
+  const verVentas = filtro === "todas" || filtro === "sin_leer" || filtro === "ventas";
+  const verProductos = filtro === "todas" || filtro === "sin_leer" || filtro === "producto";
   const enLista =
     (verAtencion ? soporteVisibles.length : 0) +
     (verVentas ? ventasVisibles.reduce((s, g) => s + g.chats.length, 0) : 0) +
@@ -826,6 +839,7 @@ export default function AdminChats() {
         onPress={() => {
           setSelectedChat(chat);
           setSelectedProduct(group);
+          if (chat.sin_leer) setAbiertasAhora((prev) => new Set(prev).add(chat.id));
         }}
         miniatura={<Miniatura icono="person-outline" ancho={40} alto={40} />}
         titulo={chat.customer_name}
@@ -834,6 +848,7 @@ export default function AdminChats() {
         lineasSubtitulo={1}
         etiquetas={
           <>
+            {sinLeer(chat) ? <EtiquetaColor nativeID={`chat-sin-leer-${chat.id}`} texto="Sin leer" tono="amarillo" /> : null}
             <Etiqueta icon="time-outline" color={COLORS.muted} texto={formatDate(chat.last_message_at)} />
             {sold ? (
               <EtiquetaColor nativeID={`chat-vendido-${chat.id}`} texto="Vendido a este cliente" tono="verde" />
@@ -872,6 +887,7 @@ export default function AdminChats() {
             {(
               [
                 ["todas", "Conversaciones", "chatbubbles-outline"],
+                ["sin_leer", "Sin leer", "mail-unread-outline"],
                 ["producto", "Con producto", "cube-outline"],
                 ["atencion", TITULO_ATENCION_CLIENTE, "chatbubble-ellipses-outline"],
                 ["ventas", "Ventas de clientes", "pricetag-outline"],
@@ -895,6 +911,7 @@ export default function AdminChats() {
               {(
                 [
                   ["todas", "Todas"],
+                  ["sin_leer", "Sin leer"],
                   ["producto", "Con producto"],
                   ["atencion", "Atención"],
                   ["ventas", "Ventas"],
