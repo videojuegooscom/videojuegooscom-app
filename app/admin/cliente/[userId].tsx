@@ -33,7 +33,8 @@
  *   la elegida queda en la URL (?tab=pedidos) para volver a ella, y deslizando el dedo se pasa a la siguiente (en bucle).
  *   - Resumen: la nota interna fijada (fondo amarillo suave), los 3 últimos movimientos, los datos del perfil (edad sin
  *     fecha de nacimiento, dirección de envío), los dispositivos y «Conversaciones con Blue IA» (#ficha-blue-ia, dueño
- *     2026-11-18: si ha hablado con Blue IA, cuándo y qué; cada conversación se despliega al tocarla; BlueIACliente).
+ *     2026-11-18: si ha hablado con Blue IA, cuándo y qué; cada conversación se despliega al tocarla; BlueIACliente). Se
+ *     actualiza sola cada 10 s con la ficha a la vista («Ahora mismo» si tiene un mensaje de hace menos de 3 minutos).
  *   - Pedidos: filas compactas (miniatura del artículo si la hay, referencia VZ-, importe, etapa con color, factura y «Ver
  *     factura»); al tocar uno se despliega (nº interno, artículos, entrega, pago con tarjeta y los botones de etapa de 44 px
  *     separados 8 px) y se vuelve a plegar. Debajo, «Pagos e intentos de compra» y «Compras a la tienda».
@@ -1882,26 +1883,71 @@ function BlueIACliente({ userId }: { userId: string }) {
   const [mensajes, setMensajes] = useState<Record<string, MensajeBlue[] | "cargando" | "error">>({});
   const [verTodas, setVerTodas] = useState(false);
 
+  // La conversación abierta y sus mensajes, para el repaso (sin rehacer el reloj en cada cambio).
+  const abiertaRef = useRef<string | null>(null);
+  abiertaRef.current = abierta;
+  const mensajesRef = useRef(mensajes);
+  mensajesRef.current = mensajes;
+
+  // En directo (dueño, 2026-11-18: «si el usuario está hablando con Blue, poder verlo sin recargar»): al entrar y cada
+  // 10 s con la ficha a la vista se relee la lista (consulta pequeña: sale una conversación nueva o sube la que se está
+  // usando, porque cada mensaje guardado actualiza su updated_at con trg_blue_ia_tocar_conversacion) y, de la
+  // conversación abierta, solo los mensajes posteriores al último que hay. Blue IA guarda cada pregunta junto con su
+  // respuesta en cuanto llega la respuesta, así que se ve cada intercambio unos segundos después de que el cliente lo lea.
   useEffect(() => {
     let vivo = true;
     setConversaciones(null);
     setError(false);
-    supabase
-      .from("blue_ia_conversaciones")
-      .select("id,titulo,contexto,created_at,updated_at,archivada")
-      .eq("user_id", userId)
-      .order("updated_at", { ascending: false })
-      .limit(50)
-      .then(
-        ({ data, error: e }) => {
-          if (!vivo) return;
-          if (e) setError(true);
-          else setConversaciones((data ?? []) as ConversacionBlue[]);
-        },
-        () => vivo && setError(true)
-      );
+    const repasar = async (primera: boolean) => {
+      if (!primera && Platform.OS === "web" && typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      try {
+        const { data, error: e } = await supabase
+          .from("blue_ia_conversaciones")
+          .select("id,titulo,contexto,created_at,updated_at,archivada")
+          .eq("user_id", userId)
+          .order("updated_at", { ascending: false })
+          .limit(50);
+        if (!vivo) return;
+        if (e) {
+          // Un fallo al repasar no borra lo que ya se ve.
+          if (primera) setError(true);
+          return;
+        }
+        setError(false);
+        setConversaciones((data ?? []) as ConversacionBlue[]);
+      } catch {
+        if (vivo && primera) setError(true);
+      }
+      const id = abiertaRef.current;
+      const actuales = id ? mensajesRef.current[id] : undefined;
+      if (!id || !Array.isArray(actuales)) return;
+      const ultimo = actuales.length ? actuales[actuales.length - 1].created_at : null;
+      try {
+        let consulta = supabase
+          .from("blue_ia_mensajes")
+          .select("id,conversacion_id,created_at,rol,texto")
+          .eq("conversacion_id", id)
+          .order("created_at", { ascending: true })
+          .limit(200);
+        if (ultimo) consulta = consulta.gt("created_at", ultimo);
+        const { data, error: e } = await consulta;
+        if (!vivo || e || !data?.length) return;
+        setMensajes((m) => {
+          const antes = m[id];
+          if (!Array.isArray(antes)) return m;
+          const ids = new Set(antes.map((x) => x.id));
+          const nuevos = (data as MensajeBlue[]).filter((x) => !ids.has(x.id));
+          return nuevos.length ? { ...m, [id]: [...antes, ...nuevos] } : m;
+        });
+      } catch {
+        // sin conexión: el siguiente repaso lo intenta otra vez
+      }
+    };
+    void repasar(true);
+    const reloj = setInterval(() => void repasar(false), 10000);
     return () => {
       vivo = false;
+      clearInterval(reloj);
     };
   }, [userId]);
 
@@ -1925,6 +1971,8 @@ function BlueIACliente({ userId }: { userId: string }) {
   const lista = conversaciones ?? [];
   const visibles = verTodas ? lista : lista.slice(0, 5);
   const titulo = (c: ConversacionBlue) => (c.titulo?.trim() ? c.titulo.trim() : "Conversación sin título");
+  // «Ahora mismo»: la conversación tiene un mensaje de hace menos de 3 minutos (lo más probable es que siga hablando).
+  const ahoraMismo = (c: ConversacionBlue) => Date.now() - Date.parse(c.updated_at) < 3 * 60 * 1000;
 
   return (
     <Seccion nativeID="ficha-blue-ia" icon="sparkles-outline" title="Conversaciones con Blue IA" count={conversaciones ? lista.length : undefined}>
@@ -1937,7 +1985,7 @@ function BlueIACliente({ userId }: { userId: string }) {
       ) : (
         <View>
           <Text nativeID="ficha-blue-ia-resumen" style={{ color: COLORS.muted, fontSize: 13, fontWeight: "700", paddingBottom: 4 }}>
-            Ha hablado con Blue IA · última vez {haceCuanto(lista[0].updated_at)}
+            Ha hablado con Blue IA · última vez {haceCuanto(lista[0].updated_at)} · se actualiza sola
           </Text>
           {visibles.map((c, i) => {
             const msgs = mensajes[c.id];
@@ -1957,6 +2005,11 @@ function BlueIACliente({ userId }: { userId: string }) {
                       {titulo(c)}
                     </Text>
                     <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18 }}>
+                      {ahoraMismo(c) ? (
+                        <Text nativeID={`ficha-blue-ia-ahora-${c.id}`} style={{ color: COLORS.success, fontWeight: "800" }}>
+                          Ahora mismo ·{" "}
+                        </Text>
+                      ) : null}
                       {fmtFechaHora(c.updated_at)}
                       {c.archivada ? " · Archivada por el cliente" : ""}
                     </Text>
