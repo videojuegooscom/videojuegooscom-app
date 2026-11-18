@@ -31,6 +31,10 @@
  *     y cada 6 h tras 12 intentos); O con id_veoaura no se envía; P un cambio de título, precio o fotos avisa otra vez y se
  *     espera a que el producto se estabilice; Q no pisa un id existente ni repite el de otro producto; R sin la migración
  *     no se rompe nada. Controles: copias con un fallo a propósito, que estas comprobaciones detectan.
+ *  S) Comisión de Stripe (VeoAura, 2026-11-18): con pago con tarjeta, "comision" en euros y como número en el «pedido»
+ *     y en el de pagado (fee / 100, leída de Stripe en solo lectura y simulada aquí), repartida entre varios artículos,
+ *     el de pagado espera a que Stripe la dé (hasta 30 min), nunca en la anulación, ni sin tarjeta, ni con un pago de
+ *     otro modo que la clave, ni sin clave, ni si no tiene sentido (≥ precio).
  *  CONTROLES) Una copia del puente que considera «pagado» un pedido pendiente manda los datos del cliente antes de
  *     tiempo: la comprobación A lo detecta. Otra que manda el de pagado con otro nombre de evento: C lo detecta. Otra
  *     que no vuelve a mirar el estado al enviar los manda de un pedido cancelado: la comprobación I lo detecta.
@@ -74,6 +78,8 @@ const PRIV_TARJETA = "le comunicamos ese pedido y, cuando lo pagas con tarjeta o
 const privacidad = (texto) => ({ slug: "privacidad", sections: [{ heading: "Con quién compartimos tus datos", body: texto }] });
 let sinMigracionPagado = false; // la base de datos aún no admite «pedido_pagado»
 const recibidos = []; // lo que llega a VeoAura: { cuerpo, firmaOk, mensaje }
+let stripe = {}; // pi_… → { fee (céntimos; sin él, Stripe aún no la da), moneda, caido }
+const llamadasStripe = [];
 
 const json = (cuerpo, status = 200) => new Response(JSON.stringify(cuerpo), { status, headers: { "content-type": "application/json" } });
 // Filtros de PostgREST que usa el puente: eq., in.(…), lt., gte., not.is.null.
@@ -114,6 +120,15 @@ globalThis.fetch = async (entrada, opciones = {}) => {
     recibidos.push({ cuerpo, firmaOk: firma === cabeceras.get("x-tienda-firma"), mensaje: JSON.parse(cuerpo) });
     const r = responderVeoaura(JSON.parse(cuerpo));
     return json(r.cuerpo, r.estado);
+  }
+  // Stripe simulado (sección S): cada cobro pi_… responde lo que diga `stripe`; se apunta cada llamada.
+  if (url.origin === "https://api.stripe.com") {
+    llamadasStripe.push({ metodo, ruta: url.pathname, expand: url.searchParams.getAll("expand[]"), clave: cabeceras.get("authorization") });
+    const pi = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+    const r = stripe[pi];
+    if (!r) return json({ error: { message: "No such payment_intent" } }, 404);
+    if (r.caido) return json({ error: { message: "caído" } }, 500);
+    return json({ id: pi, latest_charge: { id: "ch_1", balance_transaction: r.fee === undefined ? null : { fee: r.fee, currency: r.moneda ?? "eur" } } });
   }
   if (url.origin !== FALSO) throw new Error(`prueba: salida de red inesperada a ${url.origin}`);
   const tabla = url.pathname.replace("/rest/v1/", "");
@@ -539,6 +554,85 @@ try {
     const tras = await vueltasProducto(retorno, 2);
     ok(tras.length === 1 && !!mano().id_veoaura, "R: aplicada la migración, el producto sale");
   }
+  // S) Comisión de Stripe (VeoAura, 2026-11-18): en el «pedido» y en el de pagado de un pago con tarjeta va
+  //    "comision" en euros y como número (fee de la balance_transaction / 100), leída de Stripe en solo lectura;
+  //    repartida si hay varios artículos; nunca en la anulación ni sin tarjeta; el de pagado espera a que Stripe la dé
+  //    (hasta 30 min) y después sale sin ella.
+  {
+    const conTarjeta = (id, numero, items, extra = {}) =>
+      pedido(id, numero, "pendiente", items, { pago_estado: "pagado", devuelto_en: null, pago_referencia: `pi_${numero}`, pago_modo: "prueba", pagado_en: new Date().toISOString(), ...extra });
+    const preparar = (...pedidos) => {
+      reiniciar();
+      tablas.policy_pages[0] = privacidad(PRIV_TARJETA);
+      tablas.pedidos.push(...pedidos);
+      llamadasStripe.length = 0;
+    };
+    const vueltas = async (n) => {
+      const todos = [];
+      for (let i = 0; i < n; i++) todos.push(...(await vuelta(retorno)).nuevos);
+      return todos;
+    };
+    process.env.STRIPE_SECRET_KEY = "sk_test_clave_de_prueba";
+
+    // S1) Un artículo: 18,25 € como número, en el «pedido» y en el de pagado; solo lectura en Stripe.
+    stripe = { pi_201: { fee: 1825 } };
+    preparar(conTarjeta("ped-s1", 201, [{ product_id: "p-veo-1", precio_eur: 1200 }]));
+    const s1 = await vueltas(3);
+    const pagadoS1 = s1.find(esPagado);
+    ok(s1.map(tipo).join(",") === "pedido,pagado" && pagadoS1?.mensaje.pedido.comision === 18.25 && typeof pagadoS1?.mensaje.pedido.comision === "number" && pagadoS1.firmaOk, `S: pagado con tarjeta, el aviso de pagado lleva "comision": 18.25 (número) y va firmado (${JSON.stringify(pagadoS1?.mensaje.pedido)})`);
+    ok(s1.find((n) => tipo(n) === "pedido")?.mensaje.pedido.comision === 18.25, "S: el primer «pedido» también la lleva (el cobro ya estaba hecho)");
+    ok(llamadasStripe.length > 0 && llamadasStripe.every((l) => l.metodo === "GET" && l.ruta === "/v1/payment_intents/pi_201" && l.expand.includes("latest_charge.balance_transaction") && l.clave === "Bearer sk_test_clave_de_prueba"), `S: a Stripe solo se le pregunta (GET del cobro con su balance_transaction) (${JSON.stringify(llamadasStripe[0])})`);
+    ok(pagadoS1?.mensaje.pedido.precio === 1200, "S: el precio de venta no cambia");
+
+    // S2) Dos artículos de VeoAura en el mismo cobro: la comisión se reparte según el precio (100 € y 300 €, 8 € → 2 y 6).
+    stripe = { pi_202: { fee: 800 } };
+    preparar(conTarjeta("ped-s2", 202, [{ product_id: "p-veo-1", precio_eur: 100 }, { product_id: "p-veo-2", precio_eur: 300 }]));
+    const s2 = (await vueltas(4)).filter(esPagado);
+    const porArticulo = Object.fromEntries(s2.map((n) => [n.mensaje.id_veoaura, n.mensaje.pedido.comision]));
+    ok(porArticulo["VEO-1"] === 2 && porArticulo["VEO-2"] === 6, `S: con varios artículos, a cada uno su parte (${JSON.stringify(porArticulo)})`);
+
+    // S3) Stripe aún no la da: el de pagado espera (el «pedido» no); cuando la da, sale con ella.
+    stripe = { pi_203: {} };
+    preparar(conTarjeta("ped-s3", 203, [{ product_id: "p-veo-1", precio_eur: 500 }]));
+    const s3a = await vueltas(3);
+    ok(s3a.map(tipo).join(",") === "pedido" && !("comision" in s3a[0].mensaje.pedido), `S: sin la comisión aún, el «pedido» sale sin ella y el de pagado espera (${s3a.map(tipo).join(",")})`);
+    stripe = { pi_203: { fee: 790 } };
+    const s3b = await vueltas(1);
+    ok(s3b.map(tipo).join(",") === "pagado" && s3b[0].mensaje.pedido.comision === 7.9, `S: cuando Stripe la da, sale el de pagado con ella (${s3b.map(tipo).join(",")} ${s3b[0]?.mensaje.pedido.comision})`);
+
+    // S4) Pasados 30 min sin comisión (o Stripe caído): sale igual, sin ella.
+    stripe = { pi_204: { caido: true } };
+    preparar(conTarjeta("ped-s4", 204, [{ product_id: "p-veo-1", precio_eur: 500 }], { pagado_en: new Date(Date.now() - 31 * 60 * 1000).toISOString() }));
+    const s4 = await vueltas(3);
+    ok(s4.map(tipo).join(",") === "pedido,pagado" && !s4.some((n) => "comision" in n.mensaje.pedido), `S: pasados 30 min, el de pagado sale sin comisión (${s4.map(tipo).join(",")})`);
+
+    // S5) Sin tarjeta (entregado en mano), pago de otro modo que la clave o sin clave: ni se pregunta a Stripe ni va comisión.
+    stripe = { pi_206: { fee: 300 } };
+    preparar(
+      pedido("ped-s5", 205, "entregado", [{ product_id: "p-veo-1", precio_eur: 80 }]),
+      conTarjeta("ped-s6", 206, [{ product_id: "p-veo-2", precio_eur: 90 }], { pago_modo: "real" })
+    );
+    const s5 = await vueltas(4);
+    ok(llamadasStripe.length === 0 && s5.filter(esPagado).length === 2 && !s5.some((n) => "comision" in n.mensaje.pedido), `S: sin tarjeta o con un pago «real» y la clave de prueba, ni Stripe ni comisión (${llamadasStripe.length} llamadas)`);
+    delete process.env.STRIPE_SECRET_KEY;
+    stripe = { pi_207: { fee: 300 } };
+    preparar(conTarjeta("ped-s7", 207, [{ product_id: "p-veo-1", precio_eur: 90 }]));
+    const s7 = await vueltas(3);
+    ok(llamadasStripe.length === 0 && s7.filter(esPagado).length === 1 && !s7.some((n) => "comision" in n.mensaje.pedido), "S: sin la clave de Stripe, todo sale como antes, sin comisión");
+
+    // S8) Anulado: la anulación nunca la lleva; y una comisión absurda (≥ precio) no se envía.
+    process.env.STRIPE_SECRET_KEY = "sk_test_clave_de_prueba";
+    stripe = { pi_208: { fee: 5000 } };
+    preparar(conTarjeta("ped-s8", 208, [{ product_id: "p-veo-1", precio_eur: 40 }]));
+    const s8a = await vueltas(3);
+    ok(!s8a.some((n) => "comision" in n.mensaje.pedido), "S: una comisión mayor que el precio no se envía");
+    tablas.pedidos[0].estado = "cancelado";
+    const s8b = await vueltas(2);
+    ok(s8b.some((n) => n.mensaje.evento === "pedido_anulado") && !s8b.some((n) => "comision" in (n.mensaje.pedido ?? {})), `S: «pedido_anulado» nunca lleva comisión (${s8b.map((n) => n.mensaje.evento).join(",")})`);
+    delete process.env.STRIPE_SECRET_KEY;
+    stripe = {};
+  }
+
   // CONTROLES) Copias del puente con un fallo a propósito: las comprobaciones L–Q lo detectan.
   {
     const controles = [
