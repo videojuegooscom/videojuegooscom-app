@@ -400,6 +400,8 @@ export default function ConversacionProducto({
   onDeleted?: () => void;
 }) {
   const [meId, setMeId] = useState<string | null>(null);
+  // Quién soy, para la suscripción en tiempo real sin volver a crearla cuando se sabe (ver más abajo).
+  const meIdRef = useRef<string | null>(null);
   const [product, setProduct] = useState<ProductInfo | null>(null);
   // Chat con el producto adjunto: la tarjeta de arriba y si quien mira es el cliente dueño de la conversación (chips y analítica).
   const [articulo, setArticulo] = useState<ArticuloChat | null>(null);
@@ -424,6 +426,7 @@ export default function ConversacionProducto({
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const yo = sessionData.session?.user?.id ?? null;
+      meIdRef.current = yo;
       setMeId(yo);
 
       const { data: chatRow } = await supabase
@@ -499,34 +502,88 @@ export default function ConversacionProducto({
     );
   }, [chatId]);
 
+  // Añade mensajes que aún no están (por su id) y los deja en orden. Lo usan el tiempo real, el repaso y el envío.
+  const anadirMensajes = useCallback(
+    (nuevos: ChatMessage[]) => {
+      if (!nuevos.length) return;
+      setMessages((prev) => {
+        const ids = new Set(prev.map((m) => m.id));
+        const faltan = nuevos.filter((m) => m.chat_id === chatId && !ids.has(m.id));
+        if (!faltan.length) return prev;
+        return [...prev, ...faltan].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+      });
+      const cliente = nuevos.find((m) => m.sender_role === "customer");
+      if (cliente) setCustomerName(cliente.sender_name || "Cliente");
+      // Mensaje ajeno mientras el hilo está abierto: se marca leído al
+      // instante para que la campanita no lo cuente.
+      if (nuevos.some((m) => m.sender_user_id !== meIdRef.current)) {
+        supabase.rpc("mark_chat_read", { p_chat_id: chatId }).then(
+          () => {},
+          () => {}
+        );
+      }
+    },
+    [chatId]
+  );
+
+  // Tiempo real. Antes dependía también de meId: al saberse quién soy (justo después de cargar) se cerraba el canal y se
+  // pedía otro con el MISMO nombre, y Supabase devolvía el que se estaba cerrando: la conversación dejaba de recibir
+  // mensajes (ni los propios ni los de la otra parte) hasta salir y volver a entrar (dueño, 2026-11-18, chat con María).
+  // Ahora el canal se crea una vez por conversación, con un nombre propio de esta pantalla.
   useEffect(() => {
     if (!chatId) return;
 
     const channel = supabase
-      .channel(`product_chat_${chatId}`)
+      .channel(`product_chat_${chatId}_${Math.random().toString(36).slice(2, 10)}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "product_chat_messages", filter: `chat_id=eq.${chatId}` },
-        (payload) => {
-          const row = payload.new as ChatMessage;
-          setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
-          if (row.sender_role === "customer") setCustomerName(row.sender_name || "Cliente");
-          // Mensaje ajeno mientras el hilo está abierto: se marca leído al
-          // instante para que la campanita no lo cuente.
-          if (row.sender_user_id !== meId) {
-            supabase.rpc("mark_chat_read", { p_chat_id: chatId }).then(
-              () => {},
-              () => {}
-            );
-          }
-        }
+        (payload) => anadirMensajes([payload.new as ChatMessage])
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [chatId, meId]);
+  }, [chatId, anadirMensajes]);
+
+  // Repaso por si el tiempo real se corta (móvil en segundo plano, red que cambia): al volver a la pantalla y cada 15 s
+  // con ella a la vista se piden solo los mensajes posteriores al último que hay (consulta pequeña).
+  const ultimoMensajeRef = useRef<string | null>(null);
+  useEffect(() => {
+    ultimoMensajeRef.current = messages.length ? messages[messages.length - 1].created_at : null;
+  }, [messages]);
+  useEffect(() => {
+    if (!chatId || loading) return;
+    let vivo = true;
+    const repasar = async () => {
+      if (Platform.OS === "web" && typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      try {
+        let consulta = supabase
+          .from("product_chat_messages")
+          .select("id,created_at,chat_id,sender_user_id,sender_role,sender_name,body")
+          .eq("chat_id", chatId)
+          .order("created_at", { ascending: true })
+          .limit(100);
+        if (ultimoMensajeRef.current) consulta = consulta.gt("created_at", ultimoMensajeRef.current);
+        const { data, error } = await consulta;
+        if (vivo && !error && data) anadirMensajes(data as ChatMessage[]);
+      } catch {
+        // sin conexión: el siguiente repaso lo intenta otra vez
+      }
+    };
+    const reloj = setInterval(repasar, 15000);
+    const alVolver = () => {
+      if (document.visibilityState === "visible") void repasar();
+    };
+    const conVentana = Platform.OS === "web" && typeof document !== "undefined";
+    if (conVentana) document.addEventListener("visibilitychange", alVolver);
+    return () => {
+      vivo = false;
+      clearInterval(reloj);
+      if (conVentana) document.removeEventListener("visibilitychange", alVolver);
+    };
+  }, [chatId, loading, anadirMensajes]);
 
   useEffect(() => {
     if (!loading) requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
@@ -549,8 +606,14 @@ export default function ConversacionProducto({
 
     setSending(true);
     try {
-      const { error } = await supabase.from("product_chat_messages").insert({ chat_id: chatId, body });
+      const { data: enviado, error } = await supabase
+        .from("product_chat_messages")
+        .insert({ chat_id: chatId, body })
+        .select("id,created_at,chat_id,sender_user_id,sender_role,sender_name,body")
+        .maybeSingle();
       if (error) throw error;
+      // El mensaje propio se ve al momento, sin esperar al tiempo real.
+      if (enviado) anadirMensajes([enviado as ChatMessage]);
       setDraft("");
       // Pregunta por un artículo (solo el cliente; nunca el texto): si era la primera y si salió de una sugerencia.
       if (chatKind === "product" && soyCliente && articulo) {
