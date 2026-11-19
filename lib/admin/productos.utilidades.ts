@@ -374,10 +374,11 @@ export async function reducirImagenWeb(file: File, lado = 1600, calidad = 0.85, 
 // paquete opcional "heic2any" (npm install heic2any). Si no está
 // disponible, se informa al usuario con un mensaje en español sin
 // detalles técnicos.
+// Se carga solo cuando hace falta (una foto HEIC). Antes se cargaba con `new Function("return import(m)")` y «heic2any» a
+// secas, que el navegador no sabe resolver en la web publicada: toda foto HEIC fallaba (arreglado el 2026-11-19).
 async function dynamicImportHeic2Any(): Promise<any> {
   try {
-    const importer = new Function("m", "return import(m)") as (m: string) => Promise<any>;
-    return await importer("heic2any");
+    return await import("heic2any");
   } catch {
     throw new Error("Este formato de imagen no está disponible en este momento. Prueba a subirla en formato JPG, PNG, WEBP o AVIF.");
   }

@@ -481,6 +481,7 @@
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { lanzarNavegador } from "./sin-fotos-reales.mjs";
 
 const raiz = resolve(process.argv[2] ?? "dist");
@@ -19046,6 +19047,29 @@ async function seccionVENFOT() {
       ok(a.startsWith(aviso) && (await texto(p, "#vender-video-boton")) === "Añadir vídeo (20-30 s)", `VENFOT: un vídeo de ${s || "duración desconocida"} s se rechaza con su aviso (${a})`);
       if (s === 15) await capturar(p, "VENFOT1-video-corto-390");
     }
+    // Reclamación real (2026-11-19): con fotos HEIC del iPhone no se podía enviar. El conversor se cargaba con un nombre
+    // que el navegador no sabe resolver; ahora es un trozo propio de la web que se descarga al elegir una foto HEIC.
+    const trozos = [];
+    p.on("request", (q) => { if (/\/heic2any-[0-9a-f]+\.js/.test(q.url())) trozos.push(q.url()); });
+    {
+      const [selector] = await Promise.all([p.waitForEvent("filechooser", { timeout: 10000 }).catch(() => null), p.locator("#vender-fotos-boton").click()]);
+      if (selector) await selector.setFiles([{ name: "IMG_0001.HEIC", mimeType: "image/heic", buffer: Buffer.from("no es una foto de verdad") }]);
+      await esperar(p, async () => trozos.length > 0, 40);
+      await p.waitForTimeout(1500);
+    }
+    ok(trozos.length > 0, `VENFOT: al elegir una foto HEIC del iPhone se descarga el conversor (${trozos.length} trozo)`);
+    ok((await texto(p, "#vender-fotos-boton")) === "Añadir fotos (7/10)", `VENFOT: una foto HEIC rota no se cuela (${await texto(p, "#vender-fotos-boton")})`);
+    // Vídeo de más de 50 MB (lo máximo que acepta Supabase): se rechaza al elegirlo, con cómo arreglarlo.
+    {
+      const [selector] = await Promise.all([p.waitForEvent("filechooser", { timeout: 10000 }).catch(() => null), p.locator("#vender-video-boton").click()]);
+      // Playwright no pasa en memoria más de 50 MB: se escribe en la carpeta temporal y se pasa la ruta.
+      const grandeRuta = join(tmpdir(), "vz-video-51mb-prueba.mp4");
+      writeFileSync(grandeRuta, Buffer.alloc(51 * 1024 * 1024));
+      if (selector) await selector.setFiles(grandeRuta);
+      await p.waitForTimeout(1500);
+    }
+    const grande = await texto(p, "#vender-video-aviso");
+    ok(/pesa 51 MB y el máximo es 50 MB/.test(grande) && /1080p/.test(grande), `VENFOT: un vídeo de 51 MB se rechaza y dice cómo arreglarlo (${grande})`);
     await adjuntarVideoVender(p, 25);
     ok((await texto(p, "#vender-video-boton")) === "Vídeo añadido (25 s)" && !/completado/.test(await texto(p, "#vender-enviar")), `VENFOT: con 7 fotos y 25 s el formulario llega al 100 % (${await texto(p, "#vender-enviar")})`);
     await esperar(p, async () => evento(estado, "vender_sin_media").length >= 3);
