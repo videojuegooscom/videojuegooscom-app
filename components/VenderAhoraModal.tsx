@@ -847,6 +847,19 @@ export default function VenderAhoraModal({
   // había en total, el id de la solicitud ya guardada y si el reintento acabó bien.
   const [mediaPendientes, setMediaPendientes] = useState<SellMediaPendiente[]>([]);
   const [mediaTotal, setMediaTotal] = useState(0);
+  // Subida en segundo plano tras enviar: cuántos archivos van terminados y si sigue subiendo.
+  const [mediaHechos, setMediaHechos] = useState(0);
+  const [subiendoMedia, setSubiendoMedia] = useState(false);
+  // Mientras sube, si se intenta cerrar o recargar la página el navegador avisa (se perderían los que faltan).
+  useEffect(() => {
+    if (!subiendoMedia || Platform.OS !== "web" || typeof window === "undefined") return;
+    const aviso = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", aviso);
+    return () => window.removeEventListener("beforeunload", aviso);
+  }, [subiendoMedia]);
   const [sentRequestId, setSentRequestId] = useState<string | null>(null);
   const [reintentando, setReintentando] = useState(false);
   const [reintentoOk, setReintentoOk] = useState(false);
@@ -1138,12 +1151,14 @@ export default function VenderAhoraModal({
   async function reintentarSubida() {
     if (!sentRequestId || reintentando || mediaPendientes.length === 0) return;
     setReintentando(true);
+    setSubiendoMedia(true);
     try {
       const fallidos = await uploadSellRequestMedia(sentRequestId, mediaPendientes);
       setMediaPendientes(fallidos);
       setReintentoOk(fallidos.length === 0);
     } finally {
       setReintentando(false);
+      setSubiendoMedia(false);
     }
   }
 
@@ -1317,19 +1332,30 @@ export default function VenderAhoraModal({
       // Analítica propia (Administración → Analítica, «Cambio de consola desde la cesta»): sin datos de la persona.
       if (cambioDesdeCesta) void medirEvento("cambio_cesta_enviado", "Cesta: cambio de consola enviado", { metadata: { con_referencia: !!paraComprar } });
 
-      // La solicitud ya está guardada. Las fotos y el vídeo se suben aparte: si alguno falla, la confirmación lo
-      // dice claro (cuántos faltan) y deja «Reintentar la subida» solo con esos, en esta misma solicitud.
+      // La solicitud ya está guardada. Las fotos y el vídeo se suben EN SEGUNDO PLANO (dueño, 2026-11-19: «que no nos haga
+      // esperar»): la confirmación sale al momento con una barra discreta («Enviando tus fotos y tu vídeo… 3 de 8») y el
+      // cliente puede seguir (por ejemplo, al chat). Si alguno falla tras reintentarlo solo, la confirmación lo dice claro
+      // y deja «Reintentar la subida» solo con esos, en esta misma solicitud.
       setSentRequestId(insertedRow.id);
       const lista = listaParaSubir(mediaImages, mediaVideo);
       setMediaTotal(lista.length);
-      let fallidos: SellMediaPendiente[] = [];
-      try {
-        fallidos = await uploadSellRequestMedia(insertedRow.id, lista);
-      } catch (mediaErr) {
-        console.error("Error subiendo fotos/vídeo de la solicitud:", mediaErr);
-        fallidos = lista;
-      }
-      setMediaPendientes(fallidos);
+      setMediaHechos(0);
+      setSubiendoMedia(true);
+      const inicioSubida = Date.now();
+      void uploadSellRequestMedia(insertedRow.id, lista, (hechos) => setMediaHechos(hechos))
+        .catch((mediaErr) => {
+          console.error("Error subiendo fotos/vídeo de la solicitud:", mediaErr);
+          return lista;
+        })
+        .then((fallidos) => {
+          setMediaPendientes(fallidos);
+          setSubiendoMedia(false);
+          setReintentoOk(fallidos.length === 0);
+          // Analítica propia (Administración → Analítica, «Vender»): cuánto tarda la subida y si falló algo (sin datos de nadie).
+          void medirEvento("vender_subida", "Vender: subida de fotos y vídeo", {
+            metadata: { archivos: lista.length, segundos: Math.round((Date.now() - inicioSubida) / 1000), fallidos: fallidos.length },
+          });
+        });
 
       // Chat automático: con sesión iniciada, se abre (o reutiliza) ya la
       // conversación centrada en este artículo y se manda un primer mensaje
@@ -1597,8 +1623,31 @@ export default function VenderAhoraModal({
                         : "Hemos recibido los datos de tu artículo. Nuestro equipo lo revisará y se pondrá en contacto contigo."}
                     </Text>
 
+                    {/* Subida en segundo plano (2026-11-19): barra fina y discreta, sin bloquear nada. */}
+                    {subiendoMedia && !reintentando ? (
+                      <View nativeID="vender-media-subiendo" accessibilityLiveRegion="polite" style={{ maxWidth: 420, width: "100%", gap: 6 }}>
+                        <Text style={{ color: COLORS.muted, textAlign: "center", fontSize: 13, fontWeight: "800" }}>
+                          Enviando tus fotos y tu vídeo… {Math.min(mediaHechos, mediaTotal)} de {mediaTotal}
+                        </Text>
+                        <View style={{ height: 4, borderRadius: 2, backgroundColor: "#E3EAF2", overflow: "hidden" }}>
+                          <View
+                            style={{
+                              height: 4,
+                              borderRadius: 2,
+                              backgroundColor: COLORS.accent,
+                              // Nunca vacía del todo: así se ve que ya ha empezado.
+                              width: `${Math.max(8, Math.round((Math.min(mediaHechos, mediaTotal) / Math.max(1, mediaTotal)) * 100))}%`,
+                            }}
+                          />
+                        </View>
+                        <Text style={{ color: COLORS.muted, textAlign: "center", fontSize: 13 }}>
+                          Puedes seguir: se terminan de enviar solas en unos segundos.
+                        </Text>
+                      </View>
+                    ) : null}
+
                     {/* Subida con fallos: se dice cuántos faltan y se puede reintentar solo esos. */}
-                    {mediaPendientes.length > 0 ? (
+                    {mediaPendientes.length > 0 && (!subiendoMedia || reintentando) ? (
                       <View
                         nativeID="vender-media-fallo"
                         accessibilityLiveRegion="polite"

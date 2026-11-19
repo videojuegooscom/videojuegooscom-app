@@ -18580,15 +18580,21 @@ const PNG_1PX = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
 async function rutasMediaVender(ctx, media) {
   media.subidas = media.subidas ?? [];
   media.filas = media.filas ?? [];
-  await ctx.route("**/storage/v1/object/sell-request-media/**", (r) => {
+  await ctx.route("**/storage/v1/object/sell-request-media/**", async (r) => {
     const q = r.request();
     if (q.method() !== "POST") return r.fallback();
     const ruta = decodeURIComponent(new URL(q.url()).pathname.split("/storage/v1/object/sell-request-media/")[1] ?? "");
-    if ((media.fallar ?? 0) > 0) {
-      media.fallar -= 1;
+    // Número del archivo en su solicitud (<id>/<sello>-<n>-…): `fallarOrden` hace fallar siempre esos (corte que dura)
+    // hasta `arreglado`; `fallar`, las N primeras subidas (corte momentáneo). `retraso`: red lenta (ms por archivo).
+    const n = Number((/\/\d+-(\d+)-/.exec(`/${ruta}`) ?? [])[1] ?? 0);
+    if (media.retraso) await new Promise((ok) => setTimeout(ok, media.retraso));
+    const falla = (media.fallar ?? 0) > 0 || ((media.fallarOrden ?? []).includes(n) && !media.arreglado);
+    if (falla) {
+      if ((media.fallar ?? 0) > 0) media.fallar -= 1;
       media.fallidas = (media.fallidas ?? 0) + 1;
       return r.fulfill({ status: 500, contentType: "application/json", headers: CORS, body: JSON.stringify({ statusCode: "500", error: "fallo de prueba", message: "fallo de prueba" }) });
     }
+    media.tamanos = [...(media.tamanos ?? []), q.postDataBuffer()?.length ?? 0];
     media.subidas.push(ruta);
     return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify({ Key: `sell-request-media/${ruta}`, Id: `m${media.subidas.length}` }) });
   });
@@ -18601,9 +18607,12 @@ async function rutasMediaVender(ctx, media) {
 }
 async function adjuntarFotosVender(p, n, desde = 0) {
   const archivos = Array.from({ length: n }, (_, i) => ({ name: `foto-${desde + i + 1}.png`, mimeType: "image/png", buffer: PNG_1PX }));
+  const antes = await p.locator("#vender-fotos-boton").innerText().catch(() => "");
   const [selector] = await Promise.all([p.waitForEvent("filechooser", { timeout: 10000 }).catch(() => null), p.locator("#vender-fotos-boton").click()]);
   if (selector) await selector.setFiles(archivos);
-  await p.waitForTimeout(500);
+  // Cada foto se reduce antes de añadirse (2026-11-19): se espera a que el contador cambie.
+  await p.waitForFunction((a) => (document.getElementById("vender-fotos-boton")?.innerText ?? "") !== a, antes, { timeout: 10000 }).catch(() => {});
+  await p.waitForTimeout(300);
   return !!selector;
 }
 async function adjuntarVideoVender(p, segundos, nombre = "video.mp4") {
@@ -19092,11 +19101,12 @@ async function seccionVENFOT() {
     await ctx.close();
   }
 
-  // VENFOT2) La subida falla en 2 de los 8 archivos: la confirmación lo dice y «Reintentar la subida» sube solo esos 2.
+  // VENFOT2) La subida falla de verdad en 2 de los 8 archivos (también al reintentarlo sola): la confirmación lo dice y
+  // «Reintentar la subida» sube solo esos 2.
   {
     const estado = nuevoEstado();
     const guardadas = [];
-    const media = { fallar: 2 };
+    const media = { fallarOrden: [1, 2] };
     const ctx = await contexto(navegador, GMAIL, "user", estado);
     await preparar(ctx, guardadas);
     await rutasMediaVender(ctx, media);
@@ -19118,13 +19128,68 @@ async function seccionVENFOT() {
       return Math.round((n ?? e).getBoundingClientRect().height);
     }).catch(() => 0);
     ok(alto >= 44, `VENFOT: «Reintentar la subida» mide 44 px (${alto})`);
+    ok(media.fallidas === 4, `VENFOT: antes de avisar, la tienda lo reintenta sola una vez (${media.fallidas} intentos fallidos para 2 archivos)`);
     await capturar(p, "VENFOT2-fallo-390");
+    media.arreglado = true;
     await p.getByText("Reintentar la subida (2)").click();
     const listo = await p.locator("#vender-media-ok").waitFor({ timeout: 30000 }).then(() => true, () => false);
-    ok(listo && media.filas.length === 8 && media.subidas.length === 8 && media.fallidas === 2, `VENFOT: el reintento sube solo los 2 que faltaban (${media.filas.length} filas · ${media.subidas.length} subidas)`);
+    ok(listo && media.filas.length === 8 && media.subidas.length === 8 && media.fallidas === 4, `VENFOT: el reintento sube solo los 2 que faltaban (${media.filas.length} filas · ${media.subidas.length} subidas)`);
     ok((await p.locator("#vender-media-fallo").count()) === 0 && (await texto(p, "#vender-media-ok")) === "Listo: ya tenemos todas tus fotos y tu vídeo.", "VENFOT: y lo confirma");
     await capturar(p, "VENFOT2-reintento-390");
     ok(p.errores.filter((e) => !/fotos\/vídeo|archivo\(s\)/.test(e)).length === 0, `VENFOT2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VENFOT7) Rápido y sin esperas (dueño, 2026-11-19): las fotos grandes del móvil se reducen antes de subirlas; al enviar,
+  // la confirmación sale AL MOMENTO y las fotos y el vídeo se suben detrás con una barra discreta («Enviando… 3 de 8»);
+  // un corte momentáneo se arregla solo (reintento) sin avisar al cliente; al terminar, «ya tenemos todas tus fotos».
+  {
+    const estado = nuevoEstado();
+    const guardadas = [];
+    const media = { retraso: 1500, fallar: 1 };
+    const ctx = await contexto(navegador, GMAIL, "user", estado);
+    await preparar(ctx, guardadas);
+    await rutasMediaVender(ctx, media);
+    const p = await pagina(ctx, "/vender");
+    await p.locator("#vender-autorrelleno").waitFor({ timeout: 40000 }).catch(() => {});
+    await rellenarResto(p);
+    // Una foto «de móvil»: 3000 × 2000 px con ruido (pesa como una de verdad).
+    const grande = Buffer.from(await p.evaluate(() => {
+      const c = document.createElement("canvas");
+      c.width = 3000;
+      c.height = 2000;
+      const x = c.getContext("2d");
+      const d = x.createImageData(3000, 2000);
+      for (let i = 0; i < d.data.length; i += 4) {
+        d.data[i] = (i * 13) % 255;
+        d.data[i + 1] = (i * 7) % 255;
+        d.data[i + 2] = (i * 3) % 255;
+        d.data[i + 3] = 255;
+      }
+      x.putImageData(d, 0, 0);
+      return c.toDataURL("image/jpeg", 0.95).split(",")[1];
+    }), "base64");
+    const [selector] = await Promise.all([p.waitForEvent("filechooser", { timeout: 10000 }).catch(() => null), p.locator("#vender-fotos-boton").click()]);
+    if (selector) await selector.setFiles(Array.from({ length: 7 }, (_, i) => ({ name: `IMG_${i + 1}.jpg`, mimeType: "image/jpeg", buffer: grande })));
+    await p.waitForFunction(() => /Añadir fotos \(7\/10\)/.test(document.getElementById("vender-fotos-boton")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
+    await adjuntarVideoVender(p, 25);
+    await p.waitForTimeout(4200);
+    const t0 = Date.now();
+    await p.locator("#vender-enviar").click();
+    await p.getByText("¡Formulario enviado!").first().waitFor({ timeout: 20000 }).catch(() => {});
+    const msHastaConfirmacion = Date.now() - t0;
+    const barra = await p.locator("#vender-media-subiendo").count();
+    const textoBarra = await texto(p, "#vender-media-subiendo");
+    ok(msHastaConfirmacion < 4000 && barra === 1 && /Enviando tus fotos y tu vídeo… \d de 8/.test(textoBarra), `VENFOT: la confirmación sale al momento (${msHastaConfirmacion} ms) con la subida en segundo plano (${textoBarra.split("\n")[0]})`);
+    await capturar(p, "VENFOT7-subiendo-390");
+    const listo = await p.locator("#vender-media-ok").waitFor({ timeout: 40000 }).then(() => true, () => false);
+    ok(listo && media.subidas.length === 8 && media.fallidas === 1 && (await p.locator("#vender-media-fallo").count()) === 0, `VENFOT: un corte momentáneo se arregla solo, sin avisar al cliente (${media.subidas.length} subidas · ${media.fallidas} fallo reintentado)`);
+    const fotosSubidas = (media.tamanos ?? []).filter((n) => n < grande.length);
+    ok(fotosSubidas.length >= 7 && Math.max(...fotosSubidas) < grande.length / 2, `VENFOT: las fotos grandes se reducen antes de subirlas (${Math.round(grande.length / 1024)} KB → ${Math.round(Math.max(...fotosSubidas) / 1024)} KB)`);
+    await esperar(p, async () => evento(estado, "vender_subida").length > 0);
+    const sub = evento(estado, "vender_subida")[0]?.metadata ?? {};
+    ok(sub.archivos === 8 && sub.fallidos === 0 && typeof sub.segundos === "number" && sinDatos(estado), `VENFOT: se mide la subida (archivos, segundos y fallidos, sin datos de nadie) (${JSON.stringify(sub)})`);
+    ok(p.errores.length === 0, `VENFOT7: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
 
