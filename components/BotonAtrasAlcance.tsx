@@ -58,6 +58,15 @@ export default function BotonAtrasAlcance() {
   return <BotonAtrasFlotante onPress={volver} subir={alturaBarraComparar} />;
 }
 
+// Dónde poner algo flotante JUSTO ENCIMA de la flecha «Volver» (p. ej. «Volver arriba», components/DesplazamientoSuave.tsx):
+// la misma cuenta que BotonAtrasFlotante (con la zona segura del iPhone y la barra de «Comparar») + su alto + 12 px de aire.
+// (Antes se calculaba sin la zona segura y en el iPhone los dos botones se pisaban; dueño, 2026-11-19.)
+export function useEncimaBotonAtras(subir = 0): number {
+  const insets = useSafeAreaInsets();
+  const base = subir > 0 ? 12 + subir : 16 + Math.round(insets.bottom);
+  return base + 52 + 12;
+}
+
 // El mismo botón con su propia acción: «Contratar servicio» lo pone con la suya (dueño, 2026-11-09: «el botón para
 // volver, abajo a la derecha, para tocarlo con el dedo gordo»), que cuenta en Analítica si se fue sin enviar.
 // subir: lo que ocupa abajo otra barra fija (la de «Comparar»), que ya incluye la zona segura.

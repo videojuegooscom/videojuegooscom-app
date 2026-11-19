@@ -714,6 +714,8 @@ export default function AdminAnalytics() {
     filtros: { precio: number; estado: number; quitados: number; borrados: number };
     estados: { valor: string; n: number }[];
     tramos: { tramo: string; n: number }[];
+    // «Compartir» de una categoría (dueño, 2026-11-19): cuántas veces y de cuáles (solo el nombre de la categoría).
+    compartidas: { total: number; porCategoria: { nombre: string; n: number }[] };
   } | null>(null);
   useEffect(() => {
     let vivo = true;
@@ -722,7 +724,7 @@ export default function AdminAnalytics() {
       const { data, error } = await supabase
         .from("analytics_events")
         .select("event_name, metadata")
-        .in("event_name", ["busqueda", "busqueda_sin_resultados", "busqueda_sugerencia_tocada", "catalogo_filtro"])
+        .in("event_name", ["busqueda", "busqueda_sin_resultados", "busqueda_sugerencia_tocada", "catalogo_filtro", "categoria_compartida"])
         .gte("created_at", desde)
         .order("created_at", { ascending: false })
         .limit(5000);
@@ -782,6 +784,15 @@ export default function AdminAnalytics() {
         )
           .slice(0, 5)
           .map(([k, v]) => ({ tramo: k, n: v.n })),
+        compartidas: (() => {
+          const lista = filas.filter((f) => f.event_name === "categoria_compartida");
+          return {
+            total: lista.length,
+            porCategoria: contar(lista, (f) => (typeof f.metadata?.nombre === "string" ? f.metadata.nombre : String(f.metadata?.cat ?? "")))
+              .slice(0, 5)
+              .map(([k, v]) => ({ nombre: k, n: v.n })),
+          };
+        })(),
       });
     })();
     return () => {
@@ -2410,6 +2421,16 @@ export default function AdminAnalytics() {
                       {busquedas.tramos.length ? ` (${busquedas.tramos.map((t) => `${t.tramo} ×${t.n}`).join(" · ")})` : ""} · estado {busquedas.filtros.estado}
                       {busquedas.estados.length ? ` (${busquedas.estados.map((e) => `${e.valor} ×${e.n}`).join(" · ")})` : ""} · quitados{" "}
                       {busquedas.filtros.quitados} · «Borrar filtros» {busquedas.filtros.borrados}
+                    </Text>
+                  </View>
+                  {/* «Compartir» de una categoría desde el catálogo (dueño, 2026-11-19). */}
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="share-social-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-categorias-compartidas" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Categorías compartidas: {busquedas.compartidas.total}
+                      {busquedas.compartidas.porCategoria.length
+                        ? ` (${busquedas.compartidas.porCategoria.map((c) => `${c.nombre} ×${c.n}`).join(" · ")})`
+                        : ""}
                     </Text>
                   </View>
                 </View>

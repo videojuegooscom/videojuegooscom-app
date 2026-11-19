@@ -71,8 +71,10 @@ import {
   ActivityIndicator,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   ScrollView,
+  Share,
   StatusBar,
   Text,
   type TextInputKeyPressEventData,
@@ -101,6 +103,7 @@ import { useRecarga } from "../components/TirarParaActualizar";
 import { crearAvisoBusqueda } from "../components/AsistenteBlue";
 import { RejillaTarjetas, TarjetaProducto, useAlturaBarraComparar } from "../components/CarruselProductosCategoria";
 import { BotonVolverArriba } from "../components/DesplazamientoSuave";
+import { useEncimaBotonAtras } from "../components/BotonAtrasAlcance";
 import FiltrosCatalogo, {
   Chip,
   PRECIO_MAX,
@@ -593,6 +596,7 @@ export default function CatalogoScreen() {
   const listaRef = useRef<ScrollView | null>(null);
   const [verArriba, setVerArriba] = useState(false);
   const verArribaRef = useRef(false);
+  const encimaVolver = useEncimaBotonAtras(useAlturaBarraComparar());
   const reqSeqRef = useRef(0);
   const loadingMoreRef = useRef(false);
   const prevRawCatRef = useRef(rawCat);
@@ -617,6 +621,46 @@ export default function CatalogoScreen() {
     () => categories.map((c) => ({ id: c.id, name: c.name, slug: c.slug })),
     [categories]
   );
+
+  // «Compartir» de la categoría: hoja de compartir del móvil o, si no la hay, copiar el enlace («Enlace copiado» un momento).
+  // Se mide «categoria_compartida» con el nombre y el slug (Administración → Analítica, junto a las búsquedas).
+  const [compartido, setCompartido] = useState<"copiado" | null>(null);
+  const compartirCategoria = useCallback(async () => {
+    const cat = selectedCategory;
+    if (!cat?.slug) return;
+    const url = `https://videojuegoszaragoza.com/catalogo?cat=${encodeURIComponent(cat.slug)}`;
+    const titulo = `${cat.name} · VideojuegosZaragoza`;
+    const texto = `Mira lo que tenemos de ${cat.name} en VideojuegosZaragoza`;
+    const medir = (via: string) =>
+      void medirEvento("categoria_compartida", `Categoría compartida: ${cat.name}`, { path: "/catalogo", metadata: { cat: cat.slug, nombre: cat.name, via } });
+    if (Platform.OS !== "web") {
+      try {
+        const r = await Share.share({ title: titulo, message: `${texto}: ${url}`, url });
+        if (r.action === Share.sharedAction) medir("app");
+      } catch {
+        // cancelado
+      }
+      return;
+    }
+    const nav = typeof navigator !== "undefined" ? (navigator as Navigator & { share?: (d: ShareData) => Promise<void> }) : null;
+    if (nav?.share) {
+      try {
+        await nav.share({ title: titulo, text: texto, url });
+        medir("hoja");
+      } catch {
+        // cancelado por la persona: nada que hacer
+      }
+      return;
+    }
+    try {
+      await nav?.clipboard?.writeText(url);
+      setCompartido("copiado");
+      medir("copiado");
+      setTimeout(() => setCompartido(null), 2500);
+    } catch {
+      // sin portapapeles: nada que hacer
+    }
+  }, [selectedCategory]);
 
   const pageTitle = useMemo(() => {
     if (selectedCategory?.name) return selectedCategory.name;
@@ -987,7 +1031,7 @@ export default function CatalogoScreen() {
         >
           <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
             <CabeceraMarca onBack={smartBack} />
-            <View style={{ alignItems: "center" }}>
+            <View style={{ alignItems: "center", gap: 2 }}>
               <Text
                 accessibilityRole="header"
                 {...({ "aria-level": 1 } as object)}
@@ -1002,6 +1046,23 @@ export default function CatalogoScreen() {
               >
                 {pageTitle}
               </Text>
+              {/* «Compartir» de la categoría (dueño, 2026-11-19): la hoja de compartir del móvil o, si no hay, copia el
+                  enlace. WhatsApp, Instagram… enseñan su vista previa con el nombre, cuántos artículos hay y la portada
+                  (api/compartir.ts, por la regla de vercel.json para sus lectores). */}
+              {selectedCategory?.slug ? (
+                <Pressable
+                  nativeID="catalogo-compartir"
+                  onPress={compartirCategoria}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Compartir ${selectedCategory.name}`}
+                  style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, opacity: pressed ? 0.7 : 1 })}
+                >
+                  <Ionicons name={compartido === "copiado" ? "checkmark" : "share-outline"} size={18} color={COLORS.accent} />
+                  <Text style={{ color: colorTextoAzul(14), fontWeight: "800", fontSize: 14 }}>
+                    {compartido === "copiado" ? "Enlace copiado" : "Compartir"}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
 
             {/* Portadas de la categoría elegida (panel → Categorías), en carrusel. */}
@@ -1369,8 +1430,8 @@ export default function CatalogoScreen() {
       <BotonVolverArriba
         nativeID="catalogo-volver-arriba"
         visible={verArriba}
-        // Encima de la flecha «Volver» azul (components/BotonAtrasAlcance.tsx: 52 px a 16 del borde, o sobre «Comparar»).
-        abajo={(alturaBarraComparar > 0 ? 12 + alturaBarraComparar : 16) + 52 + 12}
+        // Encima de la flecha «Volver» azul (components/BotonAtrasAlcance.tsx), con la zona segura del iPhone y «Comparar».
+        abajo={encimaVolver}
         onPress={() => listaRef.current?.scrollTo({ y: 0, animated: true })}
       />
     </View>

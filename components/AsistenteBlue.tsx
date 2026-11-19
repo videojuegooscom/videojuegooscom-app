@@ -1882,7 +1882,7 @@ export default function AsistenteBlue() {
     const candidatos: MomentoBlue[] = [];
     if (enCestaConArticulos) candidatos.push("cesta");
     if (momentoComparar && momentoEnPantalla("comparar", pathname)) candidatos.push("comparar");
-    if (pathname.startsWith("/catalogo")) candidatos.push("catalogo");
+    // El del catálogo («Encuentra lo tuyo») ya no sale (dueño, 2026-11-19: «no me gusta»).
     if (pathname.startsWith("/producto/")) candidatos.push("ficha");
     if (cuentaNueva && isLoggedIn && momentoEnPantalla("cuenta", pathname)) candidatos.push("cuenta");
     const pendientes = candidatos.filter((m) => !yaDicho.has(`consejo:${m}`));

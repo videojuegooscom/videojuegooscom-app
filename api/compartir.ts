@@ -1,6 +1,7 @@
 /**
  * Archivo: api/compartir.ts
- * Función: función de servidor en /api/compartir (Vercel) para la vista previa al compartir un producto.
+ * Función: función de servidor en /api/compartir (Vercel) para la vista previa al compartir un producto o, desde el
+ *          2026-11-19, una categoría del catálogo (/catalogo?cat=<slug>: nombre, cuántos artículos hay y su portada).
  * Para qué sirve: devuelve un HTML mínimo con las etiquetas og (título, precio, foto) a los lectores de enlaces de WhatsApp, Instagram, Telegram, etc.; las personas siguen viendo la ficha normal.
  * Conectado con: Supabase (clave anónima, tabla products), vercel.json (rewrite por User-Agent y optimizador de imágenes).
  * Utilizado por: los lectores de enlaces de las redes (vía vercel.json) y el botón Compartir de app/producto/[id].tsx.
@@ -45,7 +46,7 @@ function fmtEUR(value: number) {
   return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
-function pagina(o: { titulo: string; descripcion: string; imagen: string | null; url: string; precio?: number }): string {
+function pagina(o: { titulo: string; descripcion: string; imagen: string | null; url: string; precio?: number; tipo?: "product" | "website" }): string {
   const t = escapar(o.titulo);
   const d = escapar(o.descripcion);
   const u = escapar(o.url);
@@ -59,7 +60,7 @@ function pagina(o: { titulo: string; descripcion: string; imagen: string | null;
 <meta name="description" content="${d}">
 <link rel="canonical" href="${u}">
 <meta property="og:site_name" content="VideojuegosZaragoza">
-<meta property="og:type" content="product">
+<meta property="og:type" content="${o.tipo ?? "product"}">
 <meta property="og:title" content="${t}">
 <meta property="og:description" content="${d}">
 <meta property="og:url" content="${u}">
@@ -97,7 +98,70 @@ async function portada(supabase: SupabaseClient, id: string, images: unknown): P
   return primera ?? null;
 }
 
+// --- Categorías (dueño, 2026-11-19: «poder pasar categorías… y que se comparta profesional y perfectamente») -------------
+// /catalogo?cat=<slug> para los lectores de enlaces (vercel.json): nombre de la categoría, cuántos artículos hay a la venta
+// y su primera portada (las de la propia web se usan tal cual; las de Supabase pasan por el optimizador de Vercel).
+const SLUG_RE = /^[a-z0-9-]{1,60}$/;
+
+function fotoCategoria(fila: { imagenes?: unknown; image_url?: unknown }): string | null {
+  const lista = Array.isArray(fila.imagenes) ? fila.imagenes : [];
+  const primera = [...lista, fila.image_url].find((v): v is string => typeof v === "string" && v.startsWith("https://"));
+  if (!primera) return null;
+  if (primera.startsWith(`${DOMINIO}/`)) return primera;
+  if (/\.supabase\.co\/storage\/v1\/object\/public\/(product-media|noticias)\//.test(primera)) {
+    return `${DOMINIO}/_vercel/image?url=${encodeURIComponent(primera)}&w=1280&q=75`;
+  }
+  return primera;
+}
+
+async function paginaCategoria(slug: string): Promise<string> {
+  const url = `${DOMINIO}/catalogo?cat=${encodeURIComponent(slug)}`;
+  const generica = pagina({ titulo: "Catálogo · VideojuegosZaragoza", descripcion: "Consolas, videojuegos y accesorios en Zaragoza.", imagen: null, url, tipo: "website" });
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const anon = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !anon) return generica;
+  const supabase = createClient(supabaseUrl, anon, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data: cat } = await supabase
+    .from("categories")
+    .select("id,name,imagenes,image_url")
+    .eq("slug", slug)
+    .eq("is_active", true)
+    .maybeSingle<{ id: string; name: string; imagenes: unknown; image_url: string | null }>();
+  if (!cat?.name) return generica;
+  const { count } = await supabase
+    .from("products")
+    .select("id", { count: "exact", head: true })
+    .eq("category_id", cat.id)
+    .eq("status", "PUBLISHED")
+    .eq("is_active", true);
+  const n = typeof count === "number" ? count : 0;
+  const nombre = cat.name.trim();
+  // Solo datos ciertos: cuántos hay ahora y cómo se entrega (envío a toda España y en mano en Zaragoza).
+  const descripcion =
+    n > 0
+      ? `${n === 1 ? "1 artículo" : `${n} artículos`} de ${nombre} a la venta en VideojuegosZaragoza. Envíos a toda España y entrega en mano en Zaragoza.`
+      : `${nombre} en VideojuegosZaragoza. Envíos a toda España y entrega en mano en Zaragoza.`;
+  return pagina({ titulo: `${nombre} · VideojuegosZaragoza`, descripcion, imagen: fotoCategoria(cat), url, tipo: "website" });
+}
+
 export default async function handler(req: any, res: any) {
+  const slug = String(req.query?.cat ?? "").trim().toLowerCase();
+  if (slug) {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    try {
+      const html = SLUG_RE.test(slug)
+        ? await paginaCategoria(slug)
+        : pagina({ titulo: "Catálogo · VideojuegosZaragoza", descripcion: "Consolas, videojuegos y accesorios en Zaragoza.", imagen: null, url: `${DOMINIO}/catalogo`, tipo: "website" });
+      res.setHeader("Cache-Control", "public, s-maxage=600, stale-while-revalidate=3600");
+      res.status(200).send(html);
+    } catch (e) {
+      console.error("compartir: error en la categoría", e);
+      res.setHeader("Cache-Control", "no-store");
+      res.status(200).send(pagina({ titulo: "Catálogo · VideojuegosZaragoza", descripcion: "Consolas, videojuegos y accesorios en Zaragoza.", imagen: null, url: `${DOMINIO}/catalogo`, tipo: "website" }));
+    }
+    return;
+  }
+
   const id = String(req.query?.id ?? "").trim();
   const urlFicha = UUID_RE.test(id) ? `${DOMINIO}/producto/${id.toLowerCase()}` : `${DOMINIO}/catalogo`;
   res.setHeader("Content-Type", "text/html; charset=utf-8");

@@ -1200,7 +1200,7 @@ export function useAlturaBarraComparar(): number {
 }
 
 /**
- * «Comparar» de la tarjeta del catálogo (texto con icono, 44 px de alto, sin recuadro) y de la ficha (como el botón de
+ * «Comparar» de la tarjeta del catálogo (casilla cuadrada y texto, 44 px de alto, sin recuadro) y de la ficha (como el botón de
  * «Avísame si baja de precio»). Es una casilla: «Comparar» o «Comparando». En la ficha, el aviso de «como mucho 3» sale
  * debajo del botón (allí la barra puede estar escondida para no tapar «Comprar ya»); en el catálogo, en la barra.
  */
@@ -1244,8 +1244,10 @@ export function BotonComparar({
           opacity: pressed ? 0.7 : 1,
         })}
       >
-        <Ionicons name={activo ? "checkmark-circle" : "git-compare-outline"} size={17} color={activo ? COLORES_TEXTO.azulTexto : COLORES_TEXTO.secundario} />
-        <Text style={{ color: activo ? COLORES_TEXTO.azulTexto : COLORES_TEXTO.secundario, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+        {/* Casilla cuadrada, como en las tiendas profesionales (dueño, 2026-11-19): vacía «Comparar», marcada en azul
+            «Comparando». */}
+        <Ionicons name={activo ? "checkbox" : "square-outline"} size={19} color={activo ? COLORS.accent : "#8A9AAA"} />
+        <Text style={{ color: activo ? COLORES_TEXTO.azulTexto : COLORES_TEXTO.secundario, fontWeight: "700", fontSize: TAMANOS.minimo }}>
           {activo ? "Comparando" : "Comparar"}
         </Text>
       </Pressable>

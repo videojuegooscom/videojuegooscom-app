@@ -577,25 +577,7 @@ export default function FiltrosCatalogo({
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
                 Filtros
               </Text>
-              <Pressable
-                onPress={() => setOpen(false)}
-                accessibilityRole="button"
-                accessibilityLabel="Cerrar"
-                hitSlop={10}
-                style={({ pressed }) => ({
-                  position: "absolute",
-                  right: 14,
-                  top: isMobile ? 18 : 14,
-                  width: 34,
-                  height: 34,
-                  borderRadius: 17,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: pressed ? COLORS.chipBg : "transparent",
-                })}
-              >
-                <Ionicons name="close" size={22} color={COLORS.text} />
-              </Pressable>
+              {/* La X va abajo, a la altura de «Ver N productos» (dueño, 2026-11-19), como en las ventanas del panel. */}
             </View>
 
             <ScrollView
@@ -785,6 +767,24 @@ export default function FiltrosCatalogo({
                 <Text style={{ color: COLORS.white, fontWeight: "900", textAlign: "center" }}>
                   {seeLabel}
                 </Text>
+              </Pressable>
+
+              {/* Cerrar: la X a la derecha del botón principal y a su misma altura (al alcance del pulgar), sin burbuja. */}
+              <Pressable
+                nativeID="filtros-cerrar"
+                onPress={() => setOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar"
+                hitSlop={6}
+                style={({ pressed }) => ({
+                  width: 48,
+                  height: 48,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: pressed ? 0.6 : 1,
+                })}
+              >
+                <Ionicons name="close" size={26} color={COLORS.text} />
               </Pressable>
             </View>
           </View>
