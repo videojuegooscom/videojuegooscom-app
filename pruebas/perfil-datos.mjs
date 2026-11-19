@@ -24334,7 +24334,7 @@ try {
     await p.getByText("Reparaciones y Mantenimientos").waitFor({ timeout: 8000 }).catch(() => {});
     ok(await enSeguimientos(), "C: deslizar el dedo hacia la izquierda abre «Mis seguimientos»");
     ok(
-      (await p.getByText("No tienes ninguna reparación ni mantenimiento en curso. Solicita un servicio con tu sesión iniciada y podrás seguir aquí su estado.").count()) === 1,
+      (await p.getByText("No tienes ninguna reparación ni mantenimiento en curso. Cuando solicites uno, podrás seguir aquí su estado.").count()) === 1,
       "C: con el título «Reparaciones y Mantenimientos» y su texto nuevo"
     );
     await capturar(p, "C2-mis-seguimientos-deslizando");

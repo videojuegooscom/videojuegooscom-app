@@ -4563,7 +4563,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
         {reparaciones.length === 0 ? (
           <SegVacio
             cual="taller"
-            texto="No tienes ninguna reparación ni mantenimiento en curso. Solicita un servicio con tu sesión iniciada y podrás seguir aquí su estado."
+            texto="No tienes ninguna reparación ni mantenimiento en curso. Cuando solicites uno, podrás seguir aquí su estado."
             boton="Ver servicios"
             destino="/servicios"
           />
