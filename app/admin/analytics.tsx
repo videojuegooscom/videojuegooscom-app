@@ -1197,11 +1197,12 @@ export default function AdminAnalytics() {
   // «Vender ahora» con fotos y vídeo obligatorios (2026-11-16): en 30 días, veces que el formulario se rellenó solo con
   // los datos de la cuenta (vender_autorrelleno, con cuántos campos) e intentos de enviarlo sin las fotos o el vídeo
   // (vender_sin_media). Solo recuentos.
-  const [venderMedia, setVenderMedia] = useState<{ autorrelleno: number; mediaCampos: string; sinMedia: number } | null>(null);
+  // Y, desde el 2026-11-19, las subidas en segundo plano (vender_subida: archivos, segundos y fallidos).
+  const [venderMedia, setVenderMedia] = useState<{ autorrelleno: number; mediaCampos: string; sinMedia: number; subidas: number; segundosMedia: number; conFallos: number } | null>(null);
   useEffect(() => {
     let vivo = true;
     (async () => {
-      const NOMBRES = ["vender_autorrelleno", "vender_sin_media"];
+      const NOMBRES = ["vender_autorrelleno", "vender_sin_media", "vender_subida"];
       const desde = new Date(Date.now() - 30 * 86400000).toISOString();
       const { data, error } = await supabase.from("analytics_events").select("event_name, metadata").in("event_name", NOMBRES).gte("created_at", desde).limit(5000);
       if (!vivo) return;
@@ -1216,6 +1217,15 @@ export default function AdminAnalytics() {
         autorrelleno: auto.length,
         mediaCampos: auto.length ? (suma / auto.length).toFixed(1).replace(".", ",") : "0",
         sinMedia: filas.filter((f) => f.event_name === "vender_sin_media").length,
+        ...(() => {
+          const subidas = filas.filter((f) => f.event_name === "vender_subida");
+          const total = subidas.reduce((t, f) => t + (Number(f.metadata?.segundos) || 0), 0);
+          return {
+            subidas: subidas.length,
+            segundosMedia: subidas.length ? Math.round(total / subidas.length) : 0,
+            conFallos: subidas.filter((f) => Number(f.metadata?.fallidos) > 0).length,
+          };
+        })(),
       });
     })();
     return () => {
@@ -2718,6 +2728,11 @@ export default function AdminAnalytics() {
                   </Text>
                   <Text nativeID="analitica-vender-sin-media" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                     Intentos sin fotos o vídeo {venderMedia.sinMedia}
+                  </Text>
+                  {/* Subida en segundo plano (2026-11-19): cuántas, cuánto tardan de media y con fallos. */}
+                  <Text nativeID="analitica-vender-subidas" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                    Subidas de fotos y vídeo {venderMedia.subidas}
+                    {venderMedia.subidas > 0 ? ` · ${venderMedia.segundosMedia} s de media · con fallos ${venderMedia.conFallos}` : ""}
                   </Text>
                 </View>
               )}

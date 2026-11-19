@@ -281,12 +281,48 @@ export function pickSellVideoWeb() {
   return pickFilesWeb("video/mp4,video/webm,video/quicktime,.mov", false);
 }
 
+// Reduce la foto en el propio móvil antes de subirla (dueño, 2026-11-19: «que se suban rápido»): como mucho 1600 px por
+// el lado mayor, en JPEG. Una foto de iPhone o Android de 3-5 MB queda en unos 300 KB y se sigue viendo bien para valorar
+// el artículo. Si no se puede reducir o no gana nada, se queda la original.
+const LADO_FOTO_VENTA = 1600;
+async function reducirFotoVenta(file: File): Promise<File> {
+  if (Platform.OS !== "web" || typeof document === "undefined") return file;
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, mal) => {
+      const i = new window.Image();
+      i.onload = () => ok(i);
+      i.onerror = () => mal(new Error("No se pudo leer la foto."));
+      i.src = url;
+    });
+    const escala = Math.min(1, LADO_FOTO_VENTA / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+    const w = Math.max(1, Math.round(img.naturalWidth * escala));
+    const h = Math.max(1, Math.round(img.naturalHeight * escala));
+    const lienzo = document.createElement("canvas");
+    lienzo.width = w;
+    lienzo.height = h;
+    const ctx = lienzo.getContext("2d");
+    if (!ctx) return file;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    const blob = await new Promise<Blob | null>((ok) => lienzo.toBlob(ok, "image/jpeg", 0.82));
+    if (!blob || blob.size >= file.size) return file;
+    return blobToFile(blob, replaceExtension(file.name, "jpg"), "image/jpeg");
+  } catch {
+    return file;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function buildLocalImage(originalFile: File): Promise<ArchivoVentaLocal> {
   let file = originalFile;
 
   if (isHeicLike(file)) {
     file = await convertHeicToJpeg(file);
   }
+  file = await reducirFotoVenta(file);
 
   const mimeType = String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name);
   if (!SUPPORTED_IMAGE_MIME.has(mimeType)) {
@@ -377,18 +413,40 @@ export function listaParaSubir(images: ArchivoVentaLocal[], video: ArchivoVentaL
 
 export async function uploadSellRequestMedia(
   sellRequestId: string,
-  pendientes: SellMediaPendiente[]
+  pendientes: SellMediaPendiente[],
+  // Cuántos archivos van terminados (bien o mal), para la barra de la confirmación (subida en segundo plano, 2026-11-19).
+  onProgreso?: (hechos: number, total: number) => void
 ): Promise<SellMediaPendiente[]> {
   if (pendientes.length === 0) return [];
 
-  const results = await Promise.allSettled(
-    pendientes.map(async ({ item, orden }) => {
-      const path = buildSellMediaPath(sellRequestId, item, orden);
+  let hechos = 0;
+  const avisar = () => onProgreso?.(++hechos, pendientes.length);
+  // Cada archivo se intenta 2 veces (un corte de red momentáneo no debe obligar al cliente a pulsar «Reintentar»).
+  const subirUno = async (path: string, item: ArchivoVentaLocal) => {
+    let ultimo: unknown = null;
+    for (let intento = 0; intento < 2; intento++) {
+      if (intento > 0) await new Promise((ok) => setTimeout(ok, 1200));
       const uploadRes = await supabase.storage.from(SELL_MEDIA_BUCKET).upload(path, item.file, {
         contentType: item.mimeType,
         upsert: false,
       });
-      if (uploadRes.error) throw uploadRes.error;
+      if (!uploadRes.error) return;
+      // Si el primer intento sí llegó (se cortó la respuesta), el segundo dice que ya existe: está subido.
+      const e = uploadRes.error as { statusCode?: string | number; message?: string };
+      if (intento > 0 && (String(e.statusCode) === "409" || /exist|duplicate/i.test(String(e.message ?? "")))) return;
+      ultimo = uploadRes.error;
+    }
+    throw ultimo;
+  };
+
+  const results = await Promise.allSettled(
+    pendientes.map(async ({ item, orden }) => {
+      const path = buildSellMediaPath(sellRequestId, item, orden);
+      try {
+        await subirUno(path, item);
+      } finally {
+        avisar();
+      }
 
       return {
         sell_request_id: sellRequestId,
