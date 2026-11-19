@@ -121,6 +121,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useScrollToTop } from "@react-navigation/native";
 import {
   ActivityIndicator,
   Animated,
@@ -1127,6 +1128,10 @@ export default function PerfilScreen() {
     router.push("/admin");
   }, []);
 
+  // Tocar «Perfil» abajo estando ya en Perfil sube arriba del todo, como Inicio y la Cesta (dueño, 2026-11-19).
+  const paginaRef = useRef<ScrollView>(null);
+  useScrollToTop(paginaRef);
+
   // «Cerrar sesión» (dueño, 2026-11-18): dentro del desplegable «Inicio de sesión y seguridad» de «Mi perfil»
   // (components/PerfilPublico.tsx); si «Mi perfil» no se puede enseñar, va con lo demás de la cuenta.
   const botonSalir = (
@@ -1176,6 +1181,7 @@ export default function PerfilScreen() {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <ScrollView
+            ref={paginaRef}
             style={{ flex: 1 }}
             showsVerticalScrollIndicator={false}
             // Formulario de acceso: el primer toque fuera del teclado ya pulsa el botón

@@ -120,6 +120,7 @@ import {
 import { useRecarga } from "../../components/TirarParaActualizar";
 import Resenas from "../../components/Resenas";
 import PieDePagina from "../../components/PieDePagina";
+import { AparecerAlVer } from "../../components/DesplazamientoSuave";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import { RedJuntoAlLogo, ResenasCanales, useRedesJuntoAlLogo, useResenasCanales } from "../../components/EnlacesRedesSociales";
 import CargaMarca from "../../components/marca/CargaMarca";
@@ -2052,8 +2053,9 @@ export default function PantallaInicio() {
 
           <Separador isMobile={isMobile} />
 
-          {/* Oferta de la semana: título con brillo + tarjeta del producto. */}
-          <View style={{ gap: 12 }}>
+          {/* Oferta de la semana: título con brillo + tarjeta del producto. Cada apartado de aquí abajo aparece con un
+              fundido suave al llegar a él (AparecerAlVer, components/DesplazamientoSuave.tsx; dueño, 2026-11-19). */}
+          <AparecerAlVer style={{ gap: 12 }}>
             <TituloOferta isMobile={isMobile} />
 
             {featuredLoading ? (
@@ -2069,7 +2071,7 @@ export default function PantallaInicio() {
                 chatBusy={featuredChatBusy}
               />
             )}
-          </View>
+          </AparecerAlVer>
 
           <Separador isMobile={isMobile} />
 
@@ -2085,7 +2087,7 @@ export default function PantallaInicio() {
             <SectionTitle title="Categorías" isMobile={isMobile} />
 
             {/* Más aire entre filas que entre columnas: cada nombre queda claramente con su recuadro. */}
-            <View
+            <AparecerAlVer
               style={{
                 flexDirection: "row",
                 flexWrap: "wrap",
@@ -2123,27 +2125,29 @@ export default function PantallaInicio() {
                   />
                 );
               })}
-            </View>
+            </AparecerAlVer>
           </View>
 
           <Separador isMobile={isMobile} />
 
-          <View>
+          <AparecerAlVer>
             <SectionTitle title="Compra con confianza" isMobile={isMobile} />
             <FilaConfianza isMobile={isMobile} onPressItem={setInfoPop} />
-          </View>
+          </AparecerAlVer>
 
           <Separador isMobile={isMobile} />
 
           <View onLayout={handleResenasLayout}>
-            <Resenas isMobile={isMobile} />
+            <AparecerAlVer>
+              <Resenas isMobile={isMobile} />
+            </AparecerAlVer>
           </View>
 
           <Separador isMobile={isMobile} />
 
           {/* Quiénes somos (dueño, 2026-11-03): quién está detrás, con su nombre, y el paso a la página. Datos que dio
               él (fundada en 2022, equipo de tres profesionales). Se mide en Administración → Analítica. */}
-          <View nativeID="inicio-quienes-somos" style={{ gap: 10, alignItems: "center" }}>
+          <AparecerAlVer nativeID="inicio-quienes-somos" style={{ gap: 10, alignItems: "center" }}>
             <SectionTitle title="Quiénes somos" isMobile={isMobile} />
             <Text style={{ color: COLORS.muted, fontSize: 15, lineHeight: 23, textAlign: "center", maxWidth: 560 }}>
               Daniel Gutiérrez fundó Videojuegoszaragoza.com en 2022. Hoy, junto a un equipo de tres profesionales,
@@ -2162,11 +2166,11 @@ export default function PantallaInicio() {
                 Conoce nuestra historia →
               </Text>
             </Pressable>
-          </View>
+          </AparecerAlVer>
 
           <Separador isMobile={isMobile} />
 
-          <View style={{ gap: 12 }}>
+          <AparecerAlVer style={{ gap: 12 }}>
             {/* Las dos mascotas de la tienda dan paso a las preguntas
                 frecuentes; al tocarlas se animan. */}
             <View style={{ alignItems: "center" }}>
@@ -2196,7 +2200,7 @@ export default function PantallaInicio() {
                 ¿Otra duda? Pregúntale a Blue IA →
               </Text>
             </Pressable>
-          </View>
+          </AparecerAlVer>
         </View>
 
         <PieDePagina

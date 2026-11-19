@@ -100,6 +100,7 @@ import PortadasCategoria, { enterasInicioDe, esCategoriaServicios, faltaColumnaP
 import { useRecarga } from "../components/TirarParaActualizar";
 import { crearAvisoBusqueda } from "../components/AsistenteBlue";
 import { RejillaTarjetas, TarjetaProducto, useAlturaBarraComparar } from "../components/CarruselProductosCategoria";
+import { BotonVolverArriba } from "../components/DesplazamientoSuave";
 import FiltrosCatalogo, {
   Chip,
   PRECIO_MAX,
@@ -588,6 +589,10 @@ export default function CatalogoScreen() {
   const [contactBusy, setContactBusy] = useState(false);
 
   const bootedRef = useRef(false);
+  // «Volver arriba»: la lista y si ya se ha bajado bastante.
+  const listaRef = useRef<ScrollView | null>(null);
+  const [verArriba, setVerArriba] = useState(false);
+  const verArribaRef = useRef(false);
   const reqSeqRef = useRef(0);
   const loadingMoreRef = useRef(false);
   const prevRawCatRef = useRef(rawCat);
@@ -912,6 +917,12 @@ export default function CatalogoScreen() {
 
   function handleScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
     const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+    // «Volver arriba» (dueño, 2026-11-19): tras bajar bastante (solo cambia el estado al cruzar el umbral).
+    const arriba = contentOffset.y > 480;
+    if (arriba !== verArribaRef.current) {
+      verArribaRef.current = arriba;
+      setVerArriba(arriba);
+    }
     if (contentOffset.y > 40) {
       medirEventoEspaciado("catalogo-scroll", "scroll", "Scroll", { path: "/catalogo" });
     }
@@ -950,6 +961,7 @@ export default function CatalogoScreen() {
       <StatusBar barStyle="dark-content" />
 
       <ScrollView
+        ref={listaRef}
         // 96 abajo: la última fila de productos y el botón "cargar más" quedan por encima
         // del asistente flotante Blue (72 px en la esquina inferior). Con la barra de «Comparar», además su alto.
         contentContainerStyle={{ paddingBottom: 96 + alturaBarraComparar }}
@@ -1354,6 +1366,13 @@ export default function CatalogoScreen() {
           </View>
         )}
       </ScrollView>
+      <BotonVolverArriba
+        nativeID="catalogo-volver-arriba"
+        visible={verArriba}
+        // Encima de la flecha «Volver» azul (components/BotonAtrasAlcance.tsx: 52 px a 16 del borde, o sobre «Comparar»).
+        abajo={(alturaBarraComparar > 0 ? 12 + alturaBarraComparar : 16) + 52 + 12}
+        onPress={() => listaRef.current?.scrollTo({ y: 0, animated: true })}
+      />
     </View>
   );
 }

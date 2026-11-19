@@ -25,6 +25,7 @@ El índice completo de todos los archivos está en `estructura_proyecto.txt` (ra
 | 2026-11-18 | `components/blue/PiezasBlue.tsx` | Piezas que se ven de Blue (consejo, botones, iconos, filas, avisos), separadas de `components/AsistenteBlue.tsx` (349 líneas) | 6 |
 | 2026-11-18 | `components/blue/PasosGuia.tsx` | Pasos y piezas de la guía de Blue, separados de `components/AsistenteBlue.tsx` (929 líneas) | 6 |
 | 2026-11-18 | `components/blue/GuiaBlue.tsx` | La guía de Blue «Te enseño la tienda», separada de `components/AsistenteBlue.tsx` (907 líneas) | 6 |
+| 2026-11-19 | `components/DesplazamientoSuave.tsx` | Piezas comunes del desplazamiento: aparición suave al llegar y «Volver arriba» (pantallas largas de la tienda) | — |
 | 2026-11-17 | `components/foro/NoticiasForo.tsx` | Pestaña «Noticias Gaming» del Foro, separada de `app/(tabs)/chat-global.tsx` (2.115 líneas) | 6 |
 
 ## Candidatos a eliminar

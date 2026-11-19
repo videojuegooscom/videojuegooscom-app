@@ -80,6 +80,7 @@ components/  · Piezas visuales reutilizables
 components/AvisosMovil.tsx | Tarjeta «Avisos en este móvil» del panel | lib/notificaciones, lib/supabase, api/pago, public/sw-avisos.js | admin/pedidos, admin/index | ACTIVO
 components/BarraBusqueda.tsx | Barra de búsqueda de la tienda e índice de productos | lib/supabase, lib/analiticaPropia, ImagenInteligente, constants/temaTienda | catálogo, Inicio, comparar, quiénes somos, admin/analytics, AsistenteBlue, CarruselProductosCategoria | ACTIVO
 components/BotonAtrasAlcance.tsx | Botón «Volver» flotante al alcance del pulgar | CarruselProductosCategoria | app/_layout, ContratarServicioModal | ACTIVO
+components/DesplazamientoSuave.tsx | Aparición suave de los apartados al llegar a ellos y botón «Volver arriba» | react-native | Inicio, catálogo, servicios, producto, CarruselProductosCategoria | ACTIVO
 components/PantallaCargaMarca.tsx | Pantalla de bienvenida y de carga | MarcaAnimada, EfectoPensando | app/_layout | ACTIVO
 components/CabeceraMarca.tsx | Barra superior con «Volver» y el nombre de la tienda | constants/temaTienda | catálogo, servicios, fichas, blog, políticas, checkout, chat, comparar, formularios | ACTIVO
 components/AsistenteBlue.tsx | Blue, la asistente flotante (guía, avisos y panel) | lib/supabase, analiticaPropia, interaccion, conocimiento, notificaciones, envio; api/blue-ia | app/_layout | ACTIVO

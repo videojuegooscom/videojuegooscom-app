@@ -31,7 +31,7 @@
  * - app/(tabs)/index.tsx → la categoría "Reparación/Limpieza" navega aquí.
  * - app/admin/services.tsx → gestiona el catálogo que se muestra aquí.
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Linking,
   Platform,
@@ -47,6 +47,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { columnasLista, RejillaTarjetas, TarjetaProducto } from "../components/CarruselProductosCategoria";
+import { AparecerAlVer, BotonVolverArriba } from "../components/DesplazamientoSuave";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
@@ -246,6 +247,10 @@ export default function ServiciosScreen() {
   const [services, setServices] = useState<Service[]>([]);
   const [search, setSearch] = useState("");
   const [videos, setVideos] = useState<VideoServicio[]>([]);
+  // «Volver arriba»: la lista y si ya se ha bajado bastante.
+  const listaRef = useRef<ScrollView | null>(null);
+  const [verArriba, setVerArriba] = useState(false);
+  const verArribaRef = useRef(false);
 
   // silencioso («Desliza para actualizar»): sin volver a enseñar la carga.
   async function load(silencioso = false) {
@@ -290,10 +295,20 @@ export default function ServiciosScreen() {
           96 abajo: la última tarjeta queda por encima del asistente flotante Blue. Con el buscador abierto,
           tocar una tarjeta funciona al primer toque y arrastrar cierra el teclado. */}
       <ScrollView
+        ref={listaRef}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         contentContainerStyle={{ paddingBottom: 96 }}
+        // «Volver arriba» (dueño, 2026-11-19): tras bajar bastante; solo cambia el estado al cruzar el umbral.
+        onScroll={(e) => {
+          const arriba = e.nativeEvent.contentOffset.y > 480;
+          if (arriba !== verArribaRef.current) {
+            verArribaRef.current = arriba;
+            setVerArriba(arriba);
+          }
+        }}
+        scrollEventThrottle={32}
       >
         <View
           style={{
@@ -405,9 +420,19 @@ export default function ServiciosScreen() {
           )}
         </View>
 
-        {/* «Nuestros Servicios»: vídeos de cómo trabajamos, debajo de la lista (sin vídeos no sale). */}
-        <NuestrosServicios videos={videos} isMobile={isMobile} pagePadding={pagePadding} />
+        {/* «Nuestros Servicios»: vídeos de cómo trabajamos, debajo de la lista (sin vídeos no sale). Aparece con un
+            fundido suave al llegar a ella. */}
+        <AparecerAlVer>
+          <NuestrosServicios videos={videos} isMobile={isMobile} pagePadding={pagePadding} />
+        </AparecerAlVer>
       </ScrollView>
+      <BotonVolverArriba
+        nativeID="servicios-volver-arriba"
+        visible={verArriba}
+        // Encima de la flecha «Volver» azul (components/BotonAtrasAlcance.tsx: 52 px a 16 del borde).
+        abajo={16 + 52 + 12}
+        onPress={() => listaRef.current?.scrollTo({ y: 0, animated: true })}
+      />
     </View>
   );
 }

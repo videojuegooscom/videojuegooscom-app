@@ -2545,6 +2545,131 @@ async function seccionPERLIM() {
   }
 }
 
+// ===== DESPL) Desplazamiento más moderno (dueño, 2026-11-19): lo que empieza fuera de la pantalla aparece con un fundido
+// suave al llegar (y lo de la primera pantalla sale quieto), «Volver arriba» en el catálogo, tocar «Perfil» sube arriba
+// y al volver a Inicio desde otra página se queda donde estaba. Las animaciones se apagan solas en el navegador de las
+// pruebas; aquí se piden con window.__vzAnimarDesplazamiento.
+async function seccionDESPL() {
+  const CATS = [{ id: "c0000000-0000-4000-8000-0000000000f5", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true }];
+  const art = (n) => ({
+    id: `f0000000-0000-4000-8000-0000000000${String(n).padStart(2, "0")}`,
+    title: `Mando de prueba ${n}`, description: "Revisado.", price_eur: 20 + n, status: "PUBLISHED", is_active: true, condition: "GOOD",
+    category_id: CATS[0].id, created_at: new Date(Date.UTC(2026, 10, 1, n)).toISOString(), view_count: n, images: [],
+  });
+  const PRODUCTOS = Array.from({ length: 24 }, (_, i) => art(i + 1));
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const nuevoEstado = () => ({ filas: perfil, guardados: [], categorias: CATS, catalogoFB: PRODUCTOS });
+  // El contenedor que se desplaza (el de la página, no la ventana) de lo que contiene `sel`.
+  const scrollDe = (p, sel) => p.evaluate((s) => {
+    let n = document.querySelector(s);
+    while (n && !(n.scrollHeight > n.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(n).overflowY))) n = n.parentElement;
+    return n ? Math.round(n.scrollTop) : -1;
+  }, sel);
+  const ponerScroll = (p, sel, y) => p.evaluate(([s, v]) => {
+    let n = document.querySelector(s);
+    while (n && !(n.scrollHeight > n.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(n).overflowY))) n = n.parentElement;
+    if (n) n.scrollTop = v;
+  }, [sel, y]);
+  const opacidad = (p, sel) => p.evaluate((s) => Number(getComputedStyle(document.querySelector(s) ?? document.body).opacity), sel);
+
+  // DESPL1) Inicio con las animaciones pedidas: la primera pantalla, quieta; «Quiénes somos» (abajo) aparece al llegar.
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", nuevoEstado());
+    await ctx.addInitScript(() => { window.__vzAnimarDesplazamiento = true; });
+    const p = await pagina(ctx, "/");
+    await p.locator("#inicio-quienes-somos").waitFor({ state: "attached", timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const h1 = await p.evaluate(() => Number(getComputedStyle(document.querySelector('[aria-level="1"]')?.parentElement ?? document.body).opacity));
+    ok(h1 === 1, `DESPL: lo que se ve al abrir Inicio sale quieto y entero (opacidad ${h1})`);
+    const antes = await opacidad(p, "#inicio-quienes-somos");
+    ok(antes < 0.1, `DESPL: «Quiénes somos», aún fuera de la pantalla, espera para aparecer (opacidad ${antes})`);
+    await p.locator("#inicio-quienes-somos").scrollIntoViewIfNeeded();
+    await p.waitForTimeout(900);
+    const despues = await opacidad(p, "#inicio-quienes-somos");
+    ok(despues === 1, `DESPL: al llegar a él aparece entero con el fundido (opacidad ${despues})`);
+    await capturar(p, "DESPL1-inicio-quienes-somos");
+    ok(p.errores.length === 0, `DESPL: Inicio sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // DESPL2) Sin pedirlas (como en las demás pruebas) o con «Reducir movimiento»: nada se esconde.
+  for (const [nombre, extra] of [["las pruebas", {}], ["«Reducir movimiento»", { reducedMotion: "reduce" }]]) {
+    const ctx = await contexto(navegador, CLIENTE, "user", nuevoEstado(), extra);
+    // Con «Reducir movimiento» se piden las animaciones igualmente: el sistema manda y no se esconde nada.
+    if (extra.reducedMotion) await ctx.addInitScript(() => { window.__vzAnimarDesplazamiento = true; });
+    const p = await pagina(ctx, "/");
+    await p.locator("#inicio-quienes-somos").waitFor({ state: "attached", timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok((await opacidad(p, "#inicio-quienes-somos")) === 1, `DESPL: con ${nombre}, nada se esconde (todo quieto)`);
+    await ctx.close();
+  }
+
+  // DESPL3) Volver a Inicio desde otra página: sigue donde estaba (no vuelve arriba).
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", nuevoEstado());
+    const p = await pagina(ctx, "/");
+    await p.locator("#inicio-quienes-somos-enlace").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#inicio-quienes-somos-enlace").scrollIntoViewIfNeeded();
+    await p.waitForTimeout(500);
+    const y0 = await scrollDe(p, "#inicio-quienes-somos");
+    await p.locator("#inicio-quienes-somos-enlace").click();
+    await p.waitForURL(/quienes-somos/, { timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    await p.goBack();
+    await p.waitForURL((u) => new URL(u).pathname === "/", { timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(1000);
+    const y1 = await scrollDe(p, "#inicio-quienes-somos");
+    ok(y0 > 300 && Math.abs(y1 - y0) < 60, `DESPL: al volver a Inicio sigue donde estaba (${y0} → ${y1} px)`);
+    await ctx.close();
+  }
+
+  // DESPL4) Catálogo: «Volver arriba» sale tras bajar y sube del todo; con poco bajado, no.
+  for (const [nombre, vista] of [["390", {}], ["1280", { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 }]]) {
+    const ctx = await contexto(navegador, CLIENTE, "user", nuevoEstado(), vista);
+    const p = await pagina(ctx, "/catalogo");
+    await p.getByText("Mando de prueba 1", { exact: true }).first().waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const boton = p.locator("#catalogo-volver-arriba");
+    const visible = async () => p.evaluate(() => {
+      const b = document.getElementById("catalogo-volver-arriba");
+      let n = b; let o = 1;
+      while (n) { o *= Number(getComputedStyle(n).opacity); n = n.parentElement; }
+      return o;
+    });
+    ok((await visible()) < 0.1, `DESPL (${nombre}): arriba del catálogo, «Volver arriba» no se ve`);
+    await ponerScroll(p, "#catalogo-buscador-filtros", 900);
+    await p.waitForTimeout(700);
+    const yAbajo = await scrollDe(p, "#catalogo-buscador-filtros");
+    ok((await visible()) > 0.9, `DESPL (${nombre}): tras bajar (${yAbajo} px) sale «Volver arriba»`);
+    const caja = await boton.boundingBox();
+    ok(!!caja && caja.width >= 44 && caja.height >= 44, `DESPL (${nombre}): se toca bien (${caja ? `${Math.round(caja.width)}×${Math.round(caja.height)}` : "no está"})`);
+    const atras = await p.locator("#boton-atras-flotante").boundingBox();
+    ok(!!caja && (!atras || caja.y + caja.height <= atras.y - 4), `DESPL (${nombre}): va encima de la flecha «Volver», sin taparla (${JSON.stringify({ arriba: caja, volver: atras })})`);
+    await capturar(p, `DESPL4-catalogo-${nombre}`);
+    await boton.click();
+    await p.waitForTimeout(1200);
+    ok((await scrollDe(p, "#catalogo-buscador-filtros")) < 10, `DESPL (${nombre}): al tocarlo sube arriba del todo`);
+    ok(p.errores.length === 0, `DESPL (${nombre}): catálogo sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // DESPL5) Perfil: tocar «Perfil» abajo estando ya en Perfil sube arriba del todo.
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", nuevoEstado(), { viewport: { width: 390, height: 640 } });
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    await ponerScroll(p, "#perfil-cabecera", 400);
+    await p.waitForTimeout(300);
+    const abajo = await scrollDe(p, "#perfil-cabecera");
+    await p.locator('[data-testid="pestana-perfil"]').first().click();
+    await p.waitForTimeout(1200);
+    const arriba = await scrollDe(p, "#perfil-cabecera");
+    ok(abajo > 100 && arriba < 10, `DESPL: tocar «Perfil» estando en Perfil sube arriba (${abajo} → ${arriba} px)`);
+    await ctx.close();
+  }
+}
+
 // ===== S) Panel de control: el número de novedades de cada recuadro ===============================================
 async function seccionS() {
   const hace = (ms) => new Date(Date.now() - ms).toISOString();
@@ -24086,6 +24211,7 @@ try {
   if (SOLO === "FCH") await seccionFCH();
   if (SOLO === "FBIA") await seccionFBIA();
   if (SOLO === "PERLIM") await seccionPERLIM();
+  if (SOLO === "DESPL") await seccionDESPL();
   if (SOLO === "AC") await seccionAC();
   if (SOLO === "N") await seccionN();
   if (SOLO === "P") await seccionP();
@@ -25158,6 +25284,7 @@ try {
   await seccionFCH();
   await seccionFBIA();
   await seccionPERLIM();
+  await seccionDESPL();
   await seccionTM();
   await seccionUP();
   await seccionTM2();
