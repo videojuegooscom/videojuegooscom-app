@@ -18362,20 +18362,17 @@ async function seccionMOMB() {
     const b = await botones44(p);
     ok(b.length >= 2 && b.every((x) => x.h >= 44 && x.w >= 44), `MOMB: la X y «No volver a mostrar consejos» miden 44 px o más (${JSON.stringify(b)})`);
     await capturar(p, "MOMB1-comparar-390");
-    ok((await consejoVisible(p)) === "comparar", "MOMB: solo un consejo a la vez (el del catálogo espera su turno)");
+    ok((await consejoVisible(p)) === "comparar", "MOMB: solo un consejo a la vez");
     await p.locator("#blue-consejo-cerrar").click();
-    const cat = await esperarConsejo(p, "catalogo", 30000);
-    ok(cat, "MOMB: después, a su turno, el consejo del catálogo");
-    ok(/precio y estado/.test(await texto(p, "#blue-consejo-texto")) && /play 5/.test(await texto(p, "#blue-consejo-texto")), `MOMB: el del catálogo explica los filtros de precio y estado y «prueba play 5» (${await texto(p, "#blue-consejo-texto")})`);
-    await capturar(p, "MOMB1-catalogo-390");
-    await p.locator("#blue-consejo-cerrar").click();
-    await esperar(p, async () => evento(estado, "consejo_cerrado").length >= 2);
+    // El del catálogo («Encuentra lo tuyo») ya no sale (dueño, 2026-11-19: «no me gusta»).
+    ok(await sinConsejo(p, 20000), "MOMB: cerrado el de comparar, en el catálogo no sale ningún otro («Encuentra lo tuyo» quitado)");
+    await esperar(p, async () => evento(estado, "consejo_cerrado").length >= 1);
     const mostrados = evento(estado, "consejo_mostrado").map((e) => e.metadata?.momento);
     const cerrados = evento(estado, "consejo_cerrado").map((e) => JSON.stringify(e.metadata));
-    ok(mostrados.join(",") === "comparar,catalogo", `MOMB: se mide consejo_mostrado con el momento (${mostrados.join(",")})`);
-    ok(cerrados.join("|") === '{"momento":"comparar"}|{"momento":"catalogo"}', `MOMB: y consejo_cerrado solo con el momento (${cerrados.join("|")})`);
+    ok(mostrados.join(",") === "comparar", `MOMB: se mide consejo_mostrado con el momento (${mostrados.join(",")})`);
+    ok(cerrados.join("|") === '{"momento":"comparar"}', `MOMB: y consejo_cerrado solo con el momento (${cerrados.join("|")})`);
     const g = await dichos(p);
-    ok(g.includes("consejo:comparar") && g.includes("consejo:catalogo"), "MOMB: quedan dichos en el dispositivo");
+    ok(g.includes("consejo:comparar") && !g.includes("consejo:catalogo"), "MOMB: queda dicho en el dispositivo");
     await p.reload({ waitUntil: "load" });
     await p.locator(`#comparar-${ID(2)}`).waitFor({ timeout: 40000 }).catch(() => {});
     await p.locator(`#comparar-${ID(2)}`).click().catch(() => {});
@@ -18516,15 +18513,16 @@ async function seccionMOMB() {
         // sin almacenamiento
       }
     }, [`videojuegoszaragoza:seguimientos_vistos:${CLIENTE.id}`, PID]);
-    const p = await pagina(ctx, "/catalogo");
-    const sale = await esperarConsejo(p, "catalogo", 45000);
-    ok(sale, "MOMB: (dispositivo nuevo) sale el consejo del catálogo");
+    // (El del catálogo ya no existe desde el 2026-11-19: se empieza por el de la ficha.)
+    const p = await pagina(ctx, `/producto/${ID(1)}`);
+    const sale = await esperarConsejo(p, "ficha", 45000);
+    ok(sale, "MOMB: (dispositivo nuevo) sale el consejo de la ficha");
     await p.locator("#blue-consejo-apagar").click();
     await esperar(p, async () => evento(estado, "consejos_desactivados").length > 0);
     ok(evento(estado, "consejos_desactivados").length === 1 && (await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:blue_consejos_off"))) === "1", "MOMB: «No volver a mostrar consejos» los apaga en el dispositivo y se mide consejos_desactivados");
     ok((await consejoVisible(p)) === null, "MOMB: y el consejo se va");
-    await p.goto(`${BASE}/producto/${ID(1)}`, { waitUntil: "load" });
-    ok(await sinConsejo(p, 35000), "MOMB: apagados, la ficha ya no trae consejo");
+    await p.goto(`${BASE}/producto/${ID(2)}`, { waitUntil: "load" });
+    ok(await sinConsejo(p, 35000), "MOMB: apagados, otra ficha ya no trae consejo");
     await p.goto(`${BASE}/cesta`, { waitUntil: "load" });
     ok(await sinConsejo(p, 25000), "MOMB: ni la cesta");
     s.estadoPedido = "enviado";

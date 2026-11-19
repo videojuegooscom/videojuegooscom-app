@@ -36,6 +36,18 @@
       ],
       "destination": "/api/compartir?id=:id"
     },
+    {
+      "source": "/catalogo",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(WhatsApp|facebookexternalhit|Facebot|meta-externalagent|Twitterbot|TelegramBot|Slackbot|Discordbot|LinkedInBot|Pinterest|SkypeUriPreview|redditbot|Iframely).*"
+        },
+        { "type": "query", "key": "cat", "value": "(?<cat>[a-z0-9-]{1,60})" }
+      ],
+      "destination": "/api/compartir?cat=:cat"
+    },
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/producto/:id", "destination": "/producto/[id]" },
     { "source": "/servicio/:id", "destination": "/servicio/[id]" },

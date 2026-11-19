@@ -48,6 +48,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { columnasLista, RejillaTarjetas, TarjetaProducto } from "../components/CarruselProductosCategoria";
 import { AparecerAlVer, BotonVolverArriba } from "../components/DesplazamientoSuave";
+import { useEncimaBotonAtras } from "../components/BotonAtrasAlcance";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
@@ -251,6 +252,7 @@ export default function ServiciosScreen() {
   const listaRef = useRef<ScrollView | null>(null);
   const [verArriba, setVerArriba] = useState(false);
   const verArribaRef = useRef(false);
+  const encimaVolver = useEncimaBotonAtras();
 
   // silencioso («Desliza para actualizar»): sin volver a enseñar la carga.
   async function load(silencioso = false) {
@@ -429,8 +431,8 @@ export default function ServiciosScreen() {
       <BotonVolverArriba
         nativeID="servicios-volver-arriba"
         visible={verArriba}
-        // Encima de la flecha «Volver» azul (components/BotonAtrasAlcance.tsx: 52 px a 16 del borde).
-        abajo={16 + 52 + 12}
+        // Encima de la flecha «Volver» azul (components/BotonAtrasAlcance.tsx), con la zona segura del iPhone.
+        abajo={encimaVolver}
         onPress={() => listaRef.current?.scrollTo({ y: 0, animated: true })}
       />
     </View>
