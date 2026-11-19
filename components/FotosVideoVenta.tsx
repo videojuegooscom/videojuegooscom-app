@@ -13,7 +13,8 @@
  * Notas:
  * Qué hace: todo lo relacionado con las fotos y el vídeo que un cliente
  * adjunta al formulario "Vender ahora" (OBLIGATORIOS desde el 2026-11-16: de
- * 7 a 10 fotos y 1 vídeo de 20 a 30 segundos y hasta 60 MB; un vídeo cuya
+ * 7 a 10 fotos y 1 vídeo de 20 a 30 segundos y hasta 50 MB —desde el 2026-11-19; antes 60, más de lo que acepta
+ * Supabase—; un vídeo cuya
  * duración no se puede medir se rechaza con un aviso), en un único archivo: tipos, límites, conversión HEIC
  * (fotos de iPhone), subida a Supabase Storage, descarga individual para el
  * admin, y el propio selector visual (FotosVideoVenta) que se inserta en el
@@ -87,7 +88,9 @@ function duracionEnRango(segundos: number): boolean {
   return segundos >= MIN_SELL_VIDEO_SECONDS - MARGEN_DURACION_S && segundos <= MAX_SELL_VIDEO_SECONDS + MARGEN_DURACION_S;
 }
 export const MAX_SELL_IMAGE_SIZE_MB = 12;
-export const MAX_SELL_VIDEO_SIZE_MB = 60;
+// 50 MB: lo máximo que Supabase acepta por archivo en el plan actual (aunque el bucket diga 60). Con 60 aquí, un vídeo de
+// 50-60 MB pasaba el formulario y luego fallaba al subirse (2026-11-19).
+export const MAX_SELL_VIDEO_SIZE_MB = 50;
 
 const MAX_SELL_IMAGE_SIZE_BYTES = MAX_SELL_IMAGE_SIZE_MB * 1024 * 1024;
 const MAX_SELL_VIDEO_SIZE_BYTES = MAX_SELL_VIDEO_SIZE_MB * 1024 * 1024;
@@ -188,12 +191,14 @@ function blobToFile(blob: Blob, fileName: string, mimeType: string) {
   return new File([blob], fileName, { type: mimeType, lastModified: Date.now() });
 }
 
+// El conversor se carga solo cuando hace falta (una foto HEIC), en su propio trozo de la web. Antes se cargaba con
+// `new Function("return import(m)")` y «heic2any» a secas: el navegador no sabe resolver ese nombre en la web publicada,
+// así que TODA foto HEIC del iPhone fallaba y el cliente no podía enviar «Vender» (reclamación real, 2026-11-19).
 async function dynamicImportHeic2Any(): Promise<any> {
   try {
-    const importer = new Function("m", "return import(m)") as (m: string) => Promise<any>;
-    return await importer("heic2any");
+    return await import("heic2any");
   } catch {
-    throw new Error("Falta la librería de conversión HEIC.");
+    throw new Error("No hemos podido preparar esta foto del iPhone. Prueba a elegirla otra vez o haz una captura de pantalla de la foto.");
   }
 }
 
@@ -309,7 +314,9 @@ async function buildLocalVideo(file: File): Promise<ArchivoVentaLocal> {
     throw new Error(`Formato de vídeo no soportado (${mimeType || "desconocido"}).`);
   }
   if (file.size > MAX_SELL_VIDEO_SIZE_BYTES) {
-    throw new Error(`El vídeo debe pesar menos de ${MAX_SELL_VIDEO_SIZE_MB}MB.`);
+    throw new Error(
+      `Este vídeo pesa ${Math.round(file.size / (1024 * 1024))} MB y el máximo es ${MAX_SELL_VIDEO_SIZE_MB} MB. Grábalo en 1080p (en el iPhone: Ajustes › Cámara › Grabar vídeo) o recórtalo a 20-30 segundos.`
+    );
   }
 
   // El vídeo es obligatorio y debe durar de 20 a 30 s: si no se puede medir, se rechaza con un aviso amable.

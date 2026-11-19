@@ -72,7 +72,7 @@
  *   entregarlo). Si es domicilio pide la dirección completa; si es entrega
  *   pide la disponibilidad horaria (Mañana/Medio día/Tarde noche).
  * - Fotos y vídeo del artículo (OBLIGATORIOS, dueño 2026-11-16): de 7 a 10
- *   fotos y 1 vídeo de 20 a 30 segundos (hasta 60 MB), en dos apartados con
+ *   fotos y 1 vídeo de 20 a 30 segundos (hasta 50 MB), en dos apartados con
  *   FotosVideoVenta (ver components/FotosVideoVenta.tsx); un vídeo fuera de
  *   ese rango o cuya duración no se puede medir se rechaza con su aviso.
  *   Cuentan para el progreso como los demás campos. Se suben a Storage
