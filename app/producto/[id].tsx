@@ -168,6 +168,7 @@ import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { BotonComparar, CompletaTuCompra, ProductosParecidos, registrarVisto, useAlturaBarraComparar } from "../../components/CarruselProductosCategoria";
 import { BUY_NOW_MARK_KEY, BuyNowMark, COLORS, CartItem, Product, ProductMediaRow, asProductCondition, detectAdmin, fetchProductRow, getLikedProductIds, labelCondition, loadCart, loadProductMediaRows, mapDbStatusToUi, normalizeProductMediaRows, pickInitialHeroImage, pushRoute, replaceRoute, saveCart, saveLikedProductIds, smartBack } from "../../components/ficha/DatosFicha";
 import { FichaProducto } from "../../components/ficha/FichaProducto";
+import { AparecerAlVer } from "../../components/DesplazamientoSuave";
 import { AvisoPrecioFicha, EntregaEstimadaFicha, InsigniasConfianza, PreguntarArticulo, VOLVER_TRAS_ACCESO_FICHA_KEY } from "../../components/ficha/ExtrasFicha";
 export { FichaProducto } from "../../components/ficha/FichaProducto";
 export type { Caracteristica } from "../../components/ficha/DatosFicha";
@@ -1344,7 +1345,10 @@ export default function ProductoScreen() {
 
                 {/* Ficha técnica y mantenimiento de VeoAura y descripción: con más de una, un carrusel que se desliza
                     (y pasa solo cada 10 s); con solo la descripción, sin carrusel. */}
-                <FichaProducto key={p.id} caracteristicas={p.caracteristicas} mantenimiento={p.mantenimiento} descripcion={p.description} />
+                {/* En el móvil queda debajo de la foto y el precio: aparece con un fundido suave al llegar a ella (2026-11-19). */}
+                <AparecerAlVer>
+                  <FichaProducto key={p.id} caracteristicas={p.caracteristicas} mantenimiento={p.mantenimiento} descripcion={p.description} />
+                </AparecerAlVer>
               </View>
               {/* Las garantías y promesas las escribe la tienda en la descripción de cada producto; las insignias de
                   arriba solo salen si el dueño las marca en ese producto (nunca fijas para todos). */}

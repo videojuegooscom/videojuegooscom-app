@@ -102,6 +102,7 @@ import type { NativeScrollEvent, NativeSyntheticEvent, ViewStyle } from "react-n
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ImagenInteligente from "./ImagenInteligente";
+import { AparecerAlVer } from "./DesplazamientoSuave";
 import { useRecarga } from "./TirarParaActualizar";
 import { cargarIndiceBusqueda, palabrasBusqueda, portadasDeProductos, type ProductoIndice } from "./BarraBusqueda";
 import { supabase } from "../lib/supabase";
@@ -273,7 +274,8 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
   );
 });
 
-// Rejilla de tarjetas en filas iguales (la última fila se completa con huecos para que no se estiren).
+// Rejilla de tarjetas en filas iguales (la última fila se completa con huecos para que no se estiren). Cada fila que
+// empieza fuera de la pantalla aparece con un fundido suave al llegar a ella (AparecerAlVer; dueño, 2026-11-19).
 export function RejillaTarjetas({ columns, gap, children }: { columns: number; gap: number; children: React.ReactNode }) {
   // Reparto en filas memorizado: solo se rehace si cambian hijos o columnas.
   const rows = useMemo(() => {
@@ -288,7 +290,7 @@ export function RejillaTarjetas({ columns, gap, children }: { columns: number; g
   return (
     <View style={{ gap }}>
       {rows.map((row, idx) => (
-        <View key={idx} style={{ flexDirection: columns === 1 ? "column" : "row", gap }}>
+        <AparecerAlVer key={idx} style={{ flexDirection: columns === 1 ? "column" : "row", gap }}>
           {row.map((child, j) => (
             <View key={j} style={{ flex: 1 }}>
               {child}
@@ -297,7 +299,7 @@ export function RejillaTarjetas({ columns, gap, children }: { columns: number; g
           {row.length < columns
             ? Array.from({ length: columns - row.length }).map((_, k) => <View key={`pad-${k}`} style={{ flex: 1 }} />)
             : null}
-        </View>
+        </AparecerAlVer>
       ))}
     </View>
   );
