@@ -2285,8 +2285,9 @@ async function seccionR() {
     const cab = await lineas(p.locator("#perfil-cabecera"));
     ok(cab[0] === "Mi perfil" && cab[1] === "Tu cuenta está activa" && /@ana_g · Completo/.test(cab.join(" ")), `R: debajo de «Mi perfil», el subtítulo «Tu cuenta está activa» (${cab.join(" | ")})`);
     ok((await p.getByText("Tu cuenta está activa").count()) === 1 && (await p.getByText("SESIÓN ACTUAL").count()) === 0, "R: no hay otro bloque de la cuenta ni «SESIÓN ACTUAL» aparte");
+    // Desde el 2026-11-18 (dueño), «Cerrar sesión» va dentro del desplegable «Inicio de sesión y seguridad» de «Mi perfil».
     const salir = p.locator("#perfil-datos").getByRole("button", { name: "Cerrar sesión" });
-    ok((await salir.count()) === 1 && (await salir.isVisible()), "R: plegado, «Cerrar sesión» se ve dentro de «Mi perfil» (no hace falta abrirlo)");
+    ok((await salir.count()) === 0, "R: plegado, «Cerrar sesión» no se ve (va dentro de «Inicio de sesión y seguridad»)");
     ok((await p.getByText("Panel de control").count()) === 0 && (await p.getByText(/panel de administración/).count()) === 0, "R: un cliente no ve «Panel de control» ni el aviso del panel");
     await capturar(p, "R1-cliente-plegado");
 
@@ -2359,8 +2360,8 @@ async function seccionR() {
     await p.waitForTimeout(300);
     await caso("deslizar a la izquierda sobre la cabecera de «Mi perfil»", "seguimientos", async () => dedo(await sobre(p.locator("#perfil-cabecera"), 300), -200, 4));
     await caso("deslizar a la derecha sobre la tarjeta de una reparación", "cuenta", async () => dedo(await sobre(p.getByText("Reparación de mando PS5").first(), 90), 200, -4));
-    await caso("deslizar a la izquierda sobre «Cerrar sesión» (sin cerrar la sesión)", "seguimientos", async () => dedo(await sobre(salir, 300), -200, 2));
-    ok(estado.salio !== true, "R: deslizar sobre «Cerrar sesión» no la cierra");
+    await caso("deslizar a la izquierda sobre «Mejoras en la tienda» (sin abrirla)", "seguimientos", async () => dedo(await sobre(p.locator("#perfil-mejoras"), 300), -200, 2));
+    ok(estado.salio !== true, "R: deslizar sobre un botón de la cuenta no cierra la sesión");
     await caso("deslizar a la derecha sobre «¿Tienes un número de seguimiento…? Añádelo aquí»", "cuenta", async () => dedo(await sobre(p.locator("#seguimiento-anadir-abrir"), 90), 200, 0));
     // Abierto: el dedo empieza encima de los campos (al volver a «Mi cuenta», el perfil completo sale plegado otra vez).
     await abrirPerfil(p);
@@ -2423,7 +2424,8 @@ async function seccionR() {
     await ctx.close();
   }
 
-  // R4) Administrador: el aviso del panel junto a sus botones y «Panel de control» al lado de «Cerrar sesión», en la tarjeta.
+  // R4) Administrador: el aviso del panel y «Panel de control» donde estaban (al final de «Mi perfil», también plegado);
+  //     «Cerrar sesión» dentro del desplegable «Inicio de sesión y seguridad» (dueño, 2026-11-18).
   {
     const estado = { filas: perfilCompleto(ADMIN.id), guardados: [] };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
@@ -2434,11 +2436,18 @@ async function seccionR() {
     const salir = p.locator("#perfil-datos").getByRole("button", { name: "Cerrar sesión" });
     const aviso = p.locator("#perfil-datos").getByText("Esta cuenta tiene acceso al panel de administración.", { exact: true });
     ok((await p.getByText("Panel de control", { exact: true }).count()) === 1 && (await panel.count()) === 1, "R: «Panel de control» está dentro de «Mi perfil» (ya no en una tarjeta aparte)");
-    ok((await aviso.count()) === 1 && (await p.getByText(/panel de administración/).count()) === 1, "R: el aviso «Esta cuenta tiene acceso al panel de administración.» sale una vez, con sus botones");
-    const [bp, bs, ba, tarjeta] = [await panel.boundingBox(), await salir.boundingBox(), await aviso.boundingBox(), await p.locator("#perfil-datos").boundingBox()];
-    ok(enFila(bp, bs) && bp.x > bs.x && bp.height >= 44 && bs.height >= 44 && Math.abs(bp.width - bs.width) < 2, `R: los dos botones en la misma fila, iguales y de 44 px o más, «Panel de control» a la derecha (al alcance del pulgar) (${JSON.stringify({ panel: bp, salir: bs })})`);
-    ok(!!ba && ba.y + ba.height <= Math.min(bp.y, bs.y) + 1 && Math.min(bp.y, bs.y) - (ba.y + ba.height) < 24, "R: el aviso va justo encima de los botones");
-    ok(dentro(bp, tarjeta) && dentro(bs, tarjeta), "R: y todo dentro de la tarjeta de «Mi perfil»");
+    ok((await aviso.count()) === 1 && (await p.getByText(/panel de administración/).count()) === 1, "R: el aviso «Esta cuenta tiene acceso al panel de administración.» sale una vez, con su botón");
+    ok((await salir.count()) === 0, "R: plegado, «Cerrar sesión» no está junto al panel (va en «Inicio de sesión y seguridad»)");
+    const [bp, ba, tarjeta] = [await panel.boundingBox(), await aviso.boundingBox(), await p.locator("#perfil-datos").boundingBox()];
+    ok(!!bp && bp.height >= 44 && bp.width >= (tarjeta?.width ?? 0) * 0.8, `R: «Panel de control» a lo ancho y de 44 px o más (${JSON.stringify(bp)})`);
+    ok(!!ba && ba.y + ba.height <= bp.y + 1 && bp.y - (ba.y + ba.height) < 24, "R: el aviso va justo encima del botón");
+    ok(dentro(bp, tarjeta), "R: y dentro de la tarjeta de «Mi perfil»");
+    // Abierto «Mi perfil» y su «Inicio de sesión y seguridad»: ahí está «Cerrar sesión».
+    await p.locator("#perfil-cabecera").click();
+    await p.locator("#perfil-seguridad-cabecera").click();
+    await salir.waitFor({ timeout: 8000 }).catch(() => {});
+    const bs = await salir.boundingBox();
+    ok(!!bs && bs.height >= 44 && dentro(bs, await p.locator("#perfil-seguridad").boundingBox()), `R: «Cerrar sesión» está dentro de «Inicio de sesión y seguridad», de 44 px o más (${JSON.stringify(bs)})`);
     // Los textos de los botones se leen enteros (sin «Panel de con…»), también en un móvil estrecho.
     const enteros = () => p.evaluate(() => ["Cerrar sesión", "Panel de control"].map((t) => {
       const b = document.querySelector(`#perfil-datos [aria-label="${t}"]`);
@@ -2455,17 +2464,83 @@ async function seccionR() {
     ok(a390.every(Boolean) && a360.every(Boolean), `R: «Cerrar sesión» y «Panel de control» se leen enteros (390 px: ${a390.join("/")}; 360 px: ${a360.join("/")})`);
     const cab = await lineas(p.locator("#perfil-cabecera"));
     ok(cab[1] === "Tu cuenta está activa", `R: el administrador también ve «Tu cuenta está activa» bajo «Mi perfil» (${cab.join(" | ")})`);
-    await capturar(p, "R4-admin-plegado");
+    await capturar(p, "R5-admin-abierto");
+    const ba2 = await aviso.boundingBox();
+    const bseg = await p.locator("#perfil-seguridad").boundingBox();
+    ok(!!ba2 && !!bseg && ba2.y > bseg.y + bseg.height - 1, "R: abierto, el aviso y «Panel de control» quedan al final, debajo de «Inicio de sesión y seguridad»");
+    ok((await p.getByRole("button", { name: "Guardar perfil" }).count()) === 0, "R: sin cambios, «Guardar perfil» no ocupa sitio");
     await p.locator("#perfil-cabecera").click();
     await p.waitForTimeout(400);
-    const ba2 = await aviso.boundingBox();
-    const bg = await p.getByRole("button", { name: "Guardar perfil" }).boundingBox();
-    ok(!!ba2 && !!bg && ba2.y > bg.y, "R: abierto, el aviso y los botones de la cuenta quedan debajo de «Guardar perfil»");
-    await capturar(p, "R5-admin-abierto");
+    await capturar(p, "R4-admin-plegado");
     await panel.click();
     await p.waitForURL(/\/admin(\?|$|\/)/, { timeout: 15000 }).catch(() => {});
     ok(/\/admin(\?|$|\/)/.test(new URL(p.url()).pathname + new URL(p.url()).search) || new URL(p.url()).pathname === "/admin", `R: «Panel de control» abre el panel (${new URL(p.url()).pathname})`);
     ok(p.errores.length === 0, `R: administrador sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
+// ===== PERLIM) «Mi perfil» más limpio en el móvil (dueño, 2026-11-18): la foto se cambia con la de la cabecera (sin la
+// grande repetida), «Guardar perfil» y «Deshacer» solo cuando hay algo cambiado. A 360, 390 y 1280 px.
+async function seccionPERLIM() {
+  const fila = (extra = {}) => [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02", foto_url: null, ...extra }];
+  const vistas = [
+    ["390", {}],
+    ["360", { viewport: { width: 360, height: 780 } }],
+    ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ];
+  for (const [nombre, vista] of vistas) {
+    const estado = { filas: fila(), guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 });
+    // La foto de la cabecera es el botón de la foto, con su camarita, también plegado.
+    const foto = p.locator("#perfil-foto");
+    const enCabecera = await p.evaluate(() => {
+      const f = document.getElementById("perfil-foto")?.getBoundingClientRect();
+      const c = document.getElementById("perfil-cabecera-caja")?.getBoundingClientRect();
+      return f && c ? { dentro: f.top >= c.top - 1 && f.bottom <= c.bottom + 1 && f.left >= c.left - 1, alto: Math.round(f.height), ancho: Math.round(f.width) } : null;
+    });
+    ok((await foto.count()) === 1 && !!enCabecera?.dentro && enCabecera.alto >= 44 && enCabecera.ancho >= 44, `PERLIM (${nombre}): la foto de la cabecera de «Mi perfil» es el botón para añadirla, de 44 px o más (${JSON.stringify(enCabecera)})`);
+    ok((await foto.getAttribute("aria-label")) === "Añadir una foto de perfil", "PERLIM: y lo dice («Añadir una foto de perfil»)");
+    const elige = p.waitForEvent("filechooser", { timeout: 8000 }).then(() => true, () => false);
+    await foto.click();
+    ok(await elige, `PERLIM (${nombre}): al tocarla se abre el selector de fotos, como antes`);
+    ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "false", "PERLIM: tocar la foto no abre ni pliega «Mi perfil»");
+    // Abierto: sin la foto grande repetida y sin «Guardar perfil» ni «Deshacer» mientras no se cambie nada.
+    await p.locator("#perfil-cabecera").click();
+    await p.locator('#perfil-datos [aria-label="Nombre"]').waitFor({ timeout: 8000 }).catch(() => {});
+    const t = await p.locator("#perfil-datos").innerText();
+    ok(!/Toca para añadir tu foto/.test(t) && (await p.locator("#perfil-foto").count()) === 1, `PERLIM (${nombre}): abierto, ya no está la foto grande repetida`);
+    ok((await p.getByRole("button", { name: "Guardar perfil" }).count()) === 0 && (await p.getByRole("button", { name: "Deshacer los cambios" }).count()) === 0, `PERLIM (${nombre}): sin cambios no salen «Guardar perfil» ni «Deshacer»`);
+    await capturar(p, `PERLIM-${nombre}-abierto`);
+    await p.locator('#perfil-datos [aria-label="Nombre"]').fill("Ana María");
+    await p.waitForTimeout(200);
+    ok((await p.getByRole("button", { name: "Guardar perfil" }).count()) === 1 && (await p.getByRole("button", { name: "Deshacer los cambios" }).count()) === 1, `PERLIM (${nombre}): al cambiar algo salen los dos`);
+    await capturar(p, `PERLIM-${nombre}-cambiado`);
+    await p.getByRole("button", { name: "Deshacer los cambios" }).click();
+    await p.waitForTimeout(200);
+    ok((await p.getByRole("button", { name: "Guardar perfil" }).count()) === 0 && (await p.locator('#perfil-datos [aria-label="Nombre"]').inputValue()) === "Ana", `PERLIM (${nombre}): «Deshacer» vuelve a lo guardado y los botones se van`);
+    const ancho = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
+    ok(ancho.a <= ancho.p + 1, `PERLIM (${nombre}): la página no se ensancha (${ancho.a}/${ancho.p})`);
+    ok(p.errores.length === 0, `PERLIM (${nombre}): sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+  // Con foto: la cabecera la enseña, dice «Cambiar» y, abierto, se puede quitar (y sale «Guardar perfil»).
+  {
+    const FOTO = "https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/perfiles/c/1.jpg";
+    const estado = { filas: fila({ foto_url: FOTO }), guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-foto").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await p.locator("#perfil-foto").getAttribute("aria-label")) === "Cambiar la foto de perfil", "PERLIM: con foto, la de la cabecera dice «Cambiar la foto de perfil»");
+    ok((await p.locator("#perfil-foto-quitar").count()) === 0, "PERLIM: plegado no sale «Quitar foto»");
+    await p.locator("#perfil-cabecera").click();
+    await p.locator("#perfil-foto-quitar").waitFor({ timeout: 8000 }).catch(() => {});
+    await p.locator("#perfil-foto-quitar").click();
+    await p.waitForTimeout(200);
+    ok((await p.getByRole("button", { name: "Guardar perfil" }).count()) === 1, "PERLIM: abierto, «Quitar foto» funciona y deja guardarlo");
+    await capturar(p, "PERLIM-con-foto");
     await ctx.close();
   }
 }
@@ -5603,7 +5678,14 @@ async function seccionSE() {
     await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
     if ((await p.locator("#perfil-cabecera").getAttribute("aria-expanded").catch(() => "true")) !== "true") await p.locator("#perfil-cabecera").click();
     await p.locator("#perfil-seguridad").waitFor({ timeout: 15000 }).catch(() => {});
+    // «Inicio de sesión y seguridad» es un desplegable (dueño, 2026-11-18): sale cerrado y se abre al tocarlo.
+    if ((await p.locator("#perfil-seguridad-cabecera").getAttribute("aria-expanded").catch(() => "true")) !== "true") {
+      seCerradoAlEntrar.push((await p.locator("#perfil-seguridad-correo").count()) === 0);
+      await p.locator("#perfil-seguridad-cabecera").click();
+    }
+    await p.locator("#perfil-seguridad-correo").waitFor({ timeout: 8000 }).catch(() => {});
   };
+  const seCerradoAlEntrar = [];
   const esperar = async (p, cond, veces = 30) => {
     for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
   };
@@ -5664,6 +5746,9 @@ async function seccionSE() {
     ok(/Inicio de sesión y seguridad/.test(t0) && /Correo electrónico/.test(t0) && /Contraseña/.test(t0) && t0.includes(CLIENTE.email), `SE: «Mi perfil» tiene «Inicio de sesión y seguridad» con el correo y la contraseña (${t0.slice(0, 120)})`);
     const altos = await p.evaluate(() => ["perfil-seguridad-correo", "perfil-seguridad-contrasena"].map((id) => Math.round(document.getElementById(id)?.getBoundingClientRect().height ?? 0)));
     ok(altos.every((h) => h >= 44), `SE: las dos filas se tocan bien (${altos.join(", ")} px)`);
+    ok(seCerradoAlEntrar.length > 0 && seCerradoAlEntrar.every(Boolean), `SE: «Inicio de sesión y seguridad» sale plegado (sin el correo ni la contraseña) hasta tocarlo (${seCerradoAlEntrar.join(",")})`);
+    ok(/Cerrar sesión/.test(t0) && (await p.locator("#perfil-seguridad-salir").count()) === 1, "SE: y dentro está «Cerrar sesión»");
+    ok((await p.locator("#perfil-seguridad-cabecera").boundingBox())?.height >= 44, "SE: su cabecera se toca bien (44 px o más)");
     await p.locator("#perfil-seguridad-correo").click();
     await p.locator("#perfil-correo-nuevo").waitFor({ timeout: 8000 }).catch(() => {});
     await p.locator("#perfil-correo-nuevo").fill("abc");
@@ -8667,6 +8752,8 @@ async function seccionC8() {
     const p = await pagina(ctx, "/perfil");
     await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
     if ((await p.locator("#perfil-cabecera").getAttribute("aria-expanded").catch(() => "true")) !== "true") await p.locator("#perfil-cabecera").click();
+    // «Inicio de sesión y seguridad» es un desplegable (2026-11-18): se abre primero.
+    await p.locator("#perfil-seguridad-cabecera").click({ timeout: 15000 });
     await p.locator("#perfil-seguridad-contrasena").click({ timeout: 15000 });
     await p.locator("#perfil-clave-nueva").waitFor({ timeout: 8000 }).catch(() => {});
     ok((await p.locator("#perfil-clave-nueva").getAttribute("placeholder")) === "Contraseña nueva (mínimo 8)", "C8: en Mi perfil, «Contraseña nueva (mínimo 8)»");
@@ -23998,6 +24085,7 @@ try {
   if (SOLO === "FC") await seccionFC();
   if (SOLO === "FCH") await seccionFCH();
   if (SOLO === "FBIA") await seccionFBIA();
+  if (SOLO === "PERLIM") await seccionPERLIM();
   if (SOLO === "AC") await seccionAC();
   if (SOLO === "N") await seccionN();
   if (SOLO === "P") await seccionP();
@@ -24059,13 +24147,13 @@ try {
     await p.locator("#perfil-datos").waitFor({ timeout: 30000 });
     const t = await p.locator("#perfil-datos").innerText();
     ok(/Mi perfil/.test(t) && !/Perfil público/.test(t), "A: sale la tarjeta «Mi perfil» en Mi cuenta (ya no «Perfil público»)");
-    ok(/Tu cuenta está activa/.test(await p.locator("#perfil-cabecera").innerText()) && t.includes(CLIENTE.email) && (await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).count()) === 1, "A: la cuenta («Tu cuenta está activa» bajo «Mi perfil», el correo en su recuadro y «Cerrar sesión») va DENTRO de «Mi perfil»");
+    ok(/Tu cuenta está activa/.test(await p.locator("#perfil-cabecera").innerText()) && t.includes(CLIENTE.email) && (await p.locator("#perfil-seguridad-cabecera").count()) === 1, "A: la cuenta («Tu cuenta está activa» bajo «Mi perfil», el correo en su recuadro e «Inicio de sesión y seguridad», con «Cerrar sesión» dentro) va DENTRO de «Mi perfil»");
     ok((await p.getByText("SESIÓN ACTUAL").count()) === 0 && (await p.getByText("Tu cuenta está activa").count()) === 1, "A: y no hay otra tarjeta de la cuenta aparte");
     ok((await p.getByText("Mis seguimientos").count()) >= 1 && (await p.locator("#perfil-pestanas").getByText("Seguimientos", { exact: true }).count()) === 0, "A: la pestaña se llama «Mis seguimientos»");
     ok(/Sin usuario · Faltan datos/.test(await p.locator("#perfil-cabecera").innerText()), `A: la cabecera dice «Sin usuario · Faltan datos» (${(await p.locator("#perfil-cabecera").innerText()).replace(/\n/g, " ")})`);
     ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "true", "A: con datos pendientes la tarjeta sale abierta");
     ok(/Falta: provincia, fecha de nacimiento/.test(t), "A: dice qué falta («Falta: provincia, fecha de nacimiento»)");
-    ok(/Toca para añadir tu foto \(opcional\)/.test(t) && (await p.locator("#perfil-foto").count()) === 1, "A: la foto es opcional y se toca para añadirla");
+    ok((await p.locator("#perfil-foto").count()) === 1 && (await p.locator("#perfil-foto").getAttribute("aria-label")) === "Añadir una foto de perfil" && !/Toca para añadir tu foto/.test(t), "A: la foto es opcional y se añade tocando la de la cabecera (sin una grande repetida)");
     ok((await p.locator("#perfil-obligatorio").count()) === 0, "A: en Mi cuenta NO sale «Completa tu perfil» (aquí está la tarjeta)");
     const valor = (etiqueta) => p.locator(`#perfil-datos [aria-label="${etiqueta}"]`).first();
     ok((await valor("Nombre").inputValue()) === "Dani" && (await valor("Nombre de usuario").inputValue()) === "dani", "A: nombre y usuario salen rellenados con lo que escribió al registrarse");
@@ -24140,7 +24228,7 @@ try {
     await capturar(p, "A3-perfil-guardado-plegado");
     await p.locator("#perfil-cabecera").click();
     await p.waitForTimeout(300);
-    ok((await guardar.getAttribute("aria-disabled")) === "true", "A: al abrirlo otra vez no hay nada pendiente: «Guardar perfil» está desactivado");
+    ok((await guardar.count()) === 0, "A: al abrirlo otra vez no hay nada pendiente: «Guardar perfil» no sale (dueño, 2026-11-18)");
     ok(p.errores.length === 0, `A: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
 
     // Deshacer.
@@ -24178,7 +24266,9 @@ try {
     ok(medidas.nativos.length >= 2 && medidas.nativos.every((h) => h >= 44 && h <= 50), `A: los desplegables y la fecha, compactos y tocables en todo el campo, de 44 a 50 px (${medidas.nativos.join(", ")})`);
     await capturar(p, "A4-perfil-abierto");
 
-    // «Cerrar sesión» dentro de «Mi perfil».
+    // «Cerrar sesión» dentro de «Mi perfil» → «Inicio de sesión y seguridad» (dueño, 2026-11-18).
+    await p.locator("#perfil-seguridad-cabecera").click();
+    await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).waitFor({ timeout: 8000 }).catch(() => {});
     const salir = await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).boundingBox();
     ok(!!salir && salir.height > 0, "A: «Cerrar sesión» se ve al final de «Mi perfil»");
     await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).click();
@@ -24209,7 +24299,7 @@ try {
     const cabecera = (await p.locator("#perfil-cabecera").innerText()).replace(/\n/g, " ");
     ok(/Mi perfil/.test(cabecera) && /@ana_g · Completo/.test(cabecera), `C: la cabecera dice «Mi perfil · @ana_g · Completo» (${cabecera})`);
     ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "false" && (await p.locator('#perfil-datos [aria-label="Nombre"]').count()) === 0, "C: completo, la tarjeta sale plegada");
-    ok((await p.getByText("SESIÓN ACTUAL").count()) === 0 && (await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).count()) === 1, "C: plegada, la cuenta también queda dentro («Cerrar sesión» a mano, sin una tarjeta aparte)");
+    ok((await p.getByText("SESIÓN ACTUAL").count()) === 0 && (await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).count()) === 0, "C: plegada, sin una tarjeta de la cuenta aparte («Cerrar sesión» va dentro de «Inicio de sesión y seguridad»)");
     await capturar(p, "C0-perfil-plegado");
     await p.locator("#perfil-cabecera").click();
     await p.waitForTimeout(300);
@@ -24218,7 +24308,7 @@ try {
     ok((await v("Nombre")) === "Ana" && (await v("Nombre de usuario")) === "ana_g" && (await v("Provincia o región")) === "Lyon", "C: con un perfil ya guardado salen sus datos (no los del registro)");
     const t = await p.locator("#perfil-datos").innerText();
     ok(/Francia/.test(t) && /2 may 1990/.test(t) && t.includes(`${edadHoy("1990-05-02")} Años`), `C: país, fecha («2 may 1990») y edad («${edadHoy("1990-05-02")} Años») correctos`);
-    ok((await p.getByRole("button", { name: "Guardar perfil" }).getAttribute("aria-disabled")) === "true", "C: sin cambios, «Guardar perfil» está desactivado");
+    ok((await p.getByRole("button", { name: "Guardar perfil" }).count()) === 0, "C: sin cambios, «Guardar perfil» no sale");
     await capturar(p, "C-perfil-guardado");
 
     // Deslizar con el dedo (toques reales) sobre la zona de las pestañas.
@@ -24343,7 +24433,7 @@ try {
     ok(sitioFoto.izquierda === 0 && sitioFoto.arriba === 0 && sitioFoto.abajo === 0, `H: al arrastrarla se mueve, pero sin dejar huecos (se para en el borde: ${JSON.stringify(sitioFoto)})`);
     await capturar(p, "H2-encuadrada");
     await p.locator("#perfil-recorte").getByText("Usar foto").click();
-    await p.getByText("Toca la foto para cambiarla").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator("#perfil-foto-quitar").waitFor({ timeout: 15000 }).catch(() => {});
     const subida = (estado.subidas ?? [])[0];
     ok(!!subida && new RegExp(`^avatares/${CLIENTE.id}/\\d+\\.jpg$`).test(subida.ruta) && subida.tipo === "image/jpeg", `H: «Usar foto» la sube recortada en JPEG a la carpeta del cliente (${JSON.stringify(subida ? { ruta: subida.ruta, tipo: subida.tipo } : null)})`);
     // Lo que se ha subido: cuadrado de 320 px con el encuadre elegido (izquierda y centro rojos, borde derecho azul).
@@ -24365,7 +24455,7 @@ try {
       : null;
     ok(!!recorte && recorte.ancho === 320 && recorte.alto === 320, `H: la foto subida es un cuadrado de 320 × 320 px (${recorte ? `${recorte.ancho} × ${recorte.alto}` : "sin foto"})`);
     ok(!!recorte && recorte.izquierda === "rojo" && recorte.centro === "rojo" && recorte.derecha === "azul", `H: y es justo el encuadre elegido (izquierda ${recorte?.izquierda}, centro ${recorte?.centro}, derecha ${recorte?.derecha})`);
-    ok((await p.getByText("Toca la foto para cambiarla").count()) === 1 && (await p.getByText("Quitar foto").count()) === 1, "H: con foto dice «Toca la foto para cambiarla» y ofrece «Quitar foto»");
+    ok((await p.locator("#perfil-foto").getAttribute("aria-label")) === "Cambiar la foto de perfil" && (await p.getByText("Quitar foto").count()) === 1, "H: con foto, la de la cabecera la cambia y se ofrece «Quitar foto»");
     await p.getByRole("button", { name: "Guardar perfil" }).click();
     await p.waitForFunction(() => /Perfil guardado/.test(document.body.innerText), null, { timeout: 10000 }).catch(() => {});
     const g = estado.guardados.at(-1)?.cuerpo;
@@ -25067,6 +25157,7 @@ try {
   await seccionFC();
   await seccionFCH();
   await seccionFBIA();
+  await seccionPERLIM();
   await seccionTM();
   await seccionUP();
   await seccionTM2();
