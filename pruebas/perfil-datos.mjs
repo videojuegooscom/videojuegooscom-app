@@ -19104,6 +19104,16 @@ async function seccionVENFOT() {
       const c = await cuerpo(p);
       ok(chatsAbiertos.n === 0 && /oferta a tu correo ana\.prueba@gmail\.com/.test(c) && !/Ver la conversación|Iniciar sesión|Sigamos por chat/.test(c), `VENFOT: eligió Gmail: no se abre chat y la confirmación dice que la oferta irá a su correo (${chatsAbiertos.n} chats)`);
     }
+    {
+      // Dueño, 2026-11-20: la confirmación centrada en la pantalla y «Cerrar» abajo, a lo ancho, al alcance del pulgar.
+      const m = await p.evaluate(() => {
+        const titulo = [...document.querySelectorAll("div")].find((d) => d.textContent === "¡Formulario enviado!")?.getBoundingClientRect();
+        const cerrar = document.getElementById("vender-cerrar-confirmacion")?.parentElement?.getBoundingClientRect() ?? null;
+        return { vh: window.innerHeight, vw: window.innerWidth, t: titulo ? Math.round(titulo.top + titulo.height / 2) : -1, cTop: cerrar ? Math.round(cerrar.top) : -1, cBottom: cerrar ? Math.round(cerrar.bottom) : -1, cW: cerrar ? Math.round(cerrar.width) : 0, cH: cerrar ? Math.round(cerrar.height) : 0 };
+      });
+      ok(m.t > m.vh * 0.3 && m.t < m.vh * 0.6, `VENFOT: el mensaje va centrado en la pantalla, no arriba (${JSON.stringify(m)})`);
+      ok(m.cTop > m.vh * 0.75 && m.cBottom <= m.vh && m.cW >= m.vw - 60 && m.cH >= 48, `VENFOT: «Cerrar» va abajo, a lo ancho y grande para el pulgar (${JSON.stringify(m)})`);
+    }
     await capturar(p, "VENFOT1-enviado-390");
     ok(p.errores.length === 0, `VENFOT1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
