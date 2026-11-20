@@ -1559,13 +1559,17 @@ export default function VenderAhoraModal({
       </Modal>
     );
 
+  // Confirmación a pantalla completa en el móvil: mensaje en el centro y botones abajo, al alcance del pulgar.
+  const confirmacionAbajo = sent && comoPagina && isMobile;
+
   return (
     <ContextoEsMovil.Provider value={isMobile}>
       {envolver(
           <ScrollView
             // nativeID: la guía de Blue (components/AsistenteBlue.tsx) desplaza el formulario para enseñar que hay más abajo.
             nativeID="vender-scroll"
-            contentContainerStyle={{ flexGrow: 1, justifyContent: comoPagina ? "flex-start" : "center", paddingBottom: comoPagina ? 48 + insets.bottom : 0 }}
+            // La confirmación va centrada en la pantalla (dueño, 2026-11-20), no pegada arriba.
+            contentContainerStyle={{ flexGrow: 1, justifyContent: comoPagina && !sent ? "flex-start" : "center", paddingBottom: comoPagina ? (confirmacionAbajo ? 16 : 48) + insets.bottom : 0 }}
             keyboardShouldPersistTaps="handled"
           >
             <Animated.View
@@ -1573,6 +1577,7 @@ export default function VenderAhoraModal({
                 width: "100%",
                 maxWidth: modalMaxWidth,
                 alignSelf: "center",
+                ...(confirmacionAbajo ? { flex: 1 } : null),
                 opacity: fadeAnim,
                 transform: [{ scale: scaleAnim }],
               }}
@@ -1585,6 +1590,7 @@ export default function VenderAhoraModal({
                         padding: isMobile ? 18 : 26,
                         paddingTop: isMobile ? 14 : 20,
                         gap: gapCampos,
+                        ...(confirmacionAbajo ? { flex: 1 } : null),
                       }
                     : {
                         borderRadius: 22,
@@ -1598,7 +1604,9 @@ export default function VenderAhoraModal({
                 }
               >
                 {sent ? (
-                  <View style={{ alignItems: "center", gap: 12, paddingVertical: comoPagina ? 64 : 10, paddingHorizontal: comoPagina ? 20 : 0 }}>
+                  // En el móvil: el mensaje centrado y los botones abajo, a lo ancho, donde llega el pulgar de cualquier mano.
+                  <View nativeID="vender-confirmacion" style={{ gap: 20, ...(confirmacionAbajo ? { flex: 1 } : { paddingVertical: comoPagina ? 24 : 10 }) }}>
+                  <View style={{ alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: comoPagina ? 20 : 0, ...(confirmacionAbajo ? { flex: 1 } : null) }}>
                     <View
                       style={{
                         width: 56,
@@ -1713,7 +1721,9 @@ export default function VenderAhoraModal({
                         Listo: ya tenemos todas tus fotos y tu vídeo.
                       </Text>
                     ) : null}
+                  </View>
 
+                  <View style={{ width: "100%", maxWidth: 420, alignSelf: "center", gap: 10 }}>
                     {sentChatId ? (
                       <AnimatedPressable
                         onPress={() => {
@@ -1724,38 +1734,45 @@ export default function VenderAhoraModal({
                             params: { chatId: targetChatId },
                           } as unknown as Href);
                         }}
-                        containerStyle={{ marginTop: 4 }}
+                        containerStyle={{ width: "100%" }}
                         style={({ pressed }) => ({
                           opacity: pressed ? 0.9 : 1,
                           flexDirection: "row",
                           alignItems: "center",
+                          justifyContent: "center",
                           gap: 8,
-                          minHeight: TACTIL.minimo,
+                          minHeight: 52,
                           borderRadius: 999,
-                          paddingVertical: 12,
                           paddingHorizontal: 20,
                           backgroundColor: COLORS.accent,
                         })}
                       >
-                        <Ionicons name="chatbubble-ellipses-outline" size={16} color="#FFFFFF" />
-                        <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Ver la conversación</Text>
+                        <Ionicons name="chatbubble-ellipses-outline" size={18} color="#FFFFFF" />
+                        <Text nativeID="vender-ver-conversacion" style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Ver la conversación</Text>
                       </AnimatedPressable>
                     ) : null}
 
+                    {/* Sin chat, «Cerrar» es el botón principal; con chat, el secundario (con borde). */}
                     <AnimatedPressable
                       onPress={handleClose}
+                      containerStyle={{ width: "100%" }}
                       style={({ pressed }) => ({
                         opacity: pressed ? 0.85 : 1,
-                        minHeight: TACTIL.minimo,
+                        minHeight: 52,
+                        alignItems: "center",
                         justifyContent: "center",
                         borderRadius: 999,
-                        paddingVertical: 10,
-                        paddingHorizontal: 18,
-                        backgroundColor: "transparent",
+                        paddingHorizontal: 20,
+                        backgroundColor: sentChatId ? "transparent" : COLORS.accent,
+                        borderWidth: sentChatId ? 1 : 0,
+                        borderColor: COLORS.border,
                       })}
                     >
-                      <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Cerrar</Text>
+                      <Text nativeID="vender-cerrar-confirmacion" style={{ color: sentChatId ? COLORS.text : "#FFFFFF", fontWeight: "900", fontSize: 16 }}>
+                        Cerrar
+                      </Text>
                     </AnimatedPressable>
+                  </View>
                   </View>
                 ) : (
                   <>
