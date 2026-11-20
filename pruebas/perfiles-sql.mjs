@@ -4084,6 +4084,117 @@ try {
     await cVp2.end();
   }
 
+  // CONTRA1) Contracargos, parte 1 (20261121000000_contracargos_parte1.sql, dueño 2026-11-20): pago_3ds solo con los valores
+  // de Stripe; las condiciones aceptadas (hora, versión y copia) las pone la base de datos SOLO en los pedidos que hace un
+  // cliente (visitante o con sesión), no en los del servidor ni en los de VeoAura, y nadie las cambia; lo que va por Correos
+  // no pasa a «Enviado» sin número (sí lo del mismo día y VeoAura); sin permisos especiales; se aplica dos veces y la
+  // privacidad lo dice una vez. Con su «prueba de la prueba».
+  {
+    const CONTRA = readFileSync("supabase/migrations/20261121000000_contracargos_parte1.sql", "utf8");
+    const ESQUEMA_CO = `
+      create table public.pedidos (id uuid primary key default gen_random_uuid(), user_id uuid, estado text not null default 'pendiente',
+        entrega text not null default 'envio', zona_envio text, envio_seguimiento text, id_veoaura text, veoaura_venta_id text,
+        created_at timestamptz not null default now());
+      alter table public.pedidos enable row level security;
+      create policy pedidos_insert on public.pedidos for insert to anon, authenticated with check (true);
+      create policy pedidos_select on public.pedidos for select to authenticated using ((select public.is_admin()) or user_id = (select auth.uid()));
+      create policy pedidos_admin_update on public.pedidos for update to authenticated using ((select public.is_admin())) with check ((select public.is_admin()));
+      create table public.policy_pages (slug text primary key, sections jsonb not null, is_active boolean not null default true, updated_at timestamptz);
+      insert into public.policy_pages (slug, sections, updated_at) values
+        ('terminos', '[{"heading": "Compra", "body": "Condiciones de compra."}]', '2026-11-16 18:00:00+00'),
+        ('devoluciones', '[{"heading": "Plazo", "body": "14 días."}]', '2026-11-16 10:00:00+00'),
+        ('envios', '[{"heading": "Plazos", "body": "72 h."}]', '2026-11-16 10:00:00+00'),
+        ('normas-foro', '[{"heading": "Respeto", "body": "Sé amable."}]', '2026-11-17 10:00:00+00'),
+        ('privacidad', '[{"heading": "Qué datos tratamos", "body": "Datos."}, {"heading": "Para qué usamos tus datos", "body": "Para gestionar tu pedido."}]', '2026-11-01 10:00:00+00');`;
+    const cCo = await nuevaBase("vz_aislada_contracargos", ESQUEMA_CO);
+    const definerAntes = Number((await cCo.query("select count(*) as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef")).rows[0].n);
+    let repetidaCo = true;
+    try {
+      await cCo.query(CONTRA);
+      await cCo.query(CONTRA);
+    } catch (e) {
+      repetidaCo = false;
+      console.log(String(e.message));
+    }
+    const n = async (sql) => Number((await cCo.query(sql)).rows[0].n);
+    const definerDespues = await n("select count(*) as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef");
+    const priv = (await cCo.query("select sections from public.policy_pages where slug = 'privacidad'")).rows[0].sections;
+    const vecesPriv = JSON.stringify(priv).split("si el cobro se reclama al banco").length - 1;
+    ok(
+      repetidaCo && definerDespues === definerAntes && vecesPriv === 1 &&
+        (await n("select count(*) as n from pg_trigger where tgname in ('pedidos_condiciones_aceptadas', 'pedidos_enviado_con_numero')")) === 2,
+      `CONTRA1: se aplica dos veces, dos disparadores normales (sin permisos especiales) y la privacidad lo dice una vez (${definerAntes}→${definerDespues}, ${vecesPriv})`
+    );
+
+    // Pedido de un visitante (como llega por PostgREST: el rol en los claims). Un visitante no lee pedidos, así que se
+    // crea con su id y se lee después como el servidor.
+    let sigId = 0;
+    const insertar = async (rol, claims, columnas, valores) => {
+      const id = `c0c0c0c0-0000-4000-8000-00000000000${++sigId}`;
+      await cCo.query("begin");
+      try {
+        await cCo.query(`set local role ${rol}`);
+        await cCo.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+        await cCo.query(`insert into public.pedidos (id, ${columnas}) values ('${id}', ${valores})`);
+        await cCo.query("commit");
+      } catch (e) {
+        await cCo.query("rollback");
+        return { error: e.code, mensaje: String(e.message) };
+      }
+      return (await cCo.query(`select id, condiciones_aceptadas_en, condiciones_version, condiciones_copia from public.pedidos where id = '${id}'`)).rows[0];
+    };
+    const visitante = await insertar("anon", { role: "anon" }, "entrega, condiciones_aceptadas_en", "'envio', '2020-01-01'");
+    const copia = visitante.condiciones_copia ?? {};
+    ok(
+      visitante.condiciones_aceptadas_en && Math.abs(Date.now() - new Date(visitante.condiciones_aceptadas_en).getTime()) < 120000 &&
+        new Date(visitante.condiciones_version).toISOString() === "2026-11-16T18:00:00.000Z" &&
+        JSON.stringify(Object.keys(copia).sort()) === '["devoluciones","envios","terminos"]' && copia.terminos?.secciones?.[0]?.body === "Condiciones de compra.",
+      `CONTRA1: el pedido de un visitante guarda la hora (la de la base de datos, no la que mande), la versión y la copia de Condiciones, Devoluciones y Envíos (${JSON.stringify(visitante.error ? visitante : Object.keys(copia))})`
+    );
+    const cliente = await insertar("authenticated", { sub: U1, role: "authenticated" }, "user_id, entrega", `'${U1}', 'recogida'`);
+    ok(!!cliente.condiciones_aceptadas_en, "CONTRA1: también el de un cliente con sesión");
+    const servidor = await insertar("postgres", { role: "service_role" }, "entrega, condiciones_aceptadas_en", "'envio', now()");
+    const veoaura = await insertar("anon", { role: "anon" }, "entrega, id_veoaura", "'envio', 'VA-1'");
+    ok(servidor.condiciones_aceptadas_en === null && veoaura.condiciones_aceptadas_en === null, "CONTRA1: los que crea el servidor (desde el chat) y los de VeoAura no llevan condiciones aceptadas");
+    const cambia = await como(cCo, "authenticated", ADMIN, `update public.pedidos set condiciones_aceptadas_en = '2020-01-01', condiciones_copia = '{}' where id = '${visitante.id}' returning condiciones_aceptadas_en, condiciones_copia`, { confirmar: true });
+    ok(cambia.ok && new Date(cambia.filas[0].condiciones_aceptadas_en).getTime() === new Date(visitante.condiciones_aceptadas_en).getTime() && !!cambia.filas[0].condiciones_copia?.terminos, "CONTRA1: ni el administrador puede cambiar las condiciones aceptadas");
+
+    // pago_3ds: solo los valores de Stripe.
+    const malo3ds = await como(cCo, "authenticated", ADMIN, `update public.pedidos set pago_3ds = 'inventado' where id = '${visitante.id}'`);
+    const bueno3ds = await como(cCo, "authenticated", ADMIN, `update public.pedidos set pago_3ds = 'authenticated' where id = '${visitante.id}'`);
+    ok(!malo3ds.ok && malo3ds.codigo === "23514" && bueno3ds.ok, `CONTRA1: pago_3ds solo admite los resultados de Stripe (${malo3ds.codigo})`);
+
+    // «Enviado» con número de Correos.
+    const crear = async (valores) => (await cCo.query(`insert into public.pedidos ${valores} returning id`)).rows[0].id;
+    const pen = await crear("(entrega, zona_envio) values ('envio', 'peninsula')");
+    const sinZona = await crear("(entrega) values ('envio')");
+    const local = await crear("(entrega, zona_envio) values ('envio', 'local')");
+    const lejos = await crear("(entrega, zona_envio) values ('envio', 'local_lejos')");
+    const mano = await crear("(entrega, zona_envio) values ('recogida', 'mano')");
+    const va = await crear("(entrega, zona_envio, id_veoaura) values ('envio', 'peninsula', 'VA-2')");
+    const enviar = (id) => como(cCo, "authenticated", ADMIN, `update public.pedidos set estado = 'enviado' where id = '${id}'`, { confirmar: true });
+    const sinNum = await enviar(pen);
+    const sinNumZona = await enviar(sinZona);
+    ok(!sinNum.ok && /falta_numero_envio/.test(sinNum.mensaje) && !sinNumZona.ok, `CONTRA1: lo que va por Correos (o sin zona) no pasa a «Enviado» sin número (${sinNum.mensaje})`);
+    await cCo.query(`update public.pedidos set envio_seguimiento = '   ' where id = '${pen}'`);
+    const blanco = await enviar(pen);
+    await cCo.query(`update public.pedidos set envio_seguimiento = 'PQ4F6P0712345670150001X' where id = '${pen}'`);
+    const conNum = await enviar(pen);
+    ok(!blanco.ok && conNum.ok && conNum.cuantas === 1, "CONTRA1: con espacios no vale; con el número de Correos, sí");
+    const mismoDia = [];
+    for (const id of [local, lejos, mano, va]) mismoDia.push(await enviar(id));
+    ok(mismoDia.every((r) => r.ok && r.cuantas === 1), "CONTRA1: lo del mismo día en Zaragoza y Cuarte, la entrega en mano y lo de VeoAura pasan sin número");
+    await cCo.end();
+
+    // Prueba de la prueba: sin el candado del número, un envío por Correos pasaría a «Enviado».
+    const rotaCo = CONTRA.replace("raise exception 'falta_numero_envio'", "raise notice 'falta_numero_envio'");
+    const cCo2 = await nuevaBase("vz_aislada_contracargos_rota", ESQUEMA_CO + rotaCo);
+    const pen2 = (await cCo2.query("insert into public.pedidos (entrega, zona_envio) values ('envio', 'peninsula') returning id")).rows[0].id;
+    const pasa = await como(cCo2, "authenticated", ADMIN, `update public.pedidos set estado = 'enviado' where id = '${pen2}'`, { confirmar: true });
+    ok(rotaCo !== CONTRA && pasa.ok && pasa.cuantas === 1, "CONTRA1 (control): sin el candado, un envío por Correos pasaría sin número: la prueba SÍ lo detecta");
+    await cCo2.end();
+  }
+
   // Motivo de la cancelación y «Avisarme cuando haya otro» (20261116100000_cancelacion_motivo_aviso.sql, dueño 2026-11-16):
   // el motivo con su comprobación (como mucho 200) y la hora de la cancelación que pone la base de datos; avisos_reposicion:
   // solo pedidos PROPIOS cancelados porque el artículo ya no está disponible, de quien la crea, una por pedido, canal

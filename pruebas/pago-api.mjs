@@ -920,7 +920,9 @@ try {
   );
   ok(c.success_url === "https://videojuegoszaragoza.com/checkout?pago=ok&sesion={CHECKOUT_SESSION_ID}" && c.cancel_url === "https://videojuegoszaragoza.com/checkout?pago=cancelado&pedido=101", `P2: vuelve a la tienda (${c.success_url})`);
   ok(!Object.keys(c).some((k) => /email|customer|phone|address|name\]$/.test(k) && !/product_data/.test(k)), "P2: a Stripe no se le manda ningún dato del cliente");
-  ok(/^vz-pago-.+-10690-\d+$/.test(r.sesion101?.clave ?? "") && Number(c.expires_at) - Date.now() / 1000 > 29 * 60, `P2: con clave de idempotencia y caducidad de unos 30 minutos (${r.sesion101?.clave})`);
+  ok(/^vz-pago-.+-10690-\d+-3ds$/.test(r.sesion101?.clave ?? "") && Number(c.expires_at) - Date.now() / 1000 > 29 * 60, `P2: con clave de idempotencia y caducidad de unos 30 minutos (${r.sesion101?.clave})`);
+  // Contracargos, parte 1 (2026-11-20): la verificación del banco (3DS) se pide SIEMPRE en el pago con tarjeta.
+  ok(c["payment_method_options[card][request_three_d_secure]"] === "any", `P2: pide siempre la verificación del banco (3DS) (${c["payment_method_options[card][request_three_d_secure]"]})`);
   ok(r.fila101.pago_estado === "iniciado" && r.fila101.pago_modo === "prueba" && r.fila101.pago_sesion === r.sesion101?.id && !!r.fila101.pago_iniciado_en, "P2: el pedido queda «iniciado», de prueba, con su sesión");
 
   ok(r.ajeno.codigo === 404 && r.claveMala.codigo === 404, `P3: el pedido de otra persona no se puede pagar, ni con otra clave (${r.ajeno.codigo}, ${r.claveMala.codigo})`);
