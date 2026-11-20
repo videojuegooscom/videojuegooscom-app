@@ -4153,7 +4153,7 @@ try {
     );
     const cliente = await insertar("authenticated", { sub: U1, role: "authenticated" }, "user_id, entrega", `'${U1}', 'recogida'`);
     ok(!!cliente.condiciones_aceptadas_en, "CONTRA1: también el de un cliente con sesión");
-    const servidor = await insertar("postgres", { role: "service_role" }, "entrega, condiciones_aceptadas_en", "'envio', now()");
+    const servidor = await insertar("postgres", { role: "servidor_de_la_tienda" }, "entrega, condiciones_aceptadas_en", "'envio', now()");
     const veoaura = await insertar("anon", { role: "anon" }, "entrega, id_veoaura", "'envio', 'VA-1'");
     ok(servidor.condiciones_aceptadas_en === null && veoaura.condiciones_aceptadas_en === null, "CONTRA1: los que crea el servidor (desde el chat) y los de VeoAura no llevan condiciones aceptadas");
     const cambia = await como(cCo, "authenticated", ADMIN, `update public.pedidos set condiciones_aceptadas_en = '2020-01-01', condiciones_copia = '{}' where id = '${visitante.id}' returning condiciones_aceptadas_en, condiciones_copia`, { confirmar: true });
