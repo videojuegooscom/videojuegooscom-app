@@ -205,6 +205,10 @@ type Pedido = {
   // Motivo y hora de la cancelación (migración 20261116100000_cancelacion_motivo_aviso; puede no existir aún).
   cancelacion_motivo?: string | null;
   cancelado_en?: string | null;
+  // Contracargos, parte 1 (migración 20261121000000).
+  pago_3ds?: string | null;
+  condiciones_aceptadas_en?: string | null;
+  condiciones_version?: string | null;
 };
 
 // Estado de venta de cada artículo de los pedidos (products): cada artículo es UNA unidad. vendido_pedido_id solo existe
@@ -235,6 +239,7 @@ type Filtro =
   | "veoaura"
   | "pagados_tarjeta"
   | "pago_sin_terminar"
+  | "tarjeta_sin_verificar"
   | "en_tienda";
 
 // Cómo se pagó una venta en mano (lo dice VeoAura).
@@ -341,6 +346,25 @@ const faltaDevolver = (p: Pedido) => pagadoOnline(p) && !p.devuelto_en && (p.est
 const sinMotivo = (p: Pedido) => p.estado === "cancelado" && !enTienda(p) && !(p.cancelacion_motivo ?? "").trim();
 // En gris: cancelados y devueltos.
 const apagado = (p: Pedido) => p.estado === "cancelado" || !!p.devuelto_en;
+
+// Contracargos, parte 1 (dueño, 2026-11-20). Verificación del banco (3DS) del cobro con tarjeta, en palabras sencillas:
+// «authenticated» y «attempt_acknowledged» dejan la reclamación por fraude a cargo del banco.
+const TRES_DS: Record<string, { texto: string; protegido: boolean }> = {
+  authenticated: { texto: "Verificado por el banco (3D Secure): una reclamación por fraude la asume el banco", protegido: true },
+  attempt_acknowledged: { texto: "El banco no verifica, pero la reclamación por fraude la asume él (3D Secure intentado)", protegido: true },
+  exempted: { texto: "Sin verificar: el banco lo dejó pasar sin 3D Secure (exento)", protegido: false },
+  not_supported: { texto: "Sin verificar: la tarjeta no admite 3D Secure", protegido: false },
+  failed: { texto: "La verificación del banco falló", protegido: false },
+  processing_error: { texto: "La verificación del banco dio error", protegido: false },
+};
+// Pago con tarjeta pagado y SIN la protección del banco (para el recuento y el filtro).
+const sinProteccion3ds = (p: Pedido) => pagadoOnline(p) && p.pago_metodo === "card" && !TRES_DS[p.pago_3ds ?? ""]?.protegido;
+// Va por Correos (no es entrega en mano ni el mismo día de Zaragoza y Cuarte): para pasar a «Enviado» necesita el número.
+const ZONAS_MISMO_DIA = ["mano", "local", "local_lejos"];
+const vaPorCorreos = (p: Pedido) => p.entrega === "envio" && !ZONAS_MISMO_DIA.includes(p.zona_envio ?? "") && !p.id_veoaura;
+// Copia de las condiciones aceptadas (pedidos.condiciones_copia): slug → { actualizada, secciones }.
+type CopiaCondiciones = Record<string, { actualizada?: string | null; secciones?: { heading?: string; body?: string }[] | null }>;
+const NOMBRE_POLITICA: Record<string, string> = { terminos: "Condiciones", devoluciones: "Devoluciones", envios: "Envíos" };
 // Dinero de verdad (Ingresos): cobradoDeVerdad e importeCobrado de lib/envio.ts (pagado online de verdad, venta en tienda
 // o entregado; sin pruebas, cancelados, dobles ventas ni devueltos). La misma regla cuenta lo gastado en Usuarios.
 
@@ -639,6 +663,10 @@ export default function PedidosAdmin() {
   const [dobleOk, setDobleOk] = useState(false);
   // false = aún no existe el motivo de cancelación (migración 20261116100000 sin aplicar): se cancela como antes.
   const [cancelacionOk, setCancelacionOk] = useState(false);
+  // false = aún no existen pago_3ds y las condiciones aceptadas (migración 20261121000000 sin aplicar).
+  const [contraOk, setContraOk] = useState(false);
+  // Copia de las condiciones aceptadas de un pedido, abierta (se pide al abrirla): id del pedido → páginas.
+  const [copiaCondiciones, setCopiaCondiciones] = useState<Record<string, CopiaCondiciones | "cargando" | "error">>({});
   // Motivo elegido al cancelar cada pedido (sin elegir, no se puede confirmar) y el texto de «Otro motivo». Clave: el id
   // del pedido al cancelar y `editar:<id>` al añadir o cambiar el motivo de uno ya cancelado.
   const [motivoElegido, setMotivoElegido] = useState<Record<string, string>>({});
@@ -713,6 +741,10 @@ export default function PedidosAdmin() {
     const DOBLE = ",doble_venta_en";
     // Motivo y hora de la cancelación (migración 20261116100000).
     const CANCELACION = ",cancelacion_motivo,cancelado_en";
+    // Contracargos, parte 1 (migración 20261121000000): verificación del banco y condiciones aceptadas (la copia de las
+    // condiciones se pide solo al abrirla).
+    const CONTRA = ",pago_3ds,condiciones_aceptadas_en,condiciones_version";
+    let conContra = true;
     let conCancelacion = true;
     let conDoble = true;
     let conFranja = true;
@@ -723,11 +755,12 @@ export default function PedidosAdmin() {
     let conEnvio = true;
     let conNumeros = true;
     const columnas = () =>
-      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}${conFranja ? FRANJA : ""}${conDoble ? DOBLE : ""}${conCancelacion ? CANCELACION : ""}`;
+      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}${conFranja ? FRANJA : ""}${conDoble ? DOBLE : ""}${conCancelacion ? CANCELACION : ""}${conContra ? CONTRA : ""}`;
     let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(columnas());
-    for (let vuelta = 0; vuelta < 9 && res.error; vuelta++) {
+    for (let vuelta = 0; vuelta < 10 && res.error; vuelta++) {
       const msg = String(res.error.message ?? "");
-      if (conCancelacion && /cancelacion_motivo|cancelado_en/.test(msg)) conCancelacion = false;
+      if (conContra && /pago_3ds|condiciones_aceptadas_en|condiciones_version/.test(msg)) conContra = false;
+      else if (conCancelacion && /cancelacion_motivo|cancelado_en/.test(msg)) conCancelacion = false;
       else if (conDoble && /doble_venta_en/.test(msg)) conDoble = false;
       else if (conFranja && /entrega_franja|entrega_fecha/.test(msg)) conFranja = false;
       else if (conVenta && /origen|veoaura_venta_id|venta_forma_pago/.test(msg)) conVenta = false;
@@ -748,6 +781,7 @@ export default function PedidosAdmin() {
     setFranjaOk(!res.error && conFranja);
     setDobleOk(!res.error && conDoble);
     setCancelacionOk(!res.error && conCancelacion);
+    setContraOk(!res.error && conContra);
     if (conFranja) cargarAjustesFranjas();
     // «Avisarme cuando haya otro» (avisos_reposicion; el administrador las lee todas): por pedido y los recuentos. Sin la
     // tabla, null (no se enseña nada).
@@ -871,6 +905,7 @@ export default function PedidosAdmin() {
       doble: pedidos.filter((p) => !!p.doble_venta_en).length,
       dobleSinDevolver: pedidos.filter((p) => !!p.doble_venta_en && !p.devuelto_en).length,
       devueltos: pedidos.filter((p) => !!p.devuelto_en).length,
+      sinVerificar: pedidos.filter(sinProteccion3ds).length,
       ingresos30: cobrados30.reduce((a, p) => a + importeCobrado(p), 0),
       cobrados30: cobrados30.length,
     };
@@ -909,6 +944,9 @@ export default function PedidosAdmin() {
         return pedidos.filter((p) => p.pago_estado === "pagado");
       case "pago_sin_terminar":
         return pedidos.filter((p) => p.pago_estado === "iniciado");
+      // Pagados con tarjeta sin la protección del banco (3DS): ante una reclamación por fraude, pierde la tienda.
+      case "tarjeta_sin_verificar":
+        return pedidos.filter(sinProteccion3ds);
       case "en_tienda":
         return pedidos.filter(enTienda);
       // Reparto de hoy: los de hoy (fecha de Madrid) sin cancelar ni entregar, primero la mañana y luego la tarde.
@@ -1033,10 +1071,18 @@ export default function PedidosAdmin() {
   // extra: el motivo de la cancelación (solo con la migración 20261116100000). Devuelve si se guardó.
   async function cambiarEstado(p: Pedido, estado: Estado, extra?: { cancelacion_motivo: string | null }): Promise<boolean> {
     if (p.estado === estado) return false;
+    // Contracargos (dueño, 2026-11-20): lo que va por Correos no pasa a «Enviado» sin su número (la base de datos también
+    // lo exige). Se dice en el propio pedido, junto al campo del número.
+    if (estado === "enviado" && vaPorCorreos(p) && !(numerosEnvio[p.id] ?? "").trim()) {
+      setNumeroMsg({ id: p.id, tipo: "error", texto: "Escribe y guarda el número de Correos antes de marcarlo como enviado: es la prueba de que salió." });
+      return false;
+    }
     setGuardando(p.id);
     const { error } = await supabase.from("pedidos").update({ estado, ...(extra ?? {}) }).eq("id", p.id);
     if (error) {
-      setErr("No se pudo cambiar el estado del pedido.");
+      if (/falta_numero_envio/.test(String(error.message ?? ""))) {
+        setNumeroMsg({ id: p.id, tipo: "error", texto: "Escribe y guarda el número de Correos antes de marcarlo como enviado: es la prueba de que salió." });
+      } else setErr("No se pudo cambiar el estado del pedido.");
     } else {
       const ahora = new Date().toISOString();
       setPedidos((prev) =>
@@ -1054,6 +1100,21 @@ export default function PedidosAdmin() {
     }
     setGuardando(null);
     return !error;
+  }
+
+  // Copia de las condiciones que aceptó (pedidos.condiciones_copia): se pide al abrirla y se vuelve a plegar.
+  async function verCondiciones(p: Pedido) {
+    if (copiaCondiciones[p.id]) {
+      setCopiaCondiciones((c) => {
+        const copia = { ...c };
+        delete copia[p.id];
+        return copia;
+      });
+      return;
+    }
+    setCopiaCondiciones((c) => ({ ...c, [p.id]: "cargando" }));
+    const { data, error } = await supabase.from("pedidos").select("condiciones_copia").eq("id", p.id).maybeSingle<{ condiciones_copia: CopiaCondiciones | null }>();
+    setCopiaCondiciones((c) => ({ ...c, [p.id]: error ? "error" : (data?.condiciones_copia ?? {}) }));
   }
 
   // Número de envío (Correos) o enlace del transportista: el cliente ve «Seguir el envío». Vacío lo quita.
@@ -1299,6 +1360,7 @@ export default function PedidosAdmin() {
           { value: "pago_sin_terminar" as const, label: `Pago sin terminar (${resumenPago.sinTerminar})` },
         ]
       : []),
+    ...(contraOk ? [{ value: "tarjeta_sin_verificar" as const, label: `Tarjeta sin verificar (${cuentas.sinVerificar})` }] : []),
     ...(ventasOk ? [{ value: "en_tienda" as const, label: `En tienda (${resumenTienda.total})` }] : []),
   ];
   const filtroExtra = otrosFiltros.some((f) => f.value === filtro);
@@ -1467,6 +1529,20 @@ export default function PedidosAdmin() {
                     El total ahora es {fmtEUR(p.total_eur)}: la diferencia se arregla desde Stripe o por el chat.
                   </Text>
                 ) : null}
+                {/* Verificación del banco (3DS): la prueba principal ante una reclamación por fraude. */}
+                {contraOk && p.pago_estado === "pagado" && p.pago_metodo === "card" ? (
+                  <View nativeID={`pedido-3ds-${p.numero}`} style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                    <Ionicons
+                      name={TRES_DS[p.pago_3ds ?? ""]?.protegido ? "shield-checkmark-outline" : "shield-outline"}
+                      size={16}
+                      color={TRES_DS[p.pago_3ds ?? ""]?.protegido ? COLORS.success : COLORS.gold}
+                      style={{ marginTop: 1 }}
+                    />
+                    <Text style={{ color: TRES_DS[p.pago_3ds ?? ""]?.protegido ? COLORS.success : COLORS.gold, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19, flex: 1, minWidth: 0 }}>
+                      {TRES_DS[p.pago_3ds ?? ""]?.texto ?? "Sin dato de la verificación del banco (pagos anteriores al 21-11-2026)"}
+                    </Text>
+                  </View>
+                ) : null}
                 {enlaceStripe(p) ? (
                   <AccionTexto nativeID={`pedido-pago-stripe-${p.numero}`} rol="link" icono="open-outline" texto="Ver el pago en Stripe" onPress={() => abrirEnlaceExterno(enlaceStripe(p) as string)} />
                 ) : null}
@@ -1474,6 +1550,44 @@ export default function PedidosAdmin() {
             ) : null}
             {!tienda && !(pagoOk && p.pago_estado) ? (
               <Detalle>{p.estado === "entregado" ? "Sin pago online: se cobró en la entrega." : "Sin pago online todavía (se acuerda por el chat o se paga en la entrega)."}</Detalle>
+            ) : null}
+            {/* Condiciones que aceptó al pedir (con su copia, que se pide al abrirla): prueba ante una reclamación. */}
+            {contraOk && !tienda && p.condiciones_aceptadas_en ? (
+              <View nativeID={`pedido-condiciones-${p.numero}`} style={{ gap: 4 }}>
+                <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                  <Ionicons name="document-text-outline" size={16} color={COLORS.muted} style={{ marginTop: 1 }} />
+                  <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19, flex: 1, minWidth: 0 }}>
+                    Aceptó las condiciones el {fmtFecha(p.condiciones_aceptadas_en)}
+                    {p.condiciones_version ? ` (versión del ${fmtFecha(p.condiciones_version)})` : ""}
+                  </Text>
+                </View>
+                <AccionTexto
+                  nativeID={`pedido-condiciones-ver-${p.numero}`}
+                  icono={copiaCondiciones[p.id] ? "close-outline" : "eye-outline"}
+                  texto={copiaCondiciones[p.id] ? "Ocultar las condiciones aceptadas" : "Ver las condiciones aceptadas"}
+                  onPress={() => verCondiciones(p)}
+                />
+                {copiaCondiciones[p.id] === "cargando" ? <Detalle>Cargando…</Detalle> : null}
+                {copiaCondiciones[p.id] === "error" ? <Detalle>No se han podido cargar. Vuelve a intentarlo.</Detalle> : null}
+                {typeof copiaCondiciones[p.id] === "object" ? (
+                  <View nativeID={`pedido-condiciones-copia-${p.numero}`} style={{ gap: 8, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, padding: 10 }}>
+                    {Object.entries(copiaCondiciones[p.id] as CopiaCondiciones).map(([slug, pag]) => (
+                      <View key={slug} style={{ gap: 4 }}>
+                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>
+                          {NOMBRE_POLITICA[slug] ?? slug}
+                          {pag?.actualizada ? ` · actualizada el ${fmtFecha(pag.actualizada)}` : ""}
+                        </Text>
+                        {(pag?.secciones ?? []).map((s, i) => (
+                          <Text key={i} selectable style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                            {s.heading ? `${s.heading}: ` : ""}
+                            {s.body ?? ""}
+                          </Text>
+                        ))}
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
             ) : null}
             {/* Factura de VeoAura: número y «Descargar», «PDF pendiente» o «Sin factura». */}
             {facturasOk ? (
@@ -1823,7 +1937,11 @@ export default function PedidosAdmin() {
           {/* Número de envío (solo con la migración y si va a domicilio): el cliente ve «Seguir el envío». */}
           {historial && p.entrega === "envio" && !tienda ? (
             <View nativeID={`pedido-numero-envio-${p.numero}`} style={{ gap: 6 }}>
-              <Detalle>Nº de Correos o enlace del envío (el cliente ve «Seguir el envío»)</Detalle>
+              <Detalle>
+                {vaPorCorreos(p)
+                  ? "Nº de Correos o enlace del envío: obligatorio para marcarlo como «Enviado» (el cliente ve «Seguir el envío»)"
+                  : "Nº de Correos o enlace del envío (el cliente ve «Seguir el envío»)"}
+              </Detalle>
               <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion, flexWrap: "wrap" }}>
                 <TextInput
                   nativeID={`pedido-numero-envio-campo-${p.numero}`}

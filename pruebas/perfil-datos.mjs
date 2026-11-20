@@ -203,6 +203,10 @@
  *    interruptor (44 px, role switch) y el canal (En la app · Por correo · Las dos; radios de 44 px y 16 px) que se guardan
  *    y se apagan; otro motivo no lo ofrece; Blue avisa de otro parecido (y no de otro modelo); Analítica sin datos
  *    personales; sin la migración se cancela como antes. 360/390/1280. Se lanza con SOLO = CANCAV y en la pasada completa.
+ *  - CONTRA) Contracargos, parte 1 (dueño, 2026-11-20; migración 20261121000000): en Pedidos, si el banco verificó cada
+ *    pago con tarjeta (3DS), el filtro «Tarjeta sin verificar (N)», las condiciones aceptadas con su versión y su copia
+ *    (se pide al abrirla y se vuelve a plegar) y el número de Correos obligatorio para pasar a «Enviado» (no en lo del
+ *    mismo día; también si lo rechaza la base de datos); sin la migración, como antes. 360/390/1280. SOLO = CONTRA.
  *  - CANDIS) Diseño del pedido cancelado en Mis pedidos (dueño, 2026-11-16: «estilo Amazon», adaptado a móvil y
  *    ordenador): un solo título «Cancelado el …» (sin la pastilla repetida) y en gris «Pedido VZ-… · Realizado el … ·
  *    total» SIN tachar; dos pasos discretos (puntos de 8 px, línea de 1 px, textos de 13); «Motivo de la cancelación»
@@ -21064,6 +21068,229 @@ async function seccionVENDP() {
   }
 }
 
+// ===== CONTRA) Contracargos, parte 1 (dueño, 2026-11-20; migración 20261121000000_contracargos_parte1.sql). Datos
+// FICTICIOS. Administración → Pedidos: la verificación del banco (3DS) de cada pago con tarjeta, el filtro «Tarjeta sin
+// verificar», las condiciones aceptadas con su copia (se abre y se vuelve a plegar) y el número de Correos obligatorio para
+// pasar a «Enviado» (no en lo del mismo día); sin la migración, Pedidos sale como antes. 360/390/1280. ==================
+async function seccionCONTRA() {
+  const ID = (n) => `d0000000-0000-4000-8000-000000000${n}`;
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const perfilAdmin = { user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" };
+  const texto = (p, sel) => p.locator(sel).first().innerText({ timeout: 3000 }).then((t) => t.replace(/\p{Co}/gu, "").replace(/\s+/g, " ").trim()).catch(() => "");
+  const sinDesborde = (p) => p.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= window.innerWidth + 1);
+  const alto = (p, sel) => p.evaluate((s) => Math.round(document.querySelector(s)?.getBoundingClientRect().height ?? 0), sel);
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `CONTRA: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+  const COPIA = {
+    terminos: { actualizada: "2026-11-16T18:08:39Z", secciones: [{ heading: "Compra", body: "Al pagar aceptas estas condiciones de compra." }] },
+    devoluciones: { actualizada: "2026-11-16T10:29:04Z", secciones: [{ heading: "Plazo", body: "Tienes 14 días para devolverlo." }] },
+    envios: { actualizada: "2026-11-16T10:29:04Z", secciones: [{ heading: "Plazos", body: "Llega en 72 h como máximo." }] },
+  };
+  const pedido = (n, estado, extra = {}) => ({
+    id: ID(n), numero: n, created_at: "2026-11-20T09:00:00Z", estado, entrega: "envio", nombre: "Ana", email: CLIENTE.email, telefono: "600111222",
+    direccion: "Calle Mayor 5", codigo_postal: "28001", ciudad: "Madrid", notas: null, total_eur: 399, productos_eur: 382, envio_eur: 17, zona_envio: "peninsula",
+    envio_manual: false, user_id: CLIENTE.id, codigo_seguimiento: `VZ-CONT-0${n}`, id_veoaura: null, vinculado_en: null, nota_admin: null, pago_estado: "pagado", pago_modo: "real",
+    pago_referencia: `pi_3Cont${n}`, pagado_eur: 399, pagado_en: "2026-11-20T09:02:00Z", pago_metodo: "card", devuelto_eur: null, devuelto_en: null, doble_venta_en: null,
+    cancelacion_motivo: null, cancelado_en: null, pago_3ds: null, condiciones_aceptadas_en: "2026-11-20T09:00:00Z", condiciones_version: "2026-11-16T18:08:39Z", envio_seguimiento: null,
+    ...extra,
+  });
+  const PEDIDOS = () => [
+    pedido(401, "confirmado", { pago_3ds: "authenticated" }),
+    // Pago con tarjeta anterior al cambio (sin dato del banco): cuenta como «Tarjeta sin verificar».
+    pedido(402, "confirmado", { condiciones_aceptadas_en: null, condiciones_version: null }),
+    // Preparado para salir por Correos, aún sin número.
+    pedido(403, "preparado", { pago_3ds: "attempt_acknowledged" }),
+    // Mismo día en Zaragoza: pasa a «Enviado» sin número.
+    pedido(404, "preparado", { zona_envio: "local", codigo_postal: "50001", ciudad: "Zaragoza", envio_eur: 9.97, pago_estado: null, pago_modo: null, pago_referencia: null, pagado_eur: null, pagado_en: null, pago_metodo: null }),
+  ];
+  const ITEMS = [401, 402, 403, 404].map((n) => ({ id: `di${n}`, pedido_id: ID(n), product_id: null, titulo: `PlayStation 5 Slim ${n}`, precio_eur: 382 }));
+  const NUEVAS = /pago_3ds|condiciones_aceptadas_en|condiciones_version|condiciones_copia/;
+  // `sin`: la migración aún no está aplicada.
+  const rutas = async (ctx, s) => {
+    s.pedidos ??= PEDIDOS();
+    s.cambios = [];
+    s.copias = 0;
+    await ctx.route("**/*", async (r) => {
+      const q = r.request();
+      const url = new URL(q.url());
+      const metodo = q.method();
+      const json = (cuerpo, status = 200) => r.fulfill({ status, contentType: "application/json", headers: CORS, body: JSON.stringify(cuerpo) });
+      const filtro = (campo) => url.searchParams.get(campo) ?? "";
+      const lista = (campo) => (filtro(campo).startsWith("in.(") ? filtro(campo).slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")) : null);
+      const objeto = /vnd\.pgrst\.object/.test(q.headers()["accept"] ?? "");
+      if (metodo === "OPTIONS") return r.fallback();
+      const tabla = url.pathname.startsWith("/rest/v1/") ? url.pathname.slice(9) : null;
+      if (!tabla) return r.fallback();
+      const select = filtro("select");
+      if (tabla === "pedidos") {
+        if (s.sin && NUEVAS.test(select)) {
+          s.pedidos400 = (s.pedidos400 ?? 0) + 1;
+          return json({ code: "42703", message: "column pedidos.pago_3ds does not exist" }, 400);
+        }
+        if (metodo === "PATCH") {
+          const id = filtro("id").replace(/^eq\./, "");
+          const cuerpo = JSON.parse(q.postData() ?? "{}");
+          const antes = s.pedidos.find((p) => p.id === id);
+          // Como el disparador pedidos_enviado_con_numero.
+          if (!s.sin && cuerpo.estado === "enviado" && antes && antes.estado !== "enviado" && antes.entrega === "envio" && !["mano", "local", "local_lejos"].includes(antes.zona_envio ?? "") && !(cuerpo.envio_seguimiento ?? antes.envio_seguimiento ?? "").trim()) {
+            s.rechazados = (s.rechazados ?? 0) + 1;
+            return json({ code: "P0001", message: "falta_numero_envio" }, 400);
+          }
+          s.cambios.push({ id, cuerpo });
+          s.pedidos = s.pedidos.map((p) => (p.id === id ? { ...p, ...cuerpo } : p));
+          return r.fulfill({ status: 204, headers: CORS, body: "" });
+        }
+        if (metodo === "HEAD") return r.fulfill({ status: 200, headers: { ...CORS, "content-range": "*/0", "access-control-expose-headers": "*" }, body: "" });
+        const idEq = filtro("id").startsWith("eq.") ? filtro("id").slice(3) : null;
+        if (select === "condiciones_copia") {
+          s.copias++;
+          const p = s.pedidos.find((x) => x.id === idEq);
+          return objeto ? json(p ? { condiciones_copia: p.condiciones_aceptadas_en ? COPIA : null } : null) : json(p ? [{ condiciones_copia: COPIA }] : []);
+        }
+        const ids = lista("id");
+        let filas = s.pedidos.filter((p) => (!ids || ids.includes(p.id)) && (!idEq || p.id === idEq));
+        if (/pedido_items/.test(select)) filas = filas.map((p) => ({ ...p, pedido_items: ITEMS.filter((i) => i.pedido_id === p.id) }));
+        if (s.sin) filas = filas.map(({ pago_3ds, condiciones_aceptadas_en, condiciones_version, ...resto }) => resto);
+        return objeto ? json(filas[0] ?? null) : json(filas);
+      }
+      if (tabla === "pedido_items") {
+        const ids = lista("pedido_id");
+        return json(ITEMS.filter((i) => !ids || ids.includes(i.pedido_id)));
+      }
+      if (["pedido_estados", "pedido_valoraciones", "avisos_reposicion", "product_media"].includes(tabla) && metodo === "GET") return json([]);
+      if (tabla === "products" && metodo === "GET") return objeto ? json(null, 406) : json([]);
+      if (tabla === "pedido_facturas" && metodo === "GET") return json({ code: "PGRST205", message: "Could not find the table 'public.pedido_facturas' in the schema cache" }, 404);
+      return r.fallback();
+    });
+  };
+  const admin = async (s, vista = {}) => {
+    const estado = { filas: [perfilAdmin], guardados: [], categorias: [], tarifas: [] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    await rutas(ctx, s);
+    return { ctx, estado };
+  };
+  const abrirPedidosAdmin = async (ctx) => {
+    const p = await pagina(ctx, "/admin/pedidos?buscar=");
+    await p.locator("#pedido-titulo-401").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    await p.locator("#pedidos-filtro-todos").click().catch(() => {});
+    await desplegarPedidos(p);
+    await p.waitForTimeout(500);
+    return p;
+  };
+
+  // CONTRA1) 390: verificación del banco, condiciones aceptadas con su copia, filtro y número de Correos obligatorio.
+  await bloque("CONTRA1 Pedidos", async () => {
+    const s = {};
+    const { ctx } = await admin(s);
+    const p = await abrirPedidosAdmin(ctx);
+    ok(/^Verificado por el banco \(3D Secure\)/.test(await texto(p, "#pedido-3ds-401")), `CONTRA1: el pago verificado lo dice (${await texto(p, "#pedido-3ds-401")})`);
+    ok(/la reclamación por fraude la asume él/.test(await texto(p, "#pedido-3ds-403")), `CONTRA1: «intentado» también protege (${await texto(p, "#pedido-3ds-403")})`);
+    ok(/^Sin dato de la verificación del banco/.test(await texto(p, "#pedido-3ds-402")) && (await p.locator("#pedido-3ds-404").count()) === 0, `CONTRA1: el anterior al cambio, sin dato; sin pago con tarjeta, sin línea (${await texto(p, "#pedido-3ds-402")})`);
+    const cond = await texto(p, "#pedido-condiciones-401");
+    ok(/Aceptó las condiciones el/.test(cond) && /versión del/.test(cond) && (await p.locator("#pedido-condiciones-402").count()) === 0, `CONTRA1: las condiciones aceptadas con su versión; sin ellas, sin línea (${cond})`);
+    ok(s.copias === 0, "CONTRA1: la copia de las condiciones no se pide al cargar la lista");
+    await p.locator("#pedido-condiciones-ver-401").click();
+    await p.locator("#pedido-condiciones-copia-401").waitFor({ timeout: 10000 }).catch(() => {});
+    const copia = await texto(p, "#pedido-condiciones-copia-401");
+    ok(s.copias === 1 && /Condiciones · actualizada el/.test(copia) && /14 días/.test(copia) && /72 h/.test(copia), `CONTRA1: «Ver las condiciones aceptadas» enseña la copia de Condiciones, Devoluciones y Envíos (${copia.slice(0, 120)})`);
+    ok((await alto(p, "#pedido-condiciones-ver-401")) >= 44 && (await texto(p, "#pedido-condiciones-ver-401")) === "Ocultar las condiciones aceptadas", `CONTRA1: el botón mide 44 px y ahora dice «Ocultar…» (${await alto(p, "#pedido-condiciones-ver-401")})`);
+    await capturar(p, "CONTRA1-condiciones-390");
+    await p.locator("#pedido-condiciones-ver-401").click();
+    await p.waitForTimeout(300);
+    ok((await p.locator("#pedido-condiciones-copia-401").count()) === 0, "CONTRA1: se vuelve a plegar en el mismo sitio");
+
+    // Filtro «Tarjeta sin verificar».
+    await p.locator("#pedidos-mas-filtros").click().catch(() => {});
+    await p.waitForTimeout(300);
+    ok((await texto(p, "#pedidos-filtro-tarjeta_sin_verificar")) === "Tarjeta sin verificar (1)", `CONTRA1: el filtro cuenta el pago sin la protección del banco (${await texto(p, "#pedidos-filtro-tarjeta_sin_verificar")})`);
+    await p.locator("#pedidos-filtro-tarjeta_sin_verificar").click().catch(() => {});
+    await p.waitForTimeout(500);
+    const visibles = await p.evaluate(() => [...document.querySelectorAll("[id^='pedido-titulo-']")].map((e) => e.id.replace("pedido-titulo-", "")));
+    ok(JSON.stringify(visibles) === '["402"]', `CONTRA1: deja solo el 402 (${visibles.join(", ")})`);
+    await capturar(p, "CONTRA1-filtro-sin-verificar-390");
+    await p.locator("#pedidos-filtro-todos").click().catch(() => {});
+    await desplegarPedidos(p);
+    await p.waitForTimeout(500);
+
+    // «Enviado» por Correos sin número: no se cambia y lo dice junto al número.
+    ok(/obligatorio para marcarlo como «Enviado»/.test(await texto(p, "#pedido-numero-envio-403")) && !/obligatorio/.test(await texto(p, "#pedido-numero-envio-404")), "CONTRA1: el campo del número dice que es obligatorio solo en lo que va por Correos");
+    await p.locator("#pedido-estado-403-enviado").click();
+    await p.waitForTimeout(600);
+    const msg = await texto(p, "#pedido-numero-envio-mensaje-403");
+    ok(!s.cambios.length && /Escribe y guarda el número de Correos antes de marcarlo como enviado/.test(msg), `CONTRA1: sin número no pasa a «Enviado» y lo explica (${msg} · ${JSON.stringify(s.cambios)})`);
+    await capturar(p, "CONTRA1-enviado-sin-numero-390");
+    await p.locator("#pedido-numero-envio-campo-403").fill("pk123456789es");
+    await p.locator("#pedido-numero-envio-guardar-403").click();
+    await p.waitForTimeout(600);
+    await p.locator("#pedido-estado-403-enviado").click();
+    await p.waitForTimeout(600);
+    ok(JSON.stringify(s.cambios.map((c) => c.cuerpo)) === JSON.stringify([{ envio_seguimiento: "PK123456789ES" }, { estado: "enviado" }]), `CONTRA1: con el número guardado, sí (${JSON.stringify(s.cambios.map((c) => c.cuerpo))})`);
+    await p.locator("#pedido-estado-404-enviado").click();
+    await p.waitForTimeout(600);
+    ok(JSON.stringify(s.cambios[2]) === JSON.stringify({ id: ID(404), cuerpo: { estado: "enviado" } }), `CONTRA1: lo del mismo día en Zaragoza pasa sin número (${JSON.stringify(s.cambios[2] ?? null)})`);
+    ok((await sinDesborde(p)) && p.errores.length === 0, `CONTRA1: sin desbordes ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // CONTRA2) Si la base de datos lo rechaza (otra pestaña sin el número al día), lo dice igual, sin el error genérico.
+  await bloque("CONTRA2 rechazo de la base de datos", async () => {
+    const s = {};
+    const { ctx } = await admin(s);
+    const p = await abrirPedidosAdmin(ctx);
+    // El panel cree que ya tiene número (lo guardó otra pestaña y luego se borró).
+    await p.locator("#pedido-numero-envio-campo-403").fill("PK123456789ES");
+    await p.locator("#pedido-numero-envio-guardar-403").click();
+    await p.waitForTimeout(500);
+    s.pedidos = s.pedidos.map((x) => (x.id === ID(403) ? { ...x, envio_seguimiento: null } : x));
+    await p.locator("#pedido-estado-403-enviado").click();
+    await p.waitForTimeout(700);
+    ok(s.rechazados === 1 && /Escribe y guarda el número de Correos/.test(await texto(p, "#pedido-numero-envio-mensaje-403")) && !/No se pudo cambiar el estado/.test(await texto(p, "body")), `CONTRA2: el rechazo de la base de datos se explica junto al número (${s.rechazados})`);
+    ok(p.errores.length === 0, `CONTRA2: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // CONTRA3) 360, 390 y 1280: con la copia abierta y el aviso del número, sin desbordar.
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`CONTRA3 ${nombre}`, async () => {
+      const s = {};
+      const { ctx } = await admin(s, vista);
+      const p = await abrirPedidosAdmin(ctx);
+      await p.locator("#pedido-condiciones-ver-401").click();
+      await p.locator("#pedido-condiciones-copia-401").waitFor({ timeout: 10000 }).catch(() => {});
+      await p.locator("#pedido-estado-403-enviado").click();
+      await p.waitForTimeout(600);
+      ok((await sinDesborde(p)) && (await p.locator("#pedido-condiciones-copia-401").count()) === 1, `CONTRA3 (${nombre}): Pedidos con la copia abierta no se ensancha`);
+      await p.locator("#pedido-condiciones-401").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `CONTRA3-condiciones-${nombre}`);
+      await p.locator("#pedido-numero-envio-403").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `CONTRA3-numero-${nombre}`);
+      ok(p.errores.length === 0, `CONTRA3 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
+  // CONTRA4) Sin la migración: Pedidos carga como antes, sin líneas nuevas ni filtro, y «Enviado» no exige nada.
+  await bloque("CONTRA4 sin la migración", async () => {
+    const s = { sin: true };
+    const { ctx } = await admin(s);
+    const p = await abrirPedidosAdmin(ctx);
+    ok((await p.locator("#pedido-titulo-401").count()) === 1 && (await p.locator("#pedido-3ds-401").count()) === 0 && (await p.locator("#pedido-condiciones-401").count()) === 0 && (s.pedidos400 ?? 0) <= 1, `CONTRA4: sin la migración, Pedidos carga sin las líneas nuevas (${s.pedidos400 ?? 0} errores)`);
+    ok(p.errores.length === 0, `CONTRA4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+}
+
 // ===== CANCAV) Motivo de la cancelación y «Avisarme cuando haya otro» (dueño, 2026-11-16; migración
 // 20261116100000_cancelacion_motivo_aviso.sql). Datos FICTICIOS: la base de datos de esta sección (pedidos, sus artículos,
 // avisos_reposicion con sus reglas y su disparador, y los productos nuevos) va por encima de la de contexto(). ==========
@@ -24275,6 +24502,7 @@ const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "PANSCROLL") await seccionPANSCROLL();
   if (SOLO === "CANCAV") await seccionCANCAV();
+  if (SOLO === "CONTRA") await seccionCONTRA();
   if (SOLO === "CANDIS") await seccionCANDIS();
   if (SOLO === "PANRED1") await seccionPANRED1();
   if (SOLO === "PANRED2") await seccionPANRED2();
@@ -25424,6 +25652,7 @@ try {
   await seccionPANRED5();
   await seccionUSUFOT();
   await seccionCANCAV();
+  await seccionCONTRA();
   await seccionCANDIS();
   await seccionVENFOT();
   await seccionALQ1();

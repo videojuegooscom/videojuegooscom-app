@@ -28,6 +28,11 @@
  * pago desplegados (expand payment_intent.payment_method, solo lectura) y se guarda en pedidos.pago_metodo y
  * service_requests.pago_metodo / etiqueta_pago_metodo; si esas columnas aún no existen, el pago se apunta igual sin él.
  *
+ * Contracargos, parte 1 (dueño, 2026-11-20; migración 20261121000000_contracargos_parte1): cada página de pago pide
+ * SIEMPRE la verificación del banco a la tarjeta (3D Secure, request_three_d_secure=any; si Stripe la rechazara, se abre
+ * sin ella: el pago no se rompe) y, al apuntar un pedido pagado, se guarda el resultado en pedidos.pago_3ds (leído del
+ * cobro con expand payment_intent.latest_charge). Sin la columna, se apunta igual sin él.
+ *
  * Por qué así (dueño, 2026-11-05: «clave puesta y empieza Stripe»):
  * - El importe sale de la base de datos (pedidos.total_eur: artículos + envío, calculados al guardar el pedido), nunca
  *   del navegador. A Stripe solo se le pasa el número del pedido y su importe.
@@ -177,7 +182,14 @@ type SesionStripe = {
   livemode?: boolean;
   client_reference_id?: string | null;
   metadata?: Record<string, string> | null;
-  payment_intent?: string | { id?: string; payment_method?: string | { type?: string } | null } | null;
+  payment_intent?:
+    | string
+    | {
+        id?: string;
+        payment_method?: string | { type?: string } | null;
+        latest_charge?: string | { payment_method_details?: { card?: { three_d_secure?: { result?: string | null } | null } | null } | null } | null;
+      }
+    | null;
 };
 
 // Con qué se pagó (lo dice Stripe) y qué formas de pago se ofrecen además de la tarjeta.
@@ -364,9 +376,14 @@ async function llamarStripe(
   return { http: r.status, datos };
 }
 
-// La sesión se pide con su pago y la forma de pago desplegados (solo lectura) para saber si fue tarjeta, Klarna o Bizum.
+// La sesión se pide con su pago, la forma de pago y el cobro desplegados (solo lectura) para saber si fue tarjeta, Klarna
+// o Bizum y si el banco verificó la tarjeta (3DS).
 async function sesionDeStripe(clave: string, id: string): Promise<SesionStripe | null> {
-  const r = await llamarStripe(clave, "GET", `/checkout/sessions/${encodeURIComponent(id)}?expand[]=payment_intent.payment_method`);
+  const r = await llamarStripe(
+    clave,
+    "GET",
+    `/checkout/sessions/${encodeURIComponent(id)}?expand[]=payment_intent.payment_method&expand[]=payment_intent.latest_charge`
+  );
   if (r.http === 404) return null;
   if (r.http !== 200 || !r.datos || typeof r.datos.id !== "string") {
     console.error("pago: Stripe no devolvió la sesión", r.http, r.datos?.error?.code ?? "");
@@ -435,14 +452,34 @@ function rechazoPorBizum(datos: any): boolean {
 // idempotencia, porque los datos cambian) y esta instancia deja de ofrecerlo un rato: la tarjeta nunca se rompe.
 // La clave de idempotencia lleva las formas de pago (-k Klarna, -b Bizum): si cambian dentro del mismo minuto, son datos
 // distintos y Stripe no debe devolver la sesión de antes.
+//
+// Verificación del banco SIEMPRE (3D Secure; contracargos parte 1, dueño 2026-11-20): con
+// payment_method_options[card][request_three_d_secure]=any Stripe pide al banco que verifique cada pago con tarjeta
+// (prefiriendo el paso sin molestias: muchas veces el banco lo aprueba sin pedir nada al cliente). Si el banco lo
+// verifica, una reclamación por «yo no hice este pago» la asume el banco, no la tienda. Solo afecta a la tarjeta (Klarna y
+// Bizum tienen su propia verificación). Si Stripe rechazara la opción, se abre UNA vez sin ella: el pago nunca se rompe.
+// La clave de idempotencia lleva «-3ds» porque los datos son otros que antes de este cambio.
+const OPCION_3DS: Record<string, string> = { "payment_method_options[card][request_three_d_secure]": "any" };
+
+function rechazoPor3ds(datos: any): boolean {
+  const e = datos?.error;
+  return !!e && (/request_three_d_secure|payment_method_options/.test(String(e.param ?? "")) || /three_d_secure/i.test(String(e.message ?? "")));
+}
+
 async function abrirSesionStripe(clave: string, campos: Record<string, string>, m: MetodosOnline, idempotencia: string) {
   const sufijo = (x: MetodosOnline) => `${x.klarna ? "-k" : ""}${x.bizum ? "-b" : ""}`;
-  const r = await llamarStripe(clave, "POST", "/checkout/sessions", { ...campos, ...tiposDePago(m) }, `${idempotencia}${sufijo(m)}`);
+  const abrir = async (x: MetodosOnline, extra: string) => {
+    const r = await llamarStripe(clave, "POST", "/checkout/sessions", { ...campos, ...OPCION_3DS, ...tiposDePago(x) }, `${idempotencia}${sufijo(x)}-3ds${extra}`);
+    if (r.http === 200 || !rechazoPor3ds(r.datos)) return r;
+    console.error("pago: Stripe no acepta pedir siempre la verificación del banco (3DS); se abre el pago sin pedirla", r.http, r.datos?.error?.code ?? "");
+    return llamarStripe(clave, "POST", "/checkout/sessions", { ...campos, ...tiposDePago(x) }, `${idempotencia}${sufijo(x)}${extra}`);
+  };
+  const r = await abrir(m, "");
   if (r.http === 200 || !m.bizum || !rechazoPorBizum(r.datos)) return r;
   console.warn("pago: Stripe no acepta Bizum en esta cuenta (¿sin activar en el panel de Stripe?); se abre el pago sin Bizum", r.http, r.datos?.error?.code ?? "");
   const pausa = Number(process.env.BIZUM_PAUSA_MS);
   bizumRechazadoHasta = Date.now() + (Number.isFinite(pausa) && pausa >= 0 ? pausa : BIZUM_PAUSA_MS);
-  return llamarStripe(clave, "POST", "/checkout/sessions", { ...campos, ...tiposDePago({ ...m, bizum: false }) }, `${idempotencia}${sufijo({ ...m, bizum: false })}-sinbizum`);
+  return abrir({ ...m, bizum: false }, "-sinbizum");
 }
 
 // Con qué se pagó de verdad, según Stripe (la forma de pago del cobro). null si no se sabe.
@@ -451,6 +488,22 @@ function metodoDeLaSesion(s: SesionStripe): Metodo | null {
   const pm = pi && typeof pi === "object" ? pi.payment_method : null;
   const tipo = pm && typeof pm === "object" ? String(pm.type ?? "") : "";
   return METODOS.includes(tipo) ? (tipo as Metodo) : null;
+}
+
+// Resultado de la verificación del banco (3DS) del cobro con tarjeta, como lo da Stripe: «authenticated» (verificado),
+// «attempt_acknowledged» (el banco no lo hace, pero la responsabilidad pasa igual al banco), «exempted», «failed»,
+// «not_supported», «processing_error»… null si no fue con tarjeta o no se sabe.
+const RESULTADOS_3DS = ["authenticated", "attempt_acknowledged", "exempted", "failed", "not_supported", "processing_error"];
+function resultado3ds(s: SesionStripe): string | null {
+  const pi = s.payment_intent;
+  const cargo = pi && typeof pi === "object" ? pi.latest_charge : null;
+  const r = cargo && typeof cargo === "object" ? cargo.payment_method_details?.card?.three_d_secure?.result : null;
+  return typeof r === "string" && RESULTADOS_3DS.includes(r) ? r : null;
+}
+
+// Sin la columna del 3DS (migración 20261121000000 sin aplicar), se apunta igual sin él.
+function faltaColumna3ds(error: { code?: string; message?: string } | null): boolean {
+  return !!error && (error.code === "42703" || error.code === "PGRST204") && /pago_3ds/.test(String(error.message ?? ""));
 }
 
 // Sin la columna del método (migración 20261111150000 sin aplicar), se apunta igual sin él.
@@ -606,7 +659,11 @@ async function marcarPagado(supabase: SupabaseClient, p: Pick<FilaPedido, "id" |
       .eq("id", p.id)
       // Si a la vez llegan la vuelta del navegador y el aviso de Stripe, solo apunta el primero.
       .or("pago_estado.is.null,pago_estado.neq.pagado");
-  let { error } = await apuntar(metodo ? { ...datos, pago_metodo: metodo } : datos);
+  // Si el banco verificó la tarjeta (3DS), queda apuntado: es la prueba principal ante una reclamación.
+  const tresds = resultado3ds(s);
+  const conMetodo = metodo ? { ...datos, pago_metodo: metodo } : datos;
+  let { error } = await apuntar(tresds ? { ...conMetodo, pago_3ds: tresds } : conMetodo);
+  if (tresds && faltaColumna3ds(error)) ({ error } = await apuntar(conMetodo));
   if (metodo && faltaColumnaMetodo(error)) ({ error } = await apuntar(datos));
   if (error) {
     console.error("pago: no se pudo apuntar el pago del pedido", p.numero, error.code ?? "");
