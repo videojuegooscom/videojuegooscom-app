@@ -18963,11 +18963,15 @@ async function seccionVENFOT() {
       guardadas.push(JSON.parse(q.postData() ?? "{}"));
       return r.fulfill({ status: 201, headers: CORS, body: "" });
     });
-    await ctx.route("**/rest/v1/rpc/get_or_create_sell_request_chat*", (r) =>
-      r.request().method() === "OPTIONS" ? r.fallback() : r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify("f0000000-0000-4000-8000-0000000009f1") })
-    );
+    await ctx.route("**/rest/v1/rpc/get_or_create_sell_request_chat*", (r) => {
+      if (r.request().method() === "OPTIONS") return r.fallback();
+      chatsAbiertos.n++;
+      return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify("f0000000-0000-4000-8000-0000000009f1") });
+    });
     await ctx.route("**/rest/v1/product_chat_messages*", (r) => (r.request().method() === "POST" ? r.fulfill({ status: 201, headers: CORS, body: "" }) : r.fallback()));
   };
+  // Opción B (2026-11-20): el chat solo se abre si eligió «Chat de la tienda».
+  const chatsAbiertos = { n: 0 };
   // Todo lo obligatorio menos las fotos y el vídeo (lo que ya esté escrito, p. ej. autorrellenado, se deja).
   const rellenarResto = async (p) => {
     const poner = async (ph, v) => {
@@ -19096,6 +19100,10 @@ async function seccionVENFOT() {
     ok(media.filas.every((f) => f.sell_request_id === g.id) && media.subidas.every((r) => r.startsWith(`${g.id}/`)) && JSON.stringify(media.filas.map((f) => f.sort_order).sort((a, b) => a - b)) === "[0,1,2,3,4,5,6,7]", "VENFOT: enlazados a su solicitud y en orden (fotos primero, el vídeo al final)");
     await p.getByText("¡Formulario enviado!").first().waitFor({ timeout: 20000 }).catch(() => {});
     ok((await p.getByText("¡Formulario enviado!").count()) > 0 && (await p.locator("#vender-media-fallo").count()) === 0, "VENFOT: la confirmación sale sin avisos de subida");
+    {
+      const c = await cuerpo(p);
+      ok(chatsAbiertos.n === 0 && /oferta a tu correo ana\.prueba@gmail\.com/.test(c) && !/Ver la conversación|Iniciar sesión|Sigamos por chat/.test(c), `VENFOT: eligió Gmail: no se abre chat y la confirmación dice que la oferta irá a su correo (${chatsAbiertos.n} chats)`);
+    }
     await capturar(p, "VENFOT1-enviado-390");
     ok(p.errores.length === 0, `VENFOT1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();

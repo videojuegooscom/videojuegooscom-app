@@ -101,7 +101,9 @@
  *   sin rol admin puede leer esas filas.
  * - Tras un envío correcto muestra una pantalla de confirmación dentro del
  *   propio modal y se puede cerrar con "Cerrar".
- * - Chat automático (septiembre): si quien envía el formulario tiene sesión
+ * - Chat automático (septiembre; desde 2026-11-20 solo si eligió «Chat de la
+ *   tienda»: con «Gmail» la oferta va a su correo, sin chat ni invitación a
+ *   iniciar sesión, y el botón es «Ver la conversación»): con sesión
  *   iniciada, justo después de guardar la solicitud se abre (o reutiliza)
  *   una conversación centrada en ESE artículo
  *   (get_or_create_sell_request_chat, ver migración en Supabase — no hay ya
@@ -940,6 +942,8 @@ export default function VenderAhoraModal({
   // para el botón "Ir al chat" de la pantalla de confirmación. Sin sesión
   // se queda a null: no se puede crear una conversación sin una cuenta real.
   const [sentChatId, setSentChatId] = useState<string | null>(null);
+  // El correo al que se le enviará la oferta (si eligió «Gmail»), para decírselo en la confirmación.
+  const [sentCorreo, setSentCorreo] = useState<string | null>(null);
 
   // Validez "reforzada" (con mínimo de caracteres) para nombre, apellido y
   // dato de contacto — se usan tanto para el check verde/atenuado de cada
@@ -1129,6 +1133,7 @@ export default function VenderAhoraModal({
     setFormErr(null);
     setSent(false);
     setSentChatId(null);
+    setSentCorreo(null);
   }
 
   function handleClose() {
@@ -1364,8 +1369,11 @@ export default function VenderAhoraModal({
       // social. Sin sesión no se puede (product_chats exige un cliente
       // real): se deja sentChatId a null y la confirmación de abajo invita
       // a iniciar sesión.
+      // Se respeta lo que eligió (dueño, 2026-11-20, opción B): el chat solo se abre si eligió «Chat de la tienda»; con
+      // «Gmail» la oferta va a su correo y no se abre ninguna conversación.
       let openedChatId: string | null = null;
-      if (insertedRow?.id) {
+      setSentCorreo(metodoContacto === "gmail" ? buildContacto() : null);
+      if (insertedRow?.id && metodoContacto === "chat") {
         try {
           const { data: sessionData } = await supabase.auth.getSession();
           if (sessionData.session?.user) {
@@ -1619,8 +1627,10 @@ export default function VenderAhoraModal({
 
                     <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
                       {sentChatId
-                        ? "Hemos recibido los datos de tu artículo. Sigamos por chat para continuar con la venta."
-                        : "Hemos recibido los datos de tu artículo. Nuestro equipo lo revisará y se pondrá en contacto contigo."}
+                        ? "Hemos recibido tu artículo. Te enviaremos nuestra oferta por el chat de la tienda y te avisaremos cuando llegue."
+                        : sentCorreo
+                          ? `Hemos recibido tu artículo. Te enviaremos nuestra oferta a tu correo ${sentCorreo}.`
+                          : "Hemos recibido tu artículo. Nuestro equipo lo revisará y te enviará su oferta."}
                     </Text>
 
                     {/* Subida en segundo plano (2026-11-19): barra fina y discreta, sin bloquear nada. */}
@@ -1704,20 +1714,6 @@ export default function VenderAhoraModal({
                       </Text>
                     ) : null}
 
-                    {!sentChatId && (
-                      <Text
-                        style={{
-                          color: COLORS.muted,
-                          textAlign: "center",
-                          lineHeight: 19,
-                          fontSize: 13,
-                        }}
-                      >
-                        Inicia sesión para continuar la conversación por chat con nosotros, en vez de
-                        por otra red social.
-                      </Text>
-                    )}
-
                     {sentChatId ? (
                       <AnimatedPressable
                         onPress={() => {
@@ -1742,28 +1738,9 @@ export default function VenderAhoraModal({
                         })}
                       >
                         <Ionicons name="chatbubble-ellipses-outline" size={16} color="#FFFFFF" />
-                        <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Ir al chat con nosotros</Text>
+                        <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Ver la conversación</Text>
                       </AnimatedPressable>
-                    ) : (
-                      <AnimatedPressable
-                        onPress={() => {
-                          handleClose();
-                          router.push("/perfil" as Href);
-                        }}
-                        containerStyle={{ marginTop: 4 }}
-                        style={({ pressed }) => ({
-                          opacity: pressed ? 0.9 : 1,
-                          minHeight: TACTIL.minimo,
-                          justifyContent: "center",
-                          borderRadius: 999,
-                          paddingVertical: 12,
-                          paddingHorizontal: 20,
-                          backgroundColor: COLORS.accent,
-                        })}
-                      >
-                        <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Iniciar sesión</Text>
-                      </AnimatedPressable>
-                    )}
+                    ) : null}
 
                     <AnimatedPressable
                       onPress={handleClose}
