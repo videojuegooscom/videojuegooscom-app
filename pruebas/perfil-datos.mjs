@@ -21230,12 +21230,12 @@ async function seccionCONTRA() {
     const msg = await texto(p, "#pedido-numero-envio-mensaje-403");
     ok(!s.cambios.length && /Escribe y guarda el número de Correos antes de marcarlo como enviado/.test(msg), `CONTRA1: sin número no pasa a «Enviado» y lo explica (${msg} · ${JSON.stringify(s.cambios)})`);
     await capturar(p, "CONTRA1-enviado-sin-numero-390");
-    await p.locator("#pedido-numero-envio-campo-403").fill("pq4f6p0712345670150001x");
+    await p.locator("#pedido-numero-envio-campo-403").fill("pk123456789es");
     await p.locator("#pedido-numero-envio-guardar-403").click();
     await p.waitForTimeout(600);
     await p.locator("#pedido-estado-403-enviado").click();
     await p.waitForTimeout(600);
-    ok(JSON.stringify(s.cambios.map((c) => c.cuerpo)) === JSON.stringify([{ envio_seguimiento: "PQ4F6P0712345670150001X" }, { estado: "enviado" }]), `CONTRA1: con el número guardado, sí (${JSON.stringify(s.cambios.map((c) => c.cuerpo))})`);
+    ok(JSON.stringify(s.cambios.map((c) => c.cuerpo)) === JSON.stringify([{ envio_seguimiento: "PK123456789ES" }, { estado: "enviado" }]), `CONTRA1: con el número guardado, sí (${JSON.stringify(s.cambios.map((c) => c.cuerpo))})`);
     await p.locator("#pedido-estado-404-enviado").click();
     await p.waitForTimeout(600);
     ok(JSON.stringify(s.cambios[2]) === JSON.stringify({ id: ID(404), cuerpo: { estado: "enviado" } }), `CONTRA1: lo del mismo día en Zaragoza pasa sin número (${JSON.stringify(s.cambios[2] ?? null)})`);
@@ -21249,7 +21249,7 @@ async function seccionCONTRA() {
     const { ctx } = await admin(s);
     const p = await abrirPedidosAdmin(ctx);
     // El panel cree que ya tiene número (lo guardó otra pestaña y luego se borró).
-    await p.locator("#pedido-numero-envio-campo-403").fill("PQ4F6P0712345670150001X");
+    await p.locator("#pedido-numero-envio-campo-403").fill("PK123456789ES");
     await p.locator("#pedido-numero-envio-guardar-403").click();
     await p.waitForTimeout(500);
     s.pedidos = s.pedidos.map((x) => (x.id === ID(403) ? { ...x, envio_seguimiento: null } : x));

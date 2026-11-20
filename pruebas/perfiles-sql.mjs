@@ -4178,7 +4178,7 @@ try {
     ok(!sinNum.ok && /falta_numero_envio/.test(sinNum.mensaje) && !sinNumZona.ok, `CONTRA1: lo que va por Correos (o sin zona) no pasa a «Enviado» sin número (${sinNum.mensaje})`);
     await cCo.query(`update public.pedidos set envio_seguimiento = '   ' where id = '${pen}'`);
     const blanco = await enviar(pen);
-    await cCo.query(`update public.pedidos set envio_seguimiento = 'PQ4F6P0712345670150001X' where id = '${pen}'`);
+    await cCo.query(`update public.pedidos set envio_seguimiento = 'PK123456789ES' where id = '${pen}'`);
     const conNum = await enviar(pen);
     ok(!blanco.ok && conNum.ok && conNum.cuantas === 1, "CONTRA1: con espacios no vale; con el número de Correos, sí");
     const mismoDia = [];
