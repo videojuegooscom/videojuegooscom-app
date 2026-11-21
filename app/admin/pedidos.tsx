@@ -209,6 +209,8 @@ type Pedido = {
   pago_3ds?: string | null;
   condiciones_aceptadas_en?: string | null;
   condiciones_version?: string | null;
+  // Contracargos, parte 2 (migración 20261121120000).
+  entrega_codigo_ok_en?: string | null;
 };
 
 // Estado de venta de cada artículo de los pedidos (products): cada artículo es UNA unidad. vendido_pedido_id solo existe
@@ -240,6 +242,7 @@ type Filtro =
   | "pagados_tarjeta"
   | "pago_sin_terminar"
   | "tarjeta_sin_verificar"
+  | "reclamaciones"
   | "en_tienda";
 
 // Cómo se pagó una venta en mano (lo dice VeoAura).
@@ -365,6 +368,56 @@ const vaPorCorreos = (p: Pedido) => p.entrega === "envio" && !ZONAS_MISMO_DIA.in
 // Copia de las condiciones aceptadas (pedidos.condiciones_copia): slug → { actualizada, secciones }.
 type CopiaCondiciones = Record<string, { actualizada?: string | null; secciones?: { heading?: string; body?: string }[] | null }>;
 const NOMBRE_POLITICA: Record<string, string> = { terminos: "Condiciones", devoluciones: "Devoluciones", envios: "Envíos" };
+
+// Contracargos, parte 2 (dueño, 2026-11-21). Reclamación del banco tal como la guarda api/pago.ts (pedido_reclamaciones).
+type Reclamacion = {
+  id: string;
+  pedido_id: string | null;
+  estado: string;
+  motivo: string | null;
+  importe_eur: number | string;
+  plazo_en: string | null;
+  creada_en: string;
+  cerrada_en: string | null;
+  pruebas_preparadas_en: string | null;
+  pruebas_resumen: { lineas?: string[] } | null;
+  modo: string;
+};
+// El estado de Stripe en palabras sencillas, con su color.
+const ESTADO_RECLAMACION: Record<string, { texto: string; color: string; fondo: string }> = {
+  warning_needs_response: { texto: "Consulta del banco: responde", color: COLORS.danger, fondo: COLORS.dangerBg },
+  needs_response: { texto: "Hay que responder", color: COLORS.danger, fondo: COLORS.dangerBg },
+  warning_under_review: { texto: "Consulta en revisión", color: COLORES_TEXTO.azulTexto, fondo: "#E0F2FE" },
+  under_review: { texto: "En revisión del banco", color: COLORES_TEXTO.azulTexto, fondo: "#E0F2FE" },
+  won: { texto: "Ganada", color: "#166534", fondo: "#DCFCE7" },
+  lost: { texto: "Perdida", color: COLORS.danger, fondo: COLORS.dangerBg },
+  warning_closed: { texto: "Consulta cerrada", color: COLORES_TEXTO.secundario, fondo: "#EEF2F6" },
+};
+const MOTIVO_RECLAMACION: Record<string, string> = {
+  fraudulent: "El cliente dice que no hizo el pago",
+  product_not_received: "El cliente dice que no recibió el pedido",
+  product_unacceptable: "El cliente dice que el artículo no era como se describía",
+  duplicate: "El cliente dice que se le cobró dos veces",
+  credit_not_processed: "El cliente dice que no se le devolvió el dinero",
+  subscription_canceled: "El cliente dice que había cancelado",
+  unrecognized: "El cliente no reconoce el cobro",
+  general: "Reclamación general del banco",
+};
+const reclamacionAbierta = (r: Reclamacion) => !r.cerrada_en && ["needs_response", "warning_needs_response", "under_review", "warning_under_review"].includes(r.estado);
+const admitePruebas = (r: Reclamacion) => ["needs_response", "warning_needs_response"].includes(r.estado);
+// «quedan 3 días» / «quedan 5 horas» / «plazo vencido».
+function plazoRestante(iso: string | null): { texto: string; urgente: boolean } | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso) - Date.now();
+  if (!Number.isFinite(ms)) return null;
+  if (ms <= 0) return { texto: "plazo vencido", urgente: true };
+  const horas = Math.floor(ms / 3_600_000);
+  if (horas < 48) return { texto: `quedan ${Math.max(1, horas)} ${horas === 1 ? "hora" : "horas"}`, urgente: true };
+  const dias = Math.floor(horas / 24);
+  return { texto: `quedan ${dias} días`, urgente: dias <= 3 };
+}
+// Entrega en mano o del mismo día (Zaragoza y Cuarte): se confirma con el código que dice el cliente.
+const entregaEnMano = (p: Pedido) => p.entrega === "recogida" || ZONAS_MISMO_DIA.includes(p.zona_envio ?? "");
 // Dinero de verdad (Ingresos): cobradoDeVerdad e importeCobrado de lib/envio.ts (pagado online de verdad, venta en tienda
 // o entregado; sin pruebas, cancelados, dobles ventas ni devueltos). La misma regla cuenta lo gastado en Usuarios.
 
@@ -665,6 +718,16 @@ export default function PedidosAdmin() {
   const [cancelacionOk, setCancelacionOk] = useState(false);
   // false = aún no existen pago_3ds y las condiciones aceptadas (migración 20261121000000 sin aplicar).
   const [contraOk, setContraOk] = useState(false);
+  // Reclamaciones del banco (migración 20261121120000). null = sin la tabla (no se enseña nada).
+  const [reclamaciones, setReclamaciones] = useState<Reclamacion[] | null>(null);
+  // false = aún no existe entrega_codigo_ok_en (migración 20261121120000 sin aplicar): sin código de entrega.
+  const [codigoOk, setCodigoOk] = useState(false);
+  // Lo escrito en «Código de entrega» de cada pedido y el resultado de confirmarlo.
+  const [codigoEscrito, setCodigoEscrito] = useState<Record<string, string>>({});
+  const [codigoMsg, setCodigoMsg] = useState<{ id: string; tipo: "ok" | "error"; texto: string } | null>(null);
+  // Pruebas de una reclamación: preparando (id de la reclamación) y el mensaje.
+  const [preparando, setPreparando] = useState<string | null>(null);
+  const [pruebasMsg, setPruebasMsg] = useState<{ id: string; tipo: "ok" | "error"; texto: string } | null>(null);
   // Copia de las condiciones aceptadas de un pedido, abierta (se pide al abrirla): id del pedido → páginas.
   const [copiaCondiciones, setCopiaCondiciones] = useState<Record<string, CopiaCondiciones | "cargando" | "error">>({});
   // Motivo elegido al cancelar cada pedido (sin elegir, no se puede confirmar) y el texto de «Otro motivo». Clave: el id
@@ -744,6 +807,10 @@ export default function PedidosAdmin() {
     // Contracargos, parte 1 (migración 20261121000000): verificación del banco y condiciones aceptadas (la copia de las
     // condiciones se pide solo al abrirla).
     const CONTRA = ",pago_3ds,condiciones_aceptadas_en,condiciones_version";
+    // Contracargos, parte 2 (migración 20261121120000): cuándo se confirmó la entrega en mano con el código (el código no
+    // se pide: solo lo ve el cliente).
+    const CODIGO = ",entrega_codigo_ok_en";
+    let conCodigo = true;
     let conContra = true;
     let conCancelacion = true;
     let conDoble = true;
@@ -755,11 +822,12 @@ export default function PedidosAdmin() {
     let conEnvio = true;
     let conNumeros = true;
     const columnas = () =>
-      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}${conFranja ? FRANJA : ""}${conDoble ? DOBLE : ""}${conCancelacion ? CANCELACION : ""}${conContra ? CONTRA : ""}`;
+      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}${conFranja ? FRANJA : ""}${conDoble ? DOBLE : ""}${conCancelacion ? CANCELACION : ""}${conContra ? CONTRA : ""}${conCodigo ? CODIGO : ""}`;
     let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(columnas());
-    for (let vuelta = 0; vuelta < 10 && res.error; vuelta++) {
+    for (let vuelta = 0; vuelta < 11 && res.error; vuelta++) {
       const msg = String(res.error.message ?? "");
-      if (conContra && /pago_3ds|condiciones_aceptadas_en|condiciones_version/.test(msg)) conContra = false;
+      if (conCodigo && /entrega_codigo/.test(msg)) conCodigo = false;
+      else if (conContra && /pago_3ds|condiciones_aceptadas_en|condiciones_version/.test(msg)) conContra = false;
       else if (conCancelacion && /cancelacion_motivo|cancelado_en/.test(msg)) conCancelacion = false;
       else if (conDoble && /doble_venta_en/.test(msg)) conDoble = false;
       else if (conFranja && /entrega_franja|entrega_fecha/.test(msg)) conFranja = false;
@@ -782,6 +850,7 @@ export default function PedidosAdmin() {
     setDobleOk(!res.error && conDoble);
     setCancelacionOk(!res.error && conCancelacion);
     setContraOk(!res.error && conContra);
+    setCodigoOk(!res.error && conCodigo);
     if (conFranja) cargarAjustesFranjas();
     // «Avisarme cuando haya otro» (avisos_reposicion; el administrador las lee todas): por pedido y los recuentos. Sin la
     // tabla, null (no se enseña nada).
@@ -821,6 +890,13 @@ export default function PedidosAdmin() {
       const entregados = lista.filter((p) => p.estado === "entregado").map((p) => p.id);
       if (entregados.length) cargarValoracionesPedidos(entregados).then(setValoraciones);
       else setValoraciones({});
+      // Reclamaciones del banco (contracargos, parte 2; consulta aparte; sin la tabla, null y no sale nada).
+      supabase
+        .from("pedido_reclamaciones")
+        .select("id,pedido_id,estado,motivo,importe_eur,plazo_en,creada_en,cerrada_en,pruebas_preparadas_en,pruebas_resumen,modo")
+        .order("creada_en", { ascending: false })
+        .limit(200)
+        .then(({ data: rec, error: errRec }) => setReclamaciones(errRec || !Array.isArray(rec) ? null : (rec as Reclamacion[])));
       // Facturas de VeoAura de estos pedidos (consulta aparte; sin la tabla, no se enseñan y no falla nada).
       if (lista.length) {
         const fac = await supabase
@@ -906,10 +982,12 @@ export default function PedidosAdmin() {
       dobleSinDevolver: pedidos.filter((p) => !!p.doble_venta_en && !p.devuelto_en).length,
       devueltos: pedidos.filter((p) => !!p.devuelto_en).length,
       sinVerificar: pedidos.filter(sinProteccion3ds).length,
+      reclamaciones: (reclamaciones ?? []).length,
+      reclamacionesAbiertas: (reclamaciones ?? []).filter(reclamacionAbierta).length,
       ingresos30: cobrados30.reduce((a, p) => a + importeCobrado(p), 0),
       cobrados30: cobrados30.length,
     };
-  }, [pedidos, hoy]);
+  }, [pedidos, hoy, reclamaciones]);
 
   const visiblesPorEstado = useMemo(() => {
     switch (filtro) {
@@ -947,6 +1025,11 @@ export default function PedidosAdmin() {
       // Pagados con tarjeta sin la protección del banco (3DS): ante una reclamación por fraude, pierde la tienda.
       case "tarjeta_sin_verificar":
         return pedidos.filter(sinProteccion3ds);
+      // Con reclamación del banco (abiertas primero, por la fecha límite).
+      case "reclamaciones": {
+        const ids = new Set((reclamaciones ?? []).map((r) => r.pedido_id).filter(Boolean));
+        return pedidos.filter((p) => ids.has(p.id));
+      }
       case "en_tienda":
         return pedidos.filter(enTienda);
       // Reparto de hoy: los de hoy (fecha de Madrid) sin cancelar ni entregar, primero la mañana y luego la tarde.
@@ -958,7 +1041,7 @@ export default function PedidosAdmin() {
       default:
         return pedidos.filter((p) => p.estado === filtro);
     }
-  }, [pedidos, filtro, repartoDeHoy, hoy, motivoMsg]);
+  }, [pedidos, filtro, repartoDeHoy, hoy, motivoMsg, reclamaciones]);
 
   // Ventas en mano (VeoAura): cuántas, cuántas ya están en la cuenta del cliente, cuántas esperan a que se registre y su
   // importe.
@@ -1202,6 +1285,61 @@ export default function PedidosAdmin() {
     setGuardando(null);
   }
 
+  // «Preparar pruebas» de una reclamación del banco: api/pago.ts junta lo que la tienda guarda del pedido y lo deja como
+  // BORRADOR en Stripe; el dueño lo revisa y lo envía desde Stripe.
+  async function prepararPruebas(r: Reclamacion) {
+    setPreparando(r.id);
+    setPruebasMsg(null);
+    try {
+      const { data: s } = await supabase.auth.getSession();
+      const resp = await fetch("/api/pago", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
+        body: JSON.stringify({ accion: "pruebas", reclamacion: r.id }),
+      });
+      const d = (await resp.json().catch(() => null)) as { ok?: boolean; preparadas_en?: string; resumen?: { lineas?: string[] }; error?: string } | null;
+      if (resp.ok && d?.ok) {
+        setReclamaciones((prev) => (prev ?? []).map((x) => (x.id === r.id ? { ...x, pruebas_preparadas_en: d.preparadas_en ?? new Date().toISOString(), pruebas_resumen: d.resumen ?? x.pruebas_resumen } : x)));
+        setPruebasMsg({ id: r.id, tipo: "ok", texto: "Pruebas guardadas como borrador en Stripe. Revísalas y pulsa «Enviar» en Stripe antes del plazo." });
+      } else {
+        setPruebasMsg({ id: r.id, tipo: "error", texto: `No se han podido preparar: ${d?.error ?? "sin respuesta del servidor"}.` });
+      }
+    } catch {
+      setPruebasMsg({ id: r.id, tipo: "error", texto: "No se han podido preparar: sin conexión. Vuelve a intentarlo." });
+    }
+    setPreparando(null);
+  }
+
+  // Confirmar la entrega en mano con el código de 4 cifras que dice el cliente (la base de datos lo comprueba).
+  async function confirmarCodigo(p: Pedido) {
+    const codigo = (codigoEscrito[p.id] ?? "").replace(/\D/g, "");
+    if (codigo.length !== 4) {
+      setCodigoMsg({ id: p.id, tipo: "error", texto: "El código tiene 4 cifras: pídeselo al cliente (lo ve en Mis pedidos)." });
+      return;
+    }
+    setGuardando(p.id);
+    setCodigoMsg(null);
+    const { data, error } = await supabase.rpc("confirmar_entrega_codigo", { p_pedido: p.id, p_codigo: codigo });
+    if (error) {
+      setCodigoMsg({ id: p.id, tipo: "error", texto: "No se ha podido confirmar la entrega. Vuelve a intentarlo." });
+    } else if (data === "ok") {
+      const ahora = new Date().toISOString();
+      setPedidos((prev) => prev.map((x) => (x.id === p.id ? { ...x, estado: "entregado", entrega_codigo_ok_en: x.entrega_codigo_ok_en ?? ahora } : x)));
+      setCodigoEscrito((e) => ({ ...e, [p.id]: "" }));
+      setCodigoMsg({ id: p.id, tipo: "ok", texto: "Entrega confirmada con el código del cliente: queda como prueba de que lo recibió." });
+      if (historial) {
+        cargarSeguimientoPedidos([p.id]).then((seg) => {
+          if (seg.historial) setHistorial((h) => ({ ...(h ?? {}), [p.id]: seg.historial?.[p.id] ?? [] }));
+        });
+      }
+    } else if (data === "codigo_incorrecto") {
+      setCodigoMsg({ id: p.id, tipo: "error", texto: "Ese no es el código de este pedido. Pide al cliente que lo mire en Perfil → Mis pedidos." });
+    } else {
+      setCodigoMsg({ id: p.id, tipo: "error", texto: "Este pedido no se confirma con código (no es una entrega en mano o ya está cancelado)." });
+    }
+    setGuardando(null);
+  }
+
   // El motivo que verá el cliente: el elegido en las pastillas o el texto de «Otro motivo» (2 letras como mínimo, como
   // pide la base de datos). Sin elegir, o «Otro motivo» sin texto: null (y no se puede confirmar).
   function motivoDe(clave: string): string | null {
@@ -1374,6 +1512,9 @@ export default function PedidosAdmin() {
     ...(franjaOk ? [{ key: "reparto_hoy" as const, valor: String(repartoDeHoy.length), etiqueta: "Reparto de hoy", icono: "bicycle-outline" as IoniconName }] : []),
     ...(dobleOk ? [{ key: "doble_venta" as const, valor: String(cuentas.doble), etiqueta: "Doble venta", icono: "alert-circle-outline" as IoniconName, alerta: cuentas.dobleSinDevolver > 0 }] : []),
     ...(devolucionOk ? [{ key: "devueltos" as const, valor: String(cuentas.devueltos), etiqueta: "Devueltos", icono: "return-down-back-outline" as IoniconName }] : []),
+    // Reclamaciones del banco: en rojo mientras haya alguna abierta (hay un plazo para responder).
+    // Solo si alguna vez ha habido una (la mayoría de los días no hay ninguna y no ocupa sitio).
+    ...(reclamaciones && reclamaciones.length ? [{ key: "reclamaciones" as const, valor: String(cuentas.reclamacionesAbiertas || cuentas.reclamaciones), etiqueta: cuentas.reclamacionesAbiertas ? "Reclamaciones abiertas" : "Reclamaciones", icono: "shield-half-outline" as IoniconName, alerta: cuentas.reclamacionesAbiertas > 0 }] : []),
     { key: "ingresos", valor: fmtEUR(cuentas.ingresos30), etiqueta: "Ingresos 30 días", icono: "trending-up-outline" },
   ];
   const anchoCifra: Ancho = isMobile ? "30%" : 0;
@@ -1462,6 +1603,83 @@ export default function PedidosAdmin() {
             </Text>
           </View>
         ) : null}
+
+        {/* Reclamación del banco (contracargo): lo primero del detalle, con su plazo y «Preparar pruebas». */}
+        {(reclamaciones ?? []).filter((r) => r.pedido_id === p.id).map((r) => {
+          const est = ESTADO_RECLAMACION[r.estado] ?? { texto: "Reclamación", color: COLORES_TEXTO.secundario, fondo: "#EEF2F6" };
+          const abierta = reclamacionAbierta(r);
+          const plazo = abierta ? plazoRestante(r.plazo_en) : null;
+          const enlace = `https://dashboard.stripe.com/${r.modo === "prueba" ? "test/" : ""}disputes/${encodeURIComponent(r.id)}`;
+          const lineas = Array.isArray(r.pruebas_resumen?.lineas) ? r.pruebas_resumen?.lineas ?? [] : [];
+          return (
+            <View
+              key={r.id}
+              nativeID={`pedido-reclamacion-${p.numero}`}
+              accessibilityRole={abierta ? "alert" : undefined}
+              style={{ gap: 8, borderRadius: 16, borderWidth: 1, borderColor: abierta ? "#FECACA" : COLORS.border, backgroundColor: abierta ? "#FFF7F7" : COLORS.card, padding: 12 }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <Ionicons name="shield-half-outline" size={18} color={abierta ? COLORS.danger : COLORS.muted} />
+                <Text style={{ flexShrink: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Reclamación del banco</Text>
+                <View nativeID={`pedido-reclamacion-estado-${p.numero}`} style={{ borderRadius: 999, backgroundColor: est.fondo, paddingHorizontal: 9, paddingVertical: 2 }}>
+                  <Text style={{ color: est.color, fontWeight: "900", fontSize: TAMANOS.minimo, lineHeight: 18 }}>{est.texto}</Text>
+                </View>
+              </View>
+              <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                {MOTIVO_RECLAMACION[r.motivo ?? ""] ?? "Reclamación del banco"} · {fmtEUR(Number(r.importe_eur))}
+                {r.modo === "prueba" ? " · de prueba" : ""}
+              </Text>
+              {abierta && r.plazo_en ? (
+                <View nativeID={`pedido-reclamacion-plazo-${p.numero}`} style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                  <Ionicons name="time-outline" size={16} color={plazo?.urgente ? COLORS.danger : COLORS.muted} style={{ marginTop: 1 }} />
+                  <Text style={{ flex: 1, minWidth: 0, color: plazo?.urgente ? COLORS.danger : COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                    Responde antes del {fmtFecha(r.plazo_en)}
+                    {plazo ? ` · ${plazo.texto}` : ""}
+                  </Text>
+                </View>
+              ) : null}
+              {r.cerrada_en ? <Detalle>Cerrada el {fmtFecha(r.cerrada_en)}</Detalle> : null}
+              {r.pruebas_preparadas_en ? (
+                <View nativeID={`pedido-reclamacion-pruebas-${p.numero}`} style={{ gap: 4 }}>
+                  <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                    <Ionicons name="checkmark-circle-outline" size={16} color={COLORS.success} style={{ marginTop: 1 }} />
+                    <Text style={{ flex: 1, minWidth: 0, color: COLORS.success, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                      Pruebas preparadas el {fmtFecha(r.pruebas_preparadas_en)}
+                      {abierta ? ": revísalas y pulsa «Enviar» en Stripe" : ""}
+                    </Text>
+                  </View>
+                  {lineas.map((l, i) => (
+                    <Text key={i} selectable style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 19, paddingLeft: 22 }}>
+                      · {l}
+                    </Text>
+                  ))}
+                </View>
+              ) : abierta && admitePruebas(r) ? (
+                <Detalle>
+                  Se juntan solas las pruebas que ya guarda la tienda: la verificación del banco, las condiciones aceptadas al pagar, el envío
+                  con Correos o la entrega con código.
+                </Detalle>
+              ) : null}
+              <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 18 }}>
+                {abierta && admitePruebas(r) ? (
+                  <AccionTexto
+                    nativeID={`pedido-reclamacion-preparar-${p.numero}`}
+                    icono="document-attach-outline"
+                    disabled={preparando === r.id}
+                    onPress={() => prepararPruebas(r)}
+                    texto={preparando === r.id ? "Preparando…" : r.pruebas_preparadas_en ? "Volver a preparar las pruebas" : "Preparar pruebas"}
+                  />
+                ) : null}
+                <AccionTexto nativeID={`pedido-reclamacion-stripe-${p.numero}`} rol="link" icono="open-outline" texto="Abrir en Stripe" onPress={() => abrirEnlaceExterno(enlace)} />
+              </View>
+              {pruebasMsg?.id === r.id ? (
+                <Text nativeID={`pedido-reclamacion-mensaje-${p.numero}`} style={{ color: pruebasMsg.tipo === "ok" ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                  {pruebasMsg.texto}
+                </Text>
+              ) : null}
+            </View>
+          );
+        })}
 
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
           {/* Artículos: cada uno con su precio, el envío (con su zona) y el total. */}
@@ -1628,10 +1846,29 @@ export default function PedidosAdmin() {
               </Text>
             ) : null}
             {p.notas ? <Text style={{ color: COLORS.muted, fontStyle: "italic", fontSize: TAMANOS.minimo, lineHeight: 19 }}>“{p.notas}”</Text> : null}
-            {historial && p.entrega === "envio" && !tienda ? (
+            {/* En las entregas del mismo día no hay número de Correos que esperar (va la línea del código de entrega). */}
+            {historial && p.entrega === "envio" && !tienda && (!codigoOk || !entregaEnMano(p) || !!numerosEnvio[p.id]) ? (
               <Detalle color={numerosEnvio[p.id] ? COLORS.text : COLORS.muted}>
                 {numerosEnvio[p.id] ? `Seguimiento de Correos: ${numerosEnvio[p.id]}` : "Sin número de Correos todavía (se pone abajo)."}
               </Detalle>
+            ) : null}
+            {/* Entrega en mano o del mismo día: confirmada con el código del cliente (prueba ante una reclamación). */}
+            {codigoOk && !tienda && entregaEnMano(p) && p.estado !== "cancelado" ? (
+              <View nativeID={`pedido-codigo-estado-${p.numero}`} style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                <Ionicons
+                  name={p.entrega_codigo_ok_en ? "shield-checkmark-outline" : "keypad-outline"}
+                  size={16}
+                  color={p.entrega_codigo_ok_en ? COLORS.success : COLORS.muted}
+                  style={{ marginTop: 1 }}
+                />
+                <Text style={{ flex: 1, minWidth: 0, color: p.entrega_codigo_ok_en ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                  {p.entrega_codigo_ok_en
+                    ? `Entregado con el código del cliente el ${fmtFecha(p.entrega_codigo_ok_en)}`
+                    : p.estado === "entregado"
+                      ? "Entregado sin confirmar con el código del cliente"
+                      : "Al entregar, pide al cliente su código de 4 cifras (abajo)"}
+                </Text>
+              </View>
             ) : null}
           </Bloque>
 
@@ -1934,6 +2171,44 @@ export default function PedidosAdmin() {
             </View>
           ) : null}
 
+          {/* Código de entrega (contracargos, parte 2): en mano o el mismo día, el cliente dice su código y queda la prueba. */}
+          {codigoOk && !tienda && entregaEnMano(p) && p.estado !== "cancelado" && !p.entrega_codigo_ok_en ? (
+            <View nativeID={`pedido-codigo-${p.numero}`} style={{ gap: 6 }}>
+              <Detalle>Código de entrega que te dice el cliente (lo ve en Mis pedidos)</Detalle>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion, flexWrap: "wrap" }}>
+                <TextInput
+                  nativeID={`pedido-codigo-campo-${p.numero}`}
+                  value={codigoEscrito[p.id] ?? ""}
+                  onChangeText={(t) => setCodigoEscrito((e) => ({ ...e, [p.id]: t.replace(/\D/g, "").slice(0, 4) }))}
+                  placeholder="0000"
+                  placeholderTextColor={COLORS.muted}
+                  keyboardType="number-pad"
+                  inputMode="numeric"
+                  maxLength={4}
+                  autoCorrect={false}
+                  accessibilityLabel={`Código de entrega del pedido ${p.numero}`}
+                  style={{ ...estiloCampo, width: 140, textAlign: "center", letterSpacing: 6, fontWeight: "800" }}
+                />
+                <AccionTexto
+                  nativeID={`pedido-codigo-confirmar-${p.numero}`}
+                  icono="shield-checkmark-outline"
+                  disabled={guardando === p.id}
+                  onPress={() => confirmarCodigo(p)}
+                  texto="Confirmar la entrega"
+                />
+              </View>
+              {codigoMsg?.id === p.id ? (
+                <Text nativeID={`pedido-codigo-mensaje-${p.numero}`} style={{ color: codigoMsg.tipo === "ok" ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                  {codigoMsg.texto}
+                </Text>
+              ) : null}
+            </View>
+          ) : codigoMsg?.id === p.id && codigoMsg.tipo === "ok" ? (
+            <Text nativeID={`pedido-codigo-mensaje-${p.numero}`} style={{ color: COLORS.success, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+              {codigoMsg.texto}
+            </Text>
+          ) : null}
+
           {/* Número de envío (solo con la migración y si va a domicilio): el cliente ve «Seguir el envío». */}
           {historial && p.entrega === "envio" && !tienda ? (
             <View nativeID={`pedido-numero-envio-${p.numero}`} style={{ gap: 6 }}>
@@ -2150,7 +2425,8 @@ export default function PedidosAdmin() {
                   etiqueta={c.etiqueta}
                   icono={c.icono}
                   alerta={c.alerta}
-                  ancho={c.key === "ingresos" && isMobile ? "100%" : anchoCifra}
+                  // Con 8 cifras (hay reclamaciones), en el ordenador van en dos filas de 4: ninguna se corta.
+                  ancho={c.key === "ingresos" && isMobile ? "100%" : !isMobile && cifras.length > 7 ? "23%" : anchoCifra}
                   activa={!buscando && (c.key === "ingresos" ? filtro === "pagados" : filtro === c.key)}
                   onPress={() => elegirFiltro(c.key === "ingresos" ? "pagados" : c.key)}
                 />

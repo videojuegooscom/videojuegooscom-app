@@ -33,6 +33,12 @@
  * sin ella: el pago no se rompe) y, al apuntar un pedido pagado, se guarda el resultado en pedidos.pago_3ds (leído del
  * cobro con expand payment_intent.latest_charge). Sin la columna, se apunta igual sin él.
  *
+ * Contracargos, parte 2 (dueño, 2026-11-21; migración 20261121120000_contracargos_parte2): los avisos de Stripe
+ * charge.dispute.created / updated / closed se guardan en pedido_reclamaciones (con su pedido, por la referencia del pago)
+ * y avisan al móvil del dueño al abrirse y al cerrarse. POST { accion: "pruebas", reclamacion: "dp_…" } (SOLO el
+ * administrador) junta lo que la tienda guarda del pedido (3DS, condiciones aceptadas, Correos o entrega con código) y lo
+ * deja como BORRADOR en Stripe (submit=false): el dueño lo revisa y lo envía desde Stripe.
+ *
  * Por qué así (dueño, 2026-11-05: «clave puesta y empieza Stripe»):
  * - El importe sale de la base de datos (pedidos.total_eur: artículos + envío, calculados al guardar el pedido), nunca
  *   del navegador. A Stripe solo se le pasa el número del pedido y su importe.
@@ -692,7 +698,9 @@ const ESPERA_AVISOS_MS = 4000;
 const ENDPOINT_PUSH_RE =
   /^https:\/\/(fcm\.googleapis\.com|android\.googleapis\.com|web\.push\.apple\.com|[a-z0-9-]+\.push\.apple\.com|updates\.push\.services\.mozilla\.com|push\.services\.mozilla\.com|[a-z0-9.-]+\.notify\.windows\.com)\//i;
 type Vapid = { publica: string; privada: KeyObject; sujeto: string };
-type TipoAviso = "pedido_pagado" | "pedido_nuevo" | "servicio_pagado" | "prueba";
+// «reclamacion» (contracargos, parte 2): el registro de avisos aún no admite ese tipo (su comprobación la cambia el
+// dueño), así que esa línea del registro no se guarda; el aviso al móvil sale igual.
+type TipoAviso = "pedido_pagado" | "pedido_nuevo" | "servicio_pagado" | "prueba" | "reclamacion";
 type Aviso = { tipo: TipoAviso; titulo: string; cuerpo: string; url: string; tag: string; referencia: string | null };
 type FilaSuscripcion = { id: string; endpoint: string; p256dh: string; auth: string; fallos: number | null };
 
@@ -1378,6 +1386,157 @@ async function apuntarDevolucionDeAviso(supabase: SupabaseClient, cargo: any) {
   if (error) throw new Rechazo(500, "no se pudo apuntar la devolución");
 }
 
+// --- Reclamaciones del banco (contracargos, parte 2; dueño 2026-11-21; migración 20261121120000_contracargos_parte2) ---
+// Stripe avisa con charge.dispute.created / updated / closed. Se guarda en pedido_reclamaciones (el pedido, por la
+// referencia del pago), se avisa al móvil del dueño al abrirse y al cerrarse, y «Preparar pruebas» (solo el
+// administrador) junta lo que la tienda ya guarda del pedido y lo deja como BORRADOR en Stripe (submit=false): el dueño
+// lo revisa y lo envía desde Stripe. Nunca se envía solo.
+
+const DISPUTA_RE = /^(dp|du)_[A-Za-z0-9]+$/;
+const EVENTOS_RECLAMACION = ["charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed"];
+// El motivo que da el banco, en palabras sencillas (lo usa también el aviso al móvil).
+const MOTIVO_RECLAMACION: Record<string, string> = {
+  fraudulent: "dice que no hizo el pago",
+  product_not_received: "dice que no recibió el pedido",
+  product_unacceptable: "dice que el artículo no era como se describía",
+  duplicate: "dice que se le cobró dos veces",
+  credit_not_processed: "dice que no se le devolvió el dinero",
+  subscription_canceled: "dice que había cancelado",
+  unrecognized: "no reconoce el cobro",
+  general: "motivo general",
+};
+
+function fechaCorta(iso: string | null): string {
+  if (!iso) return "";
+  return new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short", timeZone: "Europe/Madrid" }).format(new Date(iso));
+}
+
+// Guarda (o pone al día) la reclamación y avisa al móvil del dueño al abrirse y al cerrarse. Nunca lanza por el aviso.
+async function apuntarReclamacion(supabase: SupabaseClient, modo: Modo, tipo: string, d: any) {
+  const id = typeof d?.id === "string" && DISPUTA_RE.test(d.id) ? d.id : null;
+  if (!id) return;
+  const intento = typeof d?.payment_intent === "string" ? d.payment_intent : d?.payment_intent?.id;
+  const referencia = typeof intento === "string" && /^pi_[A-Za-z0-9]+$/.test(intento) ? intento : null;
+  const { data: pedido } = referencia
+    ? await supabase.from("pedidos").select("id,numero,codigo_seguimiento").eq("pago_referencia", referencia).maybeSingle<{ id: string; numero: number; codigo_seguimiento: string | null }>()
+    : { data: null };
+  const plazo = Number(d?.evidence_details?.due_by);
+  const estado = String(d?.status ?? "").slice(0, 40) || "needs_response";
+  const cerrada = tipo === "charge.dispute.closed" || ["won", "lost", "warning_closed"].includes(estado);
+  const { data: previa } = await supabase.from("pedido_reclamaciones").select("id,cerrada_en").eq("id", id).maybeSingle<{ id: string; cerrada_en: string | null }>();
+  const fila: Record<string, unknown> = {
+    id,
+    pedido_id: pedido?.id ?? null,
+    pago_referencia: referencia,
+    estado,
+    motivo: typeof d?.reason === "string" ? d.reason.slice(0, 60) : null,
+    importe_eur: Math.max(0, Number(d?.amount ?? 0)) / 100,
+    plazo_en: Number.isFinite(plazo) && plazo > 0 ? new Date(plazo * 1000).toISOString() : null,
+    actualizada_en: new Date().toISOString(),
+    modo,
+    ...(Number.isFinite(Number(d?.created)) && !previa ? { creada_en: new Date(Number(d.created) * 1000).toISOString() } : {}),
+    ...(cerrada && !previa?.cerrada_en ? { cerrada_en: new Date().toISOString() } : {}),
+  };
+  const { error } = await supabase.from("pedido_reclamaciones").upsert(fila, { onConflict: "id" });
+  if (error) {
+    // Sin la tabla (migración sin aplicar): se avisa igual al móvil, pero no se guarda.
+    console.error("pago: no se pudo apuntar la reclamación", error.code ?? "");
+  }
+  // Aviso al móvil: al abrirse (la primera vez) y al cerrarse (la primera vez).
+  const nueva = !previa;
+  const recienCerrada = cerrada && !previa?.cerrada_en;
+  if (!nueva && !recienCerrada) return;
+  const v = vapidDelEntorno();
+  if (!v) return;
+  const ref = pedido?.codigo_seguimiento ?? (pedido?.numero ? `Nº interno ${pedido.numero}` : null);
+  const titulo = recienCerrada && !nueva
+    ? `Reclamación ${estado === "won" ? "ganada" : estado === "lost" ? "perdida" : "cerrada"} · ${eurosAviso(Number(fila.importe_eur))}`
+    : `Reclamación del banco · ${eurosAviso(Number(fila.importe_eur))}`;
+  const cuerpo = [
+    MOTIVO_RECLAMACION[String(fila.motivo ?? "")] ? `El cliente ${MOTIVO_RECLAMACION[String(fila.motivo)]}` : "",
+    nueva && fila.plazo_en ? `Responde antes del ${fechaCorta(String(fila.plazo_en))}` : "",
+    ref ?? "Pago sin pedido de la tienda",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  await avisarConTope(() =>
+    repartirAviso(supabase, v, {
+      tipo: "reclamacion",
+      titulo,
+      cuerpo: corta(cuerpo, 180),
+      url: pedido ? `/admin/pedidos?buscar=${encodeURIComponent(pedido.codigo_seguimiento ?? String(pedido.numero))}` : "/admin/pedidos",
+      tag: `reclamacion-${id}`,
+      referencia: pedido?.codigo_seguimiento ?? null,
+    })
+  );
+}
+
+// «Preparar pruebas» (solo el administrador): junta lo que la tienda guarda del pedido y lo deja como BORRADOR en la
+// reclamación de Stripe (submit=false). Devuelve el resumen para enseñarlo en Pedidos.
+async function prepararPruebas(supabase: SupabaseClient, clave: string, modo: Modo, req: any, b: Record<string, unknown>) {
+  if (!(await esAdministrador(supabase, await usuarioDeLaPeticion(supabase, req)))) throw new Rechazo(403, "solo para administradores");
+  const id = typeof b.reclamacion === "string" && DISPUTA_RE.test(b.reclamacion) ? b.reclamacion : null;
+  if (!id) throw new Rechazo(400, "reclamación no válida");
+  const { data: r, error } = await supabase.from("pedido_reclamaciones").select("id,pedido_id,estado,modo").eq("id", id).maybeSingle<{ id: string; pedido_id: string | null; estado: string; modo: string }>();
+  if (error) throw new Rechazo(503, "falta activar las reclamaciones");
+  if (!r) throw new Rechazo(404, "reclamación no encontrada");
+  if (r.modo !== modo) throw new Rechazo(409, "esta reclamación es de otro modo de Stripe");
+  if (!["needs_response", "warning_needs_response"].includes(r.estado)) throw new Rechazo(409, "esta reclamación ya no admite pruebas");
+  if (!r.pedido_id) throw new Rechazo(409, "esta reclamación no es de un pedido de la tienda");
+  const { data: p } = await supabase.from("pedidos").select("*, pedido_items(titulo,precio_eur)").eq("id", r.pedido_id).maybeSingle<Record<string, any>>();
+  if (!p) throw new Rechazo(404, "pedido no encontrado");
+  const { data: pasos } = await supabase.from("pedido_estados").select("estado,creado_en").eq("pedido_id", p.id);
+  const fechaDe = (estado: string) => (Array.isArray(pasos) ? pasos.find((x: any) => x.estado === estado)?.creado_en ?? null : null);
+  const items: { titulo?: string; precio_eur?: number }[] = Array.isArray(p.pedido_items) ? p.pedido_items : [];
+  const fecha = (iso: string | null | undefined) =>
+    iso ? new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" }).format(new Date(iso)) : "";
+  const textoPolitica = (slug: string) => {
+    const pag = p.condiciones_copia?.[slug];
+    const secciones: { heading?: string; body?: string }[] = Array.isArray(pag?.secciones) ? pag.secciones : [];
+    return secciones.map((s) => `${s.heading ? `${s.heading}: ` : ""}${s.body ?? ""}`).join("\n");
+  };
+  const tresds: Record<string, string> = {
+    authenticated: "El banco del titular verificó el pago con 3D Secure (autenticado).",
+    attempt_acknowledged: "Se pidió 3D Secure y el banco lo dio por intentado (la responsabilidad pasa al banco emisor).",
+  };
+  const enMano = p.entrega === "recogida" || ["mano", "local", "local_lejos"].includes(String(p.zona_envio ?? ""));
+  const lineas = [
+    `Pedido ${p.codigo_seguimiento ?? p.numero} de VideojuegosZaragoza, tienda online de electrónica de segunda mano.`,
+    `Hecho el ${fecha(p.created_at)} y pagado el ${fecha(p.pagado_en)} por ${eurosAviso(Number(p.pagado_eur ?? p.total_eur))}.`,
+    tresds[p.pago_3ds ?? ""] ?? "",
+    p.condiciones_aceptadas_en ? `El cliente aceptó las condiciones de compra, devoluciones y envíos al pagar, el ${fecha(p.condiciones_aceptadas_en)}.` : "",
+    p.entrega_codigo_ok_en ? `Entregado en mano el ${fecha(p.entrega_codigo_ok_en)}: el cliente dio el código de entrega de su pedido, que solo veía él en su cuenta.` : "",
+    p.envio_seguimiento ? `Enviado con Correos (número ${p.envio_seguimiento})${fechaDe("enviado") ? ` el ${fecha(fechaDe("enviado"))}` : ""}.` : "",
+    fechaDe("entregado") && !p.entrega_codigo_ok_en ? `Marcado como entregado el ${fecha(fechaDe("entregado"))}.` : "",
+  ].filter(Boolean);
+  const evidencia: Record<string, string> = {
+    "evidence[customer_name]": corta(p.nombre, 200),
+    "evidence[customer_email_address]": corta(p.email, 200),
+    "evidence[product_description]": corta(items.map((i) => i.titulo).filter(Boolean).join(", ") || "Artículo de electrónica de segunda mano", 2000),
+    "evidence[uncategorized_text]": corta(lineas.join("\n"), 20000),
+    ...(textoPolitica("devoluciones") ? { "evidence[refund_policy_disclosure]": corta(`Aceptada por el cliente al pagar${p.condiciones_aceptadas_en ? `, el ${fecha(p.condiciones_aceptadas_en)}` : ""}.\n${textoPolitica("devoluciones")}`, 20000) } : {}),
+    ...(p.envio_seguimiento ? { "evidence[shipping_carrier]": "Correos", "evidence[shipping_tracking_number]": corta(p.envio_seguimiento, 200) } : {}),
+    ...(fechaDe("enviado") ? { "evidence[shipping_date]": String(fechaDe("enviado")).slice(0, 10) } : {}),
+    ...(p.direccion ? { "evidence[shipping_address]": corta([p.direccion, p.codigo_postal, p.ciudad].filter(Boolean).join(", "), 400) } : enMano ? { "evidence[shipping_address]": "Entrega en mano en Zaragoza" } : {}),
+    submit: "false",
+  };
+  const resp = await llamarStripe(clave, "POST", `/disputes/${encodeURIComponent(id)}`, evidencia);
+  if (resp.http !== 200 || resp.datos?.id !== id) {
+    console.error("pago: Stripe no guardó las pruebas de la reclamación", resp.http, resp.datos?.error?.code ?? "");
+    throw new Rechazo(502, "Stripe no ha guardado las pruebas; inténtalo de nuevo o hazlo desde Stripe");
+  }
+  const resumen = {
+    lineas,
+    cliente: corta(p.nombre, 200),
+    articulos: items.map((i) => corta(i.titulo, 120)),
+    devoluciones_aceptadas: !!textoPolitica("devoluciones"),
+    correos: p.envio_seguimiento ?? null,
+  };
+  const ahora = new Date().toISOString();
+  await supabase.from("pedido_reclamaciones").update({ pruebas_preparadas_en: ahora, pruebas_resumen: resumen }).eq("id", id);
+  return { ok: true, preparadas_en: ahora, resumen };
+}
+
 // --- Reservar con señal (mejora 14; migración 20261115150000_reservas_senal) ------------------------------------------
 // APAGADA Y VACÍA hasta que el dueño ponga sus reglas y su gestor revise el texto. Nada de lo de aquí cobra si los ajustes
 // no están activos y completos (la misma regla que el disparador reserva_ajustes_validar de la base de datos).
@@ -1748,6 +1907,10 @@ export default async function handler(req: any, res: any) {
       if (evento?.type === "charge.refunded" && evento?.livemode === (modo === "real")) {
         await apuntarDevolucionDeAviso(supabase, evento?.data?.object);
       }
+      // Reclamación del banco (contracargo): se apunta y se avisa al móvil del dueño.
+      if (EVENTOS_RECLAMACION.includes(String(evento?.type)) && evento?.livemode === (modo === "real")) {
+        await apuntarReclamacion(supabase, modo, String(evento.type), evento?.data?.object);
+      }
       if (deCobro && typeof sesion === "string" && SESION_RE.test(sesion) && evento?.livemode === (modo === "real")) {
         try {
           await confirmarPago(supabase, clave, modo, sesion);
@@ -1816,6 +1979,12 @@ export default async function handler(req: any, res: any) {
     if (b.accion === "devolver") {
       if (!(await consumirLimite(supabase, `pago:devolver:${cubo}`, LIMITE_CREAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
       responder(res, 200, await devolverPago(supabase, clave, modo, req, b));
+      return;
+    }
+    // Administración → Pedidos: «Preparar pruebas» de una reclamación del banco (borrador en Stripe, nunca se envía sola).
+    if (b.accion === "pruebas") {
+      if (!(await consumirLimite(supabase, `pago:pruebas:${cubo}`, LIMITE_CREAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
+      responder(res, 200, await prepararPruebas(supabase, clave, modo, req, b));
       return;
     }
     throw new Rechazo(400, "acción no válida");

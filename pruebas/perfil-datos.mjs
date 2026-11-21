@@ -21111,15 +21111,24 @@ async function seccionCONTRA() {
     // Preparado para salir por Correos, aún sin número.
     pedido(403, "preparado", { pago_3ds: "attempt_acknowledged" }),
     // Mismo día en Zaragoza: pasa a «Enviado» sin número.
-    pedido(404, "preparado", { zona_envio: "local", codigo_postal: "50001", ciudad: "Zaragoza", envio_eur: 9.97, pago_estado: null, pago_modo: null, pago_referencia: null, pagado_eur: null, pagado_en: null, pago_metodo: null }),
+    pedido(404, "preparado", { zona_envio: "local", codigo_postal: "50001", ciudad: "Zaragoza", envio_eur: 9.97, pago_estado: null, pago_modo: null, pago_referencia: null, pagado_eur: null, pagado_en: null, pago_metodo: null, entrega_codigo: "7305" }),
+    // Parte 2: en mano en Zaragoza, en curso: el cliente ve su código y el administrador confirma la entrega con él.
+    pedido(405, "preparado", { zona_envio: "local", codigo_postal: "50001", ciudad: "Zaragoza", envio_eur: 9.97, pago_estado: null, pago_modo: null, pago_referencia: null, pagado_eur: null, pagado_en: null, pago_metodo: null, entrega_codigo: "4821" }),
   ];
-  const ITEMS = [401, 402, 403, 404].map((n) => ({ id: `di${n}`, pedido_id: ID(n), product_id: null, titulo: `PlayStation 5 Slim ${n}`, precio_eur: 382 }));
-  const NUEVAS = /pago_3ds|condiciones_aceptadas_en|condiciones_version|condiciones_copia/;
-  // `sin`: la migración aún no está aplicada.
-  const rutas = async (ctx, s) => {
+  const ITEMS = [401, 402, 403, 404, 405].map((n) => ({ id: `di${n}`, pedido_id: ID(n), product_id: null, titulo: `PlayStation 5 Slim ${n}`, precio_eur: 382 }));
+  const RECLAMACIONES = () => [
+    { id: "dp_1Prueba401", pedido_id: ID(401), estado: "needs_response", motivo: "fraudulent", importe_eur: 399, plazo_en: new Date(Date.now() + 9 * 86400000 + 3600000).toISOString(), creada_en: "2026-11-21T09:00:00Z", cerrada_en: null, pruebas_preparadas_en: null, pruebas_resumen: null, modo: "real" },
+    { id: "dp_1Prueba402", pedido_id: ID(402), estado: "won", motivo: "product_not_received", importe_eur: 399, plazo_en: "2026-11-10T22:59:59Z", creada_en: "2026-11-01T09:00:00Z", cerrada_en: "2026-11-12T10:00:00Z", pruebas_preparadas_en: "2026-11-05T10:00:00Z", pruebas_resumen: { lineas: ["Pedido VZ-CONT-0402 de VideojuegosZaragoza."] }, modo: "real" },
+  ];
+  const NUEVAS = /pago_3ds|condiciones_aceptadas_en|condiciones_version|condiciones_copia|entrega_codigo_ok_en|entrega_codigo/;
+  // `sin`: la migración aún no está aplicada. `usuario` y `rol`: quién mira (el cliente solo ve los suyos).
+  const rutas = async (ctx, s, usuario = ADMIN, rol = "admin") => {
     s.pedidos ??= PEDIDOS();
+    s.reclamaciones ??= RECLAMACIONES();
     s.cambios = [];
     s.copias = 0;
+    s.pruebas = [];
+    s.selectsAdmin = [];
     await ctx.route("**/*", async (r) => {
       const q = r.request();
       const url = new URL(q.url());
@@ -21129,13 +21138,39 @@ async function seccionCONTRA() {
       const lista = (campo) => (filtro(campo).startsWith("in.(") ? filtro(campo).slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")) : null);
       const objeto = /vnd\.pgrst\.object/.test(q.headers()["accept"] ?? "");
       if (metodo === "OPTIONS") return r.fallback();
+      // «Preparar pruebas» (api/pago.ts): solo se mira qué se pide y se contesta como el servidor.
+      if (url.pathname === "/api/pago" && metodo === "POST") {
+        const cuerpo = JSON.parse(q.postData() ?? "{}");
+        if (cuerpo.accion !== "pruebas") return r.fallback();
+        s.pruebas.push(cuerpo);
+        const resumen = { lineas: ["Pedido VZ-CONT-0401 de VideojuegosZaragoza, tienda online de electrónica de segunda mano.", "El banco del titular verificó el pago con 3D Secure (autenticado).", "El cliente aceptó las condiciones de compra, devoluciones y envíos al pagar."] };
+        const ahora = new Date().toISOString();
+        s.reclamaciones = s.reclamaciones.map((x) => (x.id === cuerpo.reclamacion ? { ...x, pruebas_preparadas_en: ahora, pruebas_resumen: resumen } : x));
+        return json({ ok: true, preparadas_en: ahora, resumen });
+      }
       const tabla = url.pathname.startsWith("/rest/v1/") ? url.pathname.slice(9) : null;
       if (!tabla) return r.fallback();
       const select = filtro("select");
+      if (tabla === "pedido_reclamaciones") {
+        if (s.sin) return json({ code: "PGRST205", message: "Could not find the table 'public.pedido_reclamaciones' in the schema cache" }, 404);
+        return json(rol === "admin" ? s.reclamaciones : []);
+      }
+      // Como la función confirmar_entrega_codigo de la base de datos.
+      if (tabla === "rpc/confirmar_entrega_codigo") {
+        const cuerpo = JSON.parse(q.postData() ?? "{}");
+        s.confirmaciones = [...(s.confirmaciones ?? []), cuerpo];
+        const ped = s.pedidos.find((x) => x.id === cuerpo.p_pedido);
+        if (!ped || !ped.entrega_codigo || !["mano", "local", "local_lejos"].includes(ped.zona_envio ?? "")) return json("no_aplica");
+        if (String(cuerpo.p_codigo).trim() !== ped.entrega_codigo) return json("codigo_incorrecto");
+        s.pedidos = s.pedidos.map((x) => (x.id === ped.id ? { ...x, estado: "entregado", entrega_codigo_ok_en: new Date().toISOString() } : x));
+        return json("ok");
+      }
       if (tabla === "pedidos") {
+        if (rol === "admin" && metodo === "GET") s.selectsAdmin.push(select);
         if (s.sin && NUEVAS.test(select)) {
           s.pedidos400 = (s.pedidos400 ?? 0) + 1;
-          return json({ code: "42703", message: "column pedidos.pago_3ds does not exist" }, 400);
+          // Como PostgREST: el mensaje nombra la primera columna que falta.
+          return json({ code: "42703", message: `column pedidos.${select.match(NUEVAS)[0]} does not exist` }, 400);
         }
         if (metodo === "PATCH") {
           const id = filtro("id").replace(/^eq\./, "");
@@ -21158,15 +21193,17 @@ async function seccionCONTRA() {
           return objeto ? json(p ? { condiciones_copia: p.condiciones_aceptadas_en ? COPIA : null } : null) : json(p ? [{ condiciones_copia: COPIA }] : []);
         }
         const ids = lista("id");
-        let filas = s.pedidos.filter((p) => (!ids || ids.includes(p.id)) && (!idEq || p.id === idEq));
+        const uid = filtro("user_id").replace(/^eq\./, "");
+        let filas = s.pedidos.filter((p) => (rol === "admin" || p.user_id === usuario.id) && (!uid || p.user_id === uid) && (!ids || ids.includes(p.id)) && (!idEq || p.id === idEq));
         if (/pedido_items/.test(select)) filas = filas.map((p) => ({ ...p, pedido_items: ITEMS.filter((i) => i.pedido_id === p.id) }));
-        if (s.sin) filas = filas.map(({ pago_3ds, condiciones_aceptadas_en, condiciones_version, ...resto }) => resto);
+        if (s.sin) filas = filas.map(({ pago_3ds, condiciones_aceptadas_en, condiciones_version, entrega_codigo, entrega_codigo_ok_en, ...resto }) => resto);
         return objeto ? json(filas[0] ?? null) : json(filas);
       }
       if (tabla === "pedido_items") {
         const ids = lista("pedido_id");
         return json(ITEMS.filter((i) => !ids || ids.includes(i.pedido_id)));
       }
+      if (["service_requests", "reserva_senal", "reservas_senal", "pedido_facturas"].includes(tabla) && metodo === "GET" && rol !== "admin") return json([]);
       if (["pedido_estados", "pedido_valoraciones", "avisos_reposicion", "product_media"].includes(tabla) && metodo === "GET") return json([]);
       if (tabla === "products" && metodo === "GET") return objeto ? json(null, 406) : json([]);
       if (tabla === "pedido_facturas" && metodo === "GET") return json({ code: "PGRST205", message: "Could not find the table 'public.pedido_facturas' in the schema cache" }, 404);
@@ -21177,6 +21214,13 @@ async function seccionCONTRA() {
     const estado = { filas: [perfilAdmin], guardados: [], categorias: [], tarifas: [] };
     const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
     await rutas(ctx, s);
+    return { ctx, estado };
+  };
+  const perfilCliente = { user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", telefono: null, codigo_postal: "50001", localidad: "Zaragoza", direccion: "Calle Mayor 5", piso: null, direcciones: [] };
+  const cliente = async (s, vista = {}) => {
+    const estado = { filas: [perfilCliente], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await rutas(ctx, s, CLIENTE, "user");
     return { ctx, estado };
   };
   const abrirPedidosAdmin = async (ctx) => {
@@ -21280,12 +21324,111 @@ async function seccionCONTRA() {
     });
   }
 
+  // CONTRA5) Parte 2 · 390: la reclamación del banco arriba del pedido (estado, motivo, plazo) y «Preparar pruebas»; la
+  // cifra «Reclamaciones abiertas» filtra; la cerrada, sin botón; el panel nunca pide el código de entrega.
+  await bloque("CONTRA5 Reclamación", async () => {
+    const s = {};
+    const { ctx } = await admin(s);
+    const p = await abrirPedidosAdmin(ctx);
+    const est = await texto(p, "#pedido-reclamacion-estado-401");
+    const caja = await texto(p, "#pedido-reclamacion-401");
+    ok(est === "Hay que responder" && /El cliente dice que no hizo el pago · 399,00€/.test(caja), `CONTRA5: la reclamación abierta con su estado y su motivo en palabras sencillas (${est} · ${caja.slice(0, 90)})`);
+    const plazo = await texto(p, "#pedido-reclamacion-plazo-401");
+    ok(/^Responde antes del .+ · quedan 9 días$/.test(plazo), `CONTRA5: el plazo para responder y cuánto queda (${plazo})`);
+    const orden = await p.evaluate(() => {
+      const r = document.getElementById("pedido-reclamacion-401")?.getBoundingClientRect().top ?? 0;
+      const a = document.getElementById("pedido-bloque-articulos-401")?.getBoundingClientRect().top ?? 0;
+      return r > 0 && a > r;
+    });
+    ok(orden, "CONTRA5: va lo primero del pedido, encima de Artículos y Pago");
+    ok((await texto(p, "#pedido-reclamacion-estado-402")) === "Ganada" && (await p.locator("#pedido-reclamacion-preparar-402").count()) === 0 && /Cerrada el/.test(await texto(p, "#pedido-reclamacion-402")), "CONTRA5: la cerrada sale «Ganada», con su fecha y sin «Preparar pruebas»");
+    ok((await alto(p, "#pedido-reclamacion-preparar-401")) >= 44 && (await alto(p, "#pedido-reclamacion-stripe-401")) >= 44, "CONTRA5: «Preparar pruebas» y «Abrir en Stripe» miden 44 px");
+    await p.locator("#pedido-reclamacion-401").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "CONTRA5-reclamacion-390");
+    await p.locator("#pedido-reclamacion-preparar-401").click();
+    await p.locator("#pedido-reclamacion-pruebas-401").waitFor({ timeout: 10000 }).catch(() => {});
+    const pr = await texto(p, "#pedido-reclamacion-pruebas-401");
+    ok(JSON.stringify(s.pruebas) === JSON.stringify([{ accion: "pruebas", reclamacion: "dp_1Prueba401" }]), `CONTRA5: pide al servidor las pruebas de esa reclamación y nada más (${JSON.stringify(s.pruebas)})`);
+    ok(/Pruebas preparadas el .+: revísalas y pulsa «Enviar» en Stripe/.test(pr) && /3D Secure/.test(pr) && /aceptó las condiciones/.test(pr), `CONTRA5: dice que están preparadas, qué se ha juntado y que se envían desde Stripe (${pr.slice(0, 120)})`);
+    ok(/Pruebas guardadas como borrador en Stripe/.test(await texto(p, "#pedido-reclamacion-mensaje-401")) && (await texto(p, "#pedido-reclamacion-preparar-401")) === "Volver a preparar las pruebas", "CONTRA5: lo confirma y el botón pasa a «Volver a preparar las pruebas»");
+    await capturar(p, "CONTRA5-pruebas-preparadas-390");
+    const cifra = await texto(p, "#pedidos-cifra-reclamaciones");
+    ok(cifra === "1 Reclamaciones abiertas", `CONTRA5: la cifra de arriba cuenta las abiertas (${cifra})`);
+    ok(s.selectsAdmin.every((sel) => !/entrega_codigo(,|$)/.test(sel)), `CONTRA5: el panel nunca pide el código de entrega, solo si se confirmó (${s.selectsAdmin.find((x) => /entrega_codigo/.test(x)) ?? "ok"})`);
+    ok((await sinDesborde(p)) && p.errores.length === 0, `CONTRA5: sin desbordes ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // CONTRA6) Parte 2 · 390: entrega en mano con código. Con otro código no se confirma y lo explica; con el bueno, queda
+  // entregado y «Entregado con el código del cliente».
+  await bloque("CONTRA6 Código en Pedidos", async () => {
+    const s = {};
+    const { ctx } = await admin(s);
+    const p = await abrirPedidosAdmin(ctx);
+    ok(/Al entregar, pide al cliente su código de 4 cifras/.test(await texto(p, "#pedido-codigo-estado-405")) && (await p.locator("#pedido-codigo-campo-405").count()) === 1 && (await p.locator("#pedido-codigo-campo-403").count()) === 0, "CONTRA6: el campo del código sale en la entrega del mismo día y no en la de Correos");
+    const letraCampo = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById("pedido-codigo-campo-405")).fontSize));
+    ok(letraCampo >= 16 && (await alto(p, "#pedido-codigo-campo-405")) >= 44 && (await alto(p, "#pedido-codigo-confirmar-405")) >= 44, `CONTRA6: campo a 16 px y 44 de alto, y «Confirmar la entrega» de 44 px (${letraCampo})`);
+    await p.locator("#pedido-codigo-campo-405").fill("12ab");
+    ok((await p.locator("#pedido-codigo-campo-405").inputValue()) === "12", "CONTRA6: el campo solo admite cifras");
+    await p.locator("#pedido-codigo-campo-405").fill("1111");
+    await p.locator("#pedido-codigo-confirmar-405").click();
+    await p.waitForTimeout(600);
+    ok(/Ese no es el código de este pedido/.test(await texto(p, "#pedido-codigo-mensaje-405")) && s.pedidos.find((x) => x.numero === 405).estado === "preparado", "CONTRA6: con otro código no se confirma y lo explica");
+    await p.locator("#pedido-codigo-campo-405").fill("4821");
+    await p.locator("#pedido-codigo-confirmar-405").click();
+    await p.waitForTimeout(800);
+    ok(JSON.stringify(s.confirmaciones?.at(-1)) === JSON.stringify({ p_pedido: ID(405), p_codigo: "4821" }) && /Entregado con el código del cliente el/.test(await texto(p, "#pedido-codigo-estado-405")) && (await p.locator("#pedido-codigo-campo-405").count()) === 0, "CONTRA6: con el código bueno queda entregado, con la prueba, y el campo desaparece");
+    ok(/Entrega confirmada con el código del cliente/.test(await texto(p, "#pedido-codigo-mensaje-405")), "CONTRA6: lo confirma");
+    await p.locator("#pedido-bloque-entrega-405").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "CONTRA6-entrega-confirmada-390");
+    ok((await sinDesborde(p)) && p.errores.length === 0, `CONTRA6: sin desbordes ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // CONTRA7) Parte 2 · Mis pedidos (360, 390 y 1280): el cliente ve su código de entrega en los pedidos en mano o del mismo
+  // día en curso, no en los de Correos; legible y sin desbordar.
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`CONTRA7 Mis pedidos ${nombre}`, async () => {
+      const s = {};
+      const { ctx } = await cliente(s, vista);
+      const p = await pagina(ctx, "/perfil?tab=seguimientos");
+      await p.locator("#seguimiento-codigo-405").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(500);
+      const t = await texto(p, "#seguimiento-codigo-405");
+      ok(/Código de entrega/.test(t) && (await texto(p, "#seguimiento-codigo-cifras-405")) === "4821" && /Díselo a quien te lo entregue/.test(t), `CONTRA7 (${nombre}): Mis pedidos enseña el código con su explicación (${t})`);
+      ok((await p.locator("#seguimiento-codigo-403").count()) === 0 && (await p.locator("#seguimiento-codigo-401").count()) === 0, `CONTRA7 (${nombre}): los de Correos no llevan código`);
+      const letra = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById("seguimiento-codigo-cifras-405")).fontSize));
+      ok(letra >= 24, `CONTRA7 (${nombre}): las cifras, grandes para leerlas en voz alta (${letra})`);
+      await p.locator("#seguimiento-codigo-405").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `CONTRA7-mis-pedidos-codigo-${nombre}`);
+      ok((await sinDesborde(p)) && p.errores.length === 0, `CONTRA7 (${nombre}): sin desbordes ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
+  // CONTRA8) Parte 2 · Pedidos a 360 y 1280 con la reclamación y el código: sin desbordar.
+  for (const { nombre, vista } of VISTAS.filter((v) => v.nombre !== "390")) {
+    await bloque(`CONTRA8 ${nombre}`, async () => {
+      const s = {};
+      const { ctx } = await admin(s, vista);
+      const p = await abrirPedidosAdmin(ctx);
+      ok((await sinDesborde(p)) && (await p.locator("#pedido-reclamacion-401").count()) === 1, `CONTRA8 (${nombre}): Pedidos con la reclamación no se ensancha`);
+      await p.locator("#pedido-reclamacion-401").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `CONTRA8-reclamacion-${nombre}`);
+      await p.locator("#pedido-codigo-405").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `CONTRA8-codigo-${nombre}`);
+      ok(p.errores.length === 0, `CONTRA8 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
   // CONTRA4) Sin la migración: Pedidos carga como antes, sin líneas nuevas ni filtro, y «Enviado» no exige nada.
   await bloque("CONTRA4 sin la migración", async () => {
     const s = { sin: true };
     const { ctx } = await admin(s);
     const p = await abrirPedidosAdmin(ctx);
-    ok((await p.locator("#pedido-titulo-401").count()) === 1 && (await p.locator("#pedido-3ds-401").count()) === 0 && (await p.locator("#pedido-condiciones-401").count()) === 0 && (s.pedidos400 ?? 0) <= 1, `CONTRA4: sin la migración, Pedidos carga sin las líneas nuevas (${s.pedidos400 ?? 0} errores)`);
+    ok((await p.locator("#pedido-titulo-401").count()) === 1 && (await p.locator("#pedido-3ds-401").count()) === 0 && (await p.locator("#pedido-condiciones-401").count()) === 0 && (s.pedidos400 ?? 0) <= 3, `CONTRA4: sin la migración (dos grupos de columnas: parte 1 y parte 2), Pedidos carga sin las líneas nuevas (${s.pedidos400 ?? 0} errores · ${await p.locator("#pedido-titulo-401").count()}/${await p.locator("#pedido-3ds-401").count()}/${await p.locator("#pedido-condiciones-401").count()})`);
+    ok((await p.locator("#pedido-reclamacion-401").count()) === 0 && (await p.locator("#pedido-codigo-405").count()) === 0, "CONTRA4: sin la migración, ni reclamaciones ni código de entrega");
     ok(p.errores.length === 0, `CONTRA4: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   });

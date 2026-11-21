@@ -4195,6 +4195,105 @@ try {
     await cCo2.end();
   }
 
+  // CONTRA2) Contracargos, parte 2 (20261121120000_contracargos_parte2.sql, dueño 2026-11-21): pedido_reclamaciones solo la
+  // lee el administrador y nadie la escribe desde el navegador; el código de entrega lo pone la base de datos (4 cifras,
+  // solo en los pedidos de clientes) y nadie lo cambia; la entrega con código solo la confirma el administrador con el
+  // código correcto en una entrega en mano o del mismo día; escribir entrega_codigo_ok_en a mano no vale; Envíos y
+  // Privacidad lo dicen una vez; sin permisos especiales. Con su «prueba de la prueba».
+  {
+    const PARTE2 = readFileSync("supabase/migrations/20261121120000_contracargos_parte2.sql", "utf8");
+    const ESQUEMA_C2 = `
+      create table public.pedidos (id uuid primary key default gen_random_uuid(), user_id uuid, estado text not null default 'pendiente',
+        entrega text not null default 'envio', zona_envio text, id_veoaura text, veoaura_venta_id text, created_at timestamptz not null default now());
+      alter table public.pedidos enable row level security;
+      create policy pedidos_insert on public.pedidos for insert to anon, authenticated with check (true);
+      create policy pedidos_select on public.pedidos for select to authenticated using ((select public.is_admin()) or user_id = (select auth.uid()));
+      create policy pedidos_admin_update on public.pedidos for update to authenticated using ((select public.is_admin())) with check ((select public.is_admin()));
+      create table public.policy_pages (slug text primary key, sections jsonb not null, is_active boolean not null default true, updated_at timestamptz);
+      insert into public.policy_pages (slug, sections) values
+        ('envios', '[{"heading": "Plazos", "body": "En Zaragoza y Cuarte, el mismo día."}, {"heading": "Correos", "body": "Resto de España en 72 h."}]'),
+        ('privacidad', '[{"heading": "Qué datos tratamos", "body": "Datos."}, {"heading": "Para qué usamos tus datos", "body": "Para gestionar tu pedido."}]');`;
+    const c2 = await nuevaBase("vz_aislada_contracargos2", ESQUEMA_C2);
+    const definerAntes = Number((await c2.query("select count(*) as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef")).rows[0].n);
+    let repetida2 = true;
+    try {
+      await c2.query(PARTE2);
+      await c2.query(PARTE2);
+    } catch (e) {
+      repetida2 = false;
+      console.log(String(e.message));
+    }
+    const n = async (sql) => Number((await c2.query(sql)).rows[0].n);
+    const definerDespues = await n("select count(*) as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef");
+    const reglas = (await c2.query("select string_agg(policyname || ':' || cmd || ':' || roles::text, ',' order by policyname) as p from pg_policies where tablename = 'pedido_reclamaciones'")).rows[0].p;
+    const pol = (await c2.query("select slug, sections::text as t from public.policy_pages")).rows;
+    const veces = (slug, frase) => (pol.find((x) => x.slug === slug)?.t ?? "").split(frase).length - 1;
+    ok(
+      repetida2 && definerDespues === definerAntes && reglas === "pedido_reclamaciones_admin_select:SELECT:{authenticated}" &&
+        (await n("select count(*) as n from pg_trigger where tgname = 'pedidos_codigo_entrega'")) === 1 &&
+        veces("envios", "código de entrega de 4 cifras") === 1 && veces("privacidad", "Si reclamas un cobro a tu banco") === 1,
+      `CONTRA2: se aplica dos veces, sin permisos especiales, una sola regla (leer, administrador) y Envíos y Privacidad lo dicen una vez (${reglas}; ${definerAntes}→${definerDespues})`
+    );
+    const envBody = JSON.parse(pol.find((x) => x.slug === "envios").t);
+    ok(/código de entrega/.test(envBody[0].body) && !/código de entrega/.test(envBody[1].body), "CONTRA2: en Envíos va junto a lo de Zaragoza");
+
+    // Código de entrega.
+    let sig = 0;
+    const crear = async (rol, claims, columnas, valores) => {
+      const id = `c2c2c2c2-0000-4000-8000-00000000000${++sig}`;
+      await c2.query("begin");
+      try {
+        await c2.query(`set local role ${rol}`);
+        await c2.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+        await c2.query(`insert into public.pedidos (id, ${columnas}) values ('${id}', ${valores})`);
+        await c2.query("commit");
+      } catch (e) {
+        await c2.query("rollback");
+        return { error: e.code };
+      }
+      return (await c2.query(`select id, entrega_codigo, entrega_codigo_ok_en from public.pedidos where id = '${id}'`)).rows[0];
+    };
+    const local = await crear("anon", { role: "anon" }, "entrega, zona_envio, entrega_codigo", "'envio', 'local', '0000'");
+    const mano = await crear("authenticated", { sub: U1, role: "authenticated" }, "user_id, entrega, zona_envio", `'${U1}', 'recogida', 'mano'`);
+    const pen = await crear("anon", { role: "anon" }, "entrega, zona_envio", "'envio', 'peninsula'");
+    const servidor = await crear("postgres", { role: "servidor_de_la_tienda" }, "entrega, zona_envio", "'envio', 'local'");
+    const veo = await crear("anon", { role: "anon" }, "entrega, zona_envio, id_veoaura", "'envio', 'local', 'VA-9'");
+    ok(/^[0-9]{4}$/.test(local.entrega_codigo ?? "") && /^[0-9]{4}$/.test(mano.entrega_codigo ?? "") && local.entrega_codigo_ok_en === null, `CONTRA2: el pedido de un cliente lleva su código de 4 cifras, el de la base de datos y no el que mande (${local.entrega_codigo})`);
+    ok(servidor.entrega_codigo === null && veo.entrega_codigo === null, "CONTRA2: los del servidor y los de VeoAura no llevan código");
+    const cambia = await como(c2, "authenticated", ADMIN, `update public.pedidos set entrega_codigo = '1234', entrega_codigo_ok_en = now() where id = '${local.id}' returning entrega_codigo, entrega_codigo_ok_en`, { confirmar: true });
+    ok(cambia.ok && cambia.filas[0].entrega_codigo === local.entrega_codigo && cambia.filas[0].entrega_codigo_ok_en === null, "CONTRA2: nadie cambia el código ni se pone la entrega confirmada a mano (ni el administrador)");
+    const cliente = await como(c2, "authenticated", U1, `select public.confirmar_entrega_codigo('${mano.id}', '${mano.entrega_codigo}') as r`);
+    ok(!cliente.ok && cliente.codigo === "42501", `CONTRA2: un cliente no confirma entregas (${cliente.codigo})`);
+    const otro = local.entrega_codigo === "9999" ? "0000" : "9999";
+    const mal = await como(c2, "authenticated", ADMIN, `select public.confirmar_entrega_codigo('${local.id}', '${otro}') as r`, { confirmar: true });
+    const noAplica = await como(c2, "authenticated", ADMIN, `select public.confirmar_entrega_codigo('${pen.id}', '${pen.entrega_codigo}') as r`, { confirmar: true });
+    const bien = await como(c2, "authenticated", ADMIN, `select public.confirmar_entrega_codigo('${local.id}', ' ${local.entrega_codigo} ') as r`, { confirmar: true });
+    const tras = (await c2.query(`select estado, entrega_codigo_ok_en from public.pedidos where id = '${local.id}'`)).rows[0];
+    const penTras = (await c2.query(`select estado, entrega_codigo_ok_en from public.pedidos where id = '${pen.id}'`)).rows[0];
+    ok(mal.filas?.[0]?.r === "codigo_incorrecto" && noAplica.filas?.[0]?.r === "no_aplica" && penTras.entrega_codigo_ok_en === null, `CONTRA2: con otro código no se confirma, y un envío por Correos no se confirma con código (${mal.filas?.[0]?.r}, ${noAplica.filas?.[0]?.r})`);
+    ok(bien.filas?.[0]?.r === "ok" && tras.estado === "entregado" && tras.entrega_codigo_ok_en !== null && Math.abs(Date.now() - new Date(tras.entrega_codigo_ok_en).getTime()) < 120000, "CONTRA2: con el código correcto, el pedido queda entregado y con la hora de la base de datos");
+
+    // Reclamaciones: las escribe el servidor (sin reglas) y solo las lee el administrador.
+    await c2.query(`insert into public.pedido_reclamaciones (id, pedido_id, estado, motivo, importe_eur) values ('dp_1Prueba', '${local.id}', 'needs_response', 'fraudulent', 399)`);
+    const malId = await c2.query("insert into public.pedido_reclamaciones (id, estado, importe_eur) values ('inventado', 'x', 1)").then(() => "entró", (e) => e.code);
+    const leeAdmin = await como(c2, "authenticated", ADMIN, "select count(*)::int as n from public.pedido_reclamaciones");
+    const leeCliente = await como(c2, "authenticated", U1, "select count(*)::int as n from public.pedido_reclamaciones");
+    const leeAnon = await como(c2, "anon", null, "select count(*)::int as n from public.pedido_reclamaciones");
+    const escribeAdmin = await como(c2, "authenticated", ADMIN, "insert into public.pedido_reclamaciones (id, estado, importe_eur) values ('dp_2Prueba', 'won', 1)");
+    const cambiaAdmin = await como(c2, "authenticated", ADMIN, "update public.pedido_reclamaciones set estado = 'won'", { confirmar: true });
+    ok(malId === "23514" && leeAdmin.filas?.[0]?.n === 1 && leeCliente.filas?.[0]?.n === 0 && (!leeAnon.ok || leeAnon.filas?.[0]?.n === 0), `CONTRA2: solo el administrador lee las reclamaciones; un id que no es de Stripe no entra (${malId}; ${leeAdmin.filas?.[0]?.n}/${leeCliente.filas?.[0]?.n})`);
+    ok(!escribeAdmin.ok && cambiaAdmin.cuantas === 0, "CONTRA2: desde el navegador nadie las crea ni las cambia, ni el administrador");
+    await c2.end();
+
+    // Prueba de la prueba: sin el candado de entrega_codigo_ok_en, el administrador la pondría a mano.
+    const rota2 = PARTE2.replace("and coalesce(current_setting('vz.entrega_codigo_ok', true), '') <> 'si' then", "and false then");
+    const c3 = await nuevaBase("vz_aislada_contracargos2_rota", ESQUEMA_C2 + rota2);
+    await c3.query("insert into public.pedidos (id, entrega, zona_envio) values ('c3c3c3c3-0000-4000-8000-000000000001', 'envio', 'local')");
+    const aMano = await como(c3, "authenticated", ADMIN, "update public.pedidos set entrega_codigo_ok_en = now() returning entrega_codigo_ok_en", { confirmar: true });
+    ok(rota2 !== PARTE2 && aMano.ok && aMano.filas[0].entrega_codigo_ok_en !== null, "CONTRA2 (control): sin el candado, la entrega se confirmaría a mano: la prueba SÍ lo detecta");
+    await c3.end();
+  }
+
   // Motivo de la cancelación y «Avisarme cuando haya otro» (20261116100000_cancelacion_motivo_aviso.sql, dueño 2026-11-16):
   // el motivo con su comprobación (como mucho 200) y la hora de la cancelación que pone la base de datos; avisos_reposicion:
   // solo pedidos PROPIOS cancelados porque el artículo ya no está disponible, de quien la crea, una por pedido, canal

@@ -1732,6 +1732,8 @@ type PedidoSeg = {
   venta_forma_pago?: string | null;
   // Número de envío de Correos o enlace del transportista (migración 20261114160000; puede no venir): «Seguir el envío».
   envio_seguimiento?: string | null;
+  // Código de entrega de 4 cifras (solo en curso y en mano o el mismo día; migración 20261121120000).
+  entrega_codigo?: string | null;
   // Primer artículo del pedido con producto: el chat de la tienda abre con su tarjeta (valoración baja, mejora 11).
   primerProducto?: string | null;
   // Título de ese artículo (para «Avisarme cuando haya otro» tras una cancelación).
@@ -1871,6 +1873,30 @@ function PagoDelPedido({ p }: { p: PedidoSeg }) {
           : `Pagado online${con} · ${segEuros(Number(p.pagado_eur))} · ${segFecha(p.pagado_en ?? null)}`}
         {p.pago_modo === "prueba" ? " (de prueba)" : ""}
       </Text>
+    </View>
+  );
+}
+
+// Código de entrega (contracargos, parte 2; dueño 2026-11-21): en las entregas en mano y del mismo día, el cliente se lo
+// dice a quien le entrega y así queda confirmado que lo ha recibido. Sobrio: etiqueta pequeña, las 4 cifras grandes y
+// espaciadas (fáciles de leer en voz alta) y una línea de ayuda; sin fondos de color ni burbujas.
+function CodigoEntrega({ p }: { p: PedidoSeg }) {
+  if (!p.entrega_codigo || p.estado === "entregado" || p.estado === "cancelado") return null;
+  return (
+    <View
+      nativeID={`seguimiento-codigo-${p.numero ?? p.id}`}
+      accessible
+      accessibilityLabel={`Código de entrega: ${p.entrega_codigo.split("").join(" ")}. Díselo a quien te lo entregue.`}
+      style={{ alignItems: "center", gap: 4, width: "100%", maxWidth: 460, alignSelf: "center", paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: SEG.line }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Ionicons name="keypad-outline" size={16} color={SEG.muted} />
+        <Text style={{ color: SEG.muted, fontWeight: "800", fontSize: TAMANOS.minimo, letterSpacing: 0.4 }}>Código de entrega</Text>
+      </View>
+      <Text nativeID={`seguimiento-codigo-cifras-${p.numero ?? p.id}`} selectable style={{ color: SEG.text, fontWeight: "900", fontSize: 28, letterSpacing: 10, paddingLeft: 10, fontVariant: ["tabular-nums"] }}>
+        {p.entrega_codigo}
+      </Text>
+      <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, lineHeight: 19, textAlign: "center" }}>Díselo a quien te lo entregue para confirmar la entrega.</Text>
     </View>
   );
 }
@@ -4235,6 +4261,18 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
           }
         }
         setFacturasOk(conFacturas);
+        // Código de entrega (contracargos, parte 2; migración 20261121120000): solo de los pedidos en curso que se entregan
+        // en mano o el mismo día en Zaragoza y Cuarte. Sin la columna, sin código y sin fallar.
+        const codigos: Record<string, string> = {};
+        const enCurso = filas.filter((p) => p.estado !== "entregado" && p.estado !== "cancelado").map((p) => p.id);
+        if (enCurso.length) {
+          const cod = await supabase.from("pedidos").select("id,entrega,zona_envio,entrega_codigo").in("id", enCurso);
+          if (!cod.error) {
+            for (const c of (cod.data ?? []) as { id: string; entrega: string; zona_envio: string | null; entrega_codigo: string | null }[]) {
+              if (c.entrega_codigo && (c.entrega === "recogida" || ["mano", "local", "local_lejos"].includes(c.zona_envio ?? ""))) codigos[c.id] = c.entrega_codigo;
+            }
+          }
+        }
         // La hora de cada paso y el número de envío (migración 20261114160000; sin ella, pasos sin hora y sin botón).
         const seg = await cargarSeguimientoPedidos(filas.map((p) => p.id));
         setHistorial(seg.historial);
@@ -4251,6 +4289,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
             articuloALaVenta: !!(primerProducto[p.id] && articulos[primerProducto[p.id]]?.venta),
             articuloCategoria: primerProducto[p.id] ? articulos[primerProducto[p.id]]?.categoria ?? null : null,
             envio_seguimiento: seg.numeros[p.id] ?? null,
+            entrega_codigo: codigos[p.id] ?? null,
             ...devueltos[p.id],
             items: porPedido[p.id] ?? [],
             foto: fotoPedido[p.id] ?? null,
@@ -4529,6 +4568,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
                       cancelado={p.estado === "cancelado"}
                     />
                     <PasosDelPedido p={p} historial={historial} />
+                    <CodigoEntrega p={p} />
                     {p.entrega !== "recogida" && p.estado !== "cancelado" ? (
                       <BotonSeguirEnvio id={`seguir-envio-${p.numero ?? p.id}`} numero={p.envio_seguimiento} tipo="pedido" />
                     ) : null}

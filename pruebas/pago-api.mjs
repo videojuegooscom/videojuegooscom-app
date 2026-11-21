@@ -112,7 +112,9 @@ const stripeSesiones = new Map();
 const idempotencia = new Map();
 const devoluciones = new Map();
 let prefijoDevolucion = "re";
-const registro = { stripePost: 0, crearSesion: [], expiradas: [], patch: 0, devoluciones: [], rechazosBizum: 0 };
+const registro = { stripePost: 0, crearSesion: [], expiradas: [], patch: 0, devoluciones: [], rechazosBizum: 0, pruebas: [] };
+// Reclamaciones del banco (contracargos, parte 2): la tabla pedido_reclamaciones simulada.
+let reclamaciones = [];
 
 function reiniciar() {
   pedidos = [
@@ -130,6 +132,8 @@ function reiniciar() {
   stripeSinBizum = false;
   sinColumnaMetodo = false;
   registro.rechazosBizum = 0;
+  registro.pruebas = [];
+  reclamaciones = [];
   stripeSesiones.clear();
   idempotencia.clear();
   devoluciones.clear();
@@ -217,6 +221,25 @@ function supabaseFalso(url, metodo, cabeceras, cuerpo) {
       return /return=representation/.test(cabeceras.get("prefer") ?? "") ? json(filas.map((f) => ({ id: f.id }))) : new Response(null, { status: 204 });
     }
   }
+  // Reclamaciones del banco (contracargos, parte 2): como PostgREST (eq id; upsert por id; PATCH por id).
+  if (ruta === "/rest/v1/pedido_reclamaciones") {
+    const id = eq(url, "id");
+    const filas = reclamaciones.filter((f) => id === null || f.id === id);
+    if (metodo === "GET") return objeto ? json(filas[0] ?? null) : json(filas);
+    if (metodo === "POST") {
+      for (const f of [].concat(cuerpo)) {
+        const previa = reclamaciones.find((x) => x.id === f.id);
+        if (previa) Object.assign(previa, f);
+        else reclamaciones.push({ creada_en: new Date().toISOString(), cerrada_en: null, pruebas_preparadas_en: null, pruebas_resumen: null, ...f });
+      }
+      return new Response(null, { status: 201 });
+    }
+    if (metodo === "PATCH") {
+      for (const f of filas) Object.assign(f, cuerpo);
+      return new Response(null, { status: 204 });
+    }
+  }
+  if (ruta === "/rest/v1/pedido_estados") return json([{ estado: "enviado", creado_en: "2026-11-18T10:00:00Z" }]);
   if (ruta === "/rest/v1/pedidos") {
     if (sinColumnas && /pago_/.test(url.searchParams.get("select") ?? "")) return json({ code: "42703", message: "column pedidos.pago_estado does not exist" }, 400);
     if (vend?.sinColumnas && metodo === "PATCH" && cuerpo && "doble_venta_en" in cuerpo) return json({ code: "PGRST204", message: "Could not find the 'doble_venta_en' column of 'pedidos' in the schema cache" }, 400);
@@ -259,6 +282,12 @@ function stripeFalso(url, metodo, cabeceras, cuerpoTexto) {
   if (!/^sk_(test|live)_/.test(clave)) return json({ error: { type: "invalid_request_error", code: "api_key_invalid" } }, 401);
   const partes = url.pathname.split("/").filter(Boolean); // v1, checkout, sessions, [id], [expire]
   if (metodo === "POST") registro.stripePost++;
+  // Pruebas de una reclamación (contracargos, parte 2): se apuntan y se contesta con la reclamación.
+  if (url.pathname.startsWith("/v1/disputes/") && metodo === "POST") {
+    const id = decodeURIComponent(url.pathname.split("/").pop());
+    registro.pruebas.push({ id, campos: Object.fromEntries(new URLSearchParams(cuerpoTexto)) });
+    return json({ id, object: "dispute", status: "needs_response" });
+  }
   // Devoluciones: una por clave de idempotencia (como Stripe); del pago entero.
   if (url.pathname === "/v1/refunds" && metodo === "POST") {
     const k = cabeceras.get("idempotency-key");
@@ -328,7 +357,7 @@ globalThis.fetch = async (entrada, opciones = {}) => {
   const cabeceras = new Headers(opciones.headers ?? {});
   if (url.origin === FALSO) return supabaseFalso(url, metodo, cabeceras, opciones.body ? JSON.parse(opciones.body) : null);
   // Stripe se reconoce por la ruta (/v1/checkout/…) y lo contesta el Stripe simulado: la prueba nunca sale a Internet.
-  if (url.protocol === "https:" && (url.pathname.startsWith("/v1/checkout/") || url.pathname === "/v1/refunds")) return stripeFalso(url, metodo, cabeceras, typeof opciones.body === "string" ? opciones.body : "");
+  if (url.protocol === "https:" && (url.pathname.startsWith("/v1/checkout/") || url.pathname === "/v1/refunds" || url.pathname.startsWith("/v1/disputes/"))) return stripeFalso(url, metodo, cabeceras, typeof opciones.body === "string" ? opciones.body : "");
   throw new Error(`prueba: salida de red inesperada a ${url.origin}`);
 };
 
@@ -477,6 +506,29 @@ async function bateria(manejador) {
   const devueltoAntes = pedido(107).devuelto_en;
   r.avisoDevolucionOtraVez = await pedir(manejador, "POST", { crudo: avisoDev, cabeceras: { "stripe-signature": firmar(avisoDev) } });
   r.devueltoIgual = pedido(107).devuelto_en === devueltoAntes;
+
+  // D Reclamaciones del banco (contracargos, parte 2): el aviso firmado la apunta en su pedido (una vez), «Preparar
+  // pruebas» solo el administrador y como BORRADOR (submit=false), y una cerrada ya no admite pruebas.
+  Object.assign(pedido(107), { nombre: "Ana García", email: "ana@example.com", pago_3ds: "authenticated", condiciones_aceptadas_en: "2026-11-18T09:00:00Z", condiciones_copia: { devoluciones: { secciones: [{ heading: "Plazo", body: "14 días." }] } }, envio_seguimiento: "PK123456789ES", direccion: "Calle Mayor 5", codigo_postal: "28001", ciudad: "Madrid" });
+  const disputa = (tipo, estado, intento = "pi_3Aviso456", id = "dp_1Prueba107") =>
+    JSON.stringify({ id: `evt_${tipo}_${id}`, type: tipo, livemode: false, data: { object: { id, object: "dispute", amount: 2000, currency: "eur", reason: "fraudulent", status: estado, payment_intent: intento, created: Math.floor(Date.now() / 1000), evidence_details: { due_by: Math.floor(Date.now() / 1000) + 9 * 86400 } } } });
+  const abierta = disputa("charge.dispute.created", "needs_response");
+  r.dispCreada = await pedir(manejador, "POST", { crudo: abierta, cabeceras: { "stripe-signature": firmar(abierta) } });
+  r.dispOtraVez = await pedir(manejador, "POST", { crudo: abierta, cabeceras: { "stripe-signature": firmar(abierta) } });
+  r.dispFilas = reclamaciones.map((x) => ({ ...x }));
+  r.pruebasCliente = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "pruebas", reclamacion: "dp_1Prueba107" } });
+  r.pruebasTrasCliente = registro.pruebas.length;
+  r.pruebasAdmin = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "pruebas", reclamacion: "dp_1Prueba107" } });
+  r.pruebasEnviadas = registro.pruebas[0];
+  r.dispTrasPruebas = { ...reclamaciones[0] };
+  const ajena = disputa("charge.dispute.created", "needs_response", "pi_3NoEsDeLaTienda", "dp_1Ajena");
+  r.dispAjena = await pedir(manejador, "POST", { crudo: ajena, cabeceras: { "stripe-signature": firmar(ajena) } });
+  r.pruebasAjena = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "pruebas", reclamacion: "dp_1Ajena" } });
+  const cerrada = disputa("charge.dispute.closed", "won");
+  r.dispCerrada = await pedir(manejador, "POST", { crudo: cerrada, cabeceras: { "stripe-signature": firmar(cerrada) } });
+  r.dispTrasCerrar = { ...reclamaciones.find((x) => x.id === "dp_1Prueba107") };
+  r.pruebasCerrada = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "pruebas", reclamacion: "dp_1Prueba107" } });
+  r.pruebasTotal = registro.pruebas.length;
 
   // P11 Klarna (pagar a plazos): solo cuando la privacidad ya lo nombra (primero la privacidad).
   r.getSinKlarna = await pedir(manejador, "GET", { token: "token-admin" });
@@ -948,6 +1000,23 @@ try {
   ok(r.avisoAjeno.codigo === 200, "P8: un aviso de un pago que no es de un pedido se da por recibido");
 
   ok(r.limite.codigo === 429, `P9: pasado el límite por IP, 429 (${r.limite.codigo})`);
+
+  // D Reclamaciones del banco (contracargos, parte 2).
+  const d0 = r.dispFilas[0] ?? {};
+  ok(
+    r.dispCreada.codigo === 200 && r.dispOtraVez.codigo === 200 && r.dispFilas.length === 1 && d0.id === "dp_1Prueba107" && d0.pedido_id === pedido(107).id && d0.estado === "needs_response" && d0.motivo === "fraudulent" && d0.importe_eur === 20 && !!d0.plazo_en && d0.modo === "prueba",
+    `D1: el aviso firmado de una reclamación la apunta en su pedido, una sola vez, con su estado, motivo, importe y plazo (${JSON.stringify(d0)})`
+  );
+  ok(r.pruebasCliente.codigo === 403 && r.pruebasTrasCliente === 0, `D2: un cliente no prepara pruebas ni se llama a Stripe (${r.pruebasCliente.codigo})`);
+  const ev = r.pruebasEnviadas?.campos ?? {};
+  ok(
+    r.pruebasAdmin.codigo === 200 && r.pruebasEnviadas?.id === "dp_1Prueba107" && ev.submit === "false" && ev["evidence[customer_name]"] === "Ana García" && ev["evidence[shipping_tracking_number]"] === "PK123456789ES" && ev["evidence[shipping_carrier]"] === "Correos" && ev["evidence[shipping_date]"] === "2026-11-18",
+    `D3: el administrador prepara las pruebas como BORRADOR en Stripe (submit=false), con el cliente y el envío de Correos (${JSON.stringify(ev).slice(0, 200)})`
+  );
+  ok(/3D Secure/.test(ev["evidence[uncategorized_text]"] ?? "") && /aceptó las condiciones/.test(ev["evidence[uncategorized_text]"] ?? "") && /14 días/.test(ev["evidence[refund_policy_disclosure]"] ?? ""), "D3: las pruebas llevan la verificación del banco, las condiciones aceptadas y la política de devoluciones de ese momento");
+  ok(!!r.dispTrasPruebas.pruebas_preparadas_en && Array.isArray(r.dispTrasPruebas.pruebas_resumen?.lineas) && r.pruebasAdmin.cuerpo?.ok === true, "D3: queda apuntado cuándo se prepararon y qué se mandó");
+  ok(r.dispAjena.codigo === 200 && reclamaciones.find((x) => x.id === "dp_1Ajena")?.pedido_id === null && r.pruebasAjena.codigo === 409, `D4: la de un pago que no es de la tienda se apunta sin pedido y no admite pruebas (${r.pruebasAjena.codigo})`);
+  ok(r.dispCerrada.codigo === 200 && r.dispTrasCerrar.estado === "won" && !!r.dispTrasCerrar.cerrada_en && r.pruebasCerrada.codigo === 409 && r.pruebasTotal === 1, `D5: al cerrarse queda «won» con su fecha y ya no admite pruebas (${r.dispTrasCerrar.estado}, ${r.pruebasCerrada.codigo})`);
 
   ok(r.devolverCliente.codigo === 403 && r.devolverSinSesion.codigo === 403 && r.devolucionesTrasCliente === 0, `P10: un cliente o un visitante no pueden devolver nada (${r.devolverCliente.codigo}, ${r.devolverSinSesion.codigo})`);
   ok(r.devolverSinPagar.codigo === 409, `P10: un pedido sin pago con tarjeta no se devuelve (${r.devolverSinPagar.codigo})`);
