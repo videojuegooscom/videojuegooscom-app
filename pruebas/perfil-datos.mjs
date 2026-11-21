@@ -21068,6 +21068,93 @@ async function seccionVENDP() {
   }
 }
 
+// ===== PANEL) Carga más rápida, paso 1 (dueño, 2026-11-21): Administración va en trozos aparte (components/panel/ con
+// app/admin/* como envolturas de components/panel/PantallaDiferida.tsx). El cliente nunca descarga código del panel; el
+// administrador descarga solo la pantalla que abre; si su trozo ya no existe (versión nueva), se recarga sola UNA vez y,
+// si sigue fallando, «No se ha podido abrir esta sección · Reintentar», que la vuelve a pedir. 360/390/1280. ===========
+async function seccionPANEL() {
+  const TROZOS_PANEL = /\/_expo\/static\/js\/web\/(alquileres|analytics|aprendizajes|auditorias|blog|categories|chats|cliente-ficha|conocimiento|cotizaciones|envios|escaparate|flash-news|index|inventario|marca-seo|pedidos|policies|products|redes-sociales|reservas|services|users)-[0-9a-f]+\.js/;
+  // (__common no cuenta: es la parte compartida que la web carga en todas las páginas, también en la tienda.)
+  const perfilAdmin = { user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" };
+  const sinDesborde = (p) => p.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= window.innerWidth + 1);
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `PANEL: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+  const trozos = (ctx) => {
+    const lista = [];
+    ctx.on("request", (q) => {
+      const m = TROZOS_PANEL.exec(q.url());
+      if (m) lista.push(m[1]);
+    });
+    return lista;
+  };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+
+  // PANEL1) Un cliente que recorre la tienda no descarga ni un trozo del panel.
+  await bloque("PANEL1 cliente", async () => {
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: [], guardados: [] });
+    const vistos = trozos(ctx);
+    for (const ruta of ["/", "/catalogo", "/perfil", "/cesta"]) {
+      const p = await pagina(ctx, ruta);
+      await p.waitForTimeout(1500);
+      await p.close();
+    }
+    ok(vistos.length === 0, `PANEL1: un cliente en Inicio, Catálogo, Perfil y Cesta no descarga nada del panel (${vistos.join(", ") || "nada"})`);
+    await ctx.close();
+  });
+
+  // PANEL2) El administrador descarga solo la pantalla que abre, y se ve bien (360, 390 y 1280).
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`PANEL2 ${nombre}`, async () => {
+      const ctx = await contexto(navegador, ADMIN, "admin", { filas: [perfilAdmin], guardados: [], categorias: [], tarifas: [] }, vista);
+      const vistos = trozos(ctx);
+      const p = await pagina(ctx, "/admin");
+      await p.getByText("Ventas y clientes").first().waitFor({ timeout: 40000 }).catch(() => {});
+      const enPanel = [...vistos];
+      ok(enPanel.includes("index") && !enPanel.some((t) => t !== "index"),`PANEL2 (${nombre}): el Panel de control descarga solo su pantalla (${enPanel.join(", ")})`);
+      ok((await p.getByText("Ventas y clientes").count()) > 0 && (await sinDesborde(p)), `PANEL2 (${nombre}): el Panel de control se ve entero y sin desbordar`);
+      await p.getByText("Pedidos", { exact: true }).first().click().catch(() => {});
+      await p.waitForTimeout(2500);
+      ok(vistos.includes("pedidos") && /\/admin\/pedidos/.test(p.url()), `PANEL2 (${nombre}): al entrar en Pedidos se descarga entonces su pantalla (${vistos.join(", ")})`);
+      await capturar(p, `PANEL2-pedidos-${nombre}`);
+      ok(p.errores.length === 0, `PANEL2 (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
+  // PANEL3) Candado de versiones: si el trozo ya no existe, se recarga sola una vez; si sigue faltando, lo dice con
+  // «Reintentar», que lo vuelve a pedir y abre la pantalla.
+  await bloque("PANEL3 versión nueva", async () => {
+    const ctx = await contexto(navegador, ADMIN, "admin", { filas: [perfilAdmin], guardados: [], categorias: [], tarifas: [] });
+    let falta = true;
+    let pedidos404 = 0;
+    await ctx.route(/\/_expo\/static\/js\/web\/pedidos-[0-9a-f]+\.js/, (r) => {
+      if (!falta) return r.fallback();
+      pedidos404++;
+      return r.fulfill({ status: 404, body: "" });
+    });
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#panel-carga-fallo").waitFor({ timeout: 40000 }).catch(() => {});
+    const recargas = await p.evaluate(() => performance.getEntriesByType("navigation")[0]?.type ?? "");
+    ok((await p.locator("#panel-carga-fallo").count()) === 1 && pedidos404 >= 2 && recargas === "reload", `PANEL3: sin su trozo, se recarga sola una vez y después lo explica (${pedidos404} intentos · ${recargas})`);
+    ok(/No se ha podido abrir esta sección/.test(await p.locator("#panel-carga-fallo").innerText().catch(() => "")), "PANEL3: «No se ha podido abrir esta sección», sin pantalla en blanco");
+    await capturar(p, "PANEL3-sin-trozo-390");
+    falta = false;
+    await p.locator("#panel-carga-reintentar").click();
+    await p.locator("#pedidos-cifras").waitFor({ timeout: 40000 }).catch(() => {});
+    ok((await p.locator("#pedidos-cifras").count()) === 1 && (await p.locator("#panel-carga-fallo").count()) === 0, "PANEL3: «Reintentar» vuelve a pedirlo y abre Pedidos");
+    await ctx.close();
+  });
+}
+
 // ===== CONTRA) Contracargos, parte 1 (dueño, 2026-11-20; migración 20261121000000_contracargos_parte1.sql). Datos
 // FICTICIOS. Administración → Pedidos: la verificación del banco (3DS) de cada pago con tarjeta, el filtro «Tarjeta sin
 // verificar», las condiciones aceptadas con su copia (se abre y se vuelve a plegar) y el número de Correos obligatorio para
@@ -24646,6 +24733,7 @@ try {
   if (SOLO === "PANSCROLL") await seccionPANSCROLL();
   if (SOLO === "CANCAV") await seccionCANCAV();
   if (SOLO === "CONTRA") await seccionCONTRA();
+  if (SOLO === "PANEL") await seccionPANEL();
   if (SOLO === "CANDIS") await seccionCANDIS();
   if (SOLO === "PANRED1") await seccionPANRED1();
   if (SOLO === "PANRED2") await seccionPANRED2();
@@ -25796,6 +25884,7 @@ try {
   await seccionUSUFOT();
   await seccionCANCAV();
   await seccionCONTRA();
+  await seccionPANEL();
   await seccionCANDIS();
   await seccionVENFOT();
   await seccionALQ1();
