@@ -196,7 +196,7 @@ import { alRecargar } from "./TirarParaActualizar";
 import { useMiPerfilAbierto, usePerfilObligatorioVisible } from "./PerfilPublico";
 import { suscribirVisorFotos, visorFotosAbierto } from "./VisorFotos";
 import { VentanaMejoras, VALORACION_ESPERA_MS, cargarValoracionesPedidos, entregadoEnDe, tocaValorarPedido } from "./VentanaValoracion";
-import { useAlturaBarraComparar, useComparar } from "./CarruselProductosCategoria";
+import { anadidosCompararDesdeArranque, useAlturaBarraComparar, useComparar } from "./CarruselProductosCategoria";
 import { CAMPO } from "../constants/temaTienda";
 import { cargarHistorialPedidos, formatearEuros } from "../lib/envio";
 import { AvisoBusqueda, Bajada, CART_KEY, COLORS, CRISTAL, CUENTA_NUEVA_MS, DIA_MS, LIKED_PRODUCTS_KEY, Llegada, MomentoBlue, NOTICIAS_AVISOS_KEY, NOTICIAS_VISTAS_KEY, NOVEDADES_AVISOS_KEY, NOVEDADES_CONTENT_VERSION, NOVEDADES_SEEN_KEY, NOVEDADES_VISTAS_KEY, OLVIDADOS_DICHO_KEY, OLVIDO_MS, PRECIOS_VISTOS_KEY, PedidoSegDato, RELOJ_RESERVAS_MS, RELOJ_SEGUIMIENTOS_MS, RESERVA_AVISO_MS, ReparacionSegDato, ReservaAviso, SELECTOR_VISTO_KEY, SegAviso, TEXTO_CRISTAL, VOLVER_TRAS_ACCESO_KEY, VistosSeg, apuntarDicho, calcularSegAvisos, cambiarConsejos, cargarDichos, consultarPagoOnline, contenidoConsejo, crearAvisoBusqueda, firmaPedidoSeg, guardarVistosSeg, leerConsejosApagados, leerJsonLocal, leerVistosSeg, minutosQueQuedan, momentoEnPantalla, oyentesAvisos, oyentesSeguimientos, textoOlvidados, useConsejosApagados, valorarDesde, valorarResueltos } from "./blue/DatosBlue";
@@ -1858,16 +1858,19 @@ export default function AsistenteBlue() {
 
   // --- Blue en momentos clave (mejora 12): consejos de los primeros momentos ------------------------------------------
   const consejosOff = useConsejosApagados();
-  // Primer «Comparar»: la lista del comparador crece después de leerla del dispositivo (lo ya guardado no cuenta).
+  // Primer «Comparar»: se ha añadido algo desde que arrancó la tienda (lo ya guardado no cuenta). Se cuenta en el
+  // comparador, no aquí, porque Blue se descarga aparte y puede montarse después del primer toque.
   const { lista: listaComparar, leido: compararLeido } = useComparar();
   const altoBarraComparar = useAlturaBarraComparar();
-  const comparadosAntesRef = useRef<number | null>(null);
+  const anadidosVistosRef = useRef(0);
   const [momentoComparar, setMomentoComparar] = useState(false);
   useEffect(() => {
     if (!compararLeido) return;
-    const antes = comparadosAntesRef.current;
-    comparadosAntesRef.current = listaComparar.length;
-    if (antes !== null && listaComparar.length > antes) setMomentoComparar(true);
+    const anadidos = anadidosCompararDesdeArranque();
+    if (anadidos > anadidosVistosRef.current) {
+      anadidosVistosRef.current = anadidos;
+      setMomentoComparar(true);
+    }
   }, [compararLeido, listaComparar.length]);
   // Con la guía abierta (o «Completa tu perfil», o Administración) no hay consejos; el que estuviera a la vista se va.
   const sinConsejos = consejosOff || enAdmin || guiaAbierta || perfilObligatorio || miPerfilAbierto;

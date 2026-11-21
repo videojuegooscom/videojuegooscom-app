@@ -100,7 +100,8 @@ import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
 import PortadasCategoria, { enterasInicioDe, esCategoriaServicios, faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
 import { useRecarga } from "../components/TirarParaActualizar";
-import { crearAvisoBusqueda } from "../components/AsistenteBlue";
+// Directamente de DatosBlue: así Blue entero no viaja en el paquete de la tienda (carga más rápida, paso 2).
+import { crearAvisoBusqueda } from "../components/blue/DatosBlue";
 import { RejillaTarjetas, TarjetaProducto, useAlturaBarraComparar } from "../components/CarruselProductosCategoria";
 import { BotonVolverArriba } from "../components/DesplazamientoSuave";
 import { useEncimaBotonAtras } from "../components/BotonAtrasAlcance";
