@@ -1135,6 +1135,13 @@ export function useComparar(): EstadoComparar {
   return estado;
 }
 
+// Productos añadidos a «Comparar» desde que arrancó la tienda (no los ya guardados). Blue lo lee para su consejo del
+// primer «Comparar»: así no se lo pierde aunque Blue llegue un momento después (se descarga aparte, carga más rápida).
+let anadidosComparar = 0;
+export function anadidosCompararDesdeArranque(): number {
+  return anadidosComparar;
+}
+
 /** Añade o quita un producto. Con 3 ya elegidos no añade: deja el aviso amable («lleno»). */
 export async function alternarComparar(p: ProductoComparar, origen: OrigenComparar): Promise<"anadido" | "quitado" | "lleno"> {
   await leerComparados();
@@ -1148,6 +1155,7 @@ export async function alternarComparar(p: ProductoComparar, origen: OrigenCompar
   }
   avisoComparar(null);
   const nueva = [...comparador.lista, p];
+  anadidosComparar++;
   guardarComparados(nueva);
   void medirEvento("comparar_anadido", "Comparar: producto añadido", { metadata: { id: p.id, origen, n: nueva.length } });
   return "anadido";

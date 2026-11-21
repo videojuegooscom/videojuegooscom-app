@@ -72,7 +72,7 @@
  * - app/comparar.tsx → «Comparar 2-3 productos» (/comparar?ids=…); su barra flotante (BarraComparar de
  *   components/CarruselProductosCategoria.tsx) se monta aquí una vez, como el «Volver» flotante.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Platform, View, type ViewStyle } from "react-native";
 import { Stack, router, usePathname } from "expo-router";
 import Head from "expo-router/head";
@@ -80,7 +80,6 @@ import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import BotonAtrasAlcance from "../components/BotonAtrasAlcance";
 import PantallaCargaMarca, { BIENVENIDA_MS, BIENVENIDA_RELLENO_ID } from "../components/PantallaCargaMarca";
-import AsistenteBlue from "../components/AsistenteBlue";
 import { BarraComparar } from "../components/CarruselProductosCategoria";
 import AvisoAnaliticaCookies from "../components/AvisoAnaliticaCookies";
 import EfectoPensando from "../components/EfectoPensando";
@@ -89,6 +88,14 @@ import EtiquetasCabeceraWeb from "../components/EtiquetasCabeceraWeb";
 import TirarParaActualizar from "../components/TirarParaActualizar";
 import { medirLlegadaDesdeRedes, medirEvento } from "../lib/analiticaPropia";
 import { alIncidenciaDeSesion, registrarDispositivo, supabase } from "../lib/supabase";
+
+// Carga más rápida, paso 2 (dueño, 2026-11-21): Blue (el asistente flotante, unas 6.000 líneas con components/blue) es
+// su propio trozo. Se empieza a pedir en cuanto arranca la tienda (en el navegador), a la vez que se pinta, y no antes:
+// así la primera pantalla no espera a Blue. Lo que Blue necesita saber de antes de montarse (p. ej. el primer
+// «Comparar») lo guardan las propias piezas de la tienda.
+const cargarBlue = () => import("../components/AsistenteBlue");
+const promesaBlue = typeof window !== "undefined" ? cargarBlue() : null;
+const AsistenteBlue = lazy(() => promesaBlue ?? cargarBlue());
 
 // Máximo que se espera a la fuente de iconos antes de mostrar la tienda igualmente.
 const BOOT_FONT_TIMEOUT_MS = 1500;
@@ -157,6 +164,11 @@ export default function RootLayout() {
   const pathname = usePathname();
   const rutaActual = useRef(pathname);
   rutaActual.current = pathname;
+  // Blue se monta tras el primer pintado en el navegador (su trozo ya se está descargando desde el arranque).
+  const [blueListo, setBlueListo] = useState(false);
+  useEffect(() => {
+    setBlueListo(true);
+  }, []);
   // La web se genera de antemano SIN saber el tamaño de la pantalla (ancho 1024 por
   // defecto). Si la tienda se pintara ya en esa versión, al arrancar en el móvil React no
   // corrige los estilos que no coinciden y se quedan medidas de ordenador (buscador de
@@ -439,7 +451,12 @@ export default function RootLayout() {
       </Stack>
 
       {/* Blue, asistente flotante (antes campanita): por encima de TODO, en todas las pantallas. */}
-      <AsistenteBlue />
+      {/* Se monta tras el primer pintado (en el servidor y en la primera vuelta, nada): así no frena la portada. */}
+      {blueListo ? (
+        <Suspense fallback={null}>
+          <AsistenteBlue />
+        </Suspense>
+      ) : null}
 
       {/* «Volver» a mano del pulgar derecho en las páginas de lectura. */}
       <BotonAtrasAlcance />

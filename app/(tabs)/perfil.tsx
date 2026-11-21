@@ -138,7 +138,9 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { firmaPedidoSeg, marcarSeguimientosVistos } from "../../components/AsistenteBlue";
+// Directamente de DatosBlue (no de AsistenteBlue): así Blue entero no viaja en el paquete de la tienda (carga más
+// rápida, paso 2).
+import { firmaPedidoSeg, marcarSeguimientosVistos } from "../../components/blue/DatosBlue";
 import CarruselProductosCategoria, { columnasLista, RejillaTarjetas, TarjetaProducto } from "../../components/CarruselProductosCategoria";
 import CargaMarca from "../../components/marca/CargaMarca";
 import VisorFotos, { type FotoVisor } from "../../components/VisorFotos";
