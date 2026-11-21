@@ -2040,12 +2040,13 @@ export default function PantallaInicio() {
               electrónicos!
             </Text>
 
-            <View style={{ flexDirection: "row", justifyContent: "center", gap: 12, alignSelf: "stretch" }}>
-              <View style={{ flex: 1 }}>
+            {/* En el ordenador, con el mismo ancho que el buscador (760 px) y centrados: no de borde a borde. */}
+            <View style={{ flexDirection: "row", justifyContent: "center", gap: 12, alignSelf: isMobile ? "stretch" : "center", width: "100%", maxWidth: isMobile ? undefined : 760 }}>
+              <View style={{ flex: 1, marginRight: isMobile ? 0 : 6 }}>
                 <PrimaryButton title="Ver categorías" icono="apps" testID="boton-ver-categorias" onPress={scrollToCategories} isMobile={isMobile} />
               </View>
 
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, marginLeft: isMobile ? 0 : 6 }}>
                 <PrimaryButton title="Vender ahora" icono="cash" testID="boton-vender-ahora" onPress={() => pushRoute("/vender" as Href)} isMobile={isMobile} />
               </View>
             </View>
