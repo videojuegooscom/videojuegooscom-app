@@ -183,8 +183,22 @@ function EnlaceTarjeta({ nativeID, texto, icono, onPress }: { nativeID: string; 
  * Tarjeta del producto fijada arriba del hilo (y en Administración → Chats): foto pequeña, título, precio actual y estado.
  * El cliente tiene «Ver el artículo» mientras está a la venta; el administrador, la ficha y «Editar en Productos».
  */
-export function TarjetaArticuloChat({ articulo, modo, nativeID = "chat-producto-tarjeta" }: { articulo: ArticuloChat; modo: "cliente" | "admin"; nativeID?: string }) {
-  const verFicha = () => router.push(`/producto/${articulo.id}` as never);
+export function TarjetaArticuloChat({
+  articulo,
+  modo,
+  nativeID = "chat-producto-tarjeta",
+  alAbrir,
+}: {
+  articulo: ArticuloChat;
+  modo: "cliente" | "admin";
+  nativeID?: string;
+  /** Antes de ir a la ficha (p. ej. medir que se abrió desde un enlace del chat). */
+  alAbrir?: () => void;
+}) {
+  const verFicha = () => {
+    alAbrir?.();
+    router.push(`/producto/${articulo.id}` as never);
+  };
   const enVenta = articulo.estado === "venta";
   return (
     <View nativeID={nativeID} style={{ width: "100%", maxWidth: 640, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: "#E3EAF2", backgroundColor: "#FFFFFF" }}>
@@ -225,6 +239,45 @@ export function TarjetaArticuloChat({ articulo, modo, nativeID = "chat-producto-
       </View>
     </View>
   );
+}
+
+// --- Enlaces de la propia tienda en los mensajes (dueño, 2026-11-23) --------------------------------------------------
+// «No me deja enviar enlaces propios de la tienda por el chat»: se enviaban, pero salían como texto que no se podía
+// tocar. Ahora un enlace a videojuegoszaragoza.com se toca y abre esa pantalla dentro de la tienda, y si es de un artículo
+// (/producto/<id>) sale debajo del mensaje su tarjeta (foto, precio, estado y «Ver el artículo»). Los enlaces de fuera
+// siguen como texto: nadie puede colar en el chat un enlace a otra web que parezca de la tienda.
+const ENLACE_TIENDA_RE = /https?:\/\/(?:www\.)?videojuegoszaragoza\.com(?:\/[^\s<>"']*)?/gi;
+const PRODUCTO_EN_RUTA_RE = /^\/producto\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i;
+
+export type TrozoMensaje = { tipo: "texto"; texto: string } | { tipo: "enlace"; texto: string; ruta: string; productoId: string | null };
+
+/** Parte el texto de un mensaje en texto normal y enlaces de la tienda (con su ruta interna y, si es un artículo, su id). */
+export function trozosMensaje(texto: string): TrozoMensaje[] {
+  const trozos: TrozoMensaje[] = [];
+  let desde = 0;
+  for (const m of texto.matchAll(ENLACE_TIENDA_RE)) {
+    // La puntuación pegada al final («…/producto/x.») no es parte del enlace.
+    const enlace = m[0].replace(/[.,;:!?)\]]+$/, "");
+    const inicio = m.index ?? 0;
+    if (inicio > desde) trozos.push({ tipo: "texto", texto: texto.slice(desde, inicio) });
+    let ruta = "/";
+    try {
+      const u = new URL(enlace);
+      ruta = `${u.pathname || "/"}${u.search}${u.hash}`;
+    } catch {
+      ruta = "/";
+    }
+    trozos.push({ tipo: "enlace", texto: enlace, ruta, productoId: PRODUCTO_EN_RUTA_RE.exec(ruta)?.[1]?.toLowerCase() ?? null });
+    desde = inicio + enlace.length;
+  }
+  if (desde < texto.length) trozos.push({ tipo: "texto", texto: texto.slice(desde) });
+  return trozos;
+}
+
+/** Analítica propia: un enlace de la tienda abierto desde el chat (solo el tipo y la ruta; nunca el texto del mensaje). */
+function medirEnlaceTienda(ruta: string, productoId: string | null) {
+  const tipo = productoId ? "producto" : /^\/servicio\//.test(ruta) ? "servicio" : "otro";
+  void medirEvento("chat_enlace_tienda", "Chat: enlace de la tienda abierto", { path: ruta.split(/[?#]/)[0], metadata: { tipo } });
 }
 
 const RESUMEN_MAX = 1200;
@@ -414,12 +467,50 @@ export default function ConversacionProducto({
   const [chatKind, setChatKind] = useState<ChatKind | null>(null);
   const [customerName, setCustomerName] = useState<string>("Cliente");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Artículos enlazados en los mensajes (su tarjeta debajo del mensaje), por id.
+  const [enlazados, setEnlazados] = useState<Map<string, ArticuloChat>>(() => new Map());
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState(() => (borradorInicial ?? "").slice(0, MESSAGE_MAX));
   const [sending, setSending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+
+  // Tarjetas de los artículos enlazados: se piden una vez por id (también los que llegan por tiempo real).
+  const pedidosEnlazados = useRef(new Set<string>());
+  useEffect(() => {
+    const pedidos = pedidosEnlazados.current;
+    const nuevos: string[] = [];
+    for (const m of messages) {
+      for (const t of trozosMensaje(m.body ?? "")) {
+        if (t.tipo === "enlace" && t.productoId && !pedidos.has(t.productoId)) {
+          pedidos.add(t.productoId);
+          nuevos.push(t.productoId);
+        }
+      }
+    }
+    if (!nuevos.length) return;
+    let vivo = true;
+    let hecho = false;
+    void cargarArticulosChat(nuevos)
+      .then((mapa) => {
+        hecho = true;
+        setEnlazados((prev) => {
+          const sig = new Map(prev);
+          for (const [id, a] of mapa) sig.set(id, a);
+          return sig;
+        });
+      })
+      .catch(() => {
+        // sin tarjeta: el enlace se sigue pudiendo tocar (y se vuelve a intentar con el próximo mensaje)
+        if (vivo) for (const id of nuevos) pedidos.delete(id);
+      });
+    return () => {
+      vivo = false;
+      // Si se cancela antes de llegar, se volverá a pedir.
+      if (!hecho) for (const id of nuevos) pedidos.delete(id);
+    };
+  }, [messages]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -804,12 +895,22 @@ export default function ConversacionProducto({
           ) : (
             messages.map((m) => {
               const mine = m.sender_user_id === meId;
+              const trozos = trozosMensaje(m.body ?? "");
+              // Artículos enlazados en el mensaje (sin repetir), con su tarjeta debajo de la burbuja.
+              const tarjetas = Array.from(
+                new Set(trozos.flatMap((t) => (t.tipo === "enlace" && t.productoId ? [t.productoId] : [])))
+              ).flatMap((id) => {
+                const a = enlazados.get(id);
+                return a ? [a] : [];
+              });
               return (
                 <View
                   key={m.id}
                   style={{
                     alignSelf: mine ? "flex-end" : "flex-start",
-                    maxWidth: "82%",
+                    // Con tarjeta, ancho fijo (la tarjeta ocupa todo); sin ella, la burbuja mide lo que su texto.
+                    ...(tarjetas.length ? { width: "82%", maxWidth: 420 } : { maxWidth: "82%" }),
+                    alignItems: mine ? "flex-end" : "flex-start",
                     gap: 2,
                   }}
                 >
@@ -821,8 +922,38 @@ export default function ConversacionProducto({
                       backgroundColor: mine ? COLORS.bubbleMine : COLORS.bubbleOther,
                     }}
                   >
-                    <Text style={{ color: COLORS.text, fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>{m.body}</Text>
+                    <Text style={{ color: COLORS.text, fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
+                      {trozos.map((t, i) =>
+                        t.tipo === "texto" ? (
+                          t.texto
+                        ) : (
+                          <Text
+                            key={i}
+                            accessibilityRole="link"
+                            nativeID={`chat-enlace-${m.id}-${i}`}
+                            onPress={() => {
+                              if (soyCliente) medirEnlaceTienda(t.ruta, t.productoId);
+                              router.push(t.ruta as never);
+                            }}
+                            // Una dirección larga se parte donde haga falta: no ensancha la burbuja ni se sale de la pantalla.
+                            style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "700", textDecorationLine: "underline", ...(Platform.OS === "web" ? ({ cursor: "pointer", wordBreak: "break-all" } as object) : null) }}
+                          >
+                            {t.texto}
+                          </Text>
+                        )
+                      )}
+                    </Text>
                   </View>
+                  {tarjetas.map((a) => (
+                    <View key={a.id} style={{ width: "100%", marginTop: 4 }}>
+                      <TarjetaArticuloChat
+                        articulo={a}
+                        modo={soyCliente ? "cliente" : "admin"}
+                        nativeID={`chat-enlace-tarjeta-${m.id}-${a.id}`}
+                        alAbrir={soyCliente ? () => medirEnlaceTienda(`/producto/${a.id}`, a.id) : undefined}
+                      />
+                    </View>
+                  ))}
                   <Text
                     style={{
                       color: COLORS.muted2,

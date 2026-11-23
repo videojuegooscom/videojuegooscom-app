@@ -509,6 +509,7 @@ const DINAMICAS = [
   [/^\/politicas\/[^/]+$/, "politicas/[slug].html"],
   [/^\/noticias\/[^/]+$/, "noticias/[id].html"],
   [/^\/admin\/cliente\/[^/]+$/, "admin/cliente/[userId].html"],
+  [/^\/chat\/[^/]+$/, "chat/[chatId].html"],
 ];
 const buscar = (ruta) => {
   const limpia = normalize(decodeURIComponent(ruta)).replace(/^(\.\.[/\\])+/, "");
@@ -17670,6 +17671,97 @@ async function seccionVALOR() {
   }
 }
 
+// ===== ENL) Enlaces de la tienda en el chat (dueño, 2026-11-23: «no me deja enviar enlaces propios de la tienda») ======
+// Un enlace a videojuegoszaragoza.com en un mensaje se toca y abre esa pantalla; si es de un artículo, debajo sale su
+// tarjeta (título, precio, «Ver el artículo»; en Administración, «Editar en Productos»). Los enlaces de otras webs siguen
+// como texto. Analítica «chat_enlace_tienda» solo con el tipo (sin el mensaje). A 360, 390 y 1280 sin desbordes.
+// Control: la tienda anterior pinta el enlace como texto, sin tarjeta.
+async function seccionENL() {
+  const CAT = { id: "c0000000-0000-4000-8000-0000000000c8", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true };
+  const PROD = "d2000000-0000-4000-8000-0000000000e1";
+  const CHAT = "e1000000-0000-4000-8000-0000000003e1";
+  const producto = {
+    id: PROD, title: "Consola PlayStation 5 Blu-Ray", description: "Revisada.", price_eur: 750, status: "PUBLISHED", is_active: true, condition: "GOOD",
+    category_id: CAT.id, category: { id: CAT.id, name: CAT.name, slug: CAT.slug }, created_at: "2026-11-20T10:00:00Z", updated_at: "2026-11-20T10:00:00Z",
+    novedad_en: null, view_count: 3, images: [], like_count: 0, reference: null, revisado: false, garantia_meses: null, solo_entrega_mano: false,
+  };
+  const ahora = Date.now();
+  const iso = (min) => new Date(ahora - min * 60000).toISOString();
+  const nuevoEstado = () => ({
+    filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }],
+    guardados: [],
+    aceptaAnalitica: true,
+    categorias: [CAT],
+    catalogoFB: [producto],
+    fotosCatalogo: [],
+    chatp: {
+      chats: [{ id: CHAT, created_at: iso(30), product_id: null, sell_request_id: null, customer_user_id: CLIENTE.id, last_message_at: iso(1), last_message_preview: "Sii", last_sender_role: "admin", admin_deleted_at: null, customer_deleted_at: null }],
+      mensajes: [
+        { id: "m1", created_at: iso(20), chat_id: CHAT, sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Ana", body: "Hay alguna ps5 disponible?" },
+        { id: "m2", created_at: iso(2), chat_id: CHAT, sender_user_id: ADMIN.id, sender_role: "admin", sender_name: "Tienda", body: `Sii, mira: https://videojuegoszaragoza.com/producto/${PROD}.` },
+        { id: "m3", created_at: iso(1), chat_id: CHAT, sender_user_id: ADMIN.id, sender_role: "admin", sender_name: "Tienda", body: "Y los servicios en https://www.videojuegoszaragoza.com/servicios (no entres en https://otra-web.example/oferta)" },
+      ],
+      ventas: [],
+      usuarios: [{ user_id: CLIENTE.id, email: "cliente@example.com", nombre: "Ana" }],
+    },
+  });
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const tarjeta = `#chat-enlace-tarjeta-m2-${PROD}`;
+  for (const { nombre, vista } of VISTAS) {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await pagina(ctx, `/chat/${CHAT}`);
+    await p.locator(tarjeta).first().waitFor({ timeout: 25000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const enlaces = await p.evaluate(() =>
+      Array.from(document.querySelectorAll('[id^="chat-enlace-m"]')).map((e) => ({ id: e.id, texto: (e.textContent ?? "").trim(), rol: e.getAttribute("role") }))
+    );
+    // Cada enlace (y su burbuja) cabe en la pantalla: una dirección larga se parte, no se sale por la derecha.
+    const salidos = await p.evaluate(() =>
+      Array.from(document.querySelectorAll('[id^="chat-enlace-m"]'))
+        .flatMap((e) => Array.from(e.getClientRects()).map((r) => Math.round(r.right)))
+        .filter((der) => der > window.innerWidth - 8)
+    );
+    ok(salidos.length === 0, `ENL (${nombre}): los enlaces largos se parten dentro de la burbuja (${salidos.length ? `se salen hasta ${Math.max(...salidos)} px` : "ninguno se sale"})`);
+    const prod = enlaces.find((e) => e.id.startsWith("chat-enlace-m2-"));
+    ok(!!prod && prod.texto === `https://videojuegoszaragoza.com/producto/${PROD}` && prod.rol === "link", `ENL (${nombre}): el enlace del artículo se puede tocar, sin el punto final (${JSON.stringify(prod ?? null)})`);
+    ok(enlaces.some((e) => e.id.startsWith("chat-enlace-m3-") && /\/servicios$/.test(e.texto)), `ENL (${nombre}): el de Servicios (con www) también (${enlaces.map((e) => e.texto).join(" | ")})`);
+    ok(!enlaces.some((e) => /otra-web/.test(e.texto)), `ENL (${nombre}): el enlace de otra web sigue como texto, sin poder tocarlo`);
+    const t = (await p.locator(tarjeta).first().innerText({ timeout: 3000 }).catch(() => "")).replace(/\s+/g, " ");
+    ok(/Consola PlayStation 5 Blu-Ray/.test(t) && /750/.test(t) && /Ver el artículo/.test(t), `ENL (${nombre}): debajo del mensaje, la tarjeta del artículo con precio y «Ver el artículo» («${t}»)`);
+    const d = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+    ok(d.a <= d.v + 1, `ENL (${nombre}): el chat no se ensancha (${d.a}/${d.v})`);
+    await capturar(p, `ENL1-cliente-${nombre}`);
+    if (nombre === "390") {
+      await p.locator('[id^="chat-enlace-m2-"]').first().click();
+      await p.waitForURL(/\/producto\//, { timeout: 15000 }).catch(() => {});
+      ok(p.url().includes(`/producto/${PROD}`), `ENL: tocar el enlace abre la ficha del artículo dentro de la tienda (${p.url().replace(BASE, "")})`);
+      for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "chat_enlace_tienda"); i++) await p.waitForTimeout(250);
+      const ev = (estado.eventosEnviados ?? []).find((e) => e.event_name === "chat_enlace_tienda");
+      ok(!!ev && ev.metadata?.tipo === "producto" && !/ps5 disponible|Sii|Ana/.test(JSON.stringify(ev.metadata)), `ENL: se mide «chat_enlace_tienda» solo con el tipo (${JSON.stringify(ev?.metadata ?? null)})`);
+    }
+    ok(p.errores.length === 0, `ENL (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+  // Administración → Chat: el mismo hilo con la tarjeta del administrador («Editar en Productos»).
+  {
+    const estado = nuevoEstado();
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 });
+    const p = await pagina(ctx, `/admin/chats?chat=${CHAT}`);
+    await p.locator(tarjeta).first().waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const t = (await p.locator(tarjeta).first().innerText({ timeout: 3000 }).catch(() => "")).replace(/\s+/g, " ");
+    ok(/Editar en Productos/.test(t) && /A la venta/.test(t), `ENL: en Administración → Chat sale la tarjeta con su estado y «Editar en Productos» («${t}»)`);
+    await capturar(p, "ENL2-admin-1280");
+    ok(p.errores.length === 0, `ENL (admin): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 // ===== CHATP) Chat con el producto adjunto (mejora 10, 2026-11-15) ===================================================
 // «Preguntar por este artículo» en la ficha abre el chat de la tienda de ese producto (el que ya hay o uno nuevo, nunca dos)
 // con la tarjeta del producto arriba (foto, título, precio y «Ver el artículo») y primeras preguntas que rellenan el campo
@@ -24816,6 +24908,7 @@ try {
   if (SOLO === "ALQ2") await seccionALQ2();
   if (SOLO === "AVISOM") await seccionAVISOM();
   if (SOLO === "CHATP") await seccionCHATP();
+  if (SOLO === "ENL") await seccionENL();
   if (SOLO === "VALOR") await seccionVALOR();
   if (SOLO === "MOMB") await seccionMOMB();
   if (SOLO === "CAMBC") await seccionCAMBC();
@@ -25935,6 +26028,7 @@ try {
   await seccionCOMPA();
   await seccionVISTOS();
   await seccionCHATP();
+  await seccionENL();
   await seccionAVISOM();
   await seccionVALOR();
   await seccionMOMB();
