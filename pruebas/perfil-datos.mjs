@@ -4925,7 +4925,7 @@ async function seccionFT() {
     producto: {
       id: ID, title: "PS4 Slim revisada", description: CON_EMOJIS, price_eur: 189, status: "PUBLISHED", is_active: true,
       category_id: null, images: [], updated_at: "2026-11-01T10:00:00Z", created_at: "2026-11-01T10:00:00Z", condition: "USED",
-      like_count: 0, reference: null, caracteristicas: [{ etiqueta: "Plataforma", valor: "PS4" }, { etiqueta: "Almacenamiento", valor: "500 GB" }, { etiqueta: "Mandos", valor: "1" }],
+      like_count: 0, reference: null, caracteristicas: [{ etiqueta: "Plataforma", valor: "PS4" }, { etiqueta: "Almacenamiento", valor: "500 GB" }, { etiqueta: "Mandos", valor: "1" }, { etiqueta: "Cables incluidos", valor: "Alimentación, HDMI, USB de carga y cable de cargador original" }],
       mantenimiento: null, category: null,
     },
     fotosProducto: [],
@@ -4965,6 +4965,7 @@ async function seccionFT() {
 
   for (const [nombre, vista] of [
     ["móvil", {}],
+    ["móvil 360", { viewport: { width: 360, height: 780 } }],
     ["ordenador", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
   ]) {
     for (const [prefijo, ruta] of [
@@ -4975,6 +4976,14 @@ async function seccionFT() {
       const p = await pagina(ctx, ruta);
       await p.locator(`#${prefijo}-ficha-carrusel`).waitFor({ timeout: 30000 }).catch(() => {});
       await p.waitForTimeout(800);
+
+      // FT0) La ficha cabe en la pantalla: con un valor largo, la caja de las pestañas no crece por los lados (2026-11-23:
+      // en el móvil medía 520 px en una pantalla de 390 y cada pantalla se veía cortada por la mitad).
+      const caja = await p.evaluate((prefijo) => {
+        const r = document.getElementById(`${prefijo}-ficha-carrusel`)?.getBoundingClientRect();
+        return r ? { izq: Math.round(r.left), der: Math.round(r.right), ventana: window.innerWidth } : null;
+      }, prefijo);
+      ok(!!caja && caja.izq >= 0 && caja.der <= caja.ventana, `FT (${nombre}, ${prefijo}): la ficha con pestañas cabe en la pantalla (de ${caja?.izq ?? "?"} a ${caja?.der ?? "?"} px en ${caja?.ventana ?? "?"})`);
 
       // FT1) Tocar «Descripción»: entera en su sitio.
       await pestana(p, prefijo, "Descripción").click({ timeout: 10000 }).catch(() => {});

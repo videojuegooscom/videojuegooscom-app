@@ -1346,7 +1346,9 @@ export default function ProductoScreen() {
                 {/* Ficha técnica y mantenimiento de VeoAura y descripción: con más de una, un carrusel que se desliza
                     (y pasa solo cada 10 s); con solo la descripción, sin carrusel. */}
                 {/* En el móvil queda debajo de la foto y el precio: aparece con un fundido suave al llegar a ella (2026-11-19). */}
-                <AparecerAlVer>
+                {/* Ancho entero: la columna centra a sus hijos y, sin él, el fundido crecía hasta los 520 px de las pestañas y en
+                    el móvil cada pantalla se salía por los lados (2026-11-23). */}
+                <AparecerAlVer style={{ width: "100%", maxWidth: 520 }}>
                   <FichaProducto key={p.id} caracteristicas={p.caracteristicas} mantenimiento={p.mantenimiento} descripcion={p.description} />
                 </AparecerAlVer>
               </View>
