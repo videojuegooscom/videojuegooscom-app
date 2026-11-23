@@ -1290,13 +1290,14 @@ export default function AdminAnalytics() {
     enviados: number;
     primeras: number;
     invitaciones: number;
+    enlaces: number;
     sugerencias: { texto: string; n: number }[];
     top: { id: string; titulo: string; n: number }[];
   } | null>(null);
   useEffect(() => {
     let vivo = true;
     (async () => {
-      const NOMBRES = ["chat_producto_abierto", "chat_producto_sugerencia", "chat_producto_enviado", "chat_producto_invitacion"];
+      const NOMBRES = ["chat_producto_abierto", "chat_producto_sugerencia", "chat_producto_enviado", "chat_producto_invitacion", "chat_enlace_tienda"];
       const desde = new Date(Date.now() - 30 * 86400000).toISOString();
       const { data, error } = await supabase
         .from("analytics_events")
@@ -1331,6 +1332,7 @@ export default function AdminAnalytics() {
         enviados: enviados.length,
         primeras: enviados.filter((f) => f.metadata?.primera === true).length,
         invitaciones: filas.filter((f) => f.event_name === "chat_producto_invitacion").length,
+        enlaces: filas.filter((f) => f.event_name === "chat_enlace_tienda").length,
         sugerencias: [...usos.entries()].sort((a, b) => b[1] - a[1]).map(([texto, n]) => ({ texto, n })),
         top: ids.map((id) => ({ id, titulo: titulos.get(id) ?? "Producto retirado", n: veces.get(id) ?? 0 })),
       });
@@ -2780,7 +2782,7 @@ export default function AdminAnalytics() {
 
             <SectionCard
               title="Preguntas por artículos (30 días)"
-              subtitle="«Preguntar por este artículo» en la ficha abre el chat de la tienda con el producto adjunto: conversaciones abiertas, mensajes enviados (y cuántos fueron la primera pregunta), invitaciones a crear cuenta, las preguntas sugeridas más usadas y los productos por los que más se pregunta. Solo ids de producto, sin datos de nadie; solo visitantes que aceptaron la analítica."
+              subtitle="«Preguntar por este artículo» en la ficha abre el chat de la tienda con el producto adjunto: conversaciones abiertas, mensajes enviados (y cuántos fueron la primera pregunta), invitaciones a crear cuenta, enlaces de la tienda que el cliente abre desde un mensaje, las preguntas sugeridas más usadas y los productos por los que más se pregunta. Solo ids de producto, sin datos de nadie; solo visitantes que aceptaron la analítica."
             >
               {!preguntasArticulos ? (
                 <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>No se han podido cargar las preguntas por artículos.</Text>
@@ -2790,7 +2792,8 @@ export default function AdminAnalytics() {
                     <Ionicons name="chatbubbles-outline" size={16} color={COLORS.accentDark} />
                     <Text nativeID="analitica-chat-producto-uso" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Conversaciones abiertas {preguntasArticulos.abiertos} · mensajes enviados {preguntasArticulos.enviados} (primera pregunta{" "}
-                      {preguntasArticulos.primeras}) · sin cuenta, invitados a crearla {preguntasArticulos.invitaciones}
+                      {preguntasArticulos.primeras}) · sin cuenta, invitados a crearla {preguntasArticulos.invitaciones} · enlaces de la
+                      tienda abiertos desde el chat {preguntasArticulos.enlaces}
                     </Text>
                   </View>
                   <View nativeID="analitica-chat-producto-sugerencias" style={{ gap: 6 }}>
