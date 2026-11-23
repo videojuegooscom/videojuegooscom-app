@@ -70,7 +70,7 @@
  * - app/admin/services.tsx (pestaña "Solicitudes") → donde se revisa cada envío, con su opción.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Modal, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { Animated, Modal, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -674,7 +674,8 @@ export default function ContratarServicioModal({
     comoPagina ? (
       <View
         nativeID="contratar-pagina"
-        style={{ flex: 1, backgroundColor: COLORS.bg, paddingTop: insets.top, paddingBottom: isMobile ? FRANJA_BOTON_ATRAS + insets.bottom : 0 }}
+        // En la web la franja de la hora ya la deja toda la tienda (#root, --vz-arriba de app/+html.tsx).
+        style={{ flex: 1, backgroundColor: COLORS.bg, paddingTop: Platform.OS === "web" ? 0 : insets.top, paddingBottom: isMobile ? FRANJA_BOTON_ATRAS + insets.bottom : 0 }}
       >
         {hijos}
         <BotonAtrasFlotante onPress={handleClose} />

@@ -23,7 +23,7 @@
  * - app/_layout.tsx → registra la ruta.
  */
 import React, { useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ContratarServicioModal from "../../components/ContratarServicioModal";
@@ -47,6 +47,8 @@ function volver(id: string) {
 
 export default function ContratarServicioScreen() {
   const insets = useSafeAreaInsets();
+  // En la web la franja de la hora ya la deja toda la tienda (#root, --vz-arriba de app/+html.tsx).
+  const arriba = Platform.OS === "web" ? 0 : insets.top;
   const params = useLocalSearchParams<{ id?: string; opcion?: string }>();
   const id = typeof params.id === "string" ? params.id : "";
   const opcion = typeof params.opcion === "string" ? params.opcion : null;
@@ -77,7 +79,7 @@ export default function ContratarServicioScreen() {
 
   if (estado === "cargando") {
     return (
-      <View style={{ flex: 1, backgroundColor: "#FFFFFF", paddingTop: insets.top }}>
+      <View style={{ flex: 1, backgroundColor: "#FFFFFF", paddingTop: arriba }}>
         <CargaMarca texto="Cargando el servicio…" />
       </View>
     );
@@ -85,7 +87,7 @@ export default function ContratarServicioScreen() {
 
   if (estado === "no-existe" || !servicio) {
     return (
-      <View style={{ flex: 1, backgroundColor: "#FFFFFF", paddingTop: insets.top, paddingHorizontal: 18, gap: 18 }}>
+      <View style={{ flex: 1, backgroundColor: "#FFFFFF", paddingTop: arriba, paddingHorizontal: 18, gap: 18 }}>
         <CabeceraMarca onBack={() => volver(id)} />
         <View style={{ alignItems: "center", gap: 14, paddingTop: 40 }}>
           <Text style={{ color: "#0B2138", fontWeight: "900", fontSize: 18, textAlign: "center" }}>Este servicio ya no está disponible</Text>

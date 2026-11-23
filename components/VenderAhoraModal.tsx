@@ -1543,7 +1543,8 @@ export default function VenderAhoraModal({
   // no vuelva a montar el formulario en cada pulsación y los campos no pierdan el foco.
   const envolver = (hijos: React.ReactNode) =>
     comoPagina ? (
-      <View style={{ flex: 1, backgroundColor: "#FFFFFF", paddingTop: insets.top }}>{hijos}</View>
+      // En la web la franja de la hora ya la deja toda la tienda (#root, --vz-arriba de app/+html.tsx).
+      <View style={{ flex: 1, backgroundColor: "#FFFFFF", paddingTop: Platform.OS === "web" ? 0 : insets.top }}>{hijos}</View>
     ) : (
       <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
         <View

@@ -42,8 +42,14 @@ const SEO_DESCRIPCION = "Compramos tu electrónica al mejor precio o la intercam
 //   algo se sale por un lado (p. ej. Blue al esconderse), Safari agranda el ancho de la
 //   ventana y la tienda entera se maqueta como si la pantalla fuera más ancha (buscador
 //   cortado, categorías una por fila).
+// - --vz-arriba (2026-11-23): con viewport-fit=cover el iPhone dibuja la tienda también debajo de la hora y la batería,
+//   y Safari (iOS 26) difumina esa franja: la cabecera (flecha, logo) y Blue se veían borrosos. #root deja ese hueco
+//   arriba y Blue baja lo mismo (components/blue/AyudasBlue.tsx → zonaSeguraArriba). Es una variable para que las
+//   pruebas puedan simular un iPhone (sección ZSA de pruebas/perfil-datos.mjs); en el ordenador vale 0.
 const BOOT_CSS =
+  ":root{--vz-arriba:env(safe-area-inset-top,0px);}" +
   "html,body,#root{background-color:#FFFFFF;overflow-x:hidden;max-width:100%;}" +
+  "#root{box-sizing:border-box;padding-top:var(--vz-arriba);}" +
   "html,body{overscroll-behavior-y:none;}" +
   "body{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}";
 
