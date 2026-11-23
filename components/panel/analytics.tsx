@@ -1294,6 +1294,36 @@ export default function AdminAnalytics() {
     sugerencias: { texto: string; n: number }[];
     top: { id: string; titulo: string; n: number }[];
   } | null>(null);
+  // Envío gratis regalado a clientes (dueño, 2026-11-23; migración 20261123160000): regalos activos, dados en 30 días,
+  // pedidos que lo usaron y avisos de Blue vistos. De la base de datos (lo que hace el administrador no se mide con la
+  // analítica), salvo los avisos, que son de clientes. null = sin la migración o sin poder leerlo.
+  const [envioGratis, setEnvioGratis] = useState<{ activos: number; dados30: number; pedidos: number; avisos: number } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+      const [regalos, pedidosRegalo, avisos] = await Promise.all([
+        supabase.from("envio_gratis_cliente").select("id,modo,cupo_total,caduca_en,anulado_en,creado_en").limit(2000),
+        supabase.from("pedidos").select("id", { count: "exact", head: true }).not("envio_gratis_id", "is", null).neq("estado", "cancelado"),
+        supabase.from("analytics_events").select("id", { count: "exact", head: true }).eq("event_name", "envio_gratis_aviso").gte("created_at", desde),
+      ]);
+      if (!vivo) return;
+      if (regalos.error || !Array.isArray(regalos.data)) {
+        setEnvioGratis(null);
+        return;
+      }
+      const filas = regalos.data as { anulado_en: string | null; caduca_en: string | null; creado_en: string }[];
+      setEnvioGratis({
+        activos: filas.filter((f) => !f.anulado_en && (!f.caduca_en || Date.parse(f.caduca_en) > Date.now())).length,
+        dados30: filas.filter((f) => f.creado_en >= desde).length,
+        pedidos: pedidosRegalo.error ? 0 : pedidosRegalo.count ?? 0,
+        avisos: avisos.error ? 0 : avisos.count ?? 0,
+      });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
   useEffect(() => {
     let vivo = true;
     (async () => {
@@ -2779,6 +2809,20 @@ export default function AdminAnalytics() {
                 </View>
               )}
             </SectionCard>
+
+            {envioGratis ? (
+              <SectionCard
+                title="Envío gratis regalado"
+                subtitle="El envío gratis que das a un cliente desde su ficha (Usuarios → cliente → «Activar envío gratis»): regalos sin quitar ni caducar (aunque ya se hayan gastado), los dados en los últimos 30 días, los pedidos que lo han usado (sin contar cancelados) y las veces que Blue se lo ha dicho al cliente (30 días, solo quien aceptó la analítica)."
+              >
+                <View nativeID="analitica-envio-gratis" style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                  <Ionicons name="gift-outline" size={16} color={COLORS.accentDark} />
+                  <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                    Sin quitar ni caducar {envioGratis.activos} · dados en 30 días {envioGratis.dados30} · pedidos con envío regalado {envioGratis.pedidos} · avisos de Blue vistos {envioGratis.avisos}
+                  </Text>
+                </View>
+              </SectionCard>
+            ) : null}
 
             <SectionCard
               title="Preguntas por artículos (30 días)"

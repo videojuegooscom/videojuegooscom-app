@@ -498,6 +498,93 @@ export function gratisDesdeMinimo(zonas: ZonaEnvio[] | null): number | null {
   return importes.length ? Math.min(...importes) : null;
 }
 
+// --- Envío gratis regalado a un cliente (dueño, 2026-11-23) -----------------------------------------------------------
+// El administrador lo da desde la ficha del cliente: de «Este artículo» (una vez) o de «Hasta N artículos» (cada artículo
+// comprado gasta 1; un pedido solo sale gratis si quedan para todos sus artículos). Lo que se cobra lo decide la base de
+// datos (pedidos_calcular_envio, migración 20261123160000); aquí se repite la regla para enseñarlo antes de pagar.
+
+export type RegaloEnvio = {
+  id: string;
+  modo: "articulo" | "cupo";
+  product_id: string | null;
+  cupo_total: number | null;
+  usados: number;
+  caduca_en: string | null;
+  creado_en: string;
+};
+
+/** Artículos que quedan en un regalo «Hasta N artículos» (en «Este artículo», 1 si no se ha usado). */
+export function restantesRegalo(r: RegaloEnvio): number {
+  return r.modo === "cupo" ? Math.max(0, (r.cupo_total ?? 0) - r.usados) : r.usados > 0 ? 0 : 1;
+}
+
+const ESCUCHAS_REGALOS = new Set<() => void>();
+/** Avisa cuando cambian los regalos (p. ej. tras pagar): la cesta, la ficha y Blue los vuelven a pedir. */
+export function alCambiarRegalosEnvio(fn: () => void): () => void {
+  ESCUCHAS_REGALOS.add(fn);
+  return () => {
+    ESCUCHAS_REGALOS.delete(fn);
+  };
+}
+export function avisarCambioRegalosEnvio() {
+  for (const fn of ESCUCHAS_REGALOS) fn();
+}
+
+/** Los regalos vigentes y con saldo del cliente con sesión (sin sesión, sin la migración o sin conexión: ninguno). */
+export async function cargarMisEnviosGratis(): Promise<RegaloEnvio[]> {
+  try {
+    const { data: sesion } = await supabase.auth.getSession();
+    if (!sesion.session?.user) return [];
+    const { data, error } = await supabase.rpc("mis_envios_gratis");
+    if (error || !Array.isArray(data)) return [];
+    return (data as Record<string, unknown>[])
+      .map((f) => ({
+        id: String(f.id),
+        modo: f.modo === "articulo" ? ("articulo" as const) : ("cupo" as const),
+        product_id: f.product_id ? String(f.product_id) : null,
+        cupo_total: f.cupo_total === null || f.cupo_total === undefined ? null : Number(f.cupo_total),
+        usados: Number(f.usados ?? 0) || 0,
+        caduca_en: f.caduca_en ? String(f.caduca_en) : null,
+        creado_en: String(f.creado_en ?? ""),
+      }))
+      .filter((r) => restantesRegalo(r) > 0 && (!r.caduca_en || Date.parse(r.caduca_en) > Date.now()));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * El regalo que vale para una compra con estos artículos (uno por artículo), como la base de datos: primero el de un
+ * artículo que vaya en la compra; si no, un «Hasta N artículos» al que le queden para todos.
+ */
+export function regaloEnvioPara(regalos: RegaloEnvio[], productIds: string[]): RegaloEnvio | null {
+  const n = productIds.length;
+  if (!n) return null;
+  const vigentes = regalos.filter((r) => restantesRegalo(r) > 0 && (!r.caduca_en || Date.parse(r.caduca_en) > Date.now()));
+  const deArticulo = vigentes.find((r) => r.modo === "articulo" && r.product_id && productIds.includes(r.product_id));
+  if (deArticulo) return deArticulo;
+  return vigentes.find((r) => r.modo === "cupo" && restantesRegalo(r) >= n) ?? null;
+}
+
+/** «hasta el 30 de noviembre» (hora de Madrid), o null si no caduca. */
+export function caducidadRegalo(r: Pick<RegaloEnvio, "caduca_en">): string | null {
+  if (!r.caduca_en) return null;
+  const t = Date.parse(r.caduca_en);
+  if (!Number.isFinite(t)) return null;
+  return `hasta el ${new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "long", timeZone: "Europe/Madrid" }).format(new Date(t))}`;
+}
+
+/** Texto corto de un regalo para el cliente: «Envío gratis en tus próximos 3 artículos (hasta el 30 de noviembre)». */
+export function textoRegaloEnvio(r: RegaloEnvio, tituloArticulo?: string | null): string {
+  const quedan = restantesRegalo(r);
+  const base =
+    r.modo === "articulo"
+      ? `Envío gratis en ${tituloArticulo ? `«${tituloArticulo}»` : "un artículo elegido para ti"}`
+      : `Envío gratis en ${quedan === 1 ? "tu próximo artículo" : `tus próximos ${quedan} artículos`}`;
+  const hasta = caducidadRegalo(r);
+  return hasta ? `${base} (${hasta})` : base;
+}
+
 // --- Franjas de entrega en el mismo día (dueño, 2026-11-15) ---------------------------------------------------------
 // «Entregas inmediatas el mismo día entre las 11:00 y las 12:45 por las mañanas y de 17:15 a 19:00 por las tardes, y así
 // podemos gestionar mejor los costes». Valen para la zona «local» (Zaragoza y Cuarte de Huerva) y la entrega en mano;

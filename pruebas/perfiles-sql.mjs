@@ -4294,6 +4294,135 @@ try {
     await c3.end();
   }
 
+  // EGC) Envío gratis regalado a un cliente (20261123160000_envio_gratis_cliente.sql, dueño 2026-11-23): solo el
+  // administrador lo da o lo quita; cada cliente ve solo los suyos; «Hasta N artículos» gasta 1 por artículo y un pedido
+  // solo sale gratis si quedan para todos sus artículos; cancelar devuelve el cupo; «Este artículo» vale una vez y solo
+  // con ese artículo; lo caducado o quitado no vale; el envío puesto a mano manda; sin permisos especiales; Envíos lo dice
+  // una vez. Con su «prueba de la prueba».
+  {
+    const EG = readFileSync("supabase/migrations/20261123160000_envio_gratis_cliente.sql", "utf8");
+    const P1 = "e1e1e1e1-0000-4000-8000-000000000001";
+    const P2 = "e1e1e1e1-0000-4000-8000-000000000002";
+    const P3 = "e1e1e1e1-0000-4000-8000-000000000003";
+    const ESQUEMA_EG = `
+      create table public.products (id uuid primary key, title text, price_eur numeric(10,2), peso_kg numeric);
+      insert into public.products values ('${P1}', 'PS5', 400, 4), ('${P2}', 'Mando', 50, 0.5), ('${P3}', 'Juego', 20, 0.2);
+      create table public.pedidos (id uuid primary key default gen_random_uuid(), user_id uuid, estado text not null default 'pendiente',
+        entrega text not null default 'envio', codigo_postal text, total_eur numeric(10,2), productos_eur numeric(10,2), envio_eur numeric(10,2),
+        zona_envio text, envio_manual boolean not null default false, peso_kg numeric, id_veoaura text, created_at timestamptz not null default now());
+      alter table public.pedidos enable row level security;
+      create policy pedidos_select on public.pedidos for select to authenticated using ((select public.is_admin()) or user_id = (select auth.uid()));
+      create policy pedidos_admin_update on public.pedidos for update to authenticated using ((select public.is_admin())) with check ((select public.is_admin()));
+      create table public.pedido_items (id uuid primary key default gen_random_uuid(), pedido_id uuid references public.pedidos (id), product_id uuid, titulo text, precio_eur numeric(10,2));
+      alter table public.pedido_items enable row level security;
+      create policy pedido_items_select on public.pedido_items for select to authenticated using ((select public.is_admin()) or exists (select 1 from public.pedidos p where p.id = pedido_id and p.user_id = (select auth.uid())));
+      -- Envío de la tienda (lo justo): 6,95 € a domicilio, 0 en recogida.
+      create function public.zona_envio(p_entrega text, p_cp text) returns text language sql stable as $f$ select case when p_entrega = 'envio' then 'peninsula' else 'mano' end $f$;
+      create function public.calcular_envio(p_entrega text, p_cp text, p_productos numeric, p_peso numeric) returns numeric language sql stable as $f$ select case when p_entrega = 'envio' then 6.95 else 0 end::numeric(10,2) $f$;
+      create function public.pedidos_calcular_envio() returns trigger language plpgsql as $f$ begin return new; end $f$;
+      create trigger trg_pedidos_envio before insert or update on public.pedidos for each row execute function public.pedidos_calcular_envio();
+      create function public.pedido_items_peso() returns trigger language plpgsql as $f$
+      begin
+        update public.pedidos p set peso_kg = (select coalesce(sum(coalesce(pr.peso_kg, 2)), 0) from public.pedido_items i left join public.products pr on pr.id = i.product_id where i.pedido_id = p.id) where p.id = new.pedido_id;
+        return null;
+      end $f$;
+      create trigger trg_pedido_items_peso after insert on public.pedido_items for each row execute function public.pedido_items_peso();
+      create table public.policy_pages (slug text primary key, sections jsonb not null, is_active boolean not null default true, updated_at timestamptz);
+      insert into public.policy_pages (slug, sections) values ('envios', '[{"heading": "Plazos", "body": "En Zaragoza y Cuarte, el mismo día."}, {"heading": "Correos", "body": "Resto de España en 72 h."}]');`;
+    const definerDe = async (cx) => Number((await cx.query("select count(*) as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef")).rows[0].n);
+    const ce = await nuevaBase("vz_aislada_envio_gratis", ESQUEMA_EG);
+    const definerAntes = await definerDe(ce);
+    let repetidaEg = true;
+    try {
+      await ce.query(EG);
+      await ce.query(EG);
+    } catch (e) {
+      repetidaEg = false;
+      console.log(String(e.message));
+    }
+    const reglasEg = (await ce.query("select string_agg(policyname || ':' || cmd, ',' order by policyname) as p from pg_policies where tablename = 'envio_gratis_cliente'")).rows[0].p;
+    const envTxt = (await ce.query("select sections::text as t from public.policy_pages where slug = 'envios'")).rows[0].t;
+    ok(
+      repetidaEg && (await definerDe(ce)) === definerAntes && reglasEg === "envio_gratis_cliente_admin_insert:INSERT,envio_gratis_cliente_admin_update:UPDATE,envio_gratis_cliente_select:SELECT" &&
+        envTxt.split("la tienda regala a un cliente el envío").length - 1 === 1,
+      `EGC: se aplica dos veces, sin permisos especiales, con 3 reglas y Envíos lo dice una vez (${reglasEg})`
+    );
+
+    // Quién da y quién ve.
+    const dar = (uid, valores) => como(ce, "authenticated", uid, `insert into public.envio_gratis_cliente (user_id, modo, product_id, cupo_total, caduca_en) values (${valores}) returning id`, { confirmar: true });
+    const clienteDa = await dar(U1, `'${U1}', 'cupo', null, 50, null`);
+    const anonDa = await como(ce, "anon", null, `insert into public.envio_gratis_cliente (user_id, modo, cupo_total) values ('${U1}', 'cupo', 50)`);
+    const cupoU1 = await dar(ADMIN, `'${U1}', 'cupo', null, 2, null`);
+    const malo = await dar(ADMIN, `'${U1}', 'cupo', '${P1}', 2, null`);
+    ok(!clienteDa.ok && !anonDa.ok && cupoU1.ok && !malo.ok, `EGC: solo el administrador da envío gratis (cliente ${clienteDa.codigo}, visitante ${anonDa.codigo}) y no entra uno mal formado (${malo.codigo})`);
+    const GU1 = cupoU1.filas[0].id;
+    const veU1 = await como(ce, "authenticated", U1, "select id, usados from public.mis_envios_gratis()");
+    const veU2 = await como(ce, "authenticated", U2, "select count(*)::int as n from public.envio_gratis_cliente");
+    const veU2de1 = await como(ce, "authenticated", U2, `select count(*)::int as n from public.envios_gratis_de_cliente('${U1}')`);
+    const quitaCliente = await como(ce, "authenticated", U1, `update public.envio_gratis_cliente set anulado_en = now() where id = '${GU1}'`, { confirmar: true });
+    ok(veU1.ok && veU1.filas.length === 1 && veU1.filas[0].usados === 0 && veU2.filas?.[0]?.n === 0 && veU2de1.filas?.[0]?.n === 0 && quitaCliente.cuantas === 0, "EGC: el cliente ve su regalo; otro cliente no lo ve ni lo quita");
+
+    // Pedidos (como la función del pedido: el pedido y después sus artículos).
+    let sigEg = 0;
+    const pedido = async (uid, productos, entrega = "envio") => {
+      const id = `e2e2e2e2-0000-4000-8000-0000000000${String(++sigEg).padStart(2, "0")}`;
+      await ce.query(`insert into public.pedidos (id, user_id, entrega, total_eur) values ('${id}', ${uid ? `'${uid}'` : "null"}, '${entrega}', 100)`);
+      for (const p of productos) await ce.query(`insert into public.pedido_items (pedido_id, product_id, titulo, precio_eur) values ('${id}', '${p}', 'x', 10)`);
+      return (await ce.query(`select id, envio_eur::float as envio, envio_gratis_id, total_eur::float as total from public.pedidos where id = '${id}'`)).rows[0];
+    };
+    const a = await pedido(U1, [P1]);
+    ok(a.envio === 0 && a.envio_gratis_id === GU1 && a.total === 100, `EGC: con «Hasta 2 artículos», un pedido de 1 artículo sale sin envío y apunta el regalo (${a.envio} €, total ${a.total})`);
+    const b = await pedido(U1, [P2, P3]);
+    ok(b.envio === 6.95 && b.envio_gratis_id === null, `EGC: le queda 1 y el pedido lleva 2 artículos: paga el envío (${b.envio} €)`);
+    const c1 = await pedido(U1, [P3]);
+    ok(c1.envio === 0 && c1.envio_gratis_id === GU1, "EGC: el último artículo del cupo sale gratis");
+    const d = await pedido(U1, [P3]);
+    const gastado = await como(ce, "authenticated", U1, "select count(*)::int as n from public.mis_envios_gratis()");
+    ok(d.envio === 6.95 && gastado.filas?.[0]?.n === 0, `EGC: gastado el cupo, el siguiente paga y el regalo ya no sale al cliente (${d.envio} €)`);
+    await como(ce, "authenticated", ADMIN, `update public.pedidos set estado = 'cancelado' where id = '${a.id}'`, { confirmar: true });
+    const tras = await como(ce, "authenticated", U1, "select usados from public.mis_envios_gratis()");
+    const e = await pedido(U1, [P2]);
+    ok(tras.filas?.[0]?.usados === 1 && e.envio === 0 && e.envio_gratis_id === GU1, `EGC: cancelar un pedido devuelve su artículo al cupo (usados ${tras.filas?.[0]?.usados}) y el siguiente vuelve a salir gratis`);
+    const sinSesion = await pedido(null, [P1]);
+    const recogida = await pedido(U1, [P1], "recogida");
+    ok(sinSesion.envio === 6.95 && recogida.envio === 0 && recogida.envio_gratis_id === null, "EGC: sin cuenta no hay regalo, y una recogida no gasta el cupo");
+
+    // «Este artículo»: solo con ese artículo y una vez.
+    const art = await dar(ADMIN, `'${U2}', 'articulo', '${P1}', null, null`);
+    const GA = art.filas[0].id;
+    const otroArt = await pedido(U2, [P2]);
+    const conArt = await pedido(U2, [P2, P1]);
+    const otraVez = await pedido(U2, [P1]);
+    ok(otroArt.envio === 6.95 && conArt.envio === 0 && conArt.envio_gratis_id === GA && otraVez.envio === 6.95, `EGC: «Este artículo» solo vale con ese artículo, aunque vaya con otros, y una sola vez (${otroArt.envio}, ${conArt.envio}, ${otraVez.envio})`);
+
+    // Caducado y quitado.
+    const cad = await dar(ADMIN, `'${U2}', 'cupo', null, 5, now() - interval '1 day'`);
+    const caducado = await pedido(U2, [P3]);
+    const quit = await dar(ADMIN, `'${U2}', 'cupo', null, 5, null`);
+    await como(ce, "authenticated", ADMIN, `update public.envio_gratis_cliente set anulado_en = now() where id = '${quit.filas[0].id}'`, { confirmar: true });
+    const quitado = await pedido(U2, [P3]);
+    ok(cad.ok && caducado.envio === 6.95 && quitado.envio === 6.95, "EGC: un regalo caducado o quitado ya no vale");
+
+    // El regalo que ya usó un pedido sigue aunque luego se quite; el envío a mano del administrador manda.
+    await como(ce, "authenticated", ADMIN, `update public.envio_gratis_cliente set anulado_en = now() where id = '${GU1}'`, { confirmar: true });
+    const recalc = await como(ce, "authenticated", ADMIN, `update public.pedidos set codigo_postal = '50001' where id = '${e.id}' returning envio_eur::float as envio, envio_gratis_id`, { confirmar: true });
+    const aMano = await como(ce, "authenticated", ADMIN, `update public.pedidos set envio_eur = 3 where id = '${c1.id}' returning envio_eur::float as envio, envio_gratis_id, total_eur::float as total`, { confirmar: true });
+    const tocaId = await como(ce, "authenticated", ADMIN, `update public.pedidos set envio_gratis_id = null where id = '${e.id}' returning envio_gratis_id`, { confirmar: true });
+    ok(recalc.filas?.[0]?.envio === 0 && recalc.filas?.[0]?.envio_gratis_id === GU1, "EGC: un pedido que ya usó el regalo lo conserva aunque después se quite");
+    ok(aMano.filas?.[0]?.envio === 3 && aMano.filas?.[0]?.total === 103 && tocaId.filas?.[0]?.envio_gratis_id === GU1, "EGC: el envío puesto a mano por el administrador manda, y el regalo apuntado solo lo cambia la base de datos");
+    await ce.end();
+
+    // Prueba de la prueba: sin aplicar el regalo, el pedido pagaría el envío.
+    const rotaEg = EG.replace("new.envio_eur := 0;\n      end if;", "null;\n      end if;");
+    const cr = await nuevaBase("vz_aislada_envio_gratis_rota", ESQUEMA_EG + rotaEg);
+    await cr.query(`insert into public.envio_gratis_cliente (user_id, modo, cupo_total) values ('${U1}', 'cupo', 5)`);
+    await cr.query(`insert into public.pedidos (id, user_id, entrega, total_eur) values ('e3e3e3e3-0000-4000-8000-000000000001', '${U1}', 'envio', 100)`);
+    await cr.query(`insert into public.pedido_items (pedido_id, product_id, titulo, precio_eur) values ('e3e3e3e3-0000-4000-8000-000000000001', '${P1}', 'x', 10)`);
+    const rotoEnvio = Number((await cr.query("select envio_eur from public.pedidos")).rows[0].envio_eur);
+    ok(rotaEg !== EG && rotoEnvio === 6.95, `EGC (control): sin aplicar el regalo, el pedido pagaría el envío (${rotoEnvio} €): la prueba SÍ lo detecta`);
+    await cr.end();
+  }
+
   // Motivo de la cancelación y «Avisarme cuando haya otro» (20261116100000_cancelacion_motivo_aviso.sql, dueño 2026-11-16):
   // el motivo con su comprobación (como mucho 200) y la hora de la cancelación que pone la base de datos; avisos_reposicion:
   // solo pedidos PROPIOS cancelados porque el artículo ya no está disponible, de quien la crea, una por pedido, canal

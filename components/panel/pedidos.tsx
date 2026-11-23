@@ -211,6 +211,8 @@ type Pedido = {
   condiciones_version?: string | null;
   // Contracargos, parte 2 (migración 20261121120000).
   entrega_codigo_ok_en?: string | null;
+  // Envío gratis regalado al cliente que usó este pedido (migración 20261123160000).
+  envio_gratis_id?: string | null;
 };
 
 // Estado de venta de cada artículo de los pedidos (products): cada artículo es UNA unidad. vendido_pedido_id solo existe
@@ -810,6 +812,9 @@ export default function PedidosAdmin() {
     // Contracargos, parte 2 (migración 20261121120000): cuándo se confirmó la entrega en mano con el código (el código no
     // se pide: solo lo ve el cliente).
     const CODIGO = ",entrega_codigo_ok_en";
+    // Envío gratis regalado al cliente (migración 20261123160000): qué regalo usó el pedido.
+    const REGALO = ",envio_gratis_id";
+    let conRegalo = true;
     let conCodigo = true;
     let conContra = true;
     let conCancelacion = true;
@@ -822,11 +827,12 @@ export default function PedidosAdmin() {
     let conEnvio = true;
     let conNumeros = true;
     const columnas = () =>
-      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}${conFranja ? FRANJA : ""}${conDoble ? DOBLE : ""}${conCancelacion ? CANCELACION : ""}${conContra ? CONTRA : ""}${conCodigo ? CODIGO : ""}`;
+      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}${conFranja ? FRANJA : ""}${conDoble ? DOBLE : ""}${conCancelacion ? CANCELACION : ""}${conContra ? CONTRA : ""}${conCodigo ? CODIGO : ""}${conRegalo ? REGALO : ""}`;
     let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(columnas());
-    for (let vuelta = 0; vuelta < 11 && res.error; vuelta++) {
+    for (let vuelta = 0; vuelta < 12 && res.error; vuelta++) {
       const msg = String(res.error.message ?? "");
-      if (conCodigo && /entrega_codigo/.test(msg)) conCodigo = false;
+      if (conRegalo && /envio_gratis_id/.test(msg)) conRegalo = false;
+      else if (conCodigo && /entrega_codigo/.test(msg)) conCodigo = false;
       else if (conContra && /pago_3ds|condiciones_aceptadas_en|condiciones_version/.test(msg)) conContra = false;
       else if (conCancelacion && /cancelacion_motivo|cancelado_en/.test(msg)) conCancelacion = false;
       else if (conDoble && /doble_venta_en/.test(msg)) conDoble = false;
@@ -1697,6 +1703,15 @@ export default function PedidosAdmin() {
                 {nombreZona(p.zona_envio) ? ` (${nombreZona(p.zona_envio)})` : ""}
                 {p.peso_kg ? ` · ${formatearKg(p.peso_kg)}` : ""} · {p.envio_manual ? "a mano" : "automático"}
               </Text>
+            ) : null}
+            {p.envio_gratis_id ? (
+              // Envío gratis regalado a este cliente desde su ficha (lo aplicó la base de datos).
+              <View nativeID={`pedido-envio-regalo-${p.numero}`} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="gift-outline" size={15} color={COLORS.success} />
+                <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19, flex: 1, minWidth: 0 }}>
+                  Envío regalado al cliente (desde su ficha)
+                </Text>
+              </View>
             ) : null}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 6, borderTopWidth: 1, borderTopColor: COLORS.border }}>
               <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Total</Text>

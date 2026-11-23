@@ -78,7 +78,18 @@ import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PieDePagina from "../../components/PieDePagina";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import { useRecarga } from "../../components/TirarParaActualizar";
-import { cargarTarifas, formatearEuros, gratisDesdeMinimo, hayEnviosDePago, type ZonaEnvio } from "../../lib/envio";
+import {
+  alCambiarRegalosEnvio,
+  cargarMisEnviosGratis,
+  cargarTarifas,
+  formatearEuros,
+  gratisDesdeMinimo,
+  hayEnviosDePago,
+  regaloEnvioPara,
+  textoRegaloEnvio,
+  type RegaloEnvio,
+  type ZonaEnvio,
+} from "../../lib/envio";
 import {
   formatoCuentaAtras,
   liberarReserva,
@@ -710,6 +721,19 @@ export default function CestaScreen() {
   const envioDePago = hayEnviosDePago(tarifas);
   const gratisDesde = gratisDesdeMinimo(tarifas);
   const total = subtotal;
+  // Envío gratis regalado por la tienda a este cliente (de un artículo o de sus próximos N artículos).
+  const [regalos, setRegalos] = useState<RegaloEnvio[]>([]);
+  useEffect(() => {
+    let vivo = true;
+    const cargar = () => cargarMisEnviosGratis().then((r) => vivo && setRegalos(r));
+    cargar();
+    const quitar = alCambiarRegalosEnvio(cargar);
+    return () => {
+      vivo = false;
+      quitar();
+    };
+  }, []);
+  const regaloEnvio = envioDePago ? regaloEnvioPara(regalos, items.map((it) => it.id)) : null;
 
   const persist = useCallback(async (next: CartItem[]) => {
     setItems(next);
@@ -1046,10 +1070,17 @@ export default function CestaScreen() {
             <Row
               nativeID="cesta-envio"
               label="Envío"
-              value={envioDePago ? (tarifas?.some((z) => z.activa && z.tramos) ? "Según tu código postal y el peso" : "Se calcula con tu código postal") : "Gratis"}
-              tono={envioDePago ? "suave" : "gratis"}
+              value={regaloEnvio ? "Gratis para ti" : envioDePago ? (tarifas?.some((z) => z.activa && z.tramos) ? "Según tu código postal y el peso" : "Se calcula con tu código postal") : "Gratis"}
+              tono={regaloEnvio || !envioDePago ? "gratis" : "suave"}
             />
-            {envioDePago && gratisDesde !== null ? (
+            {regaloEnvio ? (
+              <View nativeID="cesta-envio-regalo">
+                {/* El icono va dentro del texto: con dos líneas queda pegado a él y todo centrado. */}
+                <Text style={{ color: COLORS.success, fontSize: TAMANOS.minimo, fontWeight: "800", textAlign: "center" }}>
+                  <Ionicons name="gift-outline" size={14} color={COLORS.success} /> Regalo de la tienda: {textoRegaloEnvio(regaloEnvio, regaloEnvio.modo === "articulo" ? items.find((it) => it.id === regaloEnvio.product_id)?.title : null).replace(/^Envío gratis/, "envío gratis")}
+                </Text>
+              </View>
+            ) : envioDePago && gratisDesde !== null ? (
               <Text nativeID="cesta-envio-gratis-desde" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
                 {subtotal >= gratisDesde
                   ? "Con este importe el envío puede salir gratis: se confirma con tu código postal"

@@ -145,14 +145,18 @@ import CarruselProductosCategoria, { columnasLista, RejillaTarjetas, TarjetaProd
 import CargaMarca from "../../components/marca/CargaMarca";
 import VisorFotos, { type FotoVisor } from "../../components/VisorFotos";
 import {
+  alCambiarRegalosEnvio,
   cargarAjustesReparacionEnvio,
+  cargarMisEnviosGratis,
   cargarSeguimientoPedidos,
   datosPagoManual,
   enlaceSeguimientoEnvio,
   fechaHoraPaso,
   pasosDelPedido,
+  textoRegaloEnvio,
   type AjustesReparacionEnvio,
   type HistorialPedidos,
+  type RegaloEnvio,
 } from "../../lib/envio";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PerfilPublico from "../../components/PerfilPublico";
@@ -1257,6 +1261,8 @@ export default function PerfilScreen() {
                   />
                 </SectionCard>
               ) : null}
+              {/* Envío gratis regalado por la tienda (dueño, 2026-11-23): solo si tiene alguno vigente. */}
+              {isLogged && sessionUserId ? <EnvioGratisSeccion cardPadding={cardPadding} /> : null}
               {!isLogged || !sessionUserId || perfilDisponible === false ? (
               <SectionCard padding={cardPadding}>
                 <View style={{ gap: 12, alignItems: "center" }}>
@@ -4009,6 +4015,66 @@ function AvisosPrecioSeccion({ cardPadding }: { cardPadding: number }) {
           </View>
         ))}
         {error ? <Text style={{ color: SEG.danger, fontSize: TAMANOS.minimo, textAlign: "center" }}>{error}</Text> : null}
+      </View>
+    </SectionCard>
+  );
+}
+
+// --- «Tu envío gratis» (dueño, 2026-11-23; migración 20261123160000) --------------------------------------------------
+// Los regalos de envío gratis vigentes que la tienda le ha dado a este cliente (de un artículo o de sus próximos N), con
+// su caducidad. Sin ninguno, sin la migración o si la lectura falla, no sale.
+function EnvioGratisSeccion({ cardPadding }: { cardPadding: number }) {
+  const [regalos, setRegalos] = useState<RegaloEnvio[]>([]);
+  const [titulos, setTitulos] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let vivo = true;
+    const cargar = async () => {
+      const lista = await cargarMisEnviosGratis();
+      if (!vivo) return;
+      setRegalos(lista);
+      const ids = lista.flatMap((r) => (r.modo === "articulo" && r.product_id ? [r.product_id] : []));
+      if (!ids.length) return;
+      const { data } = await supabase.from("products").select("id,title").in("id", ids);
+      if (vivo) setTitulos(Object.fromEntries(((data ?? []) as { id: string; title: string }[]).map((p) => [p.id, p.title])));
+    };
+    void cargar();
+    const quitar = alCambiarRegalosEnvio(() => void cargar());
+    return () => {
+      vivo = false;
+      quitar();
+    };
+  }, []);
+  if (!regalos.length) return null;
+  return (
+    <SectionCard padding={cardPadding}>
+      <View nativeID="perfil-envio-gratis" style={{ gap: 10, alignItems: "center" }}>
+        <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#DCFCE7", alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="gift-outline" size={22} color="#166534" />
+        </View>
+        <SegTitulo>Tu envío gratis</SegTitulo>
+        <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, textAlign: "center", lineHeight: 18, maxWidth: 420 }}>
+          Un regalo de la tienda: se aplica solo al pagar, en cualquier envío a domicilio de España.
+        </Text>
+        {regalos.map((r) => {
+          const titulo = r.product_id ? titulos[r.product_id] : null;
+          return (
+            <View key={r.id} nativeID={`perfil-envio-gratis-${r.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 10, width: "100%", maxWidth: 460 }}>
+              <Text style={{ flex: 1, minWidth: 0, color: SEG.text, fontWeight: "800", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
+                {textoRegaloEnvio(r, titulo)}
+              </Text>
+              {r.modo === "articulo" && r.product_id ? (
+                <Pressable
+                  nativeID={`perfil-envio-gratis-ver-${r.id}`}
+                  onPress={() => router.push(`/producto/${r.product_id}` as never)}
+                  accessibilityRole="link"
+                  style={({ pressed }) => ({ minHeight: TACTIL.minimo, paddingHorizontal: 8, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+                >
+                  <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "900", fontSize: TAMANOS.minimo }}>Ver</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })}
       </View>
     </SectionCard>
   );

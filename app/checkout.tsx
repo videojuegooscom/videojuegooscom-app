@@ -114,9 +114,12 @@ import ImagenInteligente from "../components/ImagenInteligente";
 import { abrirChatEquipo } from "../components/ConversacionProducto";
 import {
   ajustesFranjasActuales,
+  alCambiarRegalosEnvio,
+  avisarCambioRegalosEnvio,
   calcularEnvio,
   cargarAjustesFranjas,
   cargarDatosEnvio,
+  cargarMisEnviosGratis,
   cargarTarifas,
   esZonaMismoDia,
   formatearKg,
@@ -124,7 +127,10 @@ import {
   limpiarCodigoPostal,
   opcionesFranja,
   pesoDeCompra,
+  regaloEnvioPara,
+  textoRegaloEnvio,
   type FranjaEntrega,
+  type RegaloEnvio,
   type ZonaEnvio,
 } from "../lib/envio";
 import { olvidarFilaPerfil, supabase } from "../lib/supabase";
@@ -611,7 +617,21 @@ export default function CheckoutScreen() {
   );
   // A domicilio y con envíos de pago: hasta tener un código postal de 5 cifras, el envío aún no se sabe.
   const faltaCodigo = entrega === "envio" && hayEnviosDePago(tarifas) && limpiarCodigoPostal(postalCode).length !== 5;
-  const shipping = faltaCodigo ? 0 : envio.precio;
+  // Envío gratis regalado por la tienda a este cliente (de un artículo o de sus próximos N): la base de datos lo aplica
+  // igual al guardar el pedido; aquí se enseña antes de pagar.
+  const [regalos, setRegalos] = useState<RegaloEnvio[]>([]);
+  useEffect(() => {
+    let vivo = true;
+    const cargar = () => cargarMisEnviosGratis().then((r) => vivo && setRegalos(r));
+    cargar();
+    const quitar = alCambiarRegalosEnvio(cargar);
+    return () => {
+      vivo = false;
+      quitar();
+    };
+  }, []);
+  const regaloEnvio = entrega === "envio" && envio.precio > 0 ? regaloEnvioPara(regalos, items.map((it) => it.id)) : null;
+  const shipping = faltaCodigo || regaloEnvio ? 0 : envio.precio;
   const total = subtotal + shipping;
   // A domicilio con un artículo que solo se entrega en mano: no se puede (se elige «Entrega en mano» o se escribe).
   const articulosSoloMano = items.filter((it) => soloMano.includes(it.id));
@@ -1078,6 +1098,8 @@ export default function CheckoutScreen() {
         if (numero) {
           claveEnMemoria = null;
           await AsyncStorage.removeItem(PEDIDO_CLAVE_KEY);
+          // Si el pedido usó un envío gratis regalado, lo que queda cambia (Perfil, ficha, Blue): se vuelve a pedir.
+          avisarCambioRegalosEnvio();
         }
       } catch {
         // sin número: «No hemos podido guardar tu pedido» (la clave queda guardada para el reintento)
@@ -1507,7 +1529,15 @@ export default function CheckoutScreen() {
                 value={faltaCodigo ? "Escribe tu código postal" : shipping === 0 ? "Gratis" : fmtEUR(shipping)}
                 tono={faltaCodigo ? "suave" : shipping === 0 ? "gratis" : undefined}
               />
-              {envio.gratisPorImporte ? (
+              {regaloEnvio ? (
+                // Envío gratis regalado por la tienda a este cliente.
+                <View nativeID="pago-envio-regalo">
+                  {/* El icono va dentro del texto: con dos líneas queda pegado a él y todo centrado. */}
+                  <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                    <Ionicons name="gift-outline" size={14} color={COLORS.success} /> Regalo de la tienda: {textoRegaloEnvio(regaloEnvio, regaloEnvio.modo === "articulo" ? items.find((it) => it.id === regaloEnvio.product_id)?.title : null).replace(/^Envío gratis/, "envío gratis")}
+                  </Text>
+                </View>
+              ) : envio.gratisPorImporte ? (
                 <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
                   Envío gratis por el importe de tu pedido
                 </Text>
