@@ -198,7 +198,7 @@ import { suscribirVisorFotos, visorFotosAbierto } from "./VisorFotos";
 import { VentanaMejoras, VALORACION_ESPERA_MS, cargarValoracionesPedidos, entregadoEnDe, tocaValorarPedido } from "./VentanaValoracion";
 import { anadidosCompararDesdeArranque, useAlturaBarraComparar, useComparar } from "./CarruselProductosCategoria";
 import { CAMPO } from "../constants/temaTienda";
-import { cargarHistorialPedidos, formatearEuros } from "../lib/envio";
+import { alCambiarRegalosEnvio, cargarHistorialPedidos, cargarMisEnviosGratis, formatearEuros, textoRegaloEnvio, type RegaloEnvio } from "../lib/envio";
 import { AvisoBusqueda, Bajada, CART_KEY, COLORS, CRISTAL, CUENTA_NUEVA_MS, DIA_MS, LIKED_PRODUCTS_KEY, Llegada, MomentoBlue, NOTICIAS_AVISOS_KEY, NOTICIAS_VISTAS_KEY, NOVEDADES_AVISOS_KEY, NOVEDADES_CONTENT_VERSION, NOVEDADES_SEEN_KEY, NOVEDADES_VISTAS_KEY, OLVIDADOS_DICHO_KEY, OLVIDO_MS, PRECIOS_VISTOS_KEY, PedidoSegDato, RELOJ_RESERVAS_MS, RELOJ_SEGUIMIENTOS_MS, RESERVA_AVISO_MS, ReparacionSegDato, ReservaAviso, SELECTOR_VISTO_KEY, SegAviso, TEXTO_CRISTAL, VOLVER_TRAS_ACCESO_KEY, VistosSeg, apuntarDicho, calcularSegAvisos, cambiarConsejos, cargarDichos, consultarPagoOnline, contenidoConsejo, crearAvisoBusqueda, firmaPedidoSeg, guardarVistosSeg, leerConsejosApagados, leerJsonLocal, leerVistosSeg, minutosQueQuedan, momentoEnPantalla, oyentesAvisos, oyentesSeguimientos, textoOlvidados, useConsejosApagados, valorarDesde, valorarResueltos } from "./blue/DatosBlue";
 import { APARECER_MS, APARTARSE_CADA_MS, APARTARSE_TRAS_SCROLL_MS, BLUE_DOM_ID, BLUE_MENSAJE_DOM_ID, BLUE_SIZE, Bocadillo, DESLIZ_OCULTO, EDGE_INSET, ENTRE_MENSAJES_MS, GUIA_MS, GUIA_VISTA_KEY, MENSAJE_TRAS_ENTRAR_MS, MENSAJE_VISIBLE_MS, NOTICIA_ESPERA_MS, PARADA_MS, POLL_MS, PRODUCTO_ESPERA_MS, PROP_HUECO_MS, PROP_MAX_DIA, SALUDO_MS, SCROLL_ARRIBA, SCROLL_UMBRAL, SEGUNDO_MENSAJE_MS, SITIO_FIJO, Sitio, USA_NATIVO, algoDebajoDeBlue, contarBlueAbierto, contarMensaje, destinoDeAviso, getLikedProductIds, guardarEstadoProp, isoAMs, leerEstadoProp, llegadasReposicion, mensajeProducto, pantallaConBlue, posicionFija, yaDicho } from "./blue/AyudasBlue";
 import { Aviso, AvisoSelector, BotonPanel, ConsejoBlue, FilaBlue, IconoCirculoBlue, TituloSeccionBlue } from "./blue/PiezasBlue";
@@ -337,6 +337,8 @@ export default function AsistenteBlue() {
   const [avisosBusqueda, setAvisosBusqueda] = useState<AvisoBusqueda[]>([]);
   const [llegadas, setLlegadas] = useState<Llegada[]>([]);
   const [bajadas, setBajadas] = useState<Bajada[]>([]);
+  // Envío gratis regalado por la tienda (dueño, 2026-11-23): Blue lo dice UNA vez por regalo.
+  const [regalosEnvio, setRegalosEnvio] = useState<RegaloEnvio[]>([]);
   // Reservas de la cesta en marcha y el reloj con el que se cuenta lo que les queda.
   const [reservas, setReservas] = useState<ReservaAviso[]>([]);
   const [reloj, setReloj] = useState(() => Date.now());
@@ -1038,15 +1040,22 @@ export default function AsistenteBlue() {
     }
   }, [recalcularSeguimientos]);
 
+  const refreshRegalosEnvio = useCallback(async () => {
+    const lista = await cargarMisEnviosGratis();
+    setRegalosEnvio((prev) => (prev.length === lista.length && prev.every((r, i) => r.id === lista[i].id && r.usados === lista[i].usados) ? prev : lista));
+  }, []);
+
   const refreshAvisosTienda = useCallback(() => {
     refreshNovedadesTienda();
     refreshAvisosBusqueda();
+    void refreshRegalosEnvio();
     refreshBajadas();
     refreshSalida();
     refreshOlvidados();
     refreshReservas();
     refreshSeguimientos();
-  }, [refreshNovedadesTienda, refreshAvisosBusqueda, refreshBajadas, refreshSalida, refreshOlvidados, refreshReservas, refreshSeguimientos]);
+  }, [refreshNovedadesTienda, refreshAvisosBusqueda, refreshRegalosEnvio, refreshBajadas, refreshSalida, refreshOlvidados, refreshReservas, refreshSeguimientos]);
+  useEffect(() => alCambiarRegalosEnvio(() => void refreshRegalosEnvio()), [refreshRegalosEnvio]);
 
   // En cuanto se sabe que es el admin, se miran los pedidos y reparaciones olvidados (y cada 10 minutos).
   useEffect(() => {
@@ -1434,6 +1443,30 @@ export default function AsistenteBlue() {
     };
   }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, bajadas, decir]);
 
+  // Envío gratis regalado por la tienda (dueño, 2026-11-23): «Regalo de la tienda: envío gratis en tus próximos 3 artículos»
+  // UNA vez por regalo (queda dicho al enseñarse). No en el pago ni en Blue IA.
+  useEffect(() => {
+    if (!enPantalla || enAdmin || guiaAbierta || panelOpen || bocadillo) return;
+    if (pathname.startsWith("/checkout") || pathname.startsWith("/blue-ia")) return;
+    const candidatos = regalosEnvio.filter((r) => !yaDicho.has(`eg:${r.id}`));
+    if (!candidatos.length) return;
+    let vivo = true;
+    (async () => {
+      if ((await leerConsentimientoAnalitica()) === null || !vivo) return;
+      const dichos = await cargarDichos();
+      if (!vivo) return;
+      const r = candidatos.find((x) => !dichos.has(`eg:${x.id}`));
+      for (const x of candidatos) if (x !== r && dichos.has(`eg:${x.id}`)) yaDicho.add(`eg:${x.id}`);
+      if (!r) return;
+      yaDicho.add(`eg:${r.id}`);
+      const texto = r.modo === "articulo" ? "Regalo de la tienda: tienes envío gratis en un artículo elegido para ti" : `Regalo de la tienda: ${textoRegaloEnvio(r).replace(/^Envío gratis/, "envío gratis")}`;
+      decir({ id: `eg:${r.id}`, texto, accion: "ruta", ruta: r.modo === "articulo" && r.product_id ? `/producto/${r.product_id}` : "/perfil?envioGratis=1" });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, regalosEnvio, decir]);
+
   // Valoración tras la entrega (mejora 11): «¿Qué tal tu pedido VZ-…? Valóralo en 10 segundos», UNA vez por pedido (queda
   // dicho al enseñarse). No en Perfil (allí está el botón), ni en el pago ni en Blue IA.
   useEffect(() => {
@@ -1472,6 +1505,9 @@ export default function AsistenteBlue() {
       void apuntarDicho(id);
       valorarResueltos.add(id.slice(3));
       void medirEvento("valoracion_pedida", "Valoración del pedido: pedida", { metadata: { origen: "blue" } });
+    } else if (id.startsWith("eg:")) {
+      void apuntarDicho(id);
+      void medirEvento("envio_gratis_aviso", "Envío gratis regalado: aviso de Blue mostrado");
     } else if (id.startsWith("ap:")) {
       const [, productId, precio] = id.split(":");
       void apuntarDicho(id);

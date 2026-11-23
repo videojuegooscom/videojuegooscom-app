@@ -1345,6 +1345,9 @@ export default function ClienteFicha() {
                         )}
                       </Seccion>
 
+                      {/* Envío gratis regalado a este cliente (dueño, 2026-11-23). */}
+                      <EnvioGratisCliente userId={userId} />
+
                       <Seccion nativeID="ficha-perfil" icon="id-card-outline" title="Datos del perfil">
                         {perfil ? (
                           <View style={{ gap: 0 }}>
@@ -2185,6 +2188,282 @@ function AvisosPrecioCliente({ userId }: { userId: string }) {
           </View>
         ))
       )}
+    </Seccion>
+  );
+}
+
+// --- Envío gratis regalado a este cliente (dueño, 2026-11-23; migración 20261123160000) ------------------------------
+// «Activar envío gratis»: de «Este artículo» (se busca y se elige; vale una vez) o de «Hasta N artículos» (cada artículo
+// comprado gasta 1), con caducidad opcional. La base de datos lo aplica al calcular el envío del pedido (y lo devuelve si
+// el pedido se cancela); el cliente lo ve en su Perfil, la ficha y la cesta, y Blue se lo dice una vez. «Quitar» no borra:
+// lo deja quitado (los pedidos que ya lo usaron lo conservan). Sin la migración, no sale.
+type RegaloFicha = { id: string; modo: "articulo" | "cupo"; product_id: string | null; cupo_total: number | null; usados: number; caduca_en: string | null; creado_en: string; anulado_en: string | null };
+const CADUCIDADES = [
+  { id: "nunca", texto: "Sin caducidad", dias: 0 },
+  { id: "7", texto: "7 días", dias: 7 },
+  { id: "30", texto: "30 días", dias: 30 },
+  { id: "90", texto: "90 días", dias: 90 },
+] as const;
+function estadoRegalo(r: RegaloFicha): { texto: string; tono: "ok" | "gris" } {
+  if (r.anulado_en) return { texto: "Quitado", tono: "gris" };
+  const gastado = r.modo === "articulo" ? r.usados > 0 : r.usados >= (r.cupo_total ?? 0);
+  if (gastado) return { texto: r.modo === "articulo" ? "Usado" : "Gastado", tono: "gris" };
+  if (r.caduca_en && Date.parse(r.caduca_en) <= Date.now()) return { texto: "Caducado", tono: "gris" };
+  return { texto: "Activo", tono: "ok" };
+}
+function ChipEleccion({ texto, activo, onPress, nativeID }: { texto: string; activo: boolean; onPress: () => void; nativeID?: string }) {
+  return (
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: activo }}
+      style={({ pressed }) => ({
+        minHeight: 44,
+        paddingHorizontal: 14,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: activo ? COLORS.accent : COLORS.border,
+        backgroundColor: activo ? COLORS.accent2 : COLORS.bg,
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: pressed ? 0.8 : 1,
+      })}
+    >
+      <Text style={{ color: COLORS.text, fontWeight: activo ? "900" : "700", fontSize: 14 }}>{texto}</Text>
+    </Pressable>
+  );
+}
+function EnvioGratisCliente({ userId }: { userId: string }) {
+  const [regalos, setRegalos] = useState<RegaloFicha[] | null>(null);
+  const [titulos, setTitulos] = useState<Record<string, string>>({});
+  const [abierto, setAbierto] = useState(false);
+  const [modo, setModo] = useState<"articulo" | "cupo">("cupo");
+  const [cupo, setCupo] = useState(5);
+  const [caduca, setCaduca] = useState<(typeof CADUCIDADES)[number]["id"]>("nunca");
+  const [busqueda, setBusqueda] = useState("");
+  const [resultados, setResultados] = useState<{ id: string; title: string; price_eur: number | string | null }[]>([]);
+  const [elegido, setElegido] = useState<{ id: string; title: string } | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  const cargar = useCallback(async () => {
+    const { data, error } = await supabase.rpc("envios_gratis_de_cliente", { p_user: userId });
+    if (error || !Array.isArray(data)) {
+      setRegalos(null);
+      return;
+    }
+    const lista = (data as Record<string, unknown>[]).map((f) => ({
+      id: String(f.id),
+      modo: f.modo === "articulo" ? ("articulo" as const) : ("cupo" as const),
+      product_id: f.product_id ? String(f.product_id) : null,
+      cupo_total: f.cupo_total === null || f.cupo_total === undefined ? null : Number(f.cupo_total),
+      usados: Number(f.usados ?? 0) || 0,
+      caduca_en: f.caduca_en ? String(f.caduca_en) : null,
+      creado_en: String(f.creado_en ?? ""),
+      anulado_en: f.anulado_en ? String(f.anulado_en) : null,
+    }));
+    setRegalos(lista);
+    const ids = lista.flatMap((r) => (r.product_id ? [r.product_id] : []));
+    if (ids.length) {
+      const { data: prods } = await supabase.from("products").select("id,title").in("id", ids);
+      setTitulos(Object.fromEntries(((prods ?? []) as { id: string; title: string }[]).map((p) => [p.id, p.title])));
+    }
+  }, [userId]);
+  useEffect(() => {
+    if (userId) void cargar();
+  }, [userId, cargar]);
+
+  // Buscar el artículo (solo los que están a la venta), a partir de 2 letras.
+  useEffect(() => {
+    const q = busqueda.trim();
+    if (modo !== "articulo" || q.length < 2) {
+      setResultados([]);
+      return;
+    }
+    let vivo = true;
+    const t = setTimeout(async () => {
+      const { data } = await supabase
+        .from("products")
+        .select("id,title,price_eur")
+        .eq("status", "PUBLISHED")
+        .eq("is_active", true)
+        .ilike("title", `%${q.replace(/[%_,()]/g, " ")}%`)
+        .order("updated_at", { ascending: false })
+        .limit(6);
+      if (vivo) setResultados((data ?? []) as { id: string; title: string; price_eur: number | string | null }[]);
+    }, 250);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [busqueda, modo]);
+
+  const activar = useCallback(async () => {
+    if (modo === "articulo" && !elegido) {
+      setAviso({ ok: false, texto: "Elige el artículo con el envío gratis." });
+      return;
+    }
+    setGuardando(true);
+    setAviso(null);
+    const dias = CADUCIDADES.find((c) => c.id === caduca)?.dias ?? 0;
+    const { error } = await supabase.from("envio_gratis_cliente").insert({
+      user_id: userId,
+      modo,
+      product_id: modo === "articulo" ? elegido?.id : null,
+      cupo_total: modo === "cupo" ? cupo : null,
+      caduca_en: dias ? new Date(Date.now() + dias * 86400000).toISOString() : null,
+    });
+    setGuardando(false);
+    if (error) {
+      setAviso({ ok: false, texto: "No se ha podido activar el envío gratis. Inténtalo de nuevo." });
+      return;
+    }
+    // El siguiente empieza como nuevo (no hereda la caducidad ni el número de este).
+    setAbierto(false);
+    setElegido(null);
+    setBusqueda("");
+    setModo("cupo");
+    setCupo(5);
+    setCaduca("nunca");
+    setAviso({ ok: true, texto: "Envío gratis activado: el cliente lo verá en su Perfil, la ficha y la cesta, y Blue se lo dirá." });
+    void cargar();
+  }, [modo, elegido, caduca, cupo, userId, cargar]);
+
+  const quitar = useCallback(
+    async (id: string) => {
+      const { error } = await supabase.from("envio_gratis_cliente").update({ anulado_en: new Date().toISOString() }).eq("id", id);
+      setAviso(error ? { ok: false, texto: "No se ha podido quitar. Inténtalo de nuevo." } : { ok: true, texto: "Envío gratis quitado." });
+      if (!error) void cargar();
+    },
+    [cargar]
+  );
+
+  if (regalos === null) return null;
+  const activos = regalos.filter((r) => estadoRegalo(r).texto === "Activo").length;
+  return (
+    <Seccion nativeID="ficha-envio-gratis" icon="gift-outline" title="Envío gratis" count={activos ? `${activos} activo${activos === 1 ? "" : "s"}` : undefined}>
+      {regalos.length === 0 && !abierto ? <EmptyRow text="No tiene ningún envío gratis." /> : null}
+      {regalos.map((r) => {
+        const est = estadoRegalo(r);
+        const titulo = r.product_id ? titulos[r.product_id] ?? "Artículo retirado" : null;
+        return (
+          <View key={r.id} nativeID={`ficha-envio-gratis-${r.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 }}>
+            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+              <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 15 }}>
+                {r.modo === "articulo" ? `Este artículo: ${titulo}` : `Hasta ${r.cupo_total} artículos · usados ${Math.min(r.usados, r.cupo_total ?? 0)} de ${r.cupo_total}`}
+              </Text>
+              <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13 }}>
+                Desde {fechaHora(r.creado_en)} · {r.caduca_en ? `caduca ${fechaHora(r.caduca_en)}` : "sin caducidad"}
+              </Text>
+            </View>
+            <Text style={{ color: est.tono === "ok" ? COLORS.success : COLORS.muted, fontWeight: "900", fontSize: 13 }}>{est.texto}</Text>
+            {est.texto === "Activo" ? (
+              <Pressable
+                nativeID={`ficha-envio-gratis-quitar-${r.id}`}
+                onPress={() => quitar(r.id)}
+                accessibilityRole="button"
+                accessibilityLabel="Quitar este envío gratis"
+                style={({ pressed }) => ({ minHeight: 44, minWidth: 44, paddingHorizontal: 8, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+              >
+                <Text style={{ color: COLORS.danger, fontWeight: "900", fontSize: 13 }}>Quitar</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        );
+      })}
+      {abierto ? (
+        <View nativeID="ficha-envio-gratis-form" style={{ gap: 12, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardSoft, padding: 14 }}>
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>¿En qué le regalas el envío?</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <ChipEleccion nativeID="ficha-envio-gratis-modo-cupo" texto="Hasta N artículos" activo={modo === "cupo"} onPress={() => setModo("cupo")} />
+            <ChipEleccion nativeID="ficha-envio-gratis-modo-articulo" texto="Este artículo" activo={modo === "articulo"} onPress={() => setModo("articulo")} />
+          </View>
+          {modo === "cupo" ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <Pressable
+                nativeID="ficha-envio-gratis-menos"
+                onPress={() => setCupo((n) => Math.max(1, n - 1))}
+                accessibilityRole="button"
+                accessibilityLabel="Un artículo menos"
+                style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.bg, opacity: pressed ? 0.7 : 1 })}
+              >
+                <Ionicons name="remove" size={20} color={COLORS.text} />
+              </Pressable>
+              <Text nativeID="ficha-envio-gratis-cupo" style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, minWidth: 96, textAlign: "center" }}>
+                {cupo} artículo{cupo === 1 ? "" : "s"}
+              </Text>
+              <Pressable
+                nativeID="ficha-envio-gratis-mas"
+                onPress={() => setCupo((n) => Math.min(50, n + 1))}
+                accessibilityRole="button"
+                accessibilityLabel="Un artículo más"
+                style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.bg, opacity: pressed ? 0.7 : 1 })}
+              >
+                <Ionicons name="add" size={20} color={COLORS.text} />
+              </Pressable>
+            </View>
+          ) : elegido ? (
+            <View nativeID="ficha-envio-gratis-elegido" style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Ionicons name="checkmark-circle" size={20} color={COLORS.success} />
+              <Text style={{ flex: 1, minWidth: 0, color: COLORS.text, fontWeight: "800", fontSize: 15 }}>{elegido.title}</Text>
+              <BotonTexto icon="swap-horizontal-outline" texto="Cambiar" onPress={() => setElegido(null)} />
+            </View>
+          ) : (
+            <View style={{ gap: 6 }}>
+              <TextInput
+                nativeID="ficha-envio-gratis-buscar"
+                value={busqueda}
+                onChangeText={setBusqueda}
+                placeholder="Busca el artículo por su nombre"
+                placeholderTextColor="rgba(11,33,56,0.45)"
+                style={{ height: 48, fontSize: 16, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 12, color: COLORS.text, backgroundColor: COLORS.bg }}
+              />
+              {resultados.map((p) => (
+                <Pressable
+                  key={p.id}
+                  nativeID={`ficha-envio-gratis-resultado-${p.id}`}
+                  onPress={() => setElegido({ id: p.id, title: p.title })}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, borderRadius: 12, backgroundColor: pressed ? COLORS.accent2 : COLORS.bg })}
+                >
+                  <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: COLORS.text, fontWeight: "700", fontSize: 15 }}>{p.title}</Text>
+                  <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 13 }}>{formatearEurosPanel(Number(p.price_eur ?? 0))}</Text>
+                </Pressable>
+              ))}
+              {busqueda.trim().length >= 2 && resultados.length === 0 ? <EmptyRow text="Ningún artículo a la venta con ese nombre." /> : null}
+            </View>
+          )}
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>¿Caduca?</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {CADUCIDADES.map((c) => (
+              <ChipEleccion key={c.id} nativeID={`ficha-envio-gratis-caduca-${c.id}`} texto={c.texto} activo={caduca === c.id} onPress={() => setCaduca(c.id)} />
+            ))}
+          </View>
+          <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13, lineHeight: 18 }}>
+            Vale en cualquier envío a domicilio de España. Cada artículo comprado gasta uno; si cancela el pedido, lo recupera.
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <Pressable
+              nativeID="ficha-envio-gratis-guardar"
+              onPress={activar}
+              disabled={guardando}
+              accessibilityRole="button"
+              style={({ pressed }) => ({ flexGrow: 1, minHeight: 48, borderRadius: 999, backgroundColor: COLORS.accent, alignItems: "center", justifyContent: "center", paddingHorizontal: 18, opacity: pressed || guardando ? 0.8 : 1 })}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{guardando ? "Activando…" : "Activar envío gratis"}</Text>
+            </Pressable>
+            <BotonTexto icon="close-outline" texto="Cancelar" onPress={() => setAbierto(false)} />
+          </View>
+        </View>
+      ) : (
+        <BotonTexto nativeID="ficha-envio-gratis-abrir" icon="gift-outline" texto="Activar envío gratis" onPress={() => { setAbierto(true); setAviso(null); }} />
+      )}
+      {aviso ? (
+        <Text nativeID="ficha-envio-gratis-aviso" accessibilityRole="alert" style={{ color: aviso.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 13 }}>
+          {aviso.texto}
+        </Text>
+      ) : null}
     </Seccion>
   );
 }

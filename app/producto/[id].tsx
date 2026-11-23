@@ -157,7 +157,20 @@ import {
   URL_PAGO,
   type AjustesReservaPublicos,
 } from "../../lib/reservas";
-import { cargarTarifas, formatearEuros, limpiarCodigoPostal, tipoEntregaPorCodigo, type TipoEntregaEstimada, type ZonaEnvio } from "../../lib/envio";
+import {
+  alCambiarRegalosEnvio,
+  caducidadRegalo,
+  cargarMisEnviosGratis,
+  cargarTarifas,
+  formatearEuros,
+  limpiarCodigoPostal,
+  regaloEnvioPara,
+  textoRegaloEnvio,
+  tipoEntregaPorCodigo,
+  type RegaloEnvio,
+  type TipoEntregaEstimada,
+  type ZonaEnvio,
+} from "../../lib/envio";
 import { direccionesDeFila } from "../../components/PerfilPublico";
 import VisorFotos, { type EventoVisor, type FotoVisor } from "../../components/VisorFotos";
 import ImagenInteligente from "../../components/ImagenInteligente";
@@ -300,6 +313,24 @@ export default function ProductoScreen() {
   // Solo en lo que se puede comprar y enviar (lo que solo se entrega en mano ya lo explica su aviso).
   const conEntrega = !!p && !p.soloEntregaMano && p.status === "PUBLICADA" && p.isActive;
   const productoCargadoId = p?.id ?? null;
+  // Envío gratis regalado por la tienda a este cliente: si vale para este artículo, se dice en «Entrega estimada».
+  const [regalosEnvio, setRegalosEnvio] = useState<RegaloEnvio[]>([]);
+  useEffect(() => {
+    let vivo = true;
+    const cargar = () => cargarMisEnviosGratis().then((r) => vivo && setRegalosEnvio(r));
+    cargar();
+    const quitar = alCambiarRegalosEnvio(cargar);
+    return () => {
+      vivo = false;
+      quitar();
+    };
+  }, []);
+  const regaloFicha = productoCargadoId ? regaloEnvioPara(regalosEnvio, [productoCargadoId]) : null;
+  const textoRegaloFicha = regaloFicha
+    ? regaloFicha.modo === "articulo"
+      ? `Envío gratis para ti en este artículo${caducidadRegalo(regaloFicha) ? ` (${caducidadRegalo(regaloFicha)})` : ""}`
+      : `${textoRegaloEnvio(regaloFicha)}: regalo de la tienda`
+    : null;
   useEffect(() => {
     if (!conEntrega || !perfilListo || !productoCargadoId || params.guia === "1") return;
     const clave = `${productoCargadoId}:${tipoEntrega}`;
@@ -1249,6 +1280,7 @@ export default function ProductoScreen() {
                     cpEscrito={cpEscrito}
                     onCpEscrito={(v) => setCpEscrito(v.replace(/[^0-9]/g, "").slice(0, 5))}
                     onIrPerfil={() => pushRoute("/perfil" as Href)}
+                    regalo={textoRegaloFicha}
                   />
                 ) : null}
 

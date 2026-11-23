@@ -1183,6 +1183,34 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       if (!estado.ritmo) return json({ code: "PGRST205", message: "Could not find the table 'public.analitica_ritmo' in the schema cache" }, 404);
       return json(estado.ritmo);
     }
+    // Envío gratis regalado (sección EGC): los regalos vigentes del cliente, los de la ficha del administrador y lo que
+    // Administración da o quita (se apunta). Sin `regalosEnvio`, la función no existe (migración sin aplicar).
+    if (url.pathname.endsWith("/rpc/mis_envios_gratis")) {
+      if (!estado.regalosEnvio) return json({ code: "PGRST202", message: "Could not find the function public.mis_envios_gratis without parameters in the schema cache" }, 404);
+      return json(rol === "admin" ? [] : estado.regalosEnvio);
+    }
+    if (url.pathname.endsWith("/rpc/envios_gratis_de_cliente")) {
+      if (!estado.regalosFicha) return json({ code: "PGRST202", message: "Could not find the function public.envios_gratis_de_cliente in the schema cache" }, 404);
+      estado.regalosFichaPedidos = [...(estado.regalosFichaPedidos ?? []), JSON.parse(peticion.postData() ?? "{}")];
+      return json(estado.regalosFicha);
+    }
+    if (url.pathname.endsWith("/rest/v1/envio_gratis_cliente")) {
+      if (metodo === "POST") {
+        estado.regalosDados = [...(estado.regalosDados ?? []), JSON.parse(peticion.postData() ?? "{}")];
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+      if (metodo === "PATCH") {
+        estado.regalosQuitados = [...(estado.regalosQuitados ?? []), { id: (url.searchParams.get("id") ?? "").replace(/^eq\./, ""), cuerpo: JSON.parse(peticion.postData() ?? "{}") }];
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+      if (metodo === "GET") return json(estado.regalosFicha ?? []);
+    }
+    // «Este artículo»: la búsqueda por nombre de la ficha del cliente (solo a la venta), como la base de datos.
+    if (estado.buscarArticulos && url.pathname.endsWith("/rest/v1/products") && metodo === "GET" && (url.searchParams.get("title") ?? "").startsWith("ilike.")) {
+      const q = (url.searchParams.get("title") ?? "").replace(/^ilike\./, "").replace(/[*%]/g, "").trim().toLowerCase();
+      estado.busquedasArticulos = [...(estado.busquedasArticulos ?? []), { q, estado: url.searchParams.get("status"), activo: url.searchParams.get("is_active") }];
+      return json(estado.buscarArticulos.filter((a) => a.title.toLowerCase().includes(q)));
+    }
     // Tarifas de envío (sección TE), como la base de datos: las zonas en su orden y lo que guarda Administración → Tarifas
     // de envío. Con `tarifas: null`, la tabla no existe (migración sin aplicar); sin `tarifas`, vacía (envío gratis).
     if (url.pathname.endsWith("/rest/v1/tarifas_envio")) {
@@ -17671,6 +17699,200 @@ async function seccionVALOR() {
   }
 }
 
+// ===== EGC) Envío gratis regalado a un cliente (dueño, 2026-11-23: «activarle al cliente por individual envío gratis…
+// en "Este artículo" o "Hasta 5 artículos"») ============================================================================
+// Cliente: el pago y la cesta dicen «Gratis» con «Regalo de la tienda…» si le quedan para todos los artículos (si no,
+// paga); la ficha lo dice en «Entrega estimada»; su Perfil enseña «Tu envío gratis»; Blue se lo dice una vez.
+// Administración: la ficha del cliente tiene «Activar envío gratis» (Hasta N artículos o Este artículo, caducidad) y
+// «Quitar»; Pedidos marca «Envío regalado». A 360, 390 y 1280 sin desbordes ni errores. Lo que se cobra lo decide la base
+// de datos (pruebas/perfiles-sql.mjs, sección EGC).
+async function seccionEGC() {
+  const A1 = "00000000-0000-4000-8000-0000000000e1";
+  const A2 = "00000000-0000-4000-8000-0000000000e2";
+  const FOTO = (n) => `https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/prueba/${n}.jpg`;
+  const CESTA = [
+    { id: A1, title: "PlayStation 5 Slim", subtitle: "Consolas · Muy buen estado", priceEUR: 60, qty: 1, imageUrl: FOTO(1) },
+    { id: A2, title: "Mando DualSense", subtitle: "Accesorios", priceEUR: 40, qty: 1, imageUrl: FOTO(2) },
+  ];
+  const zona = (z, nombre, codigos, orden, precio) => ({ zona: z, nombre, codigos, precio_eur: precio, gratis_desde_eur: null, activa: true, orden, updated_at: "2026-11-04T10:00:00Z", updated_by: null });
+  const TARIFAS = [
+    zona("mano", "Entrega en mano (Cuarte de Huerva o un punto acordado)", null, 10, 0),
+    zona("local", "A domicilio en Zaragoza y Cuarte de Huerva (el mismo día)", "50001-50022, 50410", 20, 4.9),
+    zona("peninsula", "Resto de la España peninsular (sale en 1-2 días, llega en 72 h como máximo)", "*", 30, 6.9),
+  ];
+  const dentroDe = (dias) => new Date(Date.now() + dias * 86400000).toISOString();
+  const R_CUPO = "f0000000-0000-4000-8000-0000000000a1";
+  const R_ART = "f0000000-0000-4000-8000-0000000000a2";
+  const cupo = (usados, total = 3) => ({ id: R_CUPO, modo: "cupo", product_id: null, cupo_total: total, usados, caduca_en: dentroDe(10), creado_en: "2026-11-23T10:00:00Z" });
+  const perfil = () => [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Madrid", fecha_nacimiento: "1990-05-02", foto_url: null }];
+  const conCesta = (ctx) =>
+    ctx.addInitScript((articulos) => {
+      try {
+        if (!localStorage.getItem("videojuegoos_cart_v1")) localStorage.setItem("videojuegoos_cart_v1", JSON.stringify(articulos.map((a) => ({ ...a, reservedUntil: Date.now() + 14 * 60000 }))));
+      } catch {
+        // sin almacenamiento
+      }
+    }, CESTA);
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => "")).replace(/\s+/g, " ").trim();
+  const sinDesbordar = (p) => p.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= window.innerWidth + 1);
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `EGC: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+
+  // EGC1) Pago y cesta: le quedan 2 de «Hasta 3 artículos» y lleva 2 → envío gratis con su línea; con 1, paga.
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`pago ${nombre}`, async () => {
+      const estado = { filas: perfil(), guardados: [], productosVacios: true, tarifas: TARIFAS, regalosEnvio: [cupo(1)] };
+      const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+      await conCesta(ctx);
+      const p = await pagina(ctx, "/checkout");
+      await p.locator("#pago-envio").waitFor({ timeout: 30000 }).catch(() => {});
+      await p.getByPlaceholder("50001").fill("28001");
+      await p.waitForTimeout(600);
+      const envio = await texto(p, "#pago-envio");
+      const regalo = await texto(p, "#pago-envio-regalo");
+      ok(/Gratis$/.test(envio) && /^Total: 100,00€$/.test(await texto(p, "#pago-total")), `EGC (${nombre}): en el pago el envío sale gratis y el total sin envío (${envio} · ${await texto(p, "#pago-total")})`);
+      ok(/Regalo de la tienda: envío gratis en tus próximos 2 artículos \(hasta el /.test(regalo), `EGC (${nombre}): y dice que es un regalo, cuántos quedan y hasta cuándo («${regalo}»)`);
+      ok(await sinDesbordar(p), `EGC (${nombre}): el pago no se ensancha`);
+      await capturar(p, `EGC1-pago-${nombre}`);
+      if (nombre === "390") {
+        const c = await pagina(ctx, "/cesta");
+        await c.locator("#cesta-envio").waitFor({ timeout: 30000 }).catch(() => {});
+        await c.waitForTimeout(600);
+        ok(/Gratis para ti/.test(await texto(c, "#cesta-envio")) && /próximos 2 artículos/.test(await texto(c, "#cesta-envio-regalo")), `EGC: la cesta dice «Gratis para ti» con el regalo (${await texto(c, "#cesta-envio")} · ${await texto(c, "#cesta-envio-regalo")})`);
+        await capturar(c, "EGC1-cesta-390");
+      }
+      ok(p.errores.length === 0, `EGC (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+  await bloque("pago sin bastantes", async () => {
+    const estado = { filas: perfil(), guardados: [], productosVacios: true, tarifas: TARIFAS, regalosEnvio: [cupo(2)] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await p.locator("#pago-envio").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.getByPlaceholder("50001").fill("28001");
+    await p.waitForTimeout(600);
+    ok(/6,90€$/.test(await texto(p, "#pago-envio")) && (await p.locator("#pago-envio-regalo").count()) === 0, `EGC: si le queda 1 y lleva 2 artículos, paga el envío, como la base de datos (${await texto(p, "#pago-envio")})`);
+    await ctx.close();
+  });
+
+  // EGC2) La ficha del artículo regalado y el Perfil.
+  await bloque("ficha y perfil", async () => {
+    const art = { id: R_ART, modo: "articulo", product_id: A1, cupo_total: null, usados: 0, caduca_en: null, creado_en: "2026-11-23T10:00:00Z" };
+    const estado = {
+      filas: perfil(), guardados: [], aceptaAnalitica: true, regalosEnvio: [art, cupo(0)],
+      producto: {
+        id: A1, title: "PlayStation 5 Slim", description: "Revisada.", price_eur: 60, status: "PUBLISHED", is_active: true, category_id: null, images: [],
+        updated_at: "2026-11-20T10:00:00Z", created_at: "2026-11-20T10:00:00Z", condition: "USED", like_count: 0, reference: null, caracteristicas: [], mantenimiento: null, category: null,
+      },
+      fotosProducto: [],
+      buscarArticulos: [{ id: A1, title: "PlayStation 5 Slim", price_eur: 60 }],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/producto/${A1}`);
+    await p.locator("#ficha-entrega-regalo").waitFor({ timeout: 30000 }).catch(() => {});
+    ok(/^\W*Envío gratis para ti en este artículo$/.test(await texto(p, "#ficha-entrega-regalo")), `EGC: la ficha del artículo regalado lo dice en «Entrega estimada» («${await texto(p, "#ficha-entrega-regalo")}»)`);
+    await capturar(p, "EGC2-ficha-390");
+    // Blue lo dice una vez (a los ~15 s de entrar).
+    await p.locator("#blue-mensaje").filter({ hasText: "Regalo de la tienda" }).first().waitFor({ timeout: 40000 }).catch(() => {});
+    const msgBlue = await texto(p, "#blue-mensaje");
+    ok(/Regalo de la tienda: tienes envío gratis en un artículo elegido para ti/.test(msgBlue), `EGC: Blue le avisa del regalo («${msgBlue}»)`);
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "envio_gratis_aviso"); i++) await p.waitForTimeout(250);
+    ok((estado.eventosEnviados ?? []).some((e) => e.event_name === "envio_gratis_aviso"), "EGC: y se mide que lo ha visto (para Analítica)");
+    ok(p.errores.length === 0, `EGC: la ficha sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    const q = await pagina(ctx, "/perfil");
+    await q.locator("#perfil-envio-gratis").waitFor({ timeout: 30000 }).catch(() => {});
+    const tp = await texto(q, "#perfil-envio-gratis");
+    ok(/Tu envío gratis/.test(tp) && /Envío gratis en «PlayStation 5 Slim»/.test(tp) && /tus próximos 3 artículos \(hasta el /.test(tp), `EGC: el Perfil enseña sus regalos con su caducidad («${tp.slice(0, 160)}»)`);
+    ok(await sinDesbordar(q), "EGC: el Perfil no se ensancha");
+    await capturar(q, "EGC2-perfil-390");
+    await ctx.close();
+  });
+
+  // EGC3) Administración → ficha del cliente: ver, dar (Hasta N artículos y Este artículo) y quitar.
+  for (const { nombre, vista } of VISTAS) {
+    await bloque(`ficha del cliente ${nombre}`, async () => {
+      const usado = { id: R_ART, modo: "articulo", product_id: A1, cupo_total: null, usados: 1, caduca_en: null, creado_en: "2026-11-20T10:00:00Z", anulado_en: null };
+      const estado = { filas: perfil(), guardados: [], regalosFicha: [{ ...cupo(1, 5), anulado_en: null }, usado], buscarArticulos: [{ id: A2, title: "Mando DualSense", price_eur: 40 }] };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}`);
+      await p.locator("#ficha-envio-gratis").waitFor({ timeout: 30000 }).catch(() => {});
+      await p.waitForTimeout(400);
+      const t = await texto(p, "#ficha-envio-gratis");
+      ok(/Envío gratis 1 activo/.test(t) && /Hasta 5 artículos · usados 1 de 5/.test(t) && /Activo/.test(t) && /Usado/.test(t), `EGC (${nombre}): la ficha del cliente enseña sus envíos gratis y su estado («${t.slice(0, 150)}»)`);
+      ok((estado.regalosFichaPedidos ?? [])[0]?.p_user === CLIENTE.id, "EGC: los pide de ESTE cliente");
+      await p.locator("#ficha-envio-gratis-abrir").click();
+      await p.locator("#ficha-envio-gratis-form").waitFor({ timeout: 5000 }).catch(() => {});
+      const alto = await p.evaluate(() => Math.round(document.getElementById("ficha-envio-gratis-mas")?.getBoundingClientRect().height ?? 0));
+      ok(alto >= 44, `EGC (${nombre}): los botones del formulario miden 44 px (${alto})`);
+      ok(await sinDesbordar(p), `EGC (${nombre}): la ficha no se ensancha con el formulario`);
+      await capturar(p, `EGC3-ficha-cliente-${nombre}`);
+      if (nombre === "390") {
+        // Hasta 6 artículos, caduca en 30 días.
+        await p.locator("#ficha-envio-gratis-mas").click();
+        await p.locator("#ficha-envio-gratis-caduca-30").click();
+        await p.locator("#ficha-envio-gratis-guardar").click();
+        for (let i = 0; i < 20 && !(estado.regalosDados ?? []).length; i++) await p.waitForTimeout(200);
+        const d = (estado.regalosDados ?? [])[0] ?? {};
+        const dias = d.caduca_en ? Math.round((Date.parse(d.caduca_en) - Date.now()) / 86400000) : null;
+        ok(d.user_id === CLIENTE.id && d.modo === "cupo" && d.cupo_total === 6 && d.product_id === null && dias === 30, `EGC: «Activar» da «Hasta 6 artículos» a este cliente, que caduca en 30 días (${JSON.stringify({ ...d, caduca_en: dias })})`);
+        ok(/Envío gratis activado/.test(await texto(p, "#ficha-envio-gratis-aviso")), "EGC: y lo confirma");
+        // Este artículo: se busca y se elige; sin elegir no se guarda.
+        await p.locator("#ficha-envio-gratis-abrir").click();
+        await p.locator("#ficha-envio-gratis-modo-articulo").click();
+        await p.locator("#ficha-envio-gratis-guardar").click();
+        await p.waitForTimeout(300);
+        ok((estado.regalosDados ?? []).length === 1 && /Elige el artículo/.test(await texto(p, "#ficha-envio-gratis-aviso")), "EGC: «Este artículo» sin elegir no se guarda y lo explica");
+        await p.locator("#ficha-envio-gratis-buscar").fill("mando");
+        await p.locator(`#ficha-envio-gratis-resultado-${A2}`).click({ timeout: 8000 });
+        ok(/Mando DualSense/.test(await texto(p, "#ficha-envio-gratis-elegido")), "EGC: se busca por el nombre y se elige");
+        ok((estado.busquedasArticulos ?? []).some((b) => b.estado === "eq.PUBLISHED" && b.activo === "eq.true"), "EGC: solo busca artículos a la venta");
+        await p.locator("#ficha-envio-gratis-guardar").click();
+        for (let i = 0; i < 20 && (estado.regalosDados ?? []).length < 2; i++) await p.waitForTimeout(200);
+        const d2 = (estado.regalosDados ?? [])[1] ?? {};
+        ok(d2.modo === "articulo" && d2.product_id === A2 && d2.cupo_total === null && d2.caduca_en === null, `EGC: «Este artículo» se da con ese artículo y sin caducidad (${JSON.stringify(d2)})`);
+        // Quitar el activo.
+        await p.locator(`#ficha-envio-gratis-quitar-${R_CUPO}`).click();
+        for (let i = 0; i < 20 && !(estado.regalosQuitados ?? []).length; i++) await p.waitForTimeout(200);
+        const qd = (estado.regalosQuitados ?? [])[0];
+        ok(qd?.id === R_CUPO && !!qd?.cuerpo?.anulado_en, `EGC: «Quitar» lo deja quitado, sin borrarlo (${JSON.stringify(qd ?? null)})`);
+      }
+      ok(p.errores.length === 0, `EGC (${nombre}): la ficha del cliente sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    });
+  }
+
+  // EGC4) Sin la migración: nada se rompe y no sale nada de envío gratis.
+  await bloque("sin migración", async () => {
+    const estado = { filas: perfil(), guardados: [], productosVacios: true, tarifas: TARIFAS };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await p.locator("#pago-envio").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.getByPlaceholder("50001").fill("28001");
+    await p.waitForTimeout(500);
+    ok(/6,90€$/.test(await texto(p, "#pago-envio")) && (await p.locator("#pago-envio-regalo").count()) === 0 && p.errores.length === 0, `EGC: sin la migración el envío se cobra como siempre y sin errores (${await texto(p, "#pago-envio")})`);
+    await ctx.close();
+    const ctxA = await contexto(navegador, ADMIN, "admin", { filas: perfil(), guardados: [] });
+    const f = await pagina(ctxA, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}`);
+    await f.locator("#ficha-perfil").waitFor({ timeout: 30000 }).catch(() => {});
+    await f.waitForTimeout(500);
+    ok((await f.locator("#ficha-envio-gratis").count()) === 0 && f.errores.length === 0, "EGC: y la ficha del cliente no enseña el bloque");
+    await ctxA.close();
+  });
+}
+
 // ===== ENL) Enlaces de la tienda en el chat (dueño, 2026-11-23: «no me deja enviar enlaces propios de la tienda») ======
 // Un enlace a videojuegoszaragoza.com en un mensaje se toca y abre esa pantalla; si es de un artículo, debajo sale su
 // tarjeta (título, precio, «Ver el artículo»; en Administración, «Editar en Productos»). Los enlaces de otras webs siguen
@@ -24909,6 +25131,7 @@ try {
   if (SOLO === "AVISOM") await seccionAVISOM();
   if (SOLO === "CHATP") await seccionCHATP();
   if (SOLO === "ENL") await seccionENL();
+  if (SOLO === "EGC") await seccionEGC();
   if (SOLO === "VALOR") await seccionVALOR();
   if (SOLO === "MOMB") await seccionMOMB();
   if (SOLO === "CAMBC") await seccionCAMBC();
@@ -26029,6 +26252,7 @@ try {
   await seccionVISTOS();
   await seccionCHATP();
   await seccionENL();
+  await seccionEGC();
   await seccionAVISOM();
   await seccionVALOR();
   await seccionMOMB();

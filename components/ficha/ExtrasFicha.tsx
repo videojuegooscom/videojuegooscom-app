@@ -313,6 +313,7 @@ export function EntregaEstimadaFicha({
   cpEscrito,
   onCpEscrito,
   onIrPerfil,
+  regalo = null,
 }: {
   tipo: TipoEntregaEstimada;
   cp: string | null;
@@ -322,6 +323,8 @@ export function EntregaEstimadaFicha({
   cpEscrito: string;
   onCpEscrito: (v: string) => void;
   onIrPerfil: () => void;
+  /** Envío gratis regalado por la tienda a este cliente que vale para este artículo (texto ya escrito), o null. */
+  regalo?: string | null;
 }) {
   const azul = colorTextoAzul(14);
   // Las franjas del dueño (dueño, 2026-11-15): «Llega hoy entre las 17:15 y las 19:00 si lo pides antes de las 16:30».
@@ -417,6 +420,13 @@ export function EntregaEstimadaFicha({
       }}
     >
       {cuerpo}
+      {regalo ? (
+        <View nativeID="ficha-entrega-regalo" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          {/* El mismo verde que «A la venta» (contraste AA sobre el fondo claro). */}
+          <Ionicons name="gift-outline" size={16} color="#166534" />
+          <Text style={{ ...textoDetalle, color: "#166534", fontWeight: "900", flexShrink: 1 }}>{regalo}</Text>
+        </View>
+      ) : null}
       {tipo === "sin_cp" && !campoAbierto ? enlace("Indica tu código postal", onAbrirCampo, "ficha-entrega-cp-boton") : null}
       {campoAbierto ? (
         <View style={{ gap: 4, marginTop: 4 }}>
