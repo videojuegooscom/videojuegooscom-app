@@ -1117,7 +1117,7 @@ export default function ClienteFicha() {
         <View
           style={{
             paddingHorizontal: 16,
-            paddingTop: 8 + insets.top,
+            paddingTop: 8 + (Platform.OS === "web" ? 0 : insets.top), // en la web la franja de la hora la deja #root
             paddingBottom: 8,
             borderBottomWidth: 1,
             borderBottomColor: COLORS.border,

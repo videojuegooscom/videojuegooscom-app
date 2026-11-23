@@ -87,7 +87,7 @@ export function CabeceraPanel({
         borderBottomWidth: 1,
         borderBottomColor: COLORS.border,
         paddingHorizontal: isMobile ? 12 : 16,
-        paddingTop: (isMobile ? 10 : 12) + insets.top,
+        paddingTop: (isMobile ? 10 : 12) + (Platform.OS === "web" ? 0 : insets.top), // en la web la franja de la hora la deja #root
         paddingBottom: isMobile ? 10 : 12,
       }}
     >

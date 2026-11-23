@@ -5057,6 +5057,63 @@ async function seccionFT() {
   }
 }
 
+// ===== ZSA) La franja de la hora del iPhone no tapa la cabecera ni a Blue (dueño, 2026-11-23: «la parte de arriba se ve
+// borroso») ===================================================================================================
+// Con viewport-fit=cover el iPhone dibuja la tienda también debajo de la hora, y Safari (iOS 26) difumina esa franja: la
+// flecha, el logo y Blue salían borrosos. La tienda deja ese hueco (#root, --vz-arriba) y Blue baja lo mismo. El navegador
+// de las pruebas no tiene franja: se simula poniendo --vz-arriba a 54 px. En el ordenador (sin franja) todo sigue igual.
+// Control: la tienda anterior deja la flecha y Blue a menos de 54 px del borde.
+async function seccionZSA() {
+  const ID = "b7c1d2e3-0000-4000-8000-0000000000f7";
+  const FRANJA = 54;
+  const estado = () => ({
+    filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }],
+    guardados: [],
+    producto: {
+      id: ID, title: "PS4 Slim revisada", description: "Revisada.", price_eur: 189, status: "PUBLISHED", is_active: true,
+      category_id: null, images: [], updated_at: "2026-11-01T10:00:00Z", created_at: "2026-11-01T10:00:00Z", condition: "USED",
+      like_count: 0, reference: null, caracteristicas: [{ etiqueta: "Plataforma", valor: "PS4" }], mantenimiento: null, category: null,
+    },
+    fotosProducto: [],
+  });
+  const medir = (p) =>
+    p.evaluate(() => {
+      const r = (el) => (el ? Math.round(el.getBoundingClientRect().top) : null);
+      return { volver: r(document.querySelector('[aria-label="Volver atrás"]')), blue: r(document.getElementById("blue-flotante")) };
+    });
+  for (const [nombre, vista, franja] of [
+    ["iPhone", {}, FRANJA],
+    ["ordenador", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }, 0],
+  ]) {
+    const ctx = await contexto(navegador, CLIENTE, "user", estado(), vista);
+    // (con una hoja de estilo: el atributo style de <html> lo borra React al arrancar)
+    if (franja)
+      await ctx.addInitScript((px) => {
+        const poner = () => {
+          const s = document.createElement("style");
+          s.textContent = `:root{--vz-arriba:${px}px !important}`;
+          (document.head ?? document.documentElement).appendChild(s);
+        };
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", poner);
+        else poner();
+      }, franja);
+    const p = await pagina(ctx, `/producto/${ID}`);
+    await p.locator('[aria-label="Volver atrás"]').first().waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#blue-flotante").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const m = await medir(p);
+    if (franja) {
+      ok(m.volver !== null && m.volver >= franja, `ZSA (${nombre}): la cabecera empieza debajo de la franja de la hora (flecha a ${m.volver ?? "?"} px; franja ${franja})`);
+      ok(m.blue !== null && m.blue >= franja, `ZSA (${nombre}): Blue también baja por debajo de la franja (a ${m.blue ?? "?"} px)`);
+    } else {
+      ok(m.volver !== null && m.volver < 30, `ZSA (${nombre}): sin franja la cabecera sigue arriba del todo (flecha a ${m.volver ?? "?"} px)`);
+      ok(m.blue !== null && m.blue < 30, `ZSA (${nombre}): y Blue en su sitio de siempre (a ${m.blue ?? "?"} px)`);
+    }
+    await capturar(p, `ZSA-${franja ? "iphone" : "ordenador"}`);
+    await ctx.close();
+  }
+}
+
 // ===== MC) Los mensajes de Blue se cierran solos y el aviso de una noticia nueva abre esa noticia (dueño, 2026-11-04) ==
 // El saludo se va a los ~3 s; un mensaje, a los 10–15 s a la vista (y con la X, cuando se quiera); la analítica cuenta cómo
 // acaba. El aviso «Noticia nueva: …» lleva a esa noticia (/chat-global?noticia=<id>), no a la lista. Administración →
@@ -24805,6 +24862,7 @@ try {
   if (SOLO === "NA") await seccionNA();
   if (SOLO === "MC") await seccionMC();
   if (SOLO === "FT") await seccionFT();
+  if (SOLO === "ZSA") await seccionZSA();
   if (SOLO === "AF") await seccionAF();
   if (SOLO === "ME") await seccionME();
   if (SOLO === "CO") await seccionCO();
@@ -25824,6 +25882,7 @@ try {
   await seccionNA();
   await seccionMC();
   await seccionFT();
+  await seccionZSA();
   await seccionAF();
   await seccionME();
   await seccionCO();

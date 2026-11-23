@@ -94,6 +94,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -1097,7 +1098,7 @@ export default function AdminChats() {
         <View
           style={{
             paddingHorizontal: pagePadding,
-            paddingTop: 10 + insets.top,
+            paddingTop: 10 + (Platform.OS === "web" ? 0 : insets.top), // en la web la franja de la hora la deja #root
             paddingBottom: 10,
             borderBottomWidth: 1,
             borderBottomColor: COLORS.border,

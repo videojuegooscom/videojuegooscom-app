@@ -189,11 +189,23 @@ function desplazado(el: Element): number {
   for (let n = el.parentElement; n; n = n.parentElement) total += n.scrollTop || 0;
   return total;
 }
+// Alto de la franja de la hora del iPhone (--vz-arriba de app/+html.tsx): la tienda empieza debajo y Blue también.
+// 0 en el ordenador y fuera de la web.
+export function zonaSeguraArriba(): number {
+  if (Platform.OS !== "web" || typeof document === "undefined" || !document.body) return 0;
+  const sonda = document.createElement("div");
+  sonda.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;height:var(--vz-arriba,0px)";
+  document.body.appendChild(sonda);
+  const alto = sonda.getBoundingClientRect().height;
+  sonda.remove();
+  return Number.isFinite(alto) ? Math.max(0, Math.round(alto)) : 0;
+}
 export function posicionFija(enInicio: boolean) {
   const { width } = Dimensions.get("window");
   const x = width - BLUE_SIZE - EDGE_INSET;
   let y = ARRIBA_FIJO;
   if (Platform.OS !== "web" || typeof document === "undefined") return { x, y };
+  y += zonaSeguraArriba();
   const barra = barraDelBuscador();
   if (barra && barra.arriba < 160) y = Math.max(y, Math.round(barra.abajo + 4));
   if (!enInicio) return { x, y };
