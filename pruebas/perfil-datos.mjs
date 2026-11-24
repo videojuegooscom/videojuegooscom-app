@@ -18060,6 +18060,19 @@ async function seccionCMP() {
     ok((await texto(p, "#compramos-h1")) === "Compramos tu móvil en Zaragoza" && /^Compramos tu móvil en Zaragoza/.test(await p.title()) && /¿Cuánto me dais por tu móvil\?/.test(await texto(p, "#compramos-preguntas")), `CMP: /compramos/moviles con su título y sus preguntas`);
     await capturar(p, "CMP-moviles-390");
     ok(p.errores.length === 0, `CMP: /compramos/moviles sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    // Portátiles y PC: su foto real fija (public/compramos/), cargada y a la vista.
+    for (const t of ["portatiles", "pc"]) {
+      const q = await pagina(ctx, `/compramos/${t}`);
+      await q.locator("#compramos-fotos img").first().waitFor({ timeout: 30000 }).catch(() => {});
+      await q.waitForTimeout(1200);
+      const foto = await q.evaluate(() => {
+        const i = document.querySelector("#compramos-fotos img");
+        return { src: i?.getAttribute("src") ?? "", ancho: i?.naturalWidth ?? 0 };
+      });
+      ok(foto.src.endsWith(`/compramos/${t}.jpg`) && foto.ancho >= 1000, `CMP: /compramos/${t} con su foto real (${JSON.stringify(foto)})`);
+      await capturar(q, `CMP-${t}-390`);
+      ok(q.errores.length === 0, `CMP: /compramos/${t} sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
+    }
     await ctx.close();
   }
 }

@@ -65,6 +65,8 @@ type Pagina = {
   categorias: string[];
   filtro: RegExp | null;
   enVenta: string;
+  /** Foto real fija de la cabecera (public/compramos/), si la hay: va antes que las de los artículos a la venta. */
+  foto?: string;
   modelos: Modelo[];
   revisamos: string[];
   preparar: string[];
@@ -128,6 +130,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     categorias: ["electronica"],
     filtro: /port[aá]til|macbook|laptop|notebook|chromebook|thinkpad|zenbook|vivobook|ideapad|\blegion\b|\bomen\b/i,
     enVenta: "Portátiles a la venta ahora",
+    foto: "/compramos/portatiles.jpg",
     modelos: [
       { nombre: "MacBook Air y MacBook Pro", articulo: "MacBook", texto: "Con chip de Apple (M1, M2, M3…) o con Intel." },
       { nombre: "Portátiles para jugar", articulo: "Portátil gaming", texto: "ASUS ROG, Lenovo Legion, MSI, HP Omen y similares: los valoramos por su tarjeta gráfica." },
@@ -147,6 +150,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     categorias: ["electronica"],
     filtro: /\bpc\b|ordenador|monitor|tarjeta gr[aá]fica|\brtx\b|\bgtx\b|radeon|teclado|rat[oó]n|\btorre\b|procesador/i,
     enVenta: "PC y periféricos a la venta ahora",
+    foto: "/compramos/pc.jpg",
     modelos: [
       { nombre: "PC gaming y de sobremesa", articulo: "PC de sobremesa", texto: "Torres completas o por piezas, para jugar, trabajar o diseñar." },
       { nombre: "Tarjetas gráficas", articulo: "Tarjeta gráfica", texto: "NVIDIA GeForce RTX y GTX, y AMD Radeon." },
@@ -342,7 +346,8 @@ export default function CompramosScreen() {
     router.push({ pathname: "/vender", params: { articulo } });
   };
   // Fotos reales de la cabecera: las de Categorías (consolas) o las de lo que hay a la venta de este tipo.
-  const fotos = (tipo === "consolas" ? fotosConsolas : (enVenta ?? []).map((x) => x.image).filter((x): x is string => !!x)).slice(0, 4);
+  // Con foto fija (portátiles y PC, foto real de Pexels que eligió el dueño el 2026-11-24), solo esa.
+  const fotos = p.foto ? [p.foto] : (tipo === "consolas" ? fotosConsolas : (enVenta ?? []).map((x) => x.image).filter((x): x is string => !!x)).slice(0, 4);
   const padding = isMobile ? 16 : 28;
 
   const cabeceraTexto = (
