@@ -171,6 +171,11 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content="VideojuegosZaragoza" />
         <link rel="apple-touch-icon" href="/icono-192.png" />
+        {/* Icono de la tienda para Google y los navegadores (2026-11-24): el logo en PNG, en nuestro dominio y con medidas
+            múltiplo de 48 px. Antes solo estaba /favicon.ico, que era el icono por defecto de Expo (una «A» azul), y Google
+            enseñaba el globo gris. El /favicon.ico ahora sale también del logo (app.json → web.favicon). */}
+        <link rel="icon" type="image/png" sizes="192x192" href="/icono-192.png" />
+        <link rel="icon" type="image/png" sizes="512x512" href="/icono-512.png" />
         {/* Conexión anticipada con Supabase (API y fotos): ahorra DNS+TLS en la 1.ª petición. */}
         {/* Dos conexiones: la API va con CORS (fetch) y las fotos <img> sin CORS. */}
         <link rel="preconnect" href={SUPABASE_ORIGIN} crossOrigin="anonymous" />

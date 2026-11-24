@@ -24723,6 +24723,16 @@ async function seccionPANRED5() {
       await capturar(p, `PANRED5-${nombre}-marca-seo`);
       await comprobarDiseno(p, nombre, "Marca y SEO", "la pantalla", { minimo: 3 });
       await control(p, nombre, "Marca y SEO");
+      // Aviso de por qué Google puede enseñar otro texto (2026-11-24): sin «Zaragoza» lo aconseja; con ella, «Bien».
+      const descOriginal = await p.locator('[aria-label="Descripción para Google"]').inputValue();
+      await p.locator('[aria-label="Descripción para Google"]').fill("Compramos tu electrónica al mejor precio o la intercambiamos.");
+      await p.waitForTimeout(200);
+      const sinCiudad = await texto(p, "#marca-aviso-google");
+      await p.locator('[aria-label="Descripción para Google"]').fill("Tienda de electrónica en Zaragoza: compramos, vendemos y reparamos.");
+      await p.waitForTimeout(200);
+      const conCiudad = await texto(p, "#marca-aviso-google");
+      ok(/Google puede enseñar otro texto/.test(sinCiudad) && /conviene que diga «Zaragoza»/.test(sinCiudad) && /Bien: la descripción ya dice «Zaragoza»/.test(conCiudad), `PANRED5 (${nombre}): Marca y SEO explica por qué Google puede cambiar la descripción y aconseja «Zaragoza» («${sinCiudad.slice(0, 80)}…» / «${conCiudad.slice(0, 60)}…»)`);
+      await p.locator('[aria-label="Descripción para Google"]').fill(descOriginal);
       const largo = "Videojuegos Zaragoza: consolas, móviles y portátiles revisados";
       await p.locator('[aria-label="Título para Google"]').fill(largo);
       await p.waitForTimeout(300);
