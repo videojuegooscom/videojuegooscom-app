@@ -17762,6 +17762,26 @@ async function seccionGSC() {
     });
     ok(barra.alto === 48 && barra.ancho <= 560 && barra.textoAlto <= 26 && barra.letra >= 13 && /^(Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo) \d{1,2} De [A-ZÁÉ][a-zé]+ Del \d{4}$/.test(barra.texto), `GSC (${nombre}): la barra de 48 px en una línea con la fecha de hoy («${barra.texto}», ${barra.letra}px, ${barra.ancho}px)`);
     ok((await p.locator("#google-rango-siguiente").getAttribute("aria-disabled")) === "true", `GSC (${nombre}): «›» bloqueada en el mes actual`);
+    // Barra de arriba (2026-11-24): «Conectado», el rango y «Actualizar» a la misma altura en el ordenador; en el móvil, el
+    // rango debajo a todo el ancho. La explicación y la hora, recogidas en el icono ⓘ (cerrado al entrar).
+    const fila = await p.evaluate(() => {
+      const c = (id) => {
+        const r = document.getElementById(id)?.getBoundingClientRect();
+        return r ? { y: Math.round(r.top + r.height / 2), top: Math.round(r.top), izq: Math.round(r.left), der: Math.round(r.right), ancho: Math.round(r.width) } : null;
+      };
+      return { estado: c("google-estado"), rango: c("google-rango"), actualizar: c("google-actualizar"), info: c("google-info"), ventana: window.innerWidth };
+    });
+    const alineada = nombre === "1280"
+      ? Math.abs(fila.estado.y - fila.rango.y) <= 3 && Math.abs(fila.actualizar.y - fila.rango.y) <= 3 && fila.estado.der < fila.rango.izq && fila.actualizar.izq > fila.rango.der
+      : fila.rango.top > fila.estado.y && Math.abs(fila.estado.y - fila.actualizar.y) <= 3 && fila.rango.ancho >= fila.ventana - 40;
+    ok(alineada, `GSC (${nombre}): «Conectado», el rango y «Actualizar» bien colocados (${JSON.stringify(fila)})`);
+    ok((await p.locator("#google-info-texto").count()) === 0 && (await p.getByText(/datos de Search Console/).count()) === 0, `GSC (${nombre}): la explicación no ocupa sitio hasta tocar ⓘ`);
+    await p.locator("#google-info").click();
+    const info = await texto(p, "#google-info-texto");
+    ok(/datos de Search Console/.test(info) && /Actualizado a las \d{2}:\d{2}/.test(info) && (await p.locator("#google-info").getAttribute("aria-expanded")) === "true", `GSC (${nombre}): ⓘ enseña la explicación y la hora («${info.slice(0, 70)}…»)`);
+    await capturar(p, `GSC-info-${nombre}`);
+    await p.locator("#google-info").click();
+    ok((await p.locator("#google-info-texto").count()) === 0, `GSC (${nombre}): y otro toque la recoge`);
     ok(/Rango seleccionado: .* Toca para elegir un rango personalizado/.test((await p.locator("#google-rango-centro").getAttribute("aria-label")) ?? ""), `GSC (${nombre}): el centro dice qué rango es y que se puede tocar`);
     ok(/Conectado/.test(await texto(p, "#google-estado")), `GSC (${nombre}): dice «Conectado»`);
     ok(/vender consola zaragoza/.test(await texto(p, "#google-busquedas")) && /puesto 4,2/.test(await texto(p, "#google-busquedas")), `GSC (${nombre}): las búsquedas con su puesto`);
