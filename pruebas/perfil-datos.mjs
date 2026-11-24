@@ -17910,6 +17910,19 @@ async function seccionGSC() {
     ok(p.errores.length === 0, `GSC (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
+  // Sin datos del periodo anterior (web recién conectada): una sola línea, nada repetido en cada cifra.
+  {
+    const ctx = await contexto(navegador, ADMIN, "admin", { filas: perfilAdmin, guardados: [] });
+    const vacio = { ...DATOS, anterior: { desde: "2026-10-01", hasta: "2026-10-24", totales: { clics: 0, impresiones: 0, ctr: 0, posicion: 0 } } };
+    await ctx.route("**/api/auditoria-web**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(vacio) }));
+    const p = await pagina(ctx, "/admin/google");
+    await p.locator("#google-cifras").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const linea = await texto(p, "#google-sin-comparar");
+    ok(/^Google no tiene datos del 1–24 oct para comparar/.test(linea) && (await p.locator("#google-cambio-clics").count()) === 0 && !/Antes, sin datos/.test(await texto(p, "#google-cifras")) && p.errores.length === 0, `GSC: sin datos de antes, una sola línea («${linea}»)`);
+    await capturar(p, "GSC-sin-comparar");
+    await ctx.close();
+  }
   // Sin la llave: explica el paso que falta, sin errores.
   {
     const ctx = await contexto(navegador, ADMIN, "admin", { filas: perfilAdmin, guardados: [] });
