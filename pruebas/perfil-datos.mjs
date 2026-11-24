@@ -17738,7 +17738,9 @@ async function seccionGSC() {
   const texto = async (p, sel) => (await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => "")).replace(/\s+/g, " ").trim();
   for (const { nombre, vista } of VISTAS) {
     const peticiones = [];
-    const ctx = await contexto(navegador, ADMIN, "admin", { filas: perfilAdmin, guardados: [] }, vista);
+    const FOTO_G = (n) => `https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/compramos/g${n}.jpg`;
+    const estadoG = { filas: perfilAdmin, guardados: [], ajustes: { compramos_fotos: { consolas: [FOTO_G(1), FOTO_G(2)] } }, redes: true };
+    const ctx = await contexto(navegador, ADMIN, "admin", estadoG, vista);
     await ctx.route("**/api/auditoria-web**", (r) => {
       const u = new URL(r.request().url());
       peticiones.push({ params: Object.fromEntries(u.searchParams), auth: r.request().headers()["authorization"] ?? "" });
@@ -17834,6 +17836,19 @@ async function seccionGSC() {
     await p.locator("#google-comprobar-compramos-consolas").click();
     for (let i = 0; i < 20 && !peticiones.some((x) => x.params.inspeccionar === "/compramos/consolas"); i++) await p.waitForTimeout(150);
     ok(peticiones.some((x) => x.params.inspeccionar === "/compramos/consolas"), `GSC (${nombre}): «Comprobar» de Compramos pregunta por /compramos/consolas`);
+    // «Fotos» (2026-11-24, hasta 10): ver las que hay, cambiar el orden, quitar una y guardar en site_settings.compramos_fotos.
+    ok(/Fotos \(2\/10\)/.test(await texto(p, "#google-fotos-consolas")) && /^\W*Fotos$/.test(await texto(p, "#google-fotos-moviles")), `GSC (${nombre}): «Fotos» dice cuántas tiene cada página («${await texto(p, "#google-fotos-consolas")}»)`);
+    await p.locator("#google-fotos-consolas").click();
+    await p.locator("#google-fotos-ventana").waitFor({ timeout: 5000 }).catch(() => {});
+    ok(/2 de 10 fotos/.test(await texto(p, "#google-fotos-cuenta")) && (await p.locator("#google-fotos-anadir").count()) === 1, `GSC (${nombre}): la ventana de fotos con las 2 y «Añadir fotos»`);
+    await p.waitForTimeout(600);
+    await capturar(p, `GSC-fotos-${nombre}`);
+    await p.getByLabel("Mover la foto 2 antes").click();
+    await p.getByLabel("Quitar la foto 2").click();
+    await p.locator("#google-fotos-guardar").click();
+    for (let i = 0; i < 20 && !(estadoG.ajustesGuardados ?? []).length; i++) await p.waitForTimeout(150);
+    const guardado = (estadoG.ajustesGuardados ?? []).at(-1)?.compramos_fotos;
+    ok(JSON.stringify(guardado?.consolas) === JSON.stringify([FOTO_G(2)]) && !(await p.locator("#google-fotos-ventana").isVisible().catch(() => false)) && /Fotos \(1\/10\)/.test(await texto(p, "#google-fotos-consolas")), `GSC (${nombre}): cambia el orden, quita y guarda (${JSON.stringify(guardado ?? null)})`);
     await p.locator("#google-comprobar-todas").click();
     for (let i = 0; i < 40 && peticiones.filter((x) => x.params.inspeccionar).length < 6; i++) await p.waitForTimeout(150);
     await p.locator("#google-inspeccion-vender").waitFor({ timeout: 8000 }).catch(() => {});
@@ -18060,6 +18075,21 @@ async function seccionCMP() {
     ok((await texto(p, "#compramos-h1")) === "Compramos tu móvil en Zaragoza" && /^Compramos tu móvil en Zaragoza/.test(await p.title()) && /¿Cuánto me dais por tu móvil\?/.test(await texto(p, "#compramos-preguntas")), `CMP: /compramos/moviles con su título y sus preguntas`);
     await capturar(p, "CMP-moviles-390");
     ok(p.errores.length === 0, `CMP: /compramos/moviles sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    // Fotos propias (Administración → Google → «Fotos»): una a una, con flechas y puntos.
+    {
+      const propias = [FOTO(7), FOTO(8), FOTO(9)];
+      const ctx2 = await contexto(navegador, CLIENTE, "user", { ...estado(), ajustes: { compramos_fotos: { consolas: propias } } });
+      const q = await pagina(ctx2, "/compramos/consolas");
+      await q.locator("#compramos-foto-puntos").waitFor({ timeout: 30000 }).catch(() => {});
+      const src = () => q.evaluate(() => document.querySelector("#compramos-fotos img")?.getAttribute("src") ?? "");
+      const antes = await src();
+      await q.locator("#compramos-foto-siguiente").click();
+      await q.waitForTimeout(700);
+      const despues = await src();
+      ok((await q.getByLabel("Foto 1 de 3").count()) + (await q.getByLabel("Foto 2 de 3").count()) > 0 && antes !== despues && q.errores.length === 0, `CMP: las fotos propias pasan una a una con sus flechas (${antes.slice(-12)} → ${despues.slice(-12)})`);
+      await capturar(q, "CMP-fotos-propias-390");
+      await ctx2.close();
+    }
     // Portátiles y PC: su foto real fija (public/compramos/), cargada y a la vista.
     for (const t of ["portatiles", "pc"]) {
       const q = await pagina(ctx, `/compramos/${t}`);

@@ -190,6 +190,13 @@ const QUE_COMPRAMOS: Record<TipoCompramos, string> = {
   tablets: "Qué iPad y tablets compramos",
 };
 
+/** Las fotos propias de una página (site_settings.compramos_fotos[tipo]): solo direcciones https, como mucho 10. */
+export function fotosDePagina(valor: unknown, tipo: string): string[] {
+  const lista = valor && typeof valor === "object" ? (valor as Record<string, unknown>)[tipo] : null;
+  return Array.isArray(lista) ? lista.filter((x): x is string => typeof x === "string" && /^https:\/\//.test(x)).slice(0, 10) : [];
+}
+export const MAX_FOTOS_COMPRAMOS = 10;
+
 /** Las 5 direcciones se crean al publicar la web. */
 export async function generateStaticParams(): Promise<{ tipo: string }[]> {
   return TIPOS.map((tipo) => ({ tipo }));
@@ -308,13 +315,26 @@ export default function CompramosScreen() {
   const ancho3 = isMobile ? "100%" : ancho >= 1000 ? "31%" : "48%";
   const [enVenta, setEnVenta] = useState<ProductoEstante[] | null>(null);
   const [fotosConsolas, setFotosConsolas] = useState<string[]>([]);
+  // Fotos propias que pone el dueño en Administración → Google → «Fotos» (site_settings.compramos_fotos, hasta 10).
+  const [fotosPropias, setFotosPropias] = useState<string[]>([]);
+  const [verFoto, setVerFoto] = useState(0);
 
-  // Lo que hay a la venta de este tipo y, en Consolas, las fotos reales de Categorías.
+  // Lo que hay a la venta de este tipo, las fotos propias y, en Consolas, las fotos reales de Categorías.
   useEffect(() => {
     if (!tipo || !p) return;
     let vivo = true;
     void medirEvento("compramos_visto", `Compramos: ${p.corto}`, { path: `/compramos/${tipo}`, metadata: { pagina: tipo } });
     void productosDeCategorias(p.categorias, p.filtro).then((l) => vivo && setEnVenta(l));
+    // Sin la columna (migración sin aplicar) da error y se quedan las de siempre.
+    void supabase
+      .from("site_settings")
+      .select("compramos_fotos")
+      .eq("id", 1)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!vivo || error) return;
+        setFotosPropias(fotosDePagina((data as { compramos_fotos?: unknown } | null)?.compramos_fotos, tipo));
+      });
     if (tipo === "consolas") {
       void supabase
         .from("categories")
@@ -330,6 +350,14 @@ export default function CompramosScreen() {
       vivo = false;
     };
   }, [tipo, p]);
+
+  // Con varias fotos propias, pasan solas cada 5 s (las flechas también las cambian).
+  useEffect(() => {
+    setVerFoto(0);
+    if (fotosPropias.length < 2) return;
+    const t = setInterval(() => setVerFoto((i) => (i + 1) % fotosPropias.length), 5000);
+    return () => clearInterval(t);
+  }, [fotosPropias]);
 
   if (!tipo || !p) {
     return (
@@ -349,6 +377,38 @@ export default function CompramosScreen() {
   // Con foto fija (portátiles y PC, foto real de Pexels que eligió el dueño el 2026-11-24), solo esa.
   const fotos = p.foto ? [p.foto] : (tipo === "consolas" ? fotosConsolas : (enVenta ?? []).map((x) => x.image).filter((x): x is string => !!x)).slice(0, 4);
   const padding = isMobile ? 16 : 28;
+  const flechaFoto = (signo: "‹" | "›", nombre: string, paso: number, lado: "left" | "right") => (
+    <Pressable
+      nativeID={`compramos-foto-${paso < 0 ? "anterior" : "siguiente"}`}
+      onPress={() => setVerFoto((i) => (i + paso + fotosPropias.length) % fotosPropias.length)}
+      accessibilityRole="button"
+      accessibilityLabel={nombre}
+      style={({ pressed }) => ({ position: "absolute", top: "50%", [lado]: 10, marginTop: -22, width: TACTIL.minimo, height: TACTIL.minimo, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.88)", alignItems: "center", justifyContent: "center", opacity: pressed ? 0.8 : 1 })}
+    >
+      <Text style={{ color: C.text, fontSize: 26, fontWeight: "900", lineHeight: 28 }}>{signo}</Text>
+    </Pressable>
+  );
+  // Fotos propias: una a una, con flechas y puntos; si no, las de siempre (hasta 4 en mosaico).
+  const cabeceraPropias = fotosPropias.length ? (
+    <View nativeID="compramos-fotos" style={{ flexGrow: 1, flexShrink: 1, flexBasis: isMobile ? "100%" : "40%", minWidth: 0, gap: 10 }}>
+      <View style={{ width: "100%", aspectRatio: isMobile ? 4 / 3 : 1, borderRadius: 24, overflow: "hidden", backgroundColor: C.tile }}>
+        <ImagenInteligente uri={fotosPropias[verFoto] ?? fotosPropias[0]} ancho={isMobile ? 360 : 520} priority="high" transitionMs={400} alt={`${p.corto} que compramos en Zaragoza`} style={{ width: "100%", height: "100%" }} />
+        {fotosPropias.length > 1 ? (
+          <>
+            {flechaFoto("‹", "Foto anterior", -1, "left")}
+            {flechaFoto("›", "Foto siguiente", 1, "right")}
+          </>
+        ) : null}
+      </View>
+      {fotosPropias.length > 1 ? (
+        <View nativeID="compramos-foto-puntos" accessibilityLabel={`Foto ${verFoto + 1} de ${fotosPropias.length}`} style={{ flexDirection: "row", justifyContent: "center", gap: 6 }}>
+          {fotosPropias.map((f, i) => (
+            <View key={f} style={{ width: i === verFoto ? 18 : 7, height: 7, borderRadius: 4, backgroundColor: i === verFoto ? C.accent : C.line }} />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  ) : null;
 
   const cabeceraTexto = (
     <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: isMobile ? "100%" : "52%", minWidth: 0, gap: 16, justifyContent: "center" }}>
@@ -401,7 +461,7 @@ export default function CompramosScreen() {
             {/* Cabecera: el texto y el botón primero; la foto, a la derecha en el ordenador y debajo en el móvil. */}
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: isMobile ? 20 : 40, alignItems: "center" }}>
               {cabeceraTexto}
-              {cabeceraFoto}
+              {cabeceraPropias ?? cabeceraFoto}
             </View>
           </View>
 
