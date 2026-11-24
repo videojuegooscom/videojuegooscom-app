@@ -358,8 +358,47 @@ export default function AdminGoogle() {
   }, []);
 
   const conectado = datos && datos.conectado ? datos : null;
-  const maxDia = conectado ? Math.max(1, ...conectado.porDia.map((d) => d.impresiones)) : 1;
-  const anchoBloque = isMobile ? "100%" : "45%";
+  // Una barra por cada día del periodo (los que Google no trae, a 0): con pocos días de datos no sale un bloque enorme.
+  const dias: (Fila & { fecha: string })[] = [];
+  if (conectado) {
+    const porFecha = new Map(conectado.porDia.map((d) => [d.fecha, d]));
+    for (let t = Date.parse(`${conectado.desde}T00:00:00Z`), fin = Date.parse(`${conectado.hasta}T00:00:00Z`); t <= fin && dias.length < 500; t += 86400000) {
+      const fecha = new Date(t).toISOString().slice(0, 10);
+      dias.push(porFecha.get(fecha) ?? { fecha, clics: 0, impresiones: 0, ctr: 0, posicion: 0 });
+    }
+  }
+  const maxDia = Math.max(1, ...dias.map((d) => d.impresiones));
+  // Ordenador ancho (dueño, 2026-11-24: «aprovechar mejor el ancho»): hasta 1440 px, gráfico con los mapas al lado,
+  // búsquedas, páginas y países en tres columnas y «Comprobar» en cuadrícula. Ordenador normal: dos columnas.
+  const muyAncho = (width && width > 0 ? width : 1024) >= 1180;
+  const anchoBloque = isMobile ? "100%" : muyAncho ? "31%" : "45%";
+  const anchoComprobar = isMobile ? "100%" : muyAncho ? "31%" : "45%";
+
+  // «Mapas de la web»: al lado del gráfico en el ordenador ancho; si no, con los demás bloques.
+  const bloqueMapas = (ancho: "100%" | "45%" | "32%" | "31%") =>
+    conectado ? (
+      <Bloque nativeID="google-mapas" icono="map-outline" titulo="Mapas de la web" ancho={ancho}>
+        {conectado.mapas.length ? (
+          conectado.mapas.map((m) => {
+            const t: { texto: string; tono: Tono } = m.errores ? { texto: "Con errores", tono: "rojo" } : m.pendiente || !m.ultimaLectura ? { texto: "Pendiente", tono: "amarillo" } : { texto: "Correcto", tono: "verde" };
+            return (
+              <FilaTabla
+                key={m.ruta}
+                izquierda={
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+                    <Text style={{ color: PANEL.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>{m.ruta}</Text>
+                    <EtiquetaColor texto={t.texto} tono={t.tono} />
+                  </View>
+                }
+                derecha={`${numero(m.paginas)} páginas · leído ${fechaCorta(m.ultimaLectura)}`}
+              />
+            );
+          })
+        ) : (
+          <Detalle>No hay mapas enviados en Search Console.</Detalle>
+        )}
+      </Bloque>
+    ) : null;
 
   const resultadoInspeccion = (r: string) => {
     const i = inspecciones[r];
@@ -384,7 +423,7 @@ export default function AdminGoogle() {
       <StatusBar barStyle="dark-content" />
       <CabeceraPanel title="Google" isMobile={isMobile} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <View style={{ width: "100%", maxWidth: 1040, gap: isMobile ? 18 : 22 }}>
+        <View style={{ width: "100%", maxWidth: muyAncho ? 1440 : 1040, gap: isMobile ? 18 : 22 }}>
           <Detalle>Cómo te encuentra la gente en Google (datos de Search Console). Google da los datos con 2 o 3 días de retraso.</Detalle>
 
           {/* Estado de la conexión, periodo y «Actualizar». */}
@@ -421,15 +460,15 @@ export default function AdminGoogle() {
               </FilaCifras>
 
               {/* Clics y veces que sales, por día (barras: el alto es las veces que sales; lo azul, los clics). */}
-              <View style={{ flexDirection: "row" }}>
-                <Bloque nativeID="google-por-dia" icono="calendar-outline" titulo="Clics por día" ancho="100%">
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+                <Bloque nativeID="google-por-dia" icono="calendar-outline" titulo="Clics por día" ancho={muyAncho ? "64%" : "100%"}>
                   {conectado.porDia.length ? (
-                    <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 2, height: 110, paddingTop: 6 }}>
-                      {conectado.porDia.map((d) => (
+                    <View style={{ flexDirection: "row", alignItems: "flex-end", gap: dias.length > 60 ? 1 : 2, height: muyAncho ? 150 : 110, paddingTop: 6, borderBottomWidth: 1, borderBottomColor: PANEL.border }}>
+                      {dias.map((d) => (
                         <View
                           key={d.fecha}
                           accessibilityLabel={`${d.fecha}: ${d.clics} clics, ${d.impresiones} veces`}
-                          style={{ flex: 1, minWidth: 2, height: `${Math.max(4, (d.impresiones / maxDia) * 100)}%`, borderRadius: 3, backgroundColor: PANEL.accent2, justifyContent: "flex-end", overflow: "hidden" }}
+                          style={{ flex: 1, minWidth: 1, height: d.impresiones ? `${Math.max(4, (d.impresiones / maxDia) * 100)}%` : 2, borderRadius: 3, backgroundColor: d.impresiones ? PANEL.accent2 : PANEL.border, justifyContent: "flex-end", overflow: "hidden" }}
                         >
                           <View style={{ height: `${d.impresiones ? (d.clics / d.impresiones) * 100 : 0}%`, minHeight: d.clics ? 3 : 0, backgroundColor: PANEL.accent }} />
                         </View>
@@ -442,6 +481,7 @@ export default function AdminGoogle() {
                     Del {fechaCorta(conectado.desde)} al {fechaCorta(conectado.hasta)} · en azul claro, las veces que sales; en azul, los clics.
                   </Text>
                 </Bloque>
+                {muyAncho ? bloqueMapas("32%") : null}
               </View>
 
               {/* Siempre en fila que baja de línea: en una columna, el ancho de cada Bloque (flexBasis) se leería como alto. */}
@@ -481,48 +521,38 @@ export default function AdminGoogle() {
                     <Detalle>Sin datos todavía.</Detalle>
                   )}
                 </Bloque>
-                <Bloque nativeID="google-mapas" icono="map-outline" titulo="Mapas de la web" ancho={anchoBloque}>
-                  {conectado.mapas.length ? (
-                    conectado.mapas.map((m) => {
-                      const t: { texto: string; tono: Tono } = m.errores ? { texto: "Con errores", tono: "rojo" } : m.pendiente || !m.ultimaLectura ? { texto: "Pendiente", tono: "amarillo" } : { texto: "Correcto", tono: "verde" };
-                      return (
-                        <FilaTabla
-                          key={m.ruta}
-                          izquierda={
-                            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-                              <Text style={{ color: PANEL.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>{m.ruta}</Text>
-                              <EtiquetaColor texto={t.texto} tono={t.tono} />
-                            </View>
-                          }
-                          derecha={`${numero(m.paginas)} páginas · leído ${fechaCorta(m.ultimaLectura)}`}
-                        />
-                      );
-                    })
-                  ) : (
-                    <Detalle>No hay mapas enviados en Search Console.</Detalle>
-                  )}
-                </Bloque>
+                {muyAncho ? null : bloqueMapas(anchoBloque)}
               </View>
 
               {/* Comprobar una página: las principales y cualquier otra. */}
               <View style={{ flexDirection: "row" }}>
                 <Bloque nativeID="google-comprobar" icono="checkmark-done-outline" titulo="Comprobar una página en Google" ancho="100%">
                   <Detalle>Dice si la página está en Google y, si no, por qué.</Detalle>
-                  {PAGINAS_CLAVE.map(([nombre, r]) => (
-                    <View key={r} style={{ gap: 2, paddingVertical: 4, borderTopWidth: 1, borderTopColor: PANEL.border }}>
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10 }}>
-                        <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.minimo, minWidth: 96 }}>{nombre}</Text>
-                        <AccionTexto
-                          nativeID={`google-comprobar-${r === "/" ? "portada" : r.slice(1)}`}
-                          icono="search-outline"
-                          texto="Comprobar en Google"
-                          onPress={() => void comprobar(r)}
-                          disabled={inspecciones[r] === "cargando"}
-                        />
+                  {/* En el ordenador, en cuadrícula (3 o 2 por fila); en el móvil, una debajo de otra. */}
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: isMobile ? 0 : 10 }}>
+                    {PAGINAS_CLAVE.map(([nombre, r]) => (
+                      <View
+                        key={r}
+                        style={
+                          isMobile
+                            ? { width: "100%", gap: 2, paddingVertical: 4, borderTopWidth: 1, borderTopColor: PANEL.border }
+                            : { flexGrow: 1, flexShrink: 1, flexBasis: anchoComprobar, minWidth: 0, gap: 2, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: PANEL.border, backgroundColor: PANEL.bg }
+                        }
+                      >
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10 }}>
+                          <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.minimo, minWidth: 96 }}>{nombre}</Text>
+                          <AccionTexto
+                            nativeID={`google-comprobar-${r === "/" ? "portada" : r.slice(1)}`}
+                            icono="search-outline"
+                            texto="Comprobar en Google"
+                            onPress={() => void comprobar(r)}
+                            disabled={inspecciones[r] === "cargando"}
+                          />
+                        </View>
+                        {resultadoInspeccion(r)}
                       </View>
-                      {resultadoInspeccion(r)}
-                    </View>
-                  ))}
+                    ))}
+                  </View>
                   <View style={{ gap: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: PANEL.border }}>
                     <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Otra página</Text>
                     <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
