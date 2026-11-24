@@ -149,12 +149,29 @@ async function llamarGoogle(token: string, url: string, cuerpo?: unknown): Promi
 
 const diaISO = (d: Date) => d.toISOString().slice(0, 10);
 
-async function datosGoogle(dias: number) {
+const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
+// Un periodo elegido en Administración → Google («Rango personalizado», 2026-11-24): AAAA-MM-DD a AAAA-MM-DD, ambos
+// incluidos, nunca en el futuro y como mucho 16 meses (lo que guarda Search Console). Si no vale, null.
+function rangoPedido(desdeTxt: unknown, hastaTxt: unknown): { desde: Date; hasta: Date } | null {
+  if (typeof desdeTxt !== "string" || typeof hastaTxt !== "string" || !FECHA_RE.test(desdeTxt) || !FECHA_RE.test(hastaTxt)) return null;
+  let desde = new Date(`${desdeTxt}T00:00:00Z`);
+  let hasta = new Date(`${hastaTxt}T00:00:00Z`);
+  if (Number.isNaN(desde.getTime()) || Number.isNaN(hasta.getTime())) return null;
+  if (desde > hasta) [desde, hasta] = [hasta, desde];
+  const hoy = new Date(`${diaISO(new Date())}T00:00:00Z`);
+  if (hasta > hoy) hasta = hoy;
+  const limite = new Date(hoy.getTime() - 486 * 86400000);
+  if (desde < limite) desde = limite;
+  if (desde > hasta) return null;
+  return { desde, hasta };
+}
+
+async function datosGoogle(dias: number, rango: { desde: Date; hasta: Date } | null = null) {
   const token = await tokenGoogle();
   const base = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(SITIO_GOOGLE)}`;
-  // Google da los datos con 2-3 días de retraso: el periodo acaba hace 2 días (con los datos aún «frescos»).
-  const hasta = new Date(Date.now() - 2 * 86400000);
-  const desde = new Date(hasta.getTime() - (dias - 1) * 86400000);
+  // Con un rango elegido, ese; si no, los últimos `dias` hasta hace 2 días (Google da los datos con 2-3 días de retraso).
+  const hasta = rango?.hasta ?? new Date(Date.now() - 2 * 86400000);
+  const desde = rango?.desde ?? new Date(hasta.getTime() - (dias - 1) * 86400000);
   const consulta = (dimensiones: string[], filas: number) =>
     llamarGoogle(token, `${base}/searchAnalytics/query`, { startDate: diaISO(desde), endDate: diaISO(hasta), dimensions: dimensiones, rowLimit: filas, dataState: "all" });
   const [totales, porDia, busquedas, paginas, paises, mapas] = await Promise.all([
@@ -245,7 +262,7 @@ async function respuestaGoogle(req: any, res: any) {
       return;
     }
     const dias = [7, 28, 90].includes(Number(req.query?.dias)) ? Number(req.query.dias) : 28;
-    res.status(200).json({ ok: true, ...(await datosGoogle(dias)) });
+    res.status(200).json({ ok: true, ...(await datosGoogle(dias, rangoPedido(req.query?.desde, req.query?.hasta))) });
   } catch (e) {
     const motivo: MotivoGoogle = e instanceof FalloGoogle ? e.motivo : "error";
     if (motivo === "error") console.error("google: fallo al pedir a Search Console");
