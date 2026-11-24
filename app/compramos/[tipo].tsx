@@ -59,8 +59,8 @@ type Pagina = {
   /** Lo que se escribe en «¿Qué quieres vender?» al pulsar el botón principal. */
   articulo: string;
   boton: string;
-  /** «tu consola», «tu móvil»…, para las preguntas. */
-  tuAparato: string;
+  /** «mi consola», «mi móvil»…: la pregunta la hace el cliente («¿Cuánto me dais por mi consola?»). */
+  miAparato: string;
   /** Lo que hay a la venta de este tipo: categorías y, si hace falta, palabras del título. */
   categorias: string[];
   filtro: RegExp | null;
@@ -83,13 +83,13 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     icono: "game-controller-outline",
     articulo: "Consola",
     boton: "Vender mi consola",
-    tuAparato: "tu consola",
+    miAparato: "mi consola",
     categorias: ["playstation-5", "playstation-4", "nintendo-switch", "xbox"],
     filtro: null,
     enVenta: "Consolas a la venta ahora",
     modelos: [
       { nombre: "PlayStation 5 y PS5 Pro", articulo: "PlayStation 5", texto: "Con lector o digital, Slim y Pro. Mejor precio con su mando DualSense, sus cables y su caja." },
-      { nombre: "PlayStation 4 y PS4 Pro", articulo: "PlayStation 4", texto: "Normal, Slim y Pro, aunque tenga años: también si se calienta o hace ruido." },
+      { nombre: "PlayStation 4 y PS4 Pro", articulo: "PlayStation 4", texto: "Modelos normal, Slim y Pro, también con años de uso o con algún fallo." },
       { nombre: "Nintendo Switch", articulo: "Nintendo Switch", texto: "Switch, Switch OLED, Switch Lite y Switch 2, con sus Joy-Con y su base." },
       { nombre: "Xbox Series y Xbox One", articulo: "Xbox", texto: "Xbox Series X, Xbox Series S y Xbox One, con su mando." },
       { nombre: "Mandos y accesorios", articulo: "Mando", texto: "DualSense, Joy-Con, mandos Pro, volantes y auriculares para consola." },
@@ -105,16 +105,16 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     icono: "phone-portrait-outline",
     articulo: "Móvil",
     boton: "Vender mi móvil",
-    tuAparato: "tu móvil",
+    miAparato: "mi móvil",
     categorias: ["electronica"],
     filtro: /iphone|samsung galaxy (?!tab)|galaxy [szamf]\d|xiaomi|redmi|\bpoco\b|pixel|m[oó]vil|smartphone|oppo|huawei|motorola|oneplus/i,
     enVenta: "Móviles a la venta ahora",
     modelos: [
-      { nombre: "iPhone", articulo: "iPhone", texto: "Todos los modelos recientes, también los Pro y Pro Max, libres de operador." },
+      { nombre: "iPhone", articulo: "iPhone", texto: "Todos los modelos recientes, incluidos los Pro y Pro Max." },
       { nombre: "Samsung Galaxy", articulo: "Samsung Galaxy", texto: "Gama S, gama A y los plegables Z Flip y Z Fold." },
-      { nombre: "Xiaomi, Redmi y POCO", articulo: "Xiaomi", texto: "Los modelos de Xiaomi, Redmi y POCO, con su cargador si lo tienes." },
-      { nombre: "Google Pixel", articulo: "Google Pixel", texto: "Pixel, Pixel Pro y Pixel serie a." },
-      { nombre: "Otros Android", articulo: "Móvil Android", texto: "OPPO, Motorola, OnePlus, Huawei y otras marcas: pregúntanos." },
+      { nombre: "Xiaomi, Redmi y POCO", articulo: "Xiaomi", texto: "Todas las gamas de Xiaomi, Redmi y POCO." },
+      { nombre: "Google Pixel", articulo: "Google Pixel", texto: "Pixel, Pixel Pro y la serie Pixel a." },
+      { nombre: "Otros Android", articulo: "Móvil Android", texto: "OPPO, Motorola, OnePlus, Huawei y otras marcas. Consúltanos." },
     ],
     revisamos: ["La pantalla y el táctil, sin manchas ni zonas que no respondan", "La batería (su salud en %) y la carga", "Las cámaras, el altavoz, el micrófono y el Face ID o la huella", "Que no esté bloqueado por iCloud, por la cuenta de Google ni por el operador"],
     preparar: ["Haz una copia de tus datos", "Desactiva «Buscar mi iPhone» o quita tu cuenta de Google (o te ayudamos)", "El cargador y la caja, si los tienes", "Si tiene la pantalla rota o falla algo, cuéntanoslo: también compramos móviles averiados"],
@@ -126,14 +126,14 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     icono: "laptop-outline",
     articulo: "Portátil",
     boton: "Vender mi portátil",
-    tuAparato: "tu portátil",
+    miAparato: "mi portátil",
     categorias: ["electronica"],
     filtro: /port[aá]til|macbook|laptop|notebook|chromebook|thinkpad|zenbook|vivobook|ideapad|\blegion\b|\bomen\b/i,
     enVenta: "Portátiles a la venta ahora",
     foto: "/compramos/portatiles.jpg",
     modelos: [
       { nombre: "MacBook Air y MacBook Pro", articulo: "MacBook", texto: "Con chip de Apple (M1, M2, M3…) o con Intel." },
-      { nombre: "Portátiles para jugar", articulo: "Portátil gaming", texto: "ASUS ROG, Lenovo Legion, MSI, HP Omen y similares: los valoramos por su tarjeta gráfica." },
+      { nombre: "Portátiles para jugar", articulo: "Portátil gaming", texto: "ASUS ROG, Lenovo Legion, MSI, HP Omen y similares, valorados según su tarjeta gráfica." },
       { nombre: "Portátiles Windows", articulo: "Portátil", texto: "HP, Lenovo, Dell, ASUS, Acer y otras marcas, para estudiar o trabajar." },
     ],
     revisamos: ["La pantalla, el teclado y el touchpad", "La batería: sus ciclos y su autonomía", "El procesador, la memoria y el disco", "Que no tenga bloqueos de BIOS, de iCloud ni de empresa"],
@@ -146,7 +146,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     icono: "desktop-outline",
     articulo: "PC",
     boton: "Vender mi PC",
-    tuAparato: "tu PC",
+    miAparato: "mi PC",
     categorias: ["electronica"],
     filtro: /\bpc\b|ordenador|monitor|tarjeta gr[aá]fica|\brtx\b|\bgtx\b|radeon|teclado|rat[oó]n|\btorre\b|procesador/i,
     enVenta: "PC y periféricos a la venta ahora",
@@ -154,7 +154,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     modelos: [
       { nombre: "PC gaming y de sobremesa", articulo: "PC de sobremesa", texto: "Torres completas o por piezas, para jugar, trabajar o diseñar." },
       { nombre: "Tarjetas gráficas", articulo: "Tarjeta gráfica", texto: "NVIDIA GeForce RTX y GTX, y AMD Radeon." },
-      { nombre: "Monitores", articulo: "Monitor", texto: "Gaming de alta tasa de refresco, 4K y de oficina." },
+      { nombre: "Monitores", articulo: "Monitor", texto: "Gaming de alta frecuencia, 4K y de oficina." },
       { nombre: "Teclados, ratones y más", articulo: "Periférico", texto: "Teclados mecánicos, ratones, cascos, webcams y micrófonos." },
     ],
     revisamos: ["Que arranque y aguante pruebas de rendimiento y de temperatura", "Los componentes: procesador, gráfica, memoria y discos", "En los monitores, que no haya píxeles muertos ni manchas", "En los periféricos, cada tecla, botón y conexión"],
@@ -167,14 +167,14 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     icono: "tablet-portrait-outline",
     articulo: "Tablet",
     boton: "Vender mi tablet",
-    tuAparato: "tu tablet",
+    miAparato: "mi tablet",
     categorias: ["electronica"],
     filtro: /ipad|tablet|galaxy tab|xiaomi pad|redmi pad/i,
     enVenta: "iPad y tablets a la venta ahora",
     modelos: [
       { nombre: "iPad", articulo: "iPad", texto: "iPad, iPad Air, iPad mini y iPad Pro, con wifi o con datos." },
       { nombre: "Samsung Galaxy Tab", articulo: "Samsung Galaxy Tab", texto: "Las gamas Galaxy Tab S y Galaxy Tab A." },
-      { nombre: "Otras tablets Android", articulo: "Tablet Android", texto: "Xiaomi Pad, Lenovo Tab y otras marcas: pregúntanos." },
+      { nombre: "Otras tablets Android", articulo: "Tablet Android", texto: "Xiaomi Pad, Lenovo Tab y otras marcas. Consúltanos." },
       { nombre: "Accesorios", articulo: "Accesorio de tablet", texto: "Apple Pencil, teclados y fundas originales." },
     ],
     revisamos: ["La pantalla y el táctil", "La batería y la carga", "Las cámaras, los altavoces y los botones", "Que no esté bloqueada por iCloud ni por la cuenta de Google"],
@@ -210,27 +210,27 @@ const SELLOS: { icono: IconoNombre; texto: string }[] = [
 ];
 
 const PASOS_ZARAGOZA = [
-  { titulo: "Cuéntanos qué tienes", texto: "Rellena el formulario con unas fotos. Sin compromiso." },
-  { titulo: "Precio en menos de 1 hora", texto: "Te decimos cuánto te damos por el chat de la tienda o por correo." },
-  { titulo: "Lo recogemos en menos de 2 horas", texto: "Vamos a por él o nos lo acercas tú, como prefieras." },
-  { titulo: "Lo revisamos y te pagamos", texto: "Si está como nos contaste, te pagamos al momento por Bizum o en efectivo." },
+  { titulo: "Cuéntanos qué tienes", texto: "Rellena el formulario y añade unas fotos. Sin compromiso." },
+  { titulo: "Precio en menos de 1 hora", texto: "Te enviamos nuestra oferta por el chat de la tienda o por correo." },
+  { titulo: "Lo recogemos en menos de 2 horas", texto: "Pasamos a recogerlo o nos lo acercas tú, como prefieras." },
+  { titulo: "Lo revisamos y te pagamos", texto: "Si su estado coincide con lo indicado, te pagamos al momento por Bizum o en efectivo." },
 ];
 const PASOS_ESPANA = [
-  { titulo: "Cuéntanos qué tienes", texto: "Rellena el formulario con unas fotos. Sin compromiso." },
-  { titulo: "Precio en menos de 1 hora", texto: "Te decimos cuánto te damos por el chat de la tienda o por correo." },
-  { titulo: "Etiqueta gratis en menos de 2 horas", texto: "Te mandamos la etiqueta de envío: lo embalas y lo envías sin pagar nada." },
+  { titulo: "Cuéntanos qué tienes", texto: "Rellena el formulario y añade unas fotos. Sin compromiso." },
+  { titulo: "Precio en menos de 1 hora", texto: "Te enviamos nuestra oferta por el chat de la tienda o por correo." },
+  { titulo: "Etiqueta gratis en menos de 2 horas", texto: "Te enviamos una etiqueta prepagada: solo tienes que embalarlo y entregarlo." },
   { titulo: "Nos llega en 72 horas como máximo", texto: "Puedes seguir el envío en todo momento." },
-  { titulo: "Lo revisamos y te pagamos", texto: "Si está como nos contaste, te pagamos al momento por Bizum. Si no, te proponemos otro precio y, si no te encaja, te lo devolvemos gratis." },
+  { titulo: "Lo revisamos y te pagamos", texto: "Si su estado coincide con lo indicado, te pagamos al momento por Bizum. Si no, te hacemos una nueva oferta y, si no la aceptas, te lo devolvemos gratis." },
 ];
 
 function preguntas(p: Pagina): { q: string; a: string }[] {
   return [
-    { q: `¿Cuánto me dais por ${p.tuAparato}?`, a: "Depende del modelo, de su estado y de lo que incluya (caja, cargador, accesorios). Cuéntanoslo con unas fotos y te damos un precio en menos de 1 hora, sin compromiso." },
-    { q: "¿Lo compráis aunque esté averiado?", a: "Sí. Dinos qué le pasa y te damos precio igualmente: también nos dedicamos a la reparación, así que sabemos valorarlo." },
+    { q: `¿Cuánto me dais por ${p.miAparato}?`, a: "Depende del modelo, de su estado y de lo que incluya (caja, cargador, accesorios). Cuéntanoslo con unas fotos y te haremos una oferta en menos de 1 hora, sin compromiso." },
+    { q: "¿Lo compráis aunque esté averiado?", a: "Sí. Indícanos qué le ocurre y te haremos una oferta igualmente: como también nos dedicamos a la reparación, sabemos valorarlo." },
     { q: "¿Cómo me pagáis?", a: "Al momento, en cuanto lo hemos revisado: por Bizum o en efectivo. Si nos lo envías desde otra ciudad, por Bizum. Firmamos un contrato de compraventa para que todo quede por escrito." },
-    { q: "¿Dónde lo recogéis?", a: `En ${ZONAS}, en menos de 2 horas, o nos lo acercas tú. Desde el resto de España te mandamos una etiqueta de envío gratis.` },
-    { q: "¿Y si al revisarlo no coincide con lo que conté?", a: "Te explicamos qué hemos visto y te proponemos un nuevo precio. Si no te encaja, te lo devolvemos sin coste." },
-    { q: "¿Puedo cambiarlo por algo de la tienda?", a: "Sí: usa su valor para llevarte otro artículo del catálogo. Indícalo en el formulario." },
+    { q: "¿Dónde lo recogéis?", a: `En ${ZONAS}, en menos de 2 horas, o nos lo acercas tú. Desde el resto de España te enviamos una etiqueta prepagada sin coste.` },
+    { q: "¿Qué pasa si al revisarlo no coincide con lo que indiqué?", a: "Te explicamos lo que hemos encontrado y te hacemos una nueva oferta. Si no la aceptas, te lo devolvemos sin coste." },
+    { q: "¿Puedo cambiarlo por otro artículo de la tienda?", a: "Sí. Puedes usar su valor para llevarte otro artículo del catálogo; indícalo en el formulario." },
     { q: "¿Qué necesito para venderlo?", a: "Ser mayor de edad y el propietario del aparato." },
   ];
 }
@@ -524,7 +524,7 @@ export default function CompramosScreen() {
           <View nativeID="compramos-final" style={{ borderRadius: 28, backgroundColor: C.text, padding: isMobile ? 22 : 36, gap: 16, alignItems: isMobile ? "stretch" : "center" }}>
             <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: isMobile ? 24 : 30, lineHeight: isMobile ? 30 : 36, textAlign: isMobile ? "left" : "center" }}>¿Te damos precio?</Text>
             <Text style={{ color: "rgba(255,255,255,0.82)", fontSize: TAMANOS.cuerpo + 1, lineHeight: 24, textAlign: isMobile ? "left" : "center", maxWidth: 560 }}>
-              Cuéntanos qué tienes y en menos de 1 hora sabrás cuánto te damos. Sin compromiso.
+              Cuéntanos qué tienes y en menos de 1 hora recibirás nuestra oferta, sin compromiso.
             </Text>
             <Boton nativeID="compramos-vender-final" texto={p.boton} icono="cash-outline" principal onPress={() => vender(p.articulo, "final")} />
           </View>

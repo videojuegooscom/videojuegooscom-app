@@ -18036,7 +18036,9 @@ async function seccionCMP() {
     ok(/Precio en menos de 1 hora/.test(sellos) && /menos de 2 horas/.test(sellos) && /Envío gratis/.test(sellos) && /Bizum o efectivo/.test(sellos), `CMP (${nombre}): los 4 sellos («${sellos}»)`);
     ok(/PlayStation 5 y PS5 Pro/.test(await texto(p, "#compramos-modelos")) && /Consolas retro/.test(await texto(p, "#compramos-modelos")), `CMP (${nombre}): los modelos que compramos`);
     ok(/Cuarte de Huerva/.test(await texto(p, "#compramos-zaragoza")) && /en menos de 2 horas/.test(await texto(p, "#compramos-zaragoza")) && /Etiqueta gratis/.test(await texto(p, "#compramos-espana")) && /te lo devolvemos gratis/.test(await texto(p, "#compramos-espana")), `CMP (${nombre}): «Cómo funciona» en Zaragoza y desde el resto de España`);
-    ok(/¿Cuánto me dais por tu consola\?/.test(await texto(p, "#compramos-preguntas")) && /Bizum o en efectivo/.test(await texto(p, "#compramos-preguntas")), `CMP (${nombre}): las preguntas frecuentes`);
+    // La pregunta la hace el cliente: «mi consola», nunca «tu consola» (revisión de textos, 2026-11-24).
+    const faq = await texto(p, "#compramos-preguntas");
+    ok(/¿Cuánto me dais por mi consola\?/.test(faq) && !/por tu consola/.test(faq) && /Bizum o en efectivo/.test(faq), `CMP (${nombre}): las preguntas frecuentes`);
     const enlaces = await p.evaluate(() => Array.from(document.querySelectorAll("#compramos-otras a")).map((a) => a.getAttribute("href")).sort().join(","));
     ok(enlaces === "/compramos/moviles,/compramos/pc,/compramos/portatiles,/compramos/tablets", `CMP (${nombre}): enlaces de verdad a las otras 4 (${enlaces})`);
     if (nombre === "1280") {
@@ -18072,7 +18074,7 @@ async function seccionCMP() {
     const p = await pagina(ctx, "/compramos/moviles");
     await p.locator("#compramos-h1").waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(800);
-    ok((await texto(p, "#compramos-h1")) === "Compramos tu móvil en Zaragoza" && /^Compramos tu móvil en Zaragoza/.test(await p.title()) && /¿Cuánto me dais por tu móvil\?/.test(await texto(p, "#compramos-preguntas")), `CMP: /compramos/moviles con su título y sus preguntas`);
+    ok((await texto(p, "#compramos-h1")) === "Compramos tu móvil en Zaragoza" && /^Compramos tu móvil en Zaragoza/.test(await p.title()) && /¿Cuánto me dais por mi móvil\?/.test(await texto(p, "#compramos-preguntas")), `CMP: /compramos/moviles con su título y sus preguntas`);
     await capturar(p, "CMP-moviles-390");
     ok(p.errores.length === 0, `CMP: /compramos/moviles sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     // Fotos propias (Administración → Google → «Fotos»): una a una, con flechas y puntos.
