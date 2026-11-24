@@ -468,6 +468,25 @@ async function fetchShelfProductsSafe(modo: ShelfModo): Promise<ShelfProduct[]> 
   }
 }
 
+export type ProductoEstante = ShelfProduct;
+
+/**
+ * Artículos a la venta de unas categorías (por su slug) cuyo título cumple `filtro`, con su foto de portada. Lo usan las
+ * páginas «Compramos tu…» (app/compramos/[tipo].tsx, 2026-11-24) para enseñar lo que hay a la venta de ese tipo.
+ */
+export async function productosDeCategorias(slugs: string[], filtro: RegExp | null, max = 12): Promise<ProductoEstante[]> {
+  try {
+    const { data: cats, error } = await supabase.from("categories").select("id").in("slug", slugs);
+    if (error || !Array.isArray(cats) || !cats.length) return [];
+    const filas = (await fetchProductRowsSafe((cats as { id: string }[]).map((c) => c.id))).filter((r) => !filtro || filtro.test(r.title)).slice(0, max);
+    if (!filas.length) return [];
+    const portadas = await fetchCoverImageMapSafe(filas.map((r) => r.id));
+    return filas.map((r) => ({ id: r.id, title: r.title, priceEUR: r.priceEUR, image: portadas.get(r.id) ?? r.fallbackImage }));
+  } catch {
+    return [];
+  }
+}
+
 // Devuelve la lista de productos del estante, usando la caché en memoria si
 // todavía es reciente (SHELF_CACHE_TTL_MS) y compartiendo la misma petición
 // en vuelo si Perfil y Cesta llegan a pedirla casi a la vez (por ejemplo, al

@@ -68,6 +68,27 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   "/servicios": { titulo: "Servicios de reparación y mantenimiento", descripcion: "Reparación, limpieza y mantenimiento de consolas y dispositivos." },
   "/vender": { titulo: "Vender mi artículo", descripcion: "Vende o intercambia tu consola o dispositivo: cuéntanos qué tienes y te damos un precio." },
   "/blog": { titulo: "Blog", descripcion: "Novedades y artículos de la tienda." },
+  // «Compramos tu…» (app/compramos/[tipo].tsx, 2026-11-24): «Zaragoza» en el título, sin repetirlo de más.
+  "/compramos/consolas": {
+    titulo: "Compramos tu consola en Zaragoza: PS5, Switch y Xbox",
+    descripcion: "Vende tu PlayStation, Nintendo Switch o Xbox en Zaragoza: precio en menos de 1 hora, recogida en menos de 2 horas y pago al momento por Bizum o en efectivo. Envío gratis desde toda España.",
+  },
+  "/compramos/moviles": {
+    titulo: "Compramos tu móvil en Zaragoza: iPhone y Android",
+    descripcion: "Vende tu iPhone, Samsung, Xiaomi o Pixel en Zaragoza: precio en menos de 1 hora, recogida en menos de 2 horas y pago al momento por Bizum o en efectivo. Envío gratis desde toda España.",
+  },
+  "/compramos/portatiles": {
+    titulo: "Compramos tu portátil o MacBook en Zaragoza",
+    descripcion: "Vende tu MacBook, portátil gaming o portátil Windows en Zaragoza: precio en menos de 1 hora, recogida en menos de 2 horas y pago al momento. Envío gratis desde toda España.",
+  },
+  "/compramos/pc": {
+    titulo: "Compramos tu PC, gráfica o monitor en Zaragoza",
+    descripcion: "Vende tu PC gaming, tarjeta gráfica, monitor o periféricos en Zaragoza: precio en menos de 1 hora, recogida en menos de 2 horas y pago al momento. Envío gratis desde toda España.",
+  },
+  "/compramos/tablets": {
+    titulo: "Compramos tu iPad o tablet en Zaragoza",
+    descripcion: "Vende tu iPad o tu tablet Android en Zaragoza: precio en menos de 1 hora, recogida en menos de 2 horas y pago al momento por Bizum o en efectivo. Envío gratis desde toda España.",
+  },
   // «Comparar 2-3 productos» (mejora 8, 2026-11-14): el enlace con ?ids= se comparte; la dirección oficial va sin ellos.
   "/comparar": { titulo: "Comparar productos", descripcion: "Compara hasta 3 consolas, móviles o accesorios: precio, estado, categoría y entrega estimada." },
   "/noticias": {

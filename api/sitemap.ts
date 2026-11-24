@@ -32,6 +32,12 @@ const PAGINAS_FIJAS: { ruta: string; prioridad: string; cambio: string }[] = [
   { ruta: "/catalogo", prioridad: "0.9", cambio: "daily" },
   { ruta: "/servicios", prioridad: "0.8", cambio: "weekly" },
   { ruta: "/vender", prioridad: "0.8", cambio: "monthly" },
+  // «Compramos tu…» (app/compramos/[tipo].tsx, 2026-11-24).
+  { ruta: "/compramos/consolas", prioridad: "0.9", cambio: "weekly" },
+  { ruta: "/compramos/moviles", prioridad: "0.9", cambio: "weekly" },
+  { ruta: "/compramos/portatiles", prioridad: "0.9", cambio: "weekly" },
+  { ruta: "/compramos/pc", prioridad: "0.9", cambio: "weekly" },
+  { ruta: "/compramos/tablets", prioridad: "0.9", cambio: "weekly" },
   { ruta: "/blog", prioridad: "0.6", cambio: "weekly" },
   { ruta: "/noticias", prioridad: "0.7", cambio: "daily" },
   { ruta: "/quienes-somos", prioridad: "0.7", cambio: "monthly" },

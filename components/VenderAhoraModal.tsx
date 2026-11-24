@@ -1085,6 +1085,9 @@ export default function VenderAhoraModal({
     if (!visible) return;
     medirEvento("vender_abierto", "Vender: abierto");
     if (leerOrigenVender() === "guia") medirEvento("vender_abierto_guia", "Vender: abierto desde la guía");
+    // Desde una página «Compramos tu…» (2026-11-24): Administración → Google cuenta cuántas acaban enviando.
+    const origen = leerOrigenVender();
+    if (origen?.startsWith("compramos-")) medirEvento("vender_abierto_compramos", "Vender: abierto desde Compramos", { metadata: { pagina: origen.slice(10) } });
   }, [visible]);
 
   function resetForm() {
@@ -1410,6 +1413,8 @@ export default function VenderAhoraModal({
       setSent(true);
       medirEvento("vender_enviado", "Vender: enviado");
       if (leerOrigenVender() === "guia") medirEvento("vender_enviado_guia", "Vender: enviado desde la guía");
+      const origen = leerOrigenVender();
+      if (origen?.startsWith("compramos-")) medirEvento("vender_enviado_compramos", "Vender: enviado desde Compramos", { metadata: { pagina: origen.slice(10) } });
     } catch (e: any) {
       setFormErr(
         e?.message ?? "No se pudo enviar el formulario. Inténtalo de nuevo en unos segundos."
