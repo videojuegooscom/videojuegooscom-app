@@ -73,6 +73,8 @@ import { TAMANOS } from "../../constants/temaTienda";
 import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, CLAVE_ME_GUSTA_SERVICIOS, meGustaLocales } from "../../lib/interaccion";
 import { medirEvento } from "../../lib/analiticaPropia";
 import { formatearEuros } from "../../lib/envio";
+import { sinEmojis } from "../../lib/admin/productos.utilidades";
+import { ponerCabeceraFicha } from "../../components/EtiquetasCabeceraWeb";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
 import { SelectorIOS } from "../../lib/admin/productos.componentes";
 import VisorFotos, { type FotoVisor } from "../../components/VisorFotos";
@@ -284,6 +286,20 @@ export default function ServicioScreen() {
     if (recarga > 0) load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recarga]);
+
+  // Su propio título y descripción en Google (Search Console, 2026-11-24), como las fichas de producto.
+  useEffect(() => {
+    if (!s) return;
+    const precios = s.modalidades.length ? s.modalidades.map((m) => Number(m.precio_eur)) : [s.priceEUR];
+    const validos = precios.filter((n) => Number.isFinite(n) && n > 0);
+    const precio = validos.length ? `${validos.length > 1 ? "desde " : ""}${formatearEuros(Math.min(...validos))}` : null;
+    return ponerCabeceraFicha({
+      ruta: `/servicio/${s.id}`,
+      titulo: [s.title, "Zaragoza", precio].filter(Boolean).join(" · "),
+      descripcion: `${s.title}${precio ? ` (${precio})` : ""} en Videojuegoszaragoza.com, tienda de electrónica en Zaragoza con envíos a toda España. ${sinEmojis(s.description) ?? ""}`,
+      imagen: (s.media.find((m) => m.isCover) ?? s.media[0])?.publicUrl ?? null,
+    });
+  }, [s]);
 
   // El precio que se ve: el de la opción elegida o, sin opciones, el del servicio.
   const opcion = s?.modalidades.find((m) => m.nombre === modalidad) ?? null;

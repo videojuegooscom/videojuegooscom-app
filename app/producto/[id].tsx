@@ -140,6 +140,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { filaPerfilCliente, supabase } from "../../lib/supabase";
 import { COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/temaTienda";
 import { sinEmojis } from "../../lib/admin/productos.utilidades";
+import { ponerCabeceraFicha } from "../../components/EtiquetasCabeceraWeb";
 import { contarVistaProducto, fijarMeGusta } from "../../lib/interaccion";
 import { marcarOrigenRegistro, medirCargaPantalla, medirEvento, medirEventoEspaciado } from "../../lib/analiticaPropia";
 import {
@@ -542,8 +543,17 @@ export default function ProductoScreen() {
     script.textContent = JSON.stringify(datos).replace(/</g, "\\u003c");
     document.getElementById("datos-producto")?.remove();
     document.head.appendChild(script);
+    // Su propio título y descripción en Google (Search Console, 2026-11-24): «PS5 Blu-Ray · Segunda mano · 750,00 €».
+    const nuevo = p.condition === "NEW";
+    const deshacer = ponerCabeceraFicha({
+      ruta: `/producto/${p.id}`,
+      titulo: [p.title, nuevo ? "Nuevo" : "Segunda mano", disponible ? formatearEuros(p.priceEUR) : "Vendido"].join(" · "),
+      descripcion: `${p.title}${nuevo ? "" : ` de segunda mano (estado: ${labelCondition(p.condition).toLowerCase()})`}${disponible ? ` por ${formatearEuros(p.priceEUR)}` : ""} en Videojuegoszaragoza.com, tienda de electrónica en Zaragoza: entrega el mismo día en Zaragoza y envío a toda España. ${sinEmojis(p.description) ?? ""}`,
+      imagen: fotos[0] ?? p.imageUrl ?? null,
+    });
     return () => {
       script.remove();
+      deshacer();
     };
   }, [p]);
 

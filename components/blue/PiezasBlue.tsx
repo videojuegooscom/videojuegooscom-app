@@ -312,7 +312,7 @@ export function IconoCirculoBlue({ icono }: { icono: React.ComponentProps<typeof
 // Título pequeño de cada apartado de la pestaña («Avisos», «Noticias», «Mis avisos»).
 export function TituloSeccionBlue({ texto }: { texto: string }) {
   return (
-    <Text accessibilityRole="header" style={{ color: COLORS.muted, fontSize: 12, fontWeight: "900", letterSpacing: 0.6, marginTop: 12, marginBottom: 2 }}>
+    <Text accessibilityRole="header" {...({ "aria-level": 3 } as object)} style={{ color: COLORS.muted, fontSize: 12, fontWeight: "900", letterSpacing: 0.6, marginTop: 12, marginBottom: 2 }}>
       {texto.toUpperCase()}
     </Text>
   );

@@ -2379,7 +2379,7 @@ export function RecortarFoto({
           }}
           style={{ width: "100%", maxWidth: 380, backgroundColor: "#FFFFFF", borderRadius: 24, padding: 16, gap: 12, alignItems: "center" }}
         >
-          <Text accessibilityRole="header" style={{ color: P.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
+          <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: P.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
             {titulo}
           </Text>
           <Text style={{ color: P.muted, fontWeight: "700", textAlign: "center", lineHeight: 19 }}>{texto}</Text>

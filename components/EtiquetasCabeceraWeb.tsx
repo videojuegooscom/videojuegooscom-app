@@ -97,7 +97,43 @@ const MARCA = "Videojuegoszaragoza.com";
 
 // Cada noticia (app/noticias/[id].tsx) pone su propio título, descripción, og:* y datos estructurados al cargarse: aquí
 // solo se pone su dirección oficial, para no pisarle el título cuando «Marca y SEO» llega después.
-const RUTAS_CON_CABECERA_PROPIA = /^\/noticias\/[^/]+$/;
+// Las fichas de producto y de servicio (2026-11-24, Search Console) también ponen la suya con ponerCabeceraFicha.
+const RUTAS_CON_CABECERA_PROPIA = /^\/(noticias|producto|servicio)\/[^/]+$/;
+
+/** Recorta un texto a `max` letras sin cortar palabras, con «…». */
+export function recortarTexto(texto: string, max = 158): string {
+  const limpio = texto.replace(/\s+/g, " ").trim();
+  if (limpio.length <= max) return limpio;
+  return `${limpio.slice(0, max - 1).replace(/\s+\S*$/, "")}…`;
+}
+
+/**
+ * Título, descripción, og:* y dirección oficial propios de una ficha (producto o servicio), en el <head> (solo web).
+ * Google lee lo que pone la página tras ejecutarse: así cada ficha sale en Google con su nombre y no con el de la
+ * tienda. Devuelve cómo dejarlo al salir de la ficha.
+ */
+export function ponerCabeceraFicha(f: { ruta: string; titulo: string; descripcion: string; imagen?: string | null }): () => void {
+  if (Platform.OS !== "web" || typeof document === "undefined") return () => {};
+  const direccion = `${DOMINIO}${f.ruta}`;
+  const titulo = `${f.titulo} | ${MARCA}`;
+  const descripcion = recortarTexto(f.descripcion);
+  const meta = (attr: "name" | "property", clave: string) => document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${clave}"]`)?.getAttribute("content") ?? null;
+  const antes = { titulo: document.title, descripcion: meta("name", "description"), ogTitle: meta("property", "og:title"), ogDescription: meta("property", "og:description"), ogImage: meta("property", "og:image") };
+  document.title = titulo;
+  ponerEtiquetaMeta("name", "description", descripcion);
+  ponerEtiquetaMeta("property", "og:title", titulo);
+  ponerEtiquetaMeta("property", "og:description", descripcion);
+  if (f.imagen) ponerEtiquetaMeta("property", "og:image", f.imagen);
+  ponerEtiquetaMeta("property", "og:url", direccion);
+  ponerEnlaceCabecera("canonical", direccion);
+  return () => {
+    if (document.title === titulo) document.title = antes.titulo;
+    if (antes.descripcion !== null) ponerEtiquetaMeta("name", "description", antes.descripcion);
+    if (antes.ogTitle !== null) ponerEtiquetaMeta("property", "og:title", antes.ogTitle);
+    if (antes.ogDescription !== null) ponerEtiquetaMeta("property", "og:description", antes.ogDescription);
+    if (antes.ogImage !== null) ponerEtiquetaMeta("property", "og:image", antes.ogImage);
+  };
+}
 
 export function ponerEtiquetaMeta(attr: "name" | "property", key: string, content: string) {
   if (typeof document === "undefined") return;

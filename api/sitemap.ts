@@ -55,8 +55,12 @@ function entrada(ruta: string, prioridad: string, cambio: string, ultima?: strin
   return `  <url>\n    <loc>${escapar(DOMINIO + ruta)}</loc>${ultima ? `\n    <lastmod>${ultima}</lastmod>` : ""}\n    <changefreq>${cambio}</changefreq>\n    <priority>${prioridad}</priority>\n  </url>`;
 }
 
-export default async function handler(_req: any, res: any) {
-  const entradas = PAGINAS_FIJAS.map((p) => entrada(p.ruta, p.prioridad, p.cambio));
+// Dos mapas (Search Console, 2026-11-24): /sitemap.xml con las páginas, los productos y los servicios, y
+// /sitemap-noticias.xml (vercel.json → ?tipo=noticias) solo con las noticias, que cambian cada día. Así Search Console
+// cuenta por separado cuántas de cada uno tiene Google. La misma función sirve los dos (api/ está en el tope de 12).
+export default async function handler(req: any, res: any) {
+  const soloNoticias = String(req?.query?.tipo ?? "") === "noticias";
+  const entradas = soloNoticias ? [] : PAGINAS_FIJAS.map((p) => entrada(p.ruta, p.prioridad, p.cambio));
 
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
   const clave = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -64,20 +68,23 @@ export default async function handler(_req: any, res: any) {
     try {
       const supabase = createClient(url, clave);
       const hace90Dias = new Date(Date.now() - 90 * 86400000).toISOString();
-      const [productos, servicios, noticias] = await Promise.all([
-        supabase.from("products").select("id,updated_at").eq("status", "PUBLISHED").eq("is_active", true).order("updated_at", { ascending: false }).limit(2000),
-        supabase.from("services").select("id,updated_at").eq("is_active", true).limit(500),
+      if (soloNoticias) {
         // Noticias publicadas de los últimos 90 días (app/noticias/[id].tsx), las más recientes primero.
-        supabase.from("noticias_gaming").select("id,publicada_en").eq("publicada", true).gte("publicada_en", hace90Dias).order("publicada_en", { ascending: false }).limit(1000),
-      ]);
-      for (const p of Array.isArray(productos.data) ? productos.data : []) {
-        entradas.push(entrada(`/producto/${p.id}`, "0.7", "weekly", fecha(p.updated_at)));
-      }
-      for (const s of Array.isArray(servicios.data) ? servicios.data : []) {
-        entradas.push(entrada(`/servicio/${s.id}`, "0.6", "monthly", fecha(s.updated_at)));
-      }
-      for (const n of Array.isArray(noticias.data) ? noticias.data : []) {
-        entradas.push(entrada(`/noticias/${n.id}`, "0.6", "monthly", fecha(n.publicada_en)));
+        const noticias = await supabase.from("noticias_gaming").select("id,publicada_en").eq("publicada", true).gte("publicada_en", hace90Dias).order("publicada_en", { ascending: false }).limit(1000);
+        for (const n of Array.isArray(noticias.data) ? noticias.data : []) {
+          entradas.push(entrada(`/noticias/${n.id}`, "0.6", "monthly", fecha(n.publicada_en)));
+        }
+      } else {
+        const [productos, servicios] = await Promise.all([
+          supabase.from("products").select("id,updated_at").eq("status", "PUBLISHED").eq("is_active", true).order("updated_at", { ascending: false }).limit(2000),
+          supabase.from("services").select("id,updated_at").eq("is_active", true).limit(500),
+        ]);
+        for (const p of Array.isArray(productos.data) ? productos.data : []) {
+          entradas.push(entrada(`/producto/${p.id}`, "0.7", "weekly", fecha(p.updated_at)));
+        }
+        for (const s of Array.isArray(servicios.data) ? servicios.data : []) {
+          entradas.push(entrada(`/servicio/${s.id}`, "0.6", "monthly", fecha(s.updated_at)));
+        }
       }
     } catch (e) {
       // Sin base de datos se devuelven al menos las páginas fijas.

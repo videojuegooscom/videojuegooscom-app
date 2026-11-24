@@ -194,9 +194,9 @@ export default function PantallaCargaMarca({ onEntrar }: PropsPantallaCargaMarca
 
       <Capa clase="vzb-textos">
         {/* En dos líneas: «VideojuegosZaragoza.com» es una sola palabra y en un móvil pequeño no cabría en una. */}
+        {/* Sin papel de título (2026-11-24, Search Console): era un segundo H1 en cada página; el H1 es el de la página. */}
         <Text
           nativeID="bienvenida-marca"
-          accessibilityRole="header"
           style={{ marginTop: 22, color: MARINO, fontSize: 32, lineHeight: 36, fontWeight: "900", letterSpacing: -0.5, textAlign: "center" }}
         >
           Videojuegos{"\n"}
