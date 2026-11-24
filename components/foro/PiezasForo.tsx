@@ -170,7 +170,7 @@ export function SilenciarUsuario({
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(30,167,232,0.12)", alignItems: "center", justifyContent: "center" }}>
             <Ionicons name="volume-mute-outline" size={24} color="#1EA7E8" />
           </View>
-          <Text accessibilityRole="header" style={{ color: "#0B2138", fontWeight: "900", fontSize: 18, textAlign: "center" }}>
+          <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: "#0B2138", fontWeight: "900", fontSize: 18, textAlign: "center" }}>
             Silenciar a {usuario}
           </Text>
           {hecho ? (
@@ -306,7 +306,7 @@ export function ConfirmarEliminar({
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(220,38,38,0.10)", alignItems: "center", justifyContent: "center" }}>
             <Ionicons name="trash-outline" size={24} color="#DC2626" />
           </View>
-          <Text accessibilityRole="header" style={{ color: "#0B2138", fontWeight: "900", fontSize: 18, textAlign: "center" }}>
+          <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: "#0B2138", fontWeight: "900", fontSize: 18, textAlign: "center" }}>
             {que === "mensaje" ? "¿Eliminar este mensaje?" : "¿Eliminar este comentario?"}
           </Text>
           <View style={{ alignSelf: "stretch", backgroundColor: "#F1F6FA", borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12, gap: 2 }}>

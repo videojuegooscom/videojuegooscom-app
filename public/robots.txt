@@ -9,3 +9,4 @@ Disallow: /cesta
 Disallow: /reset-password
 
 Sitemap: https://videojuegoszaragoza.com/sitemap.xml
+Sitemap: https://videojuegoszaragoza.com/sitemap-noticias.xml

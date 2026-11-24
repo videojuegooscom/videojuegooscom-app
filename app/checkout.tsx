@@ -1299,7 +1299,7 @@ export default function CheckoutScreen() {
           {/* En la confirmación, el título de la pantalla es el del estado del pedido (más abajo): aquí no se repite. */}
           {pedidoHecho ? null : (
             <>
-              <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 22, fontWeight: "900", textAlign: "center" }}>
+              <Text accessibilityRole="header" {...({ "aria-level": 1 } as object)} style={{ color: COLORS.text, fontSize: 22, fontWeight: "900", textAlign: "center" }}>
                 Finalizar compra
               </Text>
               <Text style={{ color: COLORS.muted, marginTop: 4, textAlign: "center" }}>Rápido, claro y sin costes ocultos.</Text>
@@ -1340,7 +1340,7 @@ export default function CheckoutScreen() {
             ) : (
               <MarcaAnimada cual="pareja" ancho={220} />
             )}
-            <Text nativeID="pago-confirmacion-titulo" accessibilityRole="header" style={{ color: COLORS.text, fontWeight: "900", fontSize: 22, textAlign: "center" }}>
+            <Text nativeID="pago-confirmacion-titulo" accessibilityRole="header" {...({ "aria-level": 1 } as object)} style={{ color: COLORS.text, fontWeight: "900", fontSize: 22, textAlign: "center" }}>
               {tituloConfirmacion}
             </Text>
             {/* La referencia del pedido, como en cualquier empresa (nunca «Pedido nº 2»). Se puede copiar. */}

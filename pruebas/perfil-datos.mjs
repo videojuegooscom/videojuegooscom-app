@@ -17699,6 +17699,46 @@ async function seccionVALOR() {
   }
 }
 
+// ===== SEOH) Preparada para Google (Search Console, 2026-11-24): un solo H1 por página pública (la bienvenida ya no
+// cuenta como título) y, en las fichas de producto y de servicio, su propio título, descripción y dirección oficial.
+async function seccionSEOH() {
+  const ID = "b7c1d2e3-0000-4000-8000-0000000000f7";
+  const SERV = "5e000000-0000-4000-8000-0000000000f8";
+  const estado = () => ({
+    filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }],
+    guardados: [],
+    producto: {
+      id: ID, title: "PS4 Slim revisada", description: "Con mando y cables.", price_eur: 189, status: "PUBLISHED", is_active: true,
+      category_id: null, images: [], updated_at: "2026-11-01T10:00:00Z", created_at: "2026-11-01T10:00:00Z", condition: "GOOD",
+      like_count: 0, reference: null, caracteristicas: [], mantenimiento: null, category: null,
+    },
+    fotosProducto: [],
+    servicio: { id: SERV, title: "Reparación / Limpieza PS4", description: "Limpieza interna y pasta térmica.", price_eur: 30 },
+    fotosServicio: [],
+    categorias: [{ id: "c0000000-0000-4000-8000-0000000000c9", slug: "playstation-4", name: "PlayStation 4", sort_order: 0, is_active: true }],
+  });
+  const ctx = await contexto(navegador, CLIENTE, "user", estado());
+  for (const ruta of ["/", "/catalogo", "/servicios", "/vender", "/quienes-somos", `/producto/${ID}`, `/servicio/${SERV}`]) {
+    const p = await pagina(ctx, ruta);
+    await p.locator("h1").first().waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const h1 = await p.evaluate(() => Array.from(document.querySelectorAll("h1")).map((e) => (e.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 50)));
+    ok(h1.length === 1, `SEOH: ${ruta} tiene un solo H1 (${h1.length}: ${h1.join(" | ")})`);
+    if (/^\/(producto|servicio)\//.test(ruta)) {
+      const cab = await p.evaluate(() => ({
+        titulo: document.title,
+        desc: document.querySelector('meta[name="description"]')?.getAttribute("content") ?? "",
+        canon: document.querySelector('link[rel="canonical"]')?.getAttribute("href") ?? "",
+      }));
+      const nombre = ruta.startsWith("/producto") ? "PS4 Slim revisada" : "Reparación / Limpieza PS4";
+      ok(cab.titulo.startsWith(nombre) && /\| Videojuegoszaragoza\.com$/.test(cab.titulo) && cab.desc.includes(nombre) && /Zaragoza/.test(cab.desc) && cab.desc.length <= 160 && cab.canon === `https://videojuegoszaragoza.com${ruta}`, `SEOH: ${ruta} lleva su título, su descripción (≤ 160) y su dirección oficial (${JSON.stringify(cab)})`);
+    }
+    ok(p.errores.length === 0, `SEOH: ${ruta} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await p.close();
+  }
+  await ctx.close();
+}
+
 // ===== EGC) Envío gratis regalado a un cliente (dueño, 2026-11-23: «activarle al cliente por individual envío gratis…
 // en "Este artículo" o "Hasta 5 artículos"») ============================================================================
 // Cliente: el pago y la cesta dicen «Gratis» con «Regalo de la tienda…» si le quedan para todos los artículos (si no,
@@ -25142,6 +25182,7 @@ try {
   if (SOLO === "CHATP") await seccionCHATP();
   if (SOLO === "ENL") await seccionENL();
   if (SOLO === "EGC") await seccionEGC();
+  if (SOLO === "SEOH") await seccionSEOH();
   if (SOLO === "VALOR") await seccionVALOR();
   if (SOLO === "MOMB") await seccionMOMB();
   if (SOLO === "CAMBC") await seccionCAMBC();
@@ -26263,6 +26304,7 @@ try {
   await seccionCHATP();
   await seccionENL();
   await seccionEGC();
+  await seccionSEOH();
   await seccionAVISOM();
   await seccionVALOR();
   await seccionMOMB();

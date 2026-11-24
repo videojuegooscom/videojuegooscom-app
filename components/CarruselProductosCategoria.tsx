@@ -613,7 +613,8 @@ export default function CarruselProductosCategoria({
 
   return (
     <View nativeID={nativeID} style={{ gap: 10 }}>
-      <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 17, fontWeight: "900", textAlign: "center" }}>
+      {/* Con nivel 2: sin nivel, la web lo pinta como H1 y la página tendría dos (Search Console, 2026-11-24). */}
+      <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontSize: 17, fontWeight: "900", textAlign: "center" }}>
         {titulo ?? "También te puede interesar"}
       </Text>
 
@@ -901,7 +902,7 @@ export function ProductosParecidos({
   if (isMobile) return <CarruselProductosCategoria nativeID="ficha-parecidos" titulo="Productos parecidos" productos={lista} onTocar={tocar} sinMovimiento />;
   return (
     <View nativeID="ficha-parecidos" style={{ gap: 12 }}>
-      <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
+      <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
         Productos parecidos
       </Text>
       <RejillaTarjetas columns={4} gap={14}>
@@ -972,6 +973,7 @@ export function CompletaTuCompra({
     <View nativeID={`${origen}-complementos`} style={{ width: "100%", gap: 6, marginTop: enCesta ? 0 : 4 }}>
       <Text
         accessibilityRole="header"
+        {...({ "aria-level": 2 } as object)}
         style={{ color: COLORS.text, fontWeight: "900", fontSize: enCesta ? 18 : TAMANOS.cuerpo, textAlign: "center" }}
       >
         Completa tu compra
