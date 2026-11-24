@@ -509,6 +509,25 @@ export default function AdminMarcaSeo() {
                       <Text style={{ color: largoDesc > SEO_DESC_MAX ? PANEL.danger : PANEL.muted, fontSize: TAMANOS.minimo, fontWeight: "700" }}>
                         {largoDesc}/{SEO_DESC_MAX}: pasado este largo, Google suele recortarla con «…»
                       </Text>
+                      {/* Por qué Google a veces enseña otro texto (dueño, 2026-11-24: al buscar «videojuegos zaragoza» salía «Daniel
+                          Gutiérrez fundó…» en vez de esta descripción). */}
+                      {(() => {
+                        const d = seoDescription.toLowerCase();
+                        const conCiudad = d.includes("zaragoza");
+                        return (
+                          <View nativeID="marca-aviso-google" style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 12, backgroundColor: conCiudad ? "#F0FDF4" : "#FFF8E6", padding: 10 }}>
+                            <Ionicons name={conCiudad ? "checkmark-circle-outline" : "information-circle-outline"} size={18} color={conCiudad ? "#166534" : "#92660B"} />
+                            <Text style={{ flex: 1, color: PANEL.text, fontSize: TAMANOS.minimo, lineHeight: 18, fontWeight: "600" }}>
+                              Google puede enseñar otro texto de la página en lugar de esta descripción si cree que responde mejor a lo que se
+                              busca.{" "}
+                              {conCiudad
+                                ? "Bien: la descripción ya dice «Zaragoza», que es lo que más buscan tus clientes."
+                                : "Para que use esta, conviene que diga «Zaragoza» y lo que haces (comprar, vender, reparar), con las palabras que busca la gente."}{" "}
+                              Los cambios tardan unos días en verse en Google.
+                            </Text>
+                          </View>
+                        );
+                      })()}
                     </View>
 
                     <Mensaje msg={seoMsg} />
