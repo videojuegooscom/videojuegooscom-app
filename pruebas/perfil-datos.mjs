@@ -17707,10 +17707,17 @@ async function seccionGSC() {
   const DATOS = {
     ok: true, conectado: true, desde: "2026-10-26", hasta: "2026-11-22",
     totales: { clics: 34, impresiones: 1250, ctr: 0.0272, posicion: 8.4 },
+    anterior: { desde: "2026-10-01", hasta: "2026-10-24", totales: { clics: 30, impresiones: 1300, ctr: 0.023, posicion: 9.6 } },
     porDia: Array.from({ length: 28 }, (_, i) => ({ fecha: `2026-11-${String((i % 28) + 1).padStart(2, "0")}`, clics: i % 3, impresiones: 20 + i * 2, ctr: 0.05, posicion: 9 })),
-    busquedas: [{ texto: "vender consola zaragoza", clics: 12, impresiones: 210, ctr: 0.057, posicion: 4.2 }, { texto: "videojuegos zaragoza", clics: 9, impresiones: 400, ctr: 0.02, posicion: 6.1 }],
+    busquedas: [
+      { texto: "vender consola zaragoza", clics: 12, impresiones: 210, ctr: 0.057, posicion: 4.2 },
+      { texto: "videojuegos zaragoza", clics: 9, impresiones: 400, ctr: 0.02, posicion: 6.1 },
+      { texto: "tienda consolas segunda mano", clics: 0, impresiones: 150, ctr: 0, posicion: 15.2 },
+      { texto: "reparar mando ps5", clics: 1, impresiones: 90, ctr: 0.011, posicion: 12.5 },
+    ],
     paginas: [{ url: "https://videojuegoszaragoza.com/", clics: 20, impresiones: 800, ctr: 0.025, posicion: 7 }, { url: "https://videojuegoszaragoza.com/vender", clics: 8, impresiones: 200, ctr: 0.04, posicion: 5 }],
     paises: [{ pais: "ESP", clics: 33, impresiones: 1200, ctr: 0.0275, posicion: 8 }],
+    dispositivos: [{ dispositivo: "MOBILE", clics: 25, impresiones: 900, ctr: 0.028, posicion: 8 }, { dispositivo: "DESKTOP", clics: 9, impresiones: 350, ctr: 0.026, posicion: 9 }],
     mapas: [{ ruta: "/sitemap.xml", ultimaLectura: "2026-11-24T06:00:00Z", enviadoEn: "2026-11-24T05:40:00Z", pendiente: false, errores: 0, avisos: 0, paginas: 59 }, { ruta: "/sitemap-noticias.xml", ultimaLectura: null, enviadoEn: "2026-11-24T05:45:00Z", pendiente: true, errores: 0, avisos: 0, paginas: 0 }],
   };
   const INSPECCION = {
@@ -17788,11 +17795,49 @@ async function seccionGSC() {
     ok(/\/vender/.test(await texto(p, "#google-paginas")) && /España/.test(await texto(p, "#google-paises")), `GSC (${nombre}): las páginas (sin el dominio) y «España»`);
     const mapas = await texto(p, "#google-mapas");
     ok(/\/sitemap\.xml Correcto/.test(mapas) && /\/sitemap-noticias\.xml Pendiente/.test(mapas) && /59 páginas/.test(mapas), `GSC (${nombre}): los mapas con su estado («${mapas.slice(0, 120)}»)`);
+    // Mejoras (2026-11-24): comparación con el periodo anterior, gráfico con escala, fechas y día elegido, filtros de
+    // búsquedas, «Casi en la primera página», «Con qué te buscan» y «Comprobar todas» con el resultado guardado.
+    const cambios = [await texto(p, "#google-cambio-clics"), await texto(p, "#google-cambio-veces"), await texto(p, "#google-cambio-porcentaje"), await texto(p, "#google-cambio-posicion")];
+    ok(/^▲ \+4 frente al 1–24 oct$/.test(cambios[0]) && /^▼ −50 frente al 1–24 oct$/.test(cambios[1]) && /^▲ \+0,4 puntos/.test(cambios[2]) && /^▲ 1,2 puestos mejor/.test(cambios[3]), `GSC (${nombre}): cada cifra se compara con el periodo anterior (${JSON.stringify(cambios)})`);
+    const colores = await p.evaluate(() => ["google-cambio-clics", "google-cambio-veces"].map((id) => getComputedStyle(document.getElementById(id).firstElementChild).color));
+    ok(colores[0] !== colores[1], `GSC (${nombre}): sube en un color y baja en otro (${colores.join(" / ")})`);
+    ok(/^26 oct .*22 nov$/.test(await texto(p, "#google-eje")) && /Toca una barra/.test(await texto(p, "#google-dia")), `GSC (${nombre}): el gráfico con las fechas debajo («${await texto(p, "#google-eje")}»)`);
+    await p.locator("#google-barra-2026-11-05").click();
+    ok(/^Jueves 5 nov: 1 clic · 28 veces · puesto 9,0$/.test(await texto(p, "#google-dia")), `GSC (${nombre}): al tocar una barra dice ese día («${await texto(p, "#google-dia")}»)`);
+    const filtros = await texto(p, "#google-filtros");
+    ok(/Todas · 4/.test(filtros) && /Zaragoza · 2/.test(filtros) && /Vender · 1/.test(filtros) && /Reparar · 1/.test(filtros), `GSC (${nombre}): los filtros de búsquedas con cuántas hay («${filtros}»)`);
+    await p.locator("#google-filtro-zaragoza").click();
+    const soloZgz = await texto(p, "#google-busquedas");
+    ok(/vender consola zaragoza/.test(soloZgz) && /videojuegos zaragoza/.test(soloZgz) && !/reparar mando/.test(soloZgz), `GSC (${nombre}): «Zaragoza» deja solo esas búsquedas`);
+    await p.locator("#google-filtro-todas").click();
+    const casi = await texto(p, "#google-casi");
+    ok(casi.indexOf("tienda consolas segunda mano") > 0 && casi.indexOf("reparar mando ps5") > casi.indexOf("tienda consolas segunda mano") && !/videojuegos zaragoza/.test(casi) && /puesto 15,2/.test(casi), `GSC (${nombre}): «Casi en la primera página» con los puestos 8 a 20, las más vistas primero`);
+    const disp = await texto(p, "#google-dispositivos");
+    ok(/Móvil 25 clics · 900 veces · 72 %/.test(disp) && /Ordenador 9 clics · 350 veces · 28 %/.test(disp), `GSC (${nombre}): con qué te buscan («${disp}»)`);
+    if (nombre === "1280") {
+      const lado = await p.evaluate(() => {
+        const g = document.getElementById("google-por-dia").getBoundingClientRect();
+        const c = document.getElementById("google-casi").getBoundingClientRect();
+        return { g: Math.round(g.right), c: Math.round(c.left), cTop: Math.round(c.top), gBottom: Math.round(g.bottom) };
+      });
+      ok(lado.c > lado.g && lado.cTop < lado.gBottom, `GSC (1280): «Casi en la primera página» a la derecha del gráfico, bajo los mapas (${JSON.stringify(lado)})`);
+    }
+    await p.locator("#google-comprobar-todas").click();
+    for (let i = 0; i < 40 && peticiones.filter((x) => x.params.inspeccionar).length < 6; i++) await p.waitForTimeout(150);
+    await p.locator("#google-inspeccion-vender").waitFor({ timeout: 8000 }).catch(() => {});
+    const rutasVistas = [...new Set(peticiones.map((x) => x.params.inspeccionar).filter(Boolean))].sort().join(",");
+    ok(rutasVistas === "/,/catalogo,/noticias,/quienes-somos,/servicios,/vender", `GSC (${nombre}): «Comprobar todas» pregunta por las 6 páginas (${rutasVistas})`);
+    ok(/En Google/.test(await texto(p, "#google-inspeccion-portada")) && /No está/.test(await texto(p, "#google-inspeccion-vender")) && /Google aún no la conoce/.test(await texto(p, "#google-inspeccion-vender")) && /comprobado el/.test(await texto(p, "#google-inspeccion-portada")), `GSC (${nombre}): «Comprobar» lo dice en español con su hora (${await texto(p, "#google-inspeccion-portada")} / ${await texto(p, "#google-inspeccion-vender")})`);
     await p.locator("#google-comprobar-portada").click();
     await p.locator("#google-inspeccion-portada").waitFor({ timeout: 8000 }).catch(() => {});
-    await p.locator("#google-comprobar-vender").click();
-    await p.locator("#google-inspeccion-vender").waitFor({ timeout: 8000 }).catch(() => {});
-    ok(/Está en Google/.test(await texto(p, "#google-inspeccion-portada")) && /Google aún no la conoce/.test(await texto(p, "#google-inspeccion-vender")), `GSC (${nombre}): «Comprobar en Google» lo dice en español (${await texto(p, "#google-inspeccion-portada")} / ${await texto(p, "#google-inspeccion-vender")})`);
+    {
+      // Al volver a entrar, el último resultado sigue ahí sin preguntar otra vez.
+      const p2 = await pagina(ctx, "/admin/google");
+      await p2.locator("#google-cifras").waitFor({ timeout: 40000 }).catch(() => {});
+      await p2.locator("#google-inspeccion-portada").waitFor({ timeout: 5000 }).catch(() => {});
+      ok(/En Google/.test(await texto(p2, "#google-inspeccion-portada")) && /comprobado el/.test(await texto(p2, "#google-inspeccion-portada")), `GSC (${nombre}): al volver a entrar se ve el último resultado guardado`);
+      await p2.close();
+    }
     const d = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
     ok(d.a <= d.v + 1, `GSC (${nombre}): la pantalla no se ensancha (${d.a}/${d.v})`);
     await capturar(p, `GSC-${nombre}`);

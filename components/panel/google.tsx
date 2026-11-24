@@ -14,6 +14,9 @@
  * Notas:
  * - Los datos los da Google con 2-3 días de retraso; con la web recién verificada tardan unos días en salir.
  * - Sin la llave o sin permiso en Search Console, lo explica con el paso que falta (nunca un error técnico).
+ * - Mejoras del 2026-11-24: cada cifra se compara con el periodo anterior; el gráfico tiene escala, fechas y dice el día
+ *   tocado; las búsquedas se filtran (Zaragoza, Vender, Reparar); «Casi en la primera página» (puestos 8 a 20); «Con qué
+ *   te buscan» (móvil, ordenador, tableta); «Comprobar todas», con el último resultado guardado en este navegador.
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { Animated, Modal, Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View, useWindowDimensions } from "react-native";
@@ -22,7 +25,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { AvisoPanel, CabeceraPanel, CargandoPanel } from "../../lib/admin/productos.componentes";
 import { CAMPO, TACTIL, TAMANOS } from "../../constants/temaTienda";
-import { AccionTexto, Bloque, Cifra, Detalle, EtiquetaColor, FilaCifras, PANEL, type Tono } from "../../components/admin/PiezasPanelAdmin";
+import { AccionTexto, Bloque, Chip, Cifra, Detalle, EtiquetaColor, FilaCifras, PANEL, type Tono } from "../../components/admin/PiezasPanelAdmin";
 
 type Fila = { clics: number; impresiones: number; ctr: number; posicion: number };
 type Mapa = { ruta: string; ultimaLectura: string | null; enviadoEn: string | null; pendiente: boolean; errores: number; avisos: number; paginas: number };
@@ -31,14 +34,17 @@ type Datos = {
   desde: string;
   hasta: string;
   totales: Fila;
+  /** El periodo con el que se comparan las cifras (los mismos días del mes anterior, o los mismos días justo antes). */
+  anterior?: { desde: string; hasta: string; totales: Fila };
   porDia: (Fila & { fecha: string })[];
   busquedas: (Fila & { texto: string })[];
   paginas: (Fila & { url: string })[];
   paises: (Fila & { pais: string })[];
+  dispositivos?: (Fila & { dispositivo: string })[];
   mapas: Mapa[];
 };
 type SinConexion = { conectado: false; motivo: "sin_llave" | "llave_mal" | "sin_permiso" | "error" };
-type Inspeccion = { ruta: string; enGoogle: boolean; estado: string; ultimaVisita: string | null; canonicaGoogle: string | null; robots: string; descarga: string };
+type Inspeccion = { ruta: string; enGoogle: boolean; estado: string; ultimaVisita: string | null; canonicaGoogle: string | null; robots: string; descarga: string; comprobadoEn?: number };
 
 // --- «Rango personalizado» (dueño, 2026-11-24: «un selector de fechas igual que el de VeoAura») ----------------------
 // Una barra «‹ periodo ›» (por defecto el mes actual; «›» no pasa del mes actual) y, al tocar el centro, una ventana con
@@ -264,20 +270,90 @@ const MOTIVOS: Record<SinConexion["motivo"], string> = {
   error: "Google no ha respondido ahora mismo. Prueba a actualizar en unos minutos.",
 };
 
-// Lo que dice Google de una página, en español sencillo.
-function estadoEnEspanol(estado: string, enGoogle: boolean): string {
+// Por qué una página no está en Google, en español sencillo (la etiqueta ya dice «No está»).
+function motivoEnEspanol(estado: string): string {
   const e = estado.toLowerCase();
-  if (enGoogle) return "Está en Google.";
   if (e.includes("unknown")) return "Google aún no la conoce.";
   if (e.includes("discovered")) return "Google la conoce pero aún no la ha guardado (suele tardar unos días).";
   if (e.includes("crawled")) return "Google la ha visitado pero aún no la ha guardado.";
-  if (e.includes("noindex")) return "No está en Google: la página le pide que no la guarde.";
-  if (e.includes("robots")) return "No está en Google: robots.txt no le deja entrar.";
+  if (e.includes("noindex")) return "La página le pide a Google que no la guarde.";
+  if (e.includes("robots")) return "robots.txt no le deja entrar.";
   if (e.includes("duplicate") || e.includes("canonical")) return "Google la considera una copia de otra página.";
   if (e.includes("redirect")) return "Es una redirección a otra página.";
   if (e.includes("404") || e.includes("not found")) return "Google no la encuentra (error 404).";
-  return estado ? `No está en Google: ${estado}.` : "No está en Google.";
+  return estado ? `Motivo que da Google: ${estado}.` : "Google no da el motivo.";
 }
+
+// «Comprobar una página»: el último resultado de cada una se guarda en este navegador, con su hora, para verlo al
+// entrar sin volver a preguntar (comodidad del administrador; si el navegador no deja guardar, no pasa nada).
+const CLAVE_COMPROBACIONES = "vz-google-comprobaciones";
+function leerComprobaciones(): Record<string, Inspeccion> {
+  try {
+    if (Platform.OS !== "web" || typeof localStorage === "undefined") return {};
+    const j = JSON.parse(localStorage.getItem(CLAVE_COMPROBACIONES) ?? "{}");
+    return j && typeof j === "object" ? (j as Record<string, Inspeccion>) : {};
+  } catch {
+    return {};
+  }
+}
+function guardarComprobacion(i: Inspeccion) {
+  try {
+    if (Platform.OS !== "web" || typeof localStorage === "undefined") return;
+    localStorage.setItem(CLAVE_COMPROBACIONES, JSON.stringify({ ...leerComprobaciones(), [i.ruta]: i }));
+  } catch {
+    // sin guardar: se verá al comprobar otra vez
+  }
+}
+
+// «frente a octubre» (mes completo) o «frente al 1–24 oct» (otro periodo).
+function frenteA(desde: string, hasta: string): string {
+  const a = deIso(desde);
+  const b = deIso(hasta);
+  if (esMesCompleto({ desde, hasta })) return `frente a ${MESES[a.getMonth()]}`;
+  if (a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()) return `frente al ${a.getDate()}–${b.getDate()} ${MESES_CORTOS[a.getMonth()]}`;
+  return `frente al ${a.getDate()} ${MESES_CORTOS[a.getMonth()]} – ${b.getDate()} ${MESES_CORTOS[b.getMonth()]}`;
+}
+const coma1 = (n: number) => n.toFixed(1).replace(".", ",");
+
+// La comparación de una cifra con el periodo anterior: ▲ en verde si mejora, ▼ en rojo si empeora.
+// En la posición, menos es mejor (puesto 5 es mejor que puesto 9).
+function Comparacion({ id, tipo, ahora, antes, frente, sinAntes }: { id: string; tipo: "numero" | "porcentaje" | "posicion"; ahora: number; antes: number; frente: string; sinAntes: boolean }) {
+  let linea: string;
+  let color: string = PANEL.muted;
+  if (sinAntes || (tipo === "posicion" && (!ahora || !antes))) {
+    linea = "Antes, sin datos";
+  } else {
+    const d = tipo === "posicion" ? antes - ahora : tipo === "porcentaje" ? (ahora - antes) * 100 : ahora - antes;
+    const igual = tipo === "numero" ? Math.round(d) === 0 : Math.abs(d) < 0.05;
+    if (igual) linea = "= Igual";
+    else {
+      const valor = tipo === "numero" ? numero(Math.abs(d)) : coma1(Math.abs(d));
+      linea =
+        tipo === "posicion"
+          ? `${d > 0 ? "▲" : "▼"} ${valor} ${valor === "1,0" ? "puesto" : "puestos"} ${d > 0 ? "mejor" : "peor"}`
+          : `${d > 0 ? "▲ +" : "▼ −"}${valor}${tipo === "porcentaje" ? " puntos" : ""}`;
+      color = d > 0 ? PANEL.success : PANEL.danger;
+    }
+  }
+  return (
+    <View nativeID={id} style={{ alignItems: "center", marginTop: 2 }}>
+      <Text style={{ color, fontWeight: "900", fontSize: TAMANOS.minimo, lineHeight: 17, textAlign: "center" }}>{linea}</Text>
+      <Text numberOfLines={2} style={{ color: PANEL.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 17, textAlign: "center" }}>
+        {frente}
+      </Text>
+    </View>
+  );
+}
+
+// Filtros de «Búsquedas» (dueño, 2026-11-24: saber si le encuentran quienes buscan vender o reparar en Zaragoza).
+const sinTildes = (t: string) => t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+const FILTROS_BUSQUEDA: { clave: string; nombre: string; re: RegExp | null }[] = [
+  { clave: "todas", nombre: "Todas", re: null },
+  { clave: "zaragoza", nombre: "Zaragoza", re: /zaragoza|\bzgz\b/ },
+  { clave: "vender", nombre: "Vender", re: /vend|venta|tasa|compran/ },
+  { clave: "reparar", nombre: "Reparar", re: /repar|arregl|servicio tecnico/ },
+];
+const DISPOSITIVOS: Record<string, string> = { MOBILE: "Móvil", DESKTOP: "Ordenador", TABLET: "Tableta" };
 
 const PAISES: Record<string, string> = {
   ESP: "España", MEX: "México", ARG: "Argentina", COL: "Colombia", CHL: "Chile", PER: "Perú", USA: "Estados Unidos",
@@ -328,8 +404,11 @@ export default function AdminGoogle() {
   const [datos, setDatos] = useState<Datos | SinConexion | null>(null);
   const [fallo, setFallo] = useState(false);
   const [actualizadoEn, setActualizadoEn] = useState<number | null>(null);
-  const [inspecciones, setInspecciones] = useState<Record<string, Inspeccion | "cargando" | "error">>({});
+  const [inspecciones, setInspecciones] = useState<Record<string, Inspeccion | "cargando" | "error">>(leerComprobaciones);
+  const [comprobandoTodas, setComprobandoTodas] = useState(false);
   const [otra, setOtra] = useState("");
+  const [filtro, setFiltro] = useState("todas");
+  const [diaSel, setDiaSel] = useState<string | null>(null);
 
   const cargar = useCallback(async (r: Rango) => {
     setCargando(true);
@@ -353,11 +432,23 @@ export default function AdminGoogle() {
     setInspecciones((x) => ({ ...x, [limpia]: "cargando" }));
     try {
       const j = await pedirGoogle(`inspeccionar=${encodeURIComponent(limpia)}`);
-      setInspecciones((x) => ({ ...x, [limpia]: j?.conectado === false ? "error" : (j as Inspeccion) }));
+      if (j?.conectado === false) {
+        setInspecciones((x) => ({ ...x, [limpia]: "error" }));
+        return;
+      }
+      const i: Inspeccion = { ...(j as Inspeccion), ruta: limpia, comprobadoEn: Date.now() };
+      guardarComprobacion(i);
+      setInspecciones((x) => ({ ...x, [limpia]: i }));
     } catch {
       setInspecciones((x) => ({ ...x, [limpia]: "error" }));
     }
   }, []);
+  // «Comprobar todas»: una detrás de otra (Google limita las consultas seguidas).
+  const comprobarTodas = useCallback(async () => {
+    setComprobandoTodas(true);
+    for (const [, r] of PAGINAS_CLAVE) await comprobar(r);
+    setComprobandoTodas(false);
+  }, [comprobar]);
 
   const conectado = datos && datos.conectado ? datos : null;
   // Una barra por cada día del periodo (los que Google no trae, a 0): con pocos días de datos no sale un bloque enorme.
@@ -370,6 +461,28 @@ export default function AdminGoogle() {
     }
   }
   const maxDia = Math.max(1, ...dias.map((d) => d.impresiones));
+  const dia = dias.find((d) => d.fecha === diaSel) ?? null;
+  const fechaEje = (iso: string) => {
+    const d = deIso(iso);
+    return `${d.getDate()} ${MESES_CORTOS[d.getMonth()]}`;
+  };
+  const textoDia = (d: Fila & { fecha: string }) => {
+    const f = deIso(d.fecha);
+    const nombre = `${DIAS_SEMANA[f.getDay()]} ${f.getDate()} ${MESES_CORTOS[f.getMonth()]}`;
+    return `${nombre.charAt(0).toUpperCase()}${nombre.slice(1)}: ${numero(d.clics)} ${d.clics === 1 ? "clic" : "clics"} · ${numero(d.impresiones)} ${d.impresiones === 1 ? "vez" : "veces"}${d.posicion > 0 ? ` · puesto ${posicion(d.posicion)}` : ""}`;
+  };
+  // Búsquedas: con el filtro elegido, las 15 primeras; «casi en la primera página», las de los puestos 8 a 20.
+  const filtroActivo = FILTROS_BUSQUEDA.find((f) => f.clave === filtro) ?? FILTROS_BUSQUEDA[0];
+  const cuantas = (re: RegExp | null) => (conectado ? (re ? conectado.busquedas.filter((b) => re.test(sinTildes(b.texto))).length : conectado.busquedas.length) : 0);
+  const busquedasVistas = conectado ? conectado.busquedas.filter((b) => !filtroActivo.re || filtroActivo.re.test(sinTildes(b.texto))).slice(0, 15) : [];
+  const casiPrimera = conectado
+    ? conectado.busquedas.filter((b) => b.posicion >= 8 && b.posicion <= 20).sort((a, b) => b.impresiones - a.impresiones).slice(0, 8)
+    : [];
+  const totalDispositivos = conectado ? Math.max(1, (conectado.dispositivos ?? []).reduce((s, d) => s + d.impresiones, 0)) : 1;
+  const sinAntes = !conectado?.anterior || (conectado.anterior.totales.impresiones === 0 && conectado.anterior.totales.clics === 0);
+  const frente = conectado?.anterior ? frenteA(conectado.anterior.desde, conectado.anterior.hasta) : "";
+  const comparar = (id: string, tipo: "numero" | "porcentaje" | "posicion", campo: keyof Fila) =>
+    conectado?.anterior ? <Comparacion id={id} tipo={tipo} ahora={conectado.totales[campo]} antes={conectado.anterior.totales[campo]} frente={frente} sinAntes={sinAntes} /> : null;
   // Ordenador ancho (dueño, 2026-11-24: «aprovechar mejor el ancho»): hasta 1440 px, gráfico con los mapas al lado,
   // búsquedas, páginas y países en tres columnas y «Comprobar» en cuadrícula. Ordenador normal: dos columnas.
   const muyAncho = (width && width > 0 ? width : 1024) >= 1180;
@@ -402,19 +515,42 @@ export default function AdminGoogle() {
       </Bloque>
     ) : null;
 
+  // «Casi en la primera página»: las búsquedas en los puestos 8 a 20, las más vistas primero. Son las más fáciles de subir.
+  const bloqueCasi = (ancho: "100%" | "45%" | "31%") =>
+    conectado ? (
+      <Bloque nativeID="google-casi" icono="trending-up-outline" titulo="Casi en la primera página" ancho={ancho}>
+        <Detalle>Búsquedas en los puestos 8 a 20: con un empujón (más texto en esa página o un artículo en Noticias) pueden subir arriba.</Detalle>
+        {casiPrimera.length ? (
+          casiPrimera.map((b) => (
+            <FilaTabla
+              key={b.texto}
+              izquierda={<Text style={{ color: PANEL.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>{b.texto}</Text>}
+              derecha={`puesto ${posicion(b.posicion)} · ${numero(b.impresiones)} veces`}
+            />
+          ))
+        ) : (
+          <Detalle color={PANEL.text}>Ninguna búsqueda en esos puestos todavía.</Detalle>
+        )}
+      </Bloque>
+    ) : null;
+
+  const horaCorta = (t: number) =>
+    new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" }).format(new Date(t));
   const resultadoInspeccion = (r: string) => {
     const i = inspecciones[r];
     if (!i) return null;
     if (i === "cargando") return <Text style={{ color: PANEL.muted, fontSize: TAMANOS.minimo }}>Preguntando a Google…</Text>;
     if (i === "error") return <Text style={{ color: PANEL.danger, fontSize: TAMANOS.minimo, fontWeight: "700" }}>No se ha podido comprobar ahora. Prueba en unos minutos.</Text>;
     return (
-      <View nativeID={`google-inspeccion-${r === "/" ? "portada" : r.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "")}`} style={{ gap: 2 }}>
-        <Text style={{ color: i.enGoogle ? PANEL.success : PANEL.warning, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
-          {estadoEnEspanol(i.estado, i.enGoogle)}
-        </Text>
+      <View nativeID={`google-inspeccion-${r === "/" ? "portada" : r.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "")}`} style={{ gap: 4 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+          <EtiquetaColor texto={i.enGoogle ? "✔ En Google" : "✖ No está"} tono={i.enGoogle ? "verde" : "amarillo"} />
+          {i.enGoogle ? null : <Text style={{ flexShrink: 1, color: PANEL.text, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>{motivoEnEspanol(i.estado)}</Text>}
+        </View>
         <Text style={{ color: PANEL.muted, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
           Última visita de Google: {fechaCorta(i.ultimaVisita)}
           {i.canonicaGoogle && ruta(i.canonicaGoogle) !== r ? ` · Google prefiere ${ruta(i.canonicaGoogle)}` : ""}
+          {i.comprobadoEn ? ` · comprobado el ${horaCorta(i.comprobadoEn)}` : ""}
         </Text>
       </View>
     );
@@ -497,52 +633,120 @@ export default function AdminGoogle() {
           {conectado ? (
             <>
               <FilaCifras nativeID="google-cifras">
-                <Cifra nativeID="google-cifra-clics" valor={numero(conectado.totales.clics)} etiqueta="Clics" icono="hand-left-outline" ancho={isMobile ? "45%" : 0} />
-                <Cifra nativeID="google-cifra-veces" valor={numero(conectado.totales.impresiones)} etiqueta="Veces que sales" icono="eye-outline" ancho={isMobile ? "45%" : 0} />
-                <Cifra nativeID="google-cifra-porcentaje" valor={porcentaje(conectado.totales.ctr)} etiqueta="Porcentaje de clics" icono="stats-chart-outline" ancho={isMobile ? "45%" : 0} />
-                <Cifra nativeID="google-cifra-posicion" valor={posicion(conectado.totales.posicion)} etiqueta="Posición media" icono="podium-outline" ancho={isMobile ? "45%" : 0} />
+                <Cifra nativeID="google-cifra-clics" valor={numero(conectado.totales.clics)} etiqueta="Clics" icono="hand-left-outline" ancho={isMobile ? "45%" : 0} nota={comparar("google-cambio-clics", "numero", "clics")} />
+                <Cifra nativeID="google-cifra-veces" valor={numero(conectado.totales.impresiones)} etiqueta="Veces que sales" icono="eye-outline" ancho={isMobile ? "45%" : 0} nota={comparar("google-cambio-veces", "numero", "impresiones")} />
+                <Cifra nativeID="google-cifra-porcentaje" valor={porcentaje(conectado.totales.ctr)} etiqueta="Porcentaje de clics" icono="stats-chart-outline" ancho={isMobile ? "45%" : 0} nota={comparar("google-cambio-porcentaje", "porcentaje", "ctr")} />
+                <Cifra nativeID="google-cifra-posicion" valor={posicion(conectado.totales.posicion)} etiqueta="Posición media" icono="podium-outline" ancho={isMobile ? "45%" : 0} nota={comparar("google-cambio-posicion", "posicion", "posicion")} />
               </FilaCifras>
 
               {/* Clics y veces que sales, por día (barras: el alto es las veces que sales; lo azul, los clics). */}
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
                 <Bloque nativeID="google-por-dia" icono="calendar-outline" titulo="Clics por día" ancho={muyAncho ? "64%" : "100%"}>
                   {conectado.porDia.length ? (
-                    <View style={{ flexDirection: "row", alignItems: "flex-end", gap: dias.length > 60 ? 1 : 2, height: muyAncho ? 150 : 110, paddingTop: 6, borderBottomWidth: 1, borderBottomColor: PANEL.border }}>
-                      {dias.map((d) => (
-                        <View
-                          key={d.fecha}
-                          accessibilityLabel={`${d.fecha}: ${d.clics} clics, ${d.impresiones} veces`}
-                          style={{ flex: 1, minWidth: 1, height: d.impresiones ? `${Math.max(4, (d.impresiones / maxDia) * 100)}%` : 2, borderRadius: 3, backgroundColor: d.impresiones ? PANEL.accent2 : PANEL.border, justifyContent: "flex-end", overflow: "hidden" }}
-                        >
-                          <View style={{ height: `${d.impresiones ? (d.clics / d.impresiones) * 100 : 0}%`, minHeight: d.clics ? 3 : 0, backgroundColor: PANEL.accent }} />
+                    <>
+                      {/* El día elegido (al tocar una barra o pasar el ratón); si no, cómo elegirlo. */}
+                      <Text nativeID="google-dia" style={{ color: dia ? PANEL.text : PANEL.muted, fontWeight: dia ? "800" : "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                        {dia ? textoDia(dia) : "Toca una barra (o pasa el ratón) para ver ese día."}
+                      </Text>
+                      <View style={{ flexDirection: "row", gap: 6 }}>
+                        {/* Escala: el máximo de veces arriba y 0 abajo. */}
+                        <View style={{ height: muyAncho ? 150 : 110, justifyContent: "space-between", alignItems: "flex-end", minWidth: 22 }}>
+                          <Text style={{ color: PANEL.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 15 }}>{numero(maxDia)}</Text>
+                          <Text style={{ color: PANEL.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 15 }}>0</Text>
                         </View>
-                      ))}
-                    </View>
+                        <View
+                          nativeID="google-grafico"
+                          accessibilityLabel={`Gráfico por días: como mucho ${numero(maxDia)} veces en un día`}
+                          style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "flex-end", gap: dias.length > 60 ? 1 : 2, height: muyAncho ? 150 : 110, borderTopWidth: 1, borderTopColor: PANEL.border, borderStyle: "dashed", borderBottomWidth: 1, borderBottomColor: PANEL.border }}
+                        >
+                          {dias.map((d) => {
+                            const elegido = d.fecha === diaSel;
+                            return (
+                              <Pressable
+                                key={d.fecha}
+                                nativeID={`google-barra-${d.fecha}`}
+                                focusable={false}
+                                onPress={() => setDiaSel(d.fecha)}
+                                onHoverIn={() => setDiaSel(d.fecha)}
+                                accessibilityLabel={textoDia(d)}
+                                style={{ flex: 1, minWidth: 1, height: "100%", justifyContent: "flex-end", ...(Platform.OS === "web" ? ({ cursor: "pointer" } as object) : {}) }}
+                              >
+                                <View
+                                  style={{
+                                    height: d.impresiones ? `${Math.max(4, (d.impresiones / maxDia) * 100)}%` : 2,
+                                    borderRadius: 3,
+                                    backgroundColor: elegido ? PANEL.accentDark : d.impresiones ? PANEL.accentBorder : PANEL.border,
+                                    justifyContent: "flex-end",
+                                    overflow: "hidden",
+                                  }}
+                                >
+                                  <View style={{ height: `${d.impresiones ? (d.clics / d.impresiones) * 100 : 0}%`, minHeight: d.clics ? 3 : 0, backgroundColor: PANEL.accent }} />
+                                </View>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                      {/* Fechas debajo: el primer día, el del medio y el último. */}
+                      {dias.length ? (
+                        <View nativeID="google-eje" style={{ flexDirection: "row", justifyContent: "space-between", paddingLeft: 28 }}>
+                          <Text style={{ color: PANEL.muted, fontWeight: "700", fontSize: TAMANOS.minimo }}>{fechaEje(dias[0].fecha)}</Text>
+                          {dias.length > 2 ? <Text style={{ color: PANEL.muted, fontWeight: "700", fontSize: TAMANOS.minimo }}>{fechaEje(dias[Math.floor(dias.length / 2)].fecha)}</Text> : null}
+                          <Text style={{ color: PANEL.muted, fontWeight: "700", fontSize: TAMANOS.minimo }}>{fechaEje(dias[dias.length - 1].fecha)}</Text>
+                        </View>
+                      ) : null}
+                    </>
                   ) : (
                     <Detalle>Todavía no hay datos de días. Con la web recién conectada tardan unos días.</Detalle>
                   )}
-                  <Text style={{ color: PANEL.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                    Del {fechaCorta(conectado.desde)} al {fechaCorta(conectado.hasta)} · en azul claro, las veces que sales; en azul, los clics.
-                  </Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", columnGap: 14, rowGap: 4 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: PANEL.accentBorder }} />
+                      <Text style={{ color: PANEL.muted, fontWeight: "700", fontSize: TAMANOS.minimo }}>Veces que sales</Text>
+                    </View>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: PANEL.accent }} />
+                      <Text style={{ color: PANEL.muted, fontWeight: "700", fontSize: TAMANOS.minimo }}>Clics</Text>
+                    </View>
+                  </View>
                 </Bloque>
-                {muyAncho ? bloqueMapas("32%") : null}
+                {/* Ordenador ancho: a la derecha del gráfico, los mapas y «Casi en la primera página» (cada uno en su fila,
+                    para que su ancho no se lea como alto). */}
+                {muyAncho ? (
+                  <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: "32%", minWidth: 0, gap: 12 }}>
+                    <View style={{ flexDirection: "row" }}>{bloqueMapas("100%")}</View>
+                    <View style={{ flexDirection: "row", flexGrow: 1 }}>{bloqueCasi("100%")}</View>
+                  </View>
+                ) : null}
               </View>
 
               {/* Siempre en fila que baja de línea: en una columna, el ancho de cada Bloque (flexBasis) se leería como alto. */}
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
                 <Bloque nativeID="google-busquedas" icono="search-outline" titulo="Búsquedas con las que te encuentran" ancho={anchoBloque}>
                   {conectado.busquedas.length ? (
-                    conectado.busquedas.map((b) => (
-                      <FilaTabla
-                        key={b.texto}
-                        izquierda={<Text style={{ color: PANEL.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>{b.texto}</Text>}
-                        derecha={`${numero(b.clics)} clics · ${numero(b.impresiones)} veces · puesto ${posicion(b.posicion)}`}
-                      />
-                    ))
+                    <>
+                      <View nativeID="google-filtros" style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                        {FILTROS_BUSQUEDA.map((f) => (
+                          <Chip key={f.clave} nativeID={`google-filtro-${f.clave}`} label={`${f.nombre} · ${cuantas(f.re)}`} activo={filtro === f.clave} onPress={() => setFiltro(f.clave)} />
+                        ))}
+                      </View>
+                      {busquedasVistas.length ? (
+                        busquedasVistas.map((b) => (
+                          <FilaTabla
+                            key={b.texto}
+                            izquierda={<Text style={{ color: PANEL.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>{b.texto}</Text>}
+                            derecha={`${numero(b.clics)} clics · ${numero(b.impresiones)} veces · puesto ${posicion(b.posicion)}`}
+                          />
+                        ))
+                      ) : (
+                        <Detalle color={PANEL.text}>Todavía no hay búsquedas de «{filtroActivo.nombre}».</Detalle>
+                      )}
+                    </>
                   ) : (
                     <Detalle>Todavía no hay búsquedas. Con la web recién conectada tardan unos días.</Detalle>
                   )}
                 </Bloque>
+                {muyAncho ? null : bloqueCasi(anchoBloque)}
                 <Bloque nativeID="google-paginas" icono="document-text-outline" titulo="Páginas que más visitas traen" ancho={anchoBloque}>
                   {conectado.paginas.length ? (
                     conectado.paginas.map((p) => (
@@ -564,6 +768,27 @@ export default function AdminGoogle() {
                   ) : (
                     <Detalle>Sin datos todavía.</Detalle>
                   )}
+                  {conectado.dispositivos?.length ? (
+                    <View nativeID="google-dispositivos" style={{ gap: 6, marginTop: 6 }}>
+                      <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Con qué te buscan</Text>
+                      {conectado.dispositivos.map((d) => {
+                        const parte = d.impresiones / totalDispositivos;
+                        return (
+                          <View key={d.dispositivo} style={{ gap: 4, paddingVertical: 4, borderTopWidth: 1, borderTopColor: PANEL.border }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                              <Text style={{ flex: 1, color: PANEL.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>{DISPOSITIVOS[d.dispositivo] ?? d.dispositivo}</Text>
+                              <Text style={{ color: PANEL.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+                                {numero(d.clics)} clics · {numero(d.impresiones)} veces · {Math.round(parte * 100)} %
+                              </Text>
+                            </View>
+                            <View style={{ height: 6, borderRadius: 3, backgroundColor: PANEL.border, overflow: "hidden" }}>
+                              <View style={{ width: `${Math.round(parte * 100)}%`, height: "100%", backgroundColor: PANEL.accent }} />
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : null}
                 </Bloque>
                 {muyAncho ? null : bloqueMapas(anchoBloque)}
               </View>
@@ -571,7 +796,18 @@ export default function AdminGoogle() {
               {/* Comprobar una página: las principales y cualquier otra. */}
               <View style={{ flexDirection: "row" }}>
                 <Bloque nativeID="google-comprobar" icono="checkmark-done-outline" titulo="Comprobar una página en Google" ancho="100%">
-                  <Detalle>Dice si la página está en Google y, si no, por qué.</Detalle>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: 12 }}>
+                    <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 260, minWidth: 0 }}>
+                      <Detalle>Dice si la página está en Google y, si no, por qué. El último resultado se queda guardado.</Detalle>
+                    </View>
+                    <AccionTexto
+                      nativeID="google-comprobar-todas"
+                      icono="checkmark-done-outline"
+                      texto={comprobandoTodas ? "Comprobando…" : "Comprobar todas"}
+                      onPress={() => void comprobarTodas()}
+                      disabled={comprobandoTodas}
+                    />
+                  </View>
                   {/* En el ordenador, en cuadrícula (3 o 2 por fila); en el móvil, una debajo de otra. */}
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: isMobile ? 0 : 10 }}>
                     {PAGINAS_CLAVE.map(([nombre, r]) => (
@@ -588,9 +824,10 @@ export default function AdminGoogle() {
                           <AccionTexto
                             nativeID={`google-comprobar-${r === "/" ? "portada" : r.slice(1)}`}
                             icono="search-outline"
-                            texto="Comprobar en Google"
+                            texto="Comprobar"
+                            etiqueta={`Comprobar ${nombre} en Google`}
                             onPress={() => void comprobar(r)}
-                            disabled={inspecciones[r] === "cargando"}
+                            disabled={inspecciones[r] === "cargando" || comprobandoTodas}
                           />
                         </View>
                         {resultadoInspeccion(r)}

@@ -166,31 +166,52 @@ function rangoPedido(desdeTxt: unknown, hastaTxt: unknown): { desde: Date; hasta
   return { desde, hasta };
 }
 
+// El periodo con el que se compara (2026-11-24): si empieza el día 1 y acaba en ese mismo mes, los mismos días del mes
+// anterior (1-24 nov frente a 1-24 oct); si no, los mismos días justo antes.
+function periodoAnterior(desde: Date, hasta: Date): { desde: Date; hasta: Date } {
+  const dias = Math.round((hasta.getTime() - desde.getTime()) / 86400000) + 1;
+  const y = desde.getUTCFullYear();
+  const m = desde.getUTCMonth();
+  if (desde.getUTCDate() === 1 && hasta.getUTCFullYear() === y && hasta.getUTCMonth() === m) {
+    const finMesAnterior = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return { desde: new Date(Date.UTC(y, m - 1, 1)), hasta: new Date(Date.UTC(y, m - 1, Math.min(dias, finMesAnterior))) };
+  }
+  return { desde: new Date(desde.getTime() - dias * 86400000), hasta: new Date(desde.getTime() - 86400000) };
+}
+
 async function datosGoogle(dias: number, rango: { desde: Date; hasta: Date } | null = null) {
   const token = await tokenGoogle();
   const base = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(SITIO_GOOGLE)}`;
   // Con un rango elegido, ese; si no, los últimos `dias` hasta hace 2 días (Google da los datos con 2-3 días de retraso).
   const hasta = rango?.hasta ?? new Date(Date.now() - 2 * 86400000);
   const desde = rango?.desde ?? new Date(hasta.getTime() - (dias - 1) * 86400000);
-  const consulta = (dimensiones: string[], filas: number) =>
-    llamarGoogle(token, `${base}/searchAnalytics/query`, { startDate: diaISO(desde), endDate: diaISO(hasta), dimensions: dimensiones, rowLimit: filas, dataState: "all" });
-  const [totales, porDia, busquedas, paginas, paises, mapas] = await Promise.all([
+  const antes = periodoAnterior(desde, hasta);
+  const consulta = (dimensiones: string[], filas: number, d = desde, h = hasta) =>
+    llamarGoogle(token, `${base}/searchAnalytics/query`, { startDate: diaISO(d), endDate: diaISO(h), dimensions: dimensiones, rowLimit: filas, dataState: "all" });
+  // Las búsquedas, hasta 250: la pantalla enseña las 15 primeras, las «casi en la primera página» y los filtros.
+  const [totales, totalesAntes, porDia, busquedas, paginas, paises, dispositivos, mapas] = await Promise.all([
     consulta([], 1),
+    consulta([], 1, antes.desde, antes.hasta),
     consulta(["date"], 120),
-    consulta(["query"], 15),
+    consulta(["query"], 250),
     consulta(["page"], 15),
     consulta(["country"], 8),
+    consulta(["device"], 5),
     llamarGoogle(token, `${base}/sitemaps`),
   ]);
   const fila = (f: any) => ({ clics: Number(f?.clicks ?? 0), impresiones: Number(f?.impressions ?? 0), ctr: Number(f?.ctr ?? 0), posicion: Number(f?.position ?? 0) });
+  const vacia = { clics: 0, impresiones: 0, ctr: 0, posicion: 0 };
   const t = (totales?.rows ?? [])[0];
+  const ta = (totalesAntes?.rows ?? [])[0];
   return {
     conectado: true,
     desde: diaISO(desde),
     hasta: diaISO(hasta),
-    totales: t ? fila(t) : { clics: 0, impresiones: 0, ctr: 0, posicion: 0 },
+    totales: t ? fila(t) : vacia,
+    anterior: { desde: diaISO(antes.desde), hasta: diaISO(antes.hasta), totales: ta ? fila(ta) : vacia },
     porDia: (porDia?.rows ?? []).map((f: any) => ({ fecha: String(f.keys?.[0] ?? ""), ...fila(f) })),
     busquedas: (busquedas?.rows ?? []).map((f: any) => ({ texto: String(f.keys?.[0] ?? ""), ...fila(f) })),
+    dispositivos: (dispositivos?.rows ?? []).map((f: any) => ({ dispositivo: String(f.keys?.[0] ?? "").toUpperCase(), ...fila(f) })),
     paginas: (paginas?.rows ?? []).map((f: any) => ({ url: String(f.keys?.[0] ?? ""), ...fila(f) })),
     paises: (paises?.rows ?? []).map((f: any) => ({ pais: String(f.keys?.[0] ?? "").toUpperCase(), ...fila(f) })),
     mapas: (mapas?.sitemap ?? []).map((m: any) => ({
