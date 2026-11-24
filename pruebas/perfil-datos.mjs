@@ -1746,8 +1746,10 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
           return json({ code: "42703", message: "column categories.portada_opacidad does not exist" }, 400);
         }
         const activas = url.searchParams.get("is_active") === "eq.true";
-        const slug = (url.searchParams.get("slug") ?? "").replace(/^eq\./, "");
-        const filas = estado.categorias.filter((f) => (!activas || f.is_active) && (!slug || f.slug === slug)).map(sinColumna);
+        const slugParam = url.searchParams.get("slug") ?? "";
+        // slug=eq.x o slug=in.(x,y) (páginas «Compramos», sección CMP).
+        const slugs = /^in\.\(/.test(slugParam) ? slugParam.slice(4, -1).split(",") : slugParam ? [slugParam.replace(/^eq\./, "")] : [];
+        const filas = estado.categorias.filter((f) => (!activas || f.is_active) && (!slugs.length || slugs.includes(f.slug))).map(sinColumna);
         const proyecta = (f) => (select.split(",").includes("*") ? f : Object.fromEntries(select.split(",").map((c) => [c, f[c] ?? null])));
         return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(filas[0] ? proyecta(filas[0]) : null) : json(filas.map(proyecta));
       }
@@ -17715,7 +17717,11 @@ async function seccionGSC() {
       { texto: "tienda consolas segunda mano", clics: 0, impresiones: 150, ctr: 0, posicion: 15.2 },
       { texto: "reparar mando ps5", clics: 1, impresiones: 90, ctr: 0.011, posicion: 12.5 },
     ],
-    paginas: [{ url: "https://videojuegoszaragoza.com/", clics: 20, impresiones: 800, ctr: 0.025, posicion: 7 }, { url: "https://videojuegoszaragoza.com/vender", clics: 8, impresiones: 200, ctr: 0.04, posicion: 5 }],
+    paginas: [
+      { url: "https://videojuegoszaragoza.com/", clics: 20, impresiones: 800, ctr: 0.025, posicion: 7 },
+      { url: "https://videojuegoszaragoza.com/vender", clics: 8, impresiones: 200, ctr: 0.04, posicion: 5 },
+      { url: "https://videojuegoszaragoza.com/compramos/consolas", clics: 2, impresiones: 40, ctr: 0.05, posicion: 11.3 },
+    ],
     paises: [{ pais: "ESP", clics: 33, impresiones: 1200, ctr: 0.0275, posicion: 8 }],
     dispositivos: [{ dispositivo: "MOBILE", clics: 25, impresiones: 900, ctr: 0.028, posicion: 8 }, { dispositivo: "DESKTOP", clics: 9, impresiones: 350, ctr: 0.026, posicion: 9 }],
     mapas: [{ ruta: "/sitemap.xml", ultimaLectura: "2026-11-24T06:00:00Z", enviadoEn: "2026-11-24T05:40:00Z", pendiente: false, errores: 0, avisos: 0, paginas: 59 }, { ruta: "/sitemap-noticias.xml", ultimaLectura: null, enviadoEn: "2026-11-24T05:45:00Z", pendiente: true, errores: 0, avisos: 0, paginas: 0 }],
@@ -17822,10 +17828,16 @@ async function seccionGSC() {
       });
       ok(lado.c > lado.g && lado.cTop < lado.gBottom, `GSC (1280): «Casi en la primera página» a la derecha del gráfico, bajo los mapas (${JSON.stringify(lado)})`);
     }
+    // Páginas «Compramos» (2026-11-24): lo de Google de cada una y lo de la tienda; «Comprobar» pregunta por esa página.
+    const cmp = [await texto(p, "#google-compramos-consolas"), await texto(p, "#google-compramos-moviles")];
+    ok(/Google: 40 veces · 2 clics · puesto 11,3/.test(cmp[0]) && /Tienda: /.test(cmp[0]) && /Google: aún no sale/.test(cmp[1]) && (await p.locator('[id^="google-compramos-"]').count()) >= 5, `GSC (${nombre}): «Páginas Compramos» con Google y la tienda (${JSON.stringify(cmp)})`);
+    await p.locator("#google-comprobar-compramos-consolas").click();
+    for (let i = 0; i < 20 && !peticiones.some((x) => x.params.inspeccionar === "/compramos/consolas"); i++) await p.waitForTimeout(150);
+    ok(peticiones.some((x) => x.params.inspeccionar === "/compramos/consolas"), `GSC (${nombre}): «Comprobar» de Compramos pregunta por /compramos/consolas`);
     await p.locator("#google-comprobar-todas").click();
     for (let i = 0; i < 40 && peticiones.filter((x) => x.params.inspeccionar).length < 6; i++) await p.waitForTimeout(150);
     await p.locator("#google-inspeccion-vender").waitFor({ timeout: 8000 }).catch(() => {});
-    const rutasVistas = [...new Set(peticiones.map((x) => x.params.inspeccionar).filter(Boolean))].sort().join(",");
+    const rutasVistas = [...new Set(peticiones.map((x) => x.params.inspeccionar).filter((r) => r && !r.startsWith("/compramos/")))].sort().join(",");
     ok(rutasVistas === "/,/catalogo,/noticias,/quienes-somos,/servicios,/vender", `GSC (${nombre}): «Comprobar todas» pregunta por las 6 páginas (${rutasVistas})`);
     ok(/En Google/.test(await texto(p, "#google-inspeccion-portada")) && /No está/.test(await texto(p, "#google-inspeccion-vender")) && /Google aún no la conoce/.test(await texto(p, "#google-inspeccion-vender")) && /comprobado el/.test(await texto(p, "#google-inspeccion-portada")), `GSC (${nombre}): «Comprobar» lo dice en español con su hora (${await texto(p, "#google-inspeccion-portada")} / ${await texto(p, "#google-inspeccion-vender")})`);
     await p.locator("#google-comprobar-portada").click();
@@ -17973,6 +17985,83 @@ async function seccionSEOH() {
     await p.close();
   }
   await ctx.close();
+}
+
+// ===== CMP) Páginas «Compramos tu…» (dueño, 2026-11-24): /compramos/consolas, /moviles, /portatiles, /pc y /tablets.
+// Un solo H1, su título y su dirección oficial para Google, los 4 sellos, los modelos, «Cómo funciona» (Zaragoza y resto de
+// España), las preguntas, los enlaces a las otras 4 y «Vender mi consola», que abre el formulario con «Consola» escrito.
+// En el ordenador, el texto a la izquierda y las fotos reales de Categorías a la derecha. A 360, 390 y 1280, sin
+// desbordes ni errores. (Una dirección que no existe da el 404 de Vercel: solo hay 5.)
+async function seccionCMP() {
+  const FOTO = (n) => `https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/prueba/c${n}.jpg`;
+  const estado = () => ({
+    filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }],
+    guardados: [],
+    categorias: [
+      { id: "c0000000-0000-4000-8000-0000000000d1", slug: "playstation-5", name: "PlayStation 5", sort_order: 0, is_active: true, image_url: FOTO(1) },
+      { id: "c0000000-0000-4000-8000-0000000000d2", slug: "nintendo-switch", name: "Nintendo Switch", sort_order: 1, is_active: true, image_url: FOTO(2) },
+    ],
+  });
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => "")).replace(/\s+/g, " ").trim();
+  for (const { nombre, vista } of VISTAS) {
+    const ctx = await contexto(navegador, CLIENTE, "user", estado(), vista);
+    const p = await pagina(ctx, "/compramos/consolas");
+    await p.locator("#compramos-h1").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const h1 = await p.evaluate(() => Array.from(document.querySelectorAll("h1")).map((e) => (e.textContent ?? "").trim()));
+    ok(h1.length === 1 && h1[0] === "Compramos tu consola en Zaragoza", `CMP (${nombre}): un solo H1 «Compramos tu consola en Zaragoza» (${h1.join(" | ")})`);
+    const cab = await p.evaluate(() => ({ titulo: document.title, desc: document.querySelector('meta[name="description"]')?.getAttribute("content") ?? "", canon: document.querySelector('link[rel="canonical"]')?.getAttribute("href") ?? "" }));
+    ok(/^Compramos tu consola en Zaragoza/.test(cab.titulo) && /Bizum/.test(cab.desc) && cab.desc.length <= 200 && cab.canon === "https://videojuegoszaragoza.com/compramos/consolas", `CMP (${nombre}): título, descripción y dirección oficial para Google (${JSON.stringify(cab)})`);
+    const sellos = await texto(p, "#compramos-sellos");
+    ok(/Precio en menos de 1 hora/.test(sellos) && /menos de 2 horas/.test(sellos) && /Envío gratis/.test(sellos) && /Bizum o efectivo/.test(sellos), `CMP (${nombre}): los 4 sellos («${sellos}»)`);
+    ok(/PlayStation 5 y PS5 Pro/.test(await texto(p, "#compramos-modelos")) && /Consolas retro/.test(await texto(p, "#compramos-modelos")), `CMP (${nombre}): los modelos que compramos`);
+    ok(/Cuarte de Huerva/.test(await texto(p, "#compramos-zaragoza")) && /en menos de 2 horas/.test(await texto(p, "#compramos-zaragoza")) && /Etiqueta gratis/.test(await texto(p, "#compramos-espana")) && /te lo devolvemos gratis/.test(await texto(p, "#compramos-espana")), `CMP (${nombre}): «Cómo funciona» en Zaragoza y desde el resto de España`);
+    ok(/¿Cuánto me dais por tu consola\?/.test(await texto(p, "#compramos-preguntas")) && /Bizum o en efectivo/.test(await texto(p, "#compramos-preguntas")), `CMP (${nombre}): las preguntas frecuentes`);
+    const enlaces = await p.evaluate(() => Array.from(document.querySelectorAll("#compramos-otras a")).map((a) => a.getAttribute("href")).sort().join(","));
+    ok(enlaces === "/compramos/moviles,/compramos/pc,/compramos/portatiles,/compramos/tablets", `CMP (${nombre}): enlaces de verdad a las otras 4 (${enlaces})`);
+    if (nombre === "1280") {
+      const lado = await p.evaluate(() => {
+        const t = document.getElementById("compramos-h1")?.getBoundingClientRect();
+        const f = document.getElementById("compramos-fotos")?.getBoundingClientRect();
+        return { tDer: Math.round(t?.right ?? 0), fIzq: Math.round(f?.left ?? -1), fAncho: Math.round(f?.width ?? 0) };
+      });
+      ok(lado.fAncho > 200 && lado.fIzq > lado.tDer, `CMP (1280): el texto a la izquierda y las fotos de Categorías a la derecha (${JSON.stringify(lado)})`);
+    }
+    const d = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+    ok(d.a <= d.v + 1, `CMP (${nombre}): la página no se ensancha (${d.a}/${d.v})`);
+    await capturar(p, `CMP-arriba-${nombre}`);
+    await p.locator("#compramos-como").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(600);
+    await capturar(p, `CMP-como-${nombre}`);
+    await p.locator("#compramos-final").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(600);
+    await capturar(p, `CMP-final-${nombre}`);
+    ok(p.errores.length === 0, `CMP (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    // «Vender mi consola»: el formulario de siempre, con «Consola» escrito.
+    await p.locator("#compramos-vender").scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator("#compramos-vender").click();
+    await p.waitForURL(/\/vender/, { timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const escrito = await p.evaluate(() => Array.from(document.querySelectorAll("input, textarea")).some((i) => i.value === "Consola"));
+    ok(/\/vender\?articulo=Consola/.test(p.url()) && escrito, `CMP (${nombre}): «Vender mi consola» abre el formulario con «Consola» escrito (${p.url().replace(BASE, "")})`);
+    await ctx.close();
+  }
+  // Otra página y una dirección que no existe.
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", estado());
+    const p = await pagina(ctx, "/compramos/moviles");
+    await p.locator("#compramos-h1").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok((await texto(p, "#compramos-h1")) === "Compramos tu móvil en Zaragoza" && /^Compramos tu móvil en Zaragoza/.test(await p.title()) && /¿Cuánto me dais por tu móvil\?/.test(await texto(p, "#compramos-preguntas")), `CMP: /compramos/moviles con su título y sus preguntas`);
+    await capturar(p, "CMP-moviles-390");
+    ok(p.errores.length === 0, `CMP: /compramos/moviles sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
 }
 
 // ===== EGC) Envío gratis regalado a un cliente (dueño, 2026-11-23: «activarle al cliente por individual envío gratis…
@@ -25419,6 +25508,7 @@ try {
   if (SOLO === "ENL") await seccionENL();
   if (SOLO === "EGC") await seccionEGC();
   if (SOLO === "SEOH") await seccionSEOH();
+  if (SOLO === "CMP") await seccionCMP();
   if (SOLO === "GSC") await seccionGSC();
   if (SOLO === "VALOR") await seccionVALOR();
   if (SOLO === "MOMB") await seccionMOMB();
@@ -26542,6 +26632,7 @@ try {
   await seccionENL();
   await seccionEGC();
   await seccionSEOH();
+  await seccionCMP();
   await seccionGSC();
   await seccionAVISOM();
   await seccionVALOR();

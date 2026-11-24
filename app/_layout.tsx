@@ -416,6 +416,8 @@ export default function RootLayout() {
         <Stack.Screen name="servicios" />
         <Stack.Screen name="checkout" />
         <Stack.Screen name="vender" />
+        {/* «Compramos tu consola / móvil / portátil / PC / tablet» (2026-11-24). */}
+        <Stack.Screen name="compramos/[tipo]" />
         <Stack.Screen name="quienes-somos" />
         <Stack.Screen name="comparar" />
         <Stack.Screen name="reset-password" />

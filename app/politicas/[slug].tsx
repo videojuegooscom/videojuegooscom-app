@@ -231,6 +231,12 @@ const POLITICAS_DE_RESERVA: Record<string, Policy> = {
         body:
           "Vendemos consolas y electrónica nuevas y de segunda mano (todas revisadas antes de la venta), compramos tu consola o electrónica usada, y ofrecemos servicios de reparación y mantenimiento.",
       },
+      // El mismo texto que pone la migración 20261124170000_terminos_compramos.sql (páginas «Compramos tu…»).
+      {
+        heading: "Si nos vendes tu aparato",
+        body:
+          "Te damos un precio en menos de 1 hora a partir de lo que nos cuentas y de tus fotos, sin compromiso. En Zaragoza y alrededores lo recogemos o nos lo acercas en menos de 2 horas; desde el resto de España te enviamos en menos de 2 horas una etiqueta de envío sin coste y nos llega en 72 horas como máximo. Al recibirlo lo revisamos: si está como nos indicaste, te pagamos al momento por Bizum o en efectivo (en efectivo, solo en mano). Si no coincide, te proponemos un nuevo precio y, si no lo aceptas, te lo devolvemos sin coste. Para vender tienes que ser mayor de edad y el propietario del aparato, y firmamos un contrato de compraventa.",
+      },
       {
         heading: "Precios y pago",
         body:

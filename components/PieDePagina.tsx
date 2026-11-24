@@ -181,6 +181,7 @@ export default function PieDePagina({
 }) {
   const [footerNavOpen, setFooterNavOpen] = useState(false);
   const [footerPoliciesOpen, setFooterPoliciesOpen] = useState(false);
+  const [footerCompramosOpen, setFooterCompramosOpen] = useState(false);
   const [footerBlogOpen, setFooterBlogOpen] = useState(false);
   const [mejorasAbierta, setMejorasAbierta] = useState(false);
 
@@ -236,6 +237,19 @@ export default function PieDePagina({
               <FooterLink label="Noticias" nativeID="pie-noticias" href={"/noticias" as Href} />
               <FooterLink label="Blue IA" onPress={() => pushRoute("/blue-ia" as Href)} />
               <FooterLink label="Quiénes somos" onPress={() => pushRoute("/quienes-somos" as Href)} />
+            </FooterAccordionSection>
+
+            {/* «Compramos tu…» (2026-11-24): enlaces de verdad para que Google encuentre las 5 páginas. */}
+            <FooterAccordionSection
+              title="Te lo compramos"
+              open={footerCompramosOpen}
+              onToggle={() => setFooterCompramosOpen((value) => !value)}
+            >
+              <FooterLink label="Tu consola" href={"/compramos/consolas" as Href} />
+              <FooterLink label="Tu móvil" href={"/compramos/moviles" as Href} />
+              <FooterLink label="Tu portátil" href={"/compramos/portatiles" as Href} />
+              <FooterLink label="Tu PC y periféricos" href={"/compramos/pc" as Href} />
+              <FooterLink label="Tu iPad o tablet" href={"/compramos/tablets" as Href} />
             </FooterAccordionSection>
 
             <FooterAccordionSection

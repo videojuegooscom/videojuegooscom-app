@@ -355,6 +355,37 @@ const FILTROS_BUSQUEDA: { clave: string; nombre: string; re: RegExp | null }[] =
 ];
 const DISPOSITIVOS: Record<string, string> = { MOBILE: "Móvil", DESKTOP: "Ordenador", TABLET: "Tableta" };
 
+// Páginas «Compramos tu…» (app/compramos/[tipo].tsx, 2026-11-24): lo que dice Google de cada una y lo que pasa en la
+// tienda (analítica propia, solo de quien la aceptó): visitas, cuántos pulsan «Vender» y cuántos envían el formulario.
+const COMPRAMOS: [string, string][] = [
+  ["consolas", "Consolas"],
+  ["moviles", "Móviles"],
+  ["portatiles", "Portátiles"],
+  ["pc", "PC y periféricos"],
+  ["tablets", "iPad y tablets"],
+];
+type UsoCompramos = Record<string, { visitas: number; pulsan: number; envian: number }>;
+async function leerUsoCompramos(desde: string, hasta: string): Promise<UsoCompramos | null> {
+  const fin = new Date(deIso(hasta).getTime() + 86400000);
+  const { data, error } = await supabase
+    .from("analytics_events")
+    .select("event_name,metadata")
+    .in("event_name", ["compramos_visto", "compramos_cta", "vender_enviado_compramos"])
+    .gte("created_at", deIso(desde).toISOString())
+    .lt("created_at", fin.toISOString())
+    .limit(10000);
+  if (error || !Array.isArray(data)) return null;
+  const uso: UsoCompramos = Object.fromEntries(COMPRAMOS.map(([t]) => [t, { visitas: 0, pulsan: 0, envian: 0 }]));
+  for (const f of data as { event_name: string; metadata: { pagina?: string } | null }[]) {
+    const u = uso[String(f.metadata?.pagina ?? "")];
+    if (!u) continue;
+    if (f.event_name === "compramos_visto") u.visitas++;
+    else if (f.event_name === "compramos_cta") u.pulsan++;
+    else u.envian++;
+  }
+  return uso;
+}
+
 const PAISES: Record<string, string> = {
   ESP: "España", MEX: "México", ARG: "Argentina", COL: "Colombia", CHL: "Chile", PER: "Perú", USA: "Estados Unidos",
   FRA: "Francia", ITA: "Italia", PRT: "Portugal", GBR: "Reino Unido", DEU: "Alemania", AND: "Andorra", VEN: "Venezuela",
@@ -409,6 +440,16 @@ export default function AdminGoogle() {
   const [otra, setOtra] = useState("");
   const [filtro, setFiltro] = useState("todas");
   const [diaSel, setDiaSel] = useState<string | null>(null);
+  const [usoCompramos, setUsoCompramos] = useState<UsoCompramos | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    void leerUsoCompramos(rango.desde, rango.hasta)
+      .catch(() => null)
+      .then((u) => vivo && setUsoCompramos(u));
+    return () => {
+      vivo = false;
+    };
+  }, [rango]);
 
   const cargar = useCallback(async (r: Rango) => {
     setCargando(true);
@@ -755,7 +796,7 @@ export default function AdminGoogle() {
                 {muyAncho ? null : bloqueCasi(anchoBloque)}
                 <Bloque nativeID="google-paginas" icono="document-text-outline" titulo="Páginas que más visitas traen" ancho={anchoBloque}>
                   {conectado.paginas.length ? (
-                    conectado.paginas.map((p) => (
+                    conectado.paginas.slice(0, 15).map((p) => (
                       <FilaTabla
                         key={p.url}
                         izquierda={<Text numberOfLines={1} style={{ color: PANEL.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>{ruta(p.url)}</Text>}
@@ -797,6 +838,45 @@ export default function AdminGoogle() {
                   ) : null}
                 </Bloque>
                 {muyAncho ? null : bloqueMapas(anchoBloque)}
+              </View>
+
+              {/* Páginas «Compramos tu…»: Google (veces, clics, puesto) y la tienda (visitas, «Vender», enviados). */}
+              <View style={{ flexDirection: "row" }}>
+                <Bloque nativeID="google-compramos" icono="cash-outline" titulo="Páginas «Compramos»" ancho="100%">
+                  <Detalle>De Google: veces que sales, clics y puesto. De la tienda: visitas desde cualquier sitio, cuántos pulsan «Vender» y cuántos envían el formulario (solo de quien aceptó la analítica).</Detalle>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: isMobile ? 0 : 10 }}>
+                    {COMPRAMOS.map(([t, nombre]) => {
+                      const r = `/compramos/${t}`;
+                      const g = conectado.paginas.find((x) => ruta(x.url) === r);
+                      const u = usoCompramos?.[t];
+                      return (
+                        <View
+                          key={t}
+                          nativeID={`google-compramos-${t}`}
+                          style={
+                            isMobile
+                              ? { width: "100%", gap: 4, paddingVertical: 8, borderTopWidth: 1, borderTopColor: PANEL.border }
+                              : { flexGrow: 1, flexShrink: 1, flexBasis: anchoComprobar, minWidth: 0, gap: 4, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: PANEL.border, backgroundColor: PANEL.bg }
+                          }
+                        >
+                          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10 }}>
+                            <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, minWidth: 96 }}>{nombre}</Text>
+                            <AccionTexto nativeID={`google-comprobar-compramos-${t}`} icono="search-outline" texto="Comprobar" etiqueta={`Comprobar ${nombre} en Google`} onPress={() => void comprobar(r)} disabled={inspecciones[r] === "cargando"} />
+                          </View>
+                          <Text style={{ color: PANEL.text, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                            <Text style={{ fontWeight: "900" }}>Google: </Text>
+                            {g ? `${numero(g.impresiones)} veces · ${numero(g.clics)} clics · puesto ${posicion(g.posicion)}` : "aún no sale"}
+                          </Text>
+                          <Text style={{ color: PANEL.text, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                            <Text style={{ fontWeight: "900" }}>Tienda: </Text>
+                            {u ? `${numero(u.visitas)} visitas · ${numero(u.pulsan)} pulsan «Vender» · ${numero(u.envian)} envían` : "sin datos"}
+                          </Text>
+                          {resultadoInspeccion(r)}
+                        </View>
+                      );
+                    })}
+                  </View>
+                </Bloque>
               </View>
 
               {/* Comprobar una página: las principales y cualquier otra. */}

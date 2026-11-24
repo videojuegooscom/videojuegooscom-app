@@ -189,12 +189,13 @@ async function datosGoogle(dias: number, rango: { desde: Date; hasta: Date } | n
   const consulta = (dimensiones: string[], filas: number, d = desde, h = hasta) =>
     llamarGoogle(token, `${base}/searchAnalytics/query`, { startDate: diaISO(d), endDate: diaISO(h), dimensions: dimensiones, rowLimit: filas, dataState: "all" });
   // Las búsquedas, hasta 250: la pantalla enseña las 15 primeras, las «casi en la primera página» y los filtros.
+  // Las páginas, también hasta 250: las 15 primeras y, aparte, las de «Compramos tu…» aunque no estén entre ellas.
   const [totales, totalesAntes, porDia, busquedas, paginas, paises, dispositivos, mapas] = await Promise.all([
     consulta([], 1),
     consulta([], 1, antes.desde, antes.hasta),
     consulta(["date"], 120),
     consulta(["query"], 250),
-    consulta(["page"], 15),
+    consulta(["page"], 250),
     consulta(["country"], 8),
     consulta(["device"], 5),
     llamarGoogle(token, `${base}/sitemaps`),
