@@ -164,6 +164,7 @@ export function Cifra({
   icono,
   ancho,
   alerta,
+  nota,
 }: {
   valor: string;
   etiqueta: string;
@@ -173,6 +174,8 @@ export function Cifra({
   icono?: NombreIconoPanel;
   ancho: Ancho;
   alerta?: boolean;
+  /** Una línea más debajo de la etiqueta (p. ej. la comparación con el periodo anterior en Google). */
+  nota?: React.ReactNode;
 }) {
   const estilo = {
     flexGrow: 1,
@@ -204,6 +207,7 @@ export function Cifra({
       >
         {etiqueta}
       </Text>
+      {nota}
     </>
   );
   if (!onPress) {
