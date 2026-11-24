@@ -17699,6 +17699,85 @@ async function seccionVALOR() {
   }
 }
 
+// ===== GSC) Administración → Google (Search Console, dueño 2026-11-24): la tarjeta del panel abre la pantalla; pide los
+// datos a api/auditoria-web.ts (?accion=google) con la sesión; enseña cifras, clics por día, búsquedas, páginas, países,
+// mapas y «Comprobar en Google» en español; cambia de periodo; sin llave explica el paso que falta. A 360, 390 y 1280.
+async function seccionGSC() {
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const DATOS = {
+    ok: true, conectado: true, desde: "2026-10-26", hasta: "2026-11-22",
+    totales: { clics: 34, impresiones: 1250, ctr: 0.0272, posicion: 8.4 },
+    porDia: Array.from({ length: 28 }, (_, i) => ({ fecha: `2026-11-${String((i % 28) + 1).padStart(2, "0")}`, clics: i % 3, impresiones: 20 + i * 2, ctr: 0.05, posicion: 9 })),
+    busquedas: [{ texto: "vender consola zaragoza", clics: 12, impresiones: 210, ctr: 0.057, posicion: 4.2 }, { texto: "videojuegos zaragoza", clics: 9, impresiones: 400, ctr: 0.02, posicion: 6.1 }],
+    paginas: [{ url: "https://videojuegoszaragoza.com/", clics: 20, impresiones: 800, ctr: 0.025, posicion: 7 }, { url: "https://videojuegoszaragoza.com/vender", clics: 8, impresiones: 200, ctr: 0.04, posicion: 5 }],
+    paises: [{ pais: "ESP", clics: 33, impresiones: 1200, ctr: 0.0275, posicion: 8 }],
+    mapas: [{ ruta: "/sitemap.xml", ultimaLectura: "2026-11-24T06:00:00Z", enviadoEn: "2026-11-24T05:40:00Z", pendiente: false, errores: 0, avisos: 0, paginas: 59 }, { ruta: "/sitemap-noticias.xml", ultimaLectura: null, enviadoEn: "2026-11-24T05:45:00Z", pendiente: true, errores: 0, avisos: 0, paginas: 0 }],
+  };
+  const INSPECCION = {
+    "/": { ok: true, ruta: "/", enGoogle: true, veredicto: "PASS", estado: "Submitted and indexed", ultimaVisita: "2026-11-23T10:00:00Z", canonicaGoogle: "https://videojuegoszaragoza.com/", robots: "ALLOWED", descarga: "SUCCESSFUL" },
+    "/vender": { ok: true, ruta: "/vender", enGoogle: false, veredicto: "NEUTRAL", estado: "URL is unknown to Google", ultimaVisita: null, canonicaGoogle: null, robots: "", descarga: "" },
+  };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText({ timeout: 3000 }).catch(() => "")).replace(/\s+/g, " ").trim();
+  for (const { nombre, vista } of VISTAS) {
+    const peticiones = [];
+    const ctx = await contexto(navegador, ADMIN, "admin", { filas: perfilAdmin, guardados: [] }, vista);
+    await ctx.route("**/api/auditoria-web**", (r) => {
+      const u = new URL(r.request().url());
+      peticiones.push({ params: Object.fromEntries(u.searchParams), auth: r.request().headers()["authorization"] ?? "" });
+      const ins = u.searchParams.get("inspeccionar");
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(ins ? INSPECCION[ins] ?? { ok: true, conectado: false, motivo: "error" } : DATOS) });
+    });
+    const p = await pagina(ctx, "/admin/google");
+    await p.locator("#google-cifras").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const cifras = await texto(p, "#google-cifras");
+    // (en español, las cifras de 4 dígitos van sin punto: «1250»)
+    ok(/34/.test(cifras) && /1\.?250/.test(cifras) && /2,7 %/.test(cifras) && /8,4/.test(cifras) && /Veces que sales/.test(cifras), `GSC (${nombre}): las cifras de Google en español (${cifras})`);
+    ok(peticiones[0]?.params.accion === "google" && peticiones[0]?.params.dias === "28" && /^Bearer \S+/.test(peticiones[0]?.auth), `GSC (${nombre}): pide 28 días con la sesión del administrador (${JSON.stringify(peticiones[0] ?? null)})`);
+    ok(/Conectado/.test(await texto(p, "#google-estado")), `GSC (${nombre}): dice «Conectado»`);
+    ok(/vender consola zaragoza/.test(await texto(p, "#google-busquedas")) && /puesto 4,2/.test(await texto(p, "#google-busquedas")), `GSC (${nombre}): las búsquedas con su puesto`);
+    ok(/\/vender/.test(await texto(p, "#google-paginas")) && /España/.test(await texto(p, "#google-paises")), `GSC (${nombre}): las páginas (sin el dominio) y «España»`);
+    const mapas = await texto(p, "#google-mapas");
+    ok(/\/sitemap\.xml Correcto/.test(mapas) && /\/sitemap-noticias\.xml Pendiente/.test(mapas) && /59 páginas/.test(mapas), `GSC (${nombre}): los mapas con su estado («${mapas.slice(0, 120)}»)`);
+    await p.locator("#google-comprobar-portada").click();
+    await p.locator("#google-inspeccion-portada").waitFor({ timeout: 8000 }).catch(() => {});
+    await p.locator("#google-comprobar-vender").click();
+    await p.locator("#google-inspeccion-vender").waitFor({ timeout: 8000 }).catch(() => {});
+    ok(/Está en Google/.test(await texto(p, "#google-inspeccion-portada")) && /Google aún no la conoce/.test(await texto(p, "#google-inspeccion-vender")), `GSC (${nombre}): «Comprobar en Google» lo dice en español (${await texto(p, "#google-inspeccion-portada")} / ${await texto(p, "#google-inspeccion-vender")})`);
+    const d = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+    ok(d.a <= d.v + 1, `GSC (${nombre}): la pantalla no se ensancha (${d.a}/${d.v})`);
+    await capturar(p, `GSC-${nombre}`);
+    if (nombre === "390") {
+      await p.locator("#google-periodo-7").click();
+      for (let i = 0; i < 20 && !peticiones.some((x) => x.params.dias === "7"); i++) await p.waitForTimeout(150);
+      ok(peticiones.some((x) => x.params.dias === "7"), "GSC: «7 días» vuelve a pedir con 7 días");
+      // La tarjeta del panel lleva aquí.
+      const inicio = await pagina(ctx, "/admin");
+      await inicio.locator("#panel-grupo-tienda").waitFor({ timeout: 40000 }).catch(() => {});
+      await inicio.locator("#panel-grupo-tienda").getByText("Google", { exact: true }).first().click();
+      await inicio.waitForURL(/\/admin\/google/, { timeout: 15000 }).catch(() => {});
+      ok(inicio.url().includes("/admin/google"), `GSC: la tarjeta «Google» del panel abre la pantalla (${inicio.url().replace(BASE, "")})`);
+    }
+    ok(p.errores.length === 0, `GSC (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+  // Sin la llave: explica el paso que falta, sin errores.
+  {
+    const ctx = await contexto(navegador, ADMIN, "admin", { filas: perfilAdmin, guardados: [] });
+    await ctx.route("**/api/auditoria-web**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, conectado: false, motivo: "sin_llave" }) }));
+    const p = await pagina(ctx, "/admin/google");
+    await p.locator("#google-sin-conexion").waitFor({ timeout: 40000 }).catch(() => {});
+    ok(/Falta conectar Google/.test(await texto(p, "#google-sin-conexion")) && /Sin conectar/.test(await texto(p, "#google-estado")) && p.errores.length === 0, `GSC: sin la llave lo explica («${(await texto(p, "#google-sin-conexion")).slice(0, 60)}…»)`);
+    await capturar(p, "GSC-sin-llave");
+    await ctx.close();
+  }
+}
+
 // ===== SEOH) Preparada para Google (Search Console, 2026-11-24): un solo H1 por página pública (la bienvenida ya no
 // cuenta como título) y, en las fichas de producto y de servicio, su propio título, descripción y dirección oficial.
 async function seccionSEOH() {
@@ -24551,8 +24630,8 @@ async function seccionPANRED5() {
       const tienda = await texto(p, "#panel-grupo-tienda");
       ok(/Ventas y clientes/.test(ventas) && /Pedidos/.test(ventas) && /Chat/.test(ventas) && /Alquileres/.test(ventas) && /Usuarios y participación/.test(ventas) && /Visitas y métricas/.test(tienda) && /Centro De Aprendizajes/.test(tienda) && /Revisiones/.test(tienda), `PANRED5 (${nombre}): Inicio, cada grupo con sus apartados (${ventas.slice(0, 80)} · ${tienda.slice(0, 80)})`);
       const recuadros = await p.evaluate(() => [...document.querySelectorAll('[id^="panel-grupo-"] [role="button"]')].length);
-      // 21 desde el 2026-11-17: «Alquileres» (ALQ1) en Ventas y clientes.
-      ok(recuadros === 21, `PANRED5 (${nombre}): Inicio, los 21 apartados siguen a mano (${recuadros})`);
+      // 21 desde el 2026-11-17 («Alquileres», ALQ1) y 22 desde el 2026-11-24 («Google», sección GSC, en Tienda y marca).
+      ok(recuadros === 22 && /Google/.test(tienda), `PANRED5 (${nombre}): Inicio, los 22 apartados siguen a mano, con «Google» en Tienda y marca (${recuadros})`);
       ok((await texto(p, "#novedades-pedidos")) === "2" && (await texto(p, "#novedades-chats")) === "3", `PANRED5 (${nombre}): Inicio, el número rojo sigue en su recuadro`);
       await capturar(p, `PANRED5-${nombre}-inicio`);
       await comprobarDiseno(p, nombre, "Inicio", "la pantalla", { conCampos: false });
@@ -25183,6 +25262,7 @@ try {
   if (SOLO === "ENL") await seccionENL();
   if (SOLO === "EGC") await seccionEGC();
   if (SOLO === "SEOH") await seccionSEOH();
+  if (SOLO === "GSC") await seccionGSC();
   if (SOLO === "VALOR") await seccionVALOR();
   if (SOLO === "MOMB") await seccionMOMB();
   if (SOLO === "CAMBC") await seccionCAMBC();
@@ -26305,6 +26385,7 @@ try {
   await seccionENL();
   await seccionEGC();
   await seccionSEOH();
+  await seccionGSC();
   await seccionAVISOM();
   await seccionVALOR();
   await seccionMOMB();

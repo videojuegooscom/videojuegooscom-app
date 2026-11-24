@@ -202,7 +202,7 @@ const GRUPOS: { id: string; titulo: string; icono: IoniconName; claves: string[]
   { id: "ventas", titulo: "Ventas y clientes", icono: "cart-outline", claves: ["pedidos", "chats", "cotizaciones", "reservas", "alquileres", "users"] },
   { id: "catalogo", titulo: "Catálogo", icono: "pricetags-outline", claves: ["categories", "products", "services", "inventario", "envios", "escaparate"] },
   { id: "contenido", titulo: "Contenido y Blue", icono: "newspaper-outline", claves: ["blog", "flash-news", "policies", "conocimiento"] },
-  { id: "tienda", titulo: "Tienda y marca", icono: "storefront-outline", claves: ["analytics", "marca-seo", "redes-sociales", "auditorias", "aprendizajes"] },
+  { id: "tienda", titulo: "Tienda y marca", icono: "storefront-outline", claves: ["analytics", "google", "marca-seo", "redes-sociales", "auditorias", "aprendizajes"] },
 ];
 
 // El número rojo de un recuadro (como el de Blue): aparece con un pequeño salto y vuelve a saltar si cambia.
@@ -502,6 +502,14 @@ export default function AdminHome() {
           "Usuarios registrados, mensajes en el foro, chats de producto y reseñas de cada uno.",
         icon: "people-outline" as IoniconName,
         onPress: () => router.push("/admin/users"),
+      },
+      {
+        // Google (Search Console, dueño 2026-11-24): clics, búsquedas, páginas, mapas y «Comprobar una página».
+        key: "google",
+        title: "Google",
+        subtitle: "Cómo te encuentran en Google: clics, búsquedas, páginas, mapas de la web y comprobar si una página está en Google.",
+        icon: "logo-google" as IoniconName,
+        onPress: () => router.push("/admin/google"),
       },
       {
         key: "marca-seo",
