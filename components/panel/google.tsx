@@ -481,8 +481,9 @@ export default function AdminGoogle() {
   const totalDispositivos = conectado ? Math.max(1, (conectado.dispositivos ?? []).reduce((s, d) => s + d.impresiones, 0)) : 1;
   const sinAntes = !conectado?.anterior || (conectado.anterior.totales.impresiones === 0 && conectado.anterior.totales.clics === 0);
   const frente = conectado?.anterior ? frenteA(conectado.anterior.desde, conectado.anterior.hasta) : "";
+  // Sin datos del periodo anterior no se repite en cada cifra: lo dice una sola línea debajo.
   const comparar = (id: string, tipo: "numero" | "porcentaje" | "posicion", campo: keyof Fila) =>
-    conectado?.anterior ? <Comparacion id={id} tipo={tipo} ahora={conectado.totales[campo]} antes={conectado.anterior.totales[campo]} frente={frente} sinAntes={sinAntes} /> : null;
+    conectado?.anterior && !sinAntes ? <Comparacion id={id} tipo={tipo} ahora={conectado.totales[campo]} antes={conectado.anterior.totales[campo]} frente={frente} sinAntes={sinAntes} /> : null;
   // Ordenador ancho (dueño, 2026-11-24: «aprovechar mejor el ancho»): hasta 1440 px, gráfico con los mapas al lado,
   // búsquedas, páginas y países en tres columnas y «Comprobar» en cuadrícula. Ordenador normal: dos columnas.
   const muyAncho = (width && width > 0 ? width : 1024) >= 1180;
@@ -638,6 +639,11 @@ export default function AdminGoogle() {
                 <Cifra nativeID="google-cifra-porcentaje" valor={porcentaje(conectado.totales.ctr)} etiqueta="Porcentaje de clics" icono="stats-chart-outline" ancho={isMobile ? "45%" : 0} nota={comparar("google-cambio-porcentaje", "porcentaje", "ctr")} />
                 <Cifra nativeID="google-cifra-posicion" valor={posicion(conectado.totales.posicion)} etiqueta="Posición media" icono="podium-outline" ancho={isMobile ? "45%" : 0} nota={comparar("google-cambio-posicion", "posicion", "posicion")} />
               </FilaCifras>
+              {conectado.anterior && sinAntes ? (
+                <View nativeID="google-sin-comparar" style={{ marginTop: isMobile ? -8 : -10 }}>
+                  <Detalle>Google no tiene datos {frente.replace(/^frente a/, "de")} para comparar: la comparación saldrá cuando los haya.</Detalle>
+                </View>
+              ) : null}
 
               {/* Clics y veces que sales, por día (barras: el alto es las veces que sales; lo azul, los clics). */}
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
