@@ -132,7 +132,7 @@ function CajaFecha({ etiqueta, valor, max, onElegir, nativeID }: { etiqueta: str
   );
 }
 
-function SelectorRango({ rango, onCambiar }: { rango: Rango; onCambiar: (r: Rango) => void }) {
+function SelectorRango({ rango, onCambiar, enFila = false }: { rango: Rango; onCambiar: (r: Rango) => void; enFila?: boolean }) {
   const [abierta, setAbierta] = useState(false);
   const [invitar, setInvitar] = useState(false);
   const [anchoCentro, setAnchoCentro] = useState(0);
@@ -195,7 +195,8 @@ function SelectorRango({ rango, onCambiar }: { rango: Rango; onCambiar: (r: Rang
 
   return (
     <>
-      <View nativeID="google-rango" style={{ flexDirection: "row", height: 48, width: "100%", maxWidth: 560, alignSelf: "center", borderWidth: 1, borderColor: BORDE_BARRA, borderRadius: 12, backgroundColor: "#FFFFFF", overflow: "hidden" }}>
+      {/* En la fila del ordenador ocupa el hueco central (hasta 560 px); en el móvil, todo el ancho. */}
+      <View nativeID="google-rango" style={{ flexDirection: "row", height: 48, ...(enFila ? { flexGrow: 0, flexShrink: 1, flexBasis: 560, minWidth: 0 } : { width: "100%" }), maxWidth: 560, alignSelf: "center", borderWidth: 1, borderColor: BORDE_BARRA, borderRadius: 12, backgroundColor: "#FFFFFF", overflow: "hidden" }}>
         {flecha("‹", "Rango anterior", () => mover(-1), false, "google-rango-anterior")}
         {rayita}
         <Pressable
@@ -322,6 +323,7 @@ export default function AdminGoogle() {
   const isMobile = (width && width > 0 ? width : 1024) < 700;
   const insets = useSafeAreaInsets();
   const [rango, setRango] = useState<Rango>(mesActual);
+  const [infoAbierta, setInfoAbierta] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [datos, setDatos] = useState<Datos | SinConexion | null>(null);
   const [fallo, setFallo] = useState(false);
@@ -424,23 +426,65 @@ export default function AdminGoogle() {
       <CabeceraPanel title="Google" isMobile={isMobile} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={{ width: "100%", maxWidth: muyAncho ? 1440 : 1040, gap: isMobile ? 18 : 22 }}>
-          <Detalle>Cómo te encuentra la gente en Google (datos de Search Console). Google da los datos con 2 o 3 días de retraso.</Detalle>
-
-          {/* Estado de la conexión, periodo y «Actualizar». */}
-          <View nativeID="google-estado" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", columnGap: 10, rowGap: 6 }}>
-            {conectado ? (
-              <EtiquetaColor texto="Conectado" tono={"verde" as Tono} />
-            ) : datos && !datos.conectado ? (
-              <EtiquetaColor texto="Sin conectar" tono={"amarillo" as Tono} />
-            ) : null}
-            {actualizadoEn ? (
-              <Text style={{ color: PANEL.muted, fontSize: TAMANOS.minimo, fontWeight: "700" }}>
-                Actualizado a las {new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" }).format(new Date(actualizadoEn))}
-              </Text>
-            ) : null}
-            <AccionTexto nativeID="google-actualizar" icono="refresh-outline" texto="Actualizar" onPress={() => void cargar(rango)} disabled={cargando} />
-          </View>
-          <SelectorRango rango={rango} onCambiar={setRango} />
+          {/* Barra de arriba (dueño, 2026-11-24): «Conectado», el rango y «Actualizar» a la misma altura, y la explicación y
+              la hora de la última lectura recogidas en el icono ⓘ. En el móvil, el rango va debajo a todo el ancho. */}
+          {(() => {
+            const estado = (
+              <View nativeID="google-estado" style={{ flexDirection: "row", alignItems: "center" }}>
+                {conectado ? (
+                  <EtiquetaColor texto="Conectado" tono={"verde" as Tono} />
+                ) : datos && !datos.conectado ? (
+                  <EtiquetaColor texto="Sin conectar" tono={"amarillo" as Tono} />
+                ) : null}
+              </View>
+            );
+            const acciones = (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                <AccionTexto nativeID="google-actualizar" icono="refresh-outline" texto="Actualizar" onPress={() => void cargar(rango)} disabled={cargando} />
+                <Pressable
+                  nativeID="google-info"
+                  onPress={() => setInfoAbierta((x) => !x)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Información sobre estos datos"
+                  accessibilityState={{ expanded: infoAbierta }}
+                  {...({ "aria-expanded": infoAbierta } as object)}
+                  style={({ pressed }) => ({ width: TACTIL.minimo, height: TACTIL.minimo, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+                >
+                  <Ionicons name={infoAbierta ? "information-circle" : "information-circle-outline"} size={24} color={PANEL.accentDark} />
+                </Pressable>
+              </View>
+            );
+            return isMobile ? (
+              <View style={{ gap: 8 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  {estado}
+                  {acciones}
+                </View>
+                <SelectorRango rango={rango} onCambiar={setRango} />
+              </View>
+            ) : (
+              <View nativeID="google-barra" style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48 }}>
+                <View style={{ flex: 1, minWidth: 0, alignItems: "flex-start" }}>{estado}</View>
+                <SelectorRango rango={rango} onCambiar={setRango} enFila />
+                <View style={{ flex: 1, minWidth: 0, alignItems: "flex-end" }}>{acciones}</View>
+              </View>
+            );
+          })()}
+          {infoAbierta ? (
+            <View nativeID="google-info-texto" style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 14, backgroundColor: PANEL.accent2, padding: 12, marginTop: isMobile ? -8 : -10 }}>
+              <Ionicons name="information-circle-outline" size={18} color={PANEL.accentDark} style={{ marginTop: 1 }} />
+              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                <Text style={{ color: PANEL.text, fontSize: TAMANOS.minimo, fontWeight: "700", lineHeight: 19 }}>
+                  Cómo te encuentra la gente en Google (datos de Search Console). Google da los datos con 2 o 3 días de retraso.
+                </Text>
+                {actualizadoEn ? (
+                  <Text style={{ color: PANEL.muted, fontSize: TAMANOS.minimo, fontWeight: "700" }}>
+                    Actualizado a las {new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" }).format(new Date(actualizadoEn))}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
 
           {cargando && !datos ? <CargandoPanel texto="Preguntando a Google…" /> : null}
           {fallo ? <AvisoPanel tone="danger" text="No se ha podido hablar con Google ahora mismo. Prueba a actualizar en unos minutos." /> : null}
