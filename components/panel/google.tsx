@@ -26,6 +26,9 @@ import { supabase } from "../../lib/supabase";
 import { AvisoPanel, CabeceraPanel, CargandoPanel } from "../../lib/admin/productos.componentes";
 import { CAMPO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { AccionTexto, Bloque, Chip, Cifra, Detalle, EtiquetaColor, FilaCifras, PANEL, type Tono } from "../../components/admin/PiezasPanelAdmin";
+import ImagenInteligente from "../../components/ImagenInteligente";
+import { elegirFotosVideoWeb, reducirImagenWeb } from "../../lib/admin/productos.utilidades";
+import { CUBO_ARCHIVOS_PRODUCTO } from "../../lib/admin/productos.constantes";
 
 type Fila = { clics: number; impresiones: number; ctr: number; posicion: number };
 type Mapa = { ruta: string; ultimaLectura: string | null; enviadoEn: string | null; pendiente: boolean; errores: number; avisos: number; paginas: number };
@@ -365,6 +368,162 @@ const COMPRAMOS: [string, string][] = [
   ["tablets", "iPad y tablets"],
 ];
 type UsoCompramos = Record<string, { visitas: number; pulsan: number; envian: number }>;
+
+// Fotos propias de cada página «Compramos» (dueño, 2026-11-24: «poder cambiarlas o añadir más, hasta 10»): se guardan
+// en site_settings.compramos_fotos (migración 20261124190000) y se suben a product-media/compramos/.
+const MAX_FOTOS = 10;
+type FotosCompramos = Record<string, string[]>;
+const fotosLimpias = (v: unknown): FotosCompramos => {
+  const o: FotosCompramos = {};
+  if (v && typeof v === "object") {
+    for (const [t, lista] of Object.entries(v as Record<string, unknown>)) {
+      if (Array.isArray(lista)) o[t] = lista.filter((x): x is string => typeof x === "string").slice(0, MAX_FOTOS);
+    }
+  }
+  return o;
+};
+
+function EditorFotosCompramos({
+  tipo,
+  nombre,
+  inicial,
+  onGuardar,
+  onCerrar,
+}: {
+  tipo: string;
+  nombre: string;
+  inicial: string[];
+  onGuardar: (fotos: string[]) => Promise<string | null>;
+  onCerrar: () => void;
+}) {
+  const [fotos, setFotos] = useState<string[]>(inicial);
+  const [ocupado, setOcupado] = useState<"" | "subiendo" | "guardando">("");
+  const [aviso, setAviso] = useState<string | null>(null);
+  const mover = (i: number, paso: number) =>
+    setFotos((l) => {
+      const j = i + paso;
+      if (j < 0 || j >= l.length) return l;
+      const n = [...l];
+      [n[i], n[j]] = [n[j], n[i]];
+      return n;
+    });
+  const anadir = async () => {
+    const libres = MAX_FOTOS - fotos.length;
+    if (libres <= 0 || ocupado) return;
+    setAviso(null);
+    let elegidas: Awaited<ReturnType<typeof elegirFotosVideoWeb>>;
+    try {
+      elegidas = await elegirFotosVideoWeb({ soloImagenes: true });
+    } catch (e: any) {
+      setAviso(String(e?.message ?? "No se pudo abrir el selector de fotos."));
+      return;
+    }
+    const imagenes = elegidas.items.filter((it) => it.kind === "image");
+    for (const it of elegidas.items) {
+      try {
+        URL.revokeObjectURL(it.previewUrl);
+      } catch {}
+    }
+    const usar = imagenes.slice(0, libres);
+    if (!usar.length) return;
+    setOcupado("subiendo");
+    const nuevas: string[] = [];
+    try {
+      for (const it of usar) {
+        const archivo = await reducirImagenWeb(it.file, 1600, 0.85, true);
+        const ruta = `compramos/${tipo}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+        const { error } = await supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).upload(ruta, archivo, { cacheControl: "31536000", upsert: false, contentType: "image/jpeg" });
+        if (error) throw error;
+        const { data } = supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).getPublicUrl(ruta);
+        if (data?.publicUrl) nuevas.push(data.publicUrl);
+      }
+    } catch {
+      setAviso("No se ha podido subir alguna foto. Prueba otra vez.");
+    }
+    setFotos((l) => [...l, ...nuevas].slice(0, MAX_FOTOS));
+    if (imagenes.length > libres) setAviso(`Caben ${MAX_FOTOS} fotos: se han añadido las ${libres === 1 ? "primera" : `${libres} primeras`}.`);
+    setOcupado("");
+  };
+  const guardar = async () => {
+    setOcupado("guardando");
+    const fallo = await onGuardar(fotos);
+    setOcupado("");
+    if (fallo) setAviso(fallo);
+    else onCerrar();
+  };
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onCerrar}>
+      <Pressable onPress={onCerrar} accessibilityLabel="Cerrar sin guardar" style={{ flex: 1, backgroundColor: "rgba(15,23,42,0.48)", alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <Pressable
+          nativeID="google-fotos-ventana"
+          onPress={() => {}}
+          accessibilityRole="none"
+          style={{ width: "100%", maxWidth: 620, maxHeight: "92%", borderRadius: 20, backgroundColor: "#FFFFFF", padding: 20, gap: 12, ...(Platform.OS === "web" ? ({ cursor: "default" } as object) : {}) }}
+        >
+          <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.destacado }}>Fotos de «{nombre}»</Text>
+          <Detalle>
+            Hasta {MAX_FOTOS}. La primera es la que sale primero y, si hay varias, pasan solas. Sin fotos aquí, la página enseña las de siempre. Usa fotos reales.
+          </Detalle>
+          <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            {fotos.map((f, i) => (
+              <View key={f} nativeID={`google-foto-${i}`} style={{ width: 132, gap: 4 }}>
+                <View style={{ width: 132, height: 99, borderRadius: 12, overflow: "hidden", backgroundColor: PANEL.bg2, borderWidth: 1, borderColor: PANEL.border }}>
+                  <ImagenInteligente uri={f} ancho={140} style={{ width: "100%", height: "100%" }} />
+                  {i === 0 ? (
+                    <View style={{ position: "absolute", left: 6, top: 6 }}>
+                      <EtiquetaColor texto="Primera" tono="azul" />
+                    </View>
+                  ) : null}
+                </View>
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Pressable onPress={() => mover(i, -1)} disabled={i === 0} accessibilityRole="button" accessibilityLabel={`Mover la foto ${i + 1} antes`} style={{ width: TACTIL.minimo, height: TACTIL.minimo, alignItems: "center", justifyContent: "center", opacity: i === 0 ? 0.3 : 1 }}>
+                    <Ionicons name="arrow-back" size={18} color={PANEL.accentDark} />
+                  </Pressable>
+                  <Pressable onPress={() => setFotos((l) => l.filter((_, k) => k !== i))} accessibilityRole="button" accessibilityLabel={`Quitar la foto ${i + 1}`} style={{ width: TACTIL.minimo, height: TACTIL.minimo, alignItems: "center", justifyContent: "center" }}>
+                    <Ionicons name="trash-outline" size={18} color={PANEL.danger} />
+                  </Pressable>
+                  <Pressable onPress={() => mover(i, 1)} disabled={i === fotos.length - 1} accessibilityRole="button" accessibilityLabel={`Mover la foto ${i + 1} después`} style={{ width: TACTIL.minimo, height: TACTIL.minimo, alignItems: "center", justifyContent: "center", opacity: i === fotos.length - 1 ? 0.3 : 1 }}>
+                    <Ionicons name="arrow-forward" size={18} color={PANEL.accentDark} />
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+            {fotos.length < MAX_FOTOS ? (
+              <Pressable
+                nativeID="google-fotos-anadir"
+                onPress={() => void anadir()}
+                disabled={!!ocupado}
+                accessibilityRole="button"
+                style={({ pressed }) => ({ width: 132, height: 99, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: PANEL.accent, backgroundColor: PANEL.accent2, alignItems: "center", justifyContent: "center", gap: 4, opacity: pressed || ocupado ? 0.7 : 1 })}
+              >
+                <Ionicons name="add" size={22} color={PANEL.accentDark} />
+                <Text style={{ color: PANEL.accentDark, fontWeight: "900", fontSize: TAMANOS.minimo }}>{ocupado === "subiendo" ? "Subiendo…" : "Añadir fotos"}</Text>
+              </Pressable>
+            ) : null}
+          </ScrollView>
+          <Text nativeID="google-fotos-cuenta" style={{ color: PANEL.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+            {fotos.length ? `${fotos.length} de ${MAX_FOTOS} fotos` : "Sin fotos propias: salen las de siempre"}
+          </Text>
+          {aviso ? <AvisoPanel tone="warning" text={aviso} /> : null}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 10 }}>
+            <Pressable onPress={onCerrar} accessibilityRole="button" style={{ minHeight: 48, paddingHorizontal: 18, borderRadius: 12, borderWidth: 1, borderColor: PANEL.border, alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Cancelar</Text>
+            </Pressable>
+            <Pressable
+              nativeID="google-fotos-guardar"
+              onPress={() => void guardar()}
+              disabled={!!ocupado}
+              accessibilityRole="button"
+              style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: 22, borderRadius: 12, backgroundColor: PANEL.accent, alignItems: "center", justifyContent: "center", opacity: pressed || ocupado ? 0.8 : 1 })}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{ocupado === "guardando" ? "Guardando…" : "Guardar"}</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
 async function leerUsoCompramos(desde: string, hasta: string): Promise<UsoCompramos | null> {
   const fin = new Date(deIso(hasta).getTime() + 86400000);
   const { data, error } = await supabase
@@ -441,6 +600,36 @@ export default function AdminGoogle() {
   const [filtro, setFiltro] = useState("todas");
   const [diaSel, setDiaSel] = useState<string | null>(null);
   const [usoCompramos, setUsoCompramos] = useState<UsoCompramos | null>(null);
+  // Fotos propias de «Compramos»: null mientras carga; «sinColumna» si falta la migración 20261124190000.
+  const [fotosCompramos, setFotosCompramos] = useState<FotosCompramos | null>(null);
+  const [sinColumnaFotos, setSinColumnaFotos] = useState(false);
+  const [editandoFotos, setEditandoFotos] = useState<[string, string] | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    void supabase
+      .from("site_settings")
+      .select("compramos_fotos")
+      .eq("id", 1)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!vivo) return;
+        if (error) setSinColumnaFotos(true);
+        else setFotosCompramos(fotosLimpias((data as { compramos_fotos?: unknown } | null)?.compramos_fotos));
+      });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  const guardarFotos = useCallback(
+    async (tipo: string, fotos: string[]): Promise<string | null> => {
+      const todas = { ...(fotosCompramos ?? {}), [tipo]: fotos.slice(0, MAX_FOTOS) };
+      const { error } = await supabase.from("site_settings").update({ compramos_fotos: todas }).eq("id", 1);
+      if (error) return "No se han podido guardar las fotos. Prueba otra vez en unos segundos.";
+      setFotosCompramos(todas);
+      return null;
+    },
+    [fotosCompramos]
+  );
   useEffect(() => {
     let vivo = true;
     void leerUsoCompramos(rango.desde, rango.hasta)
@@ -843,7 +1032,17 @@ export default function AdminGoogle() {
               {/* Páginas «Compramos tu…»: Google (veces, clics, puesto) y la tienda (visitas, «Vender», enviados). */}
               <View style={{ flexDirection: "row" }}>
                 <Bloque nativeID="google-compramos" icono="cash-outline" titulo="Páginas «Compramos»" ancho="100%">
-                  <Detalle>De Google: veces que sales, clics y puesto. De la tienda: visitas desde cualquier sitio, cuántos pulsan «Vender» y cuántos envían el formulario (solo de quien aceptó la analítica).</Detalle>
+                  <Detalle>De Google: veces que sales, clics y puesto. De la tienda: visitas desde cualquier sitio, cuántos pulsan «Vender» y cuántos envían el formulario (solo de quien aceptó la analítica). En «Fotos» cambias las de cada página (hasta {MAX_FOTOS}).</Detalle>
+                  {sinColumnaFotos ? <AvisoPanel tone="warning" text="Para cambiar las fotos falta aplicar la migración 20261124190000_compramos_fotos." /> : null}
+                  {editandoFotos ? (
+                    <EditorFotosCompramos
+                      tipo={editandoFotos[0]}
+                      nombre={editandoFotos[1]}
+                      inicial={fotosCompramos?.[editandoFotos[0]] ?? []}
+                      onGuardar={(f) => guardarFotos(editandoFotos[0], f)}
+                      onCerrar={() => setEditandoFotos(null)}
+                    />
+                  ) : null}
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: isMobile ? 0 : 10 }}>
                     {COMPRAMOS.map(([t, nombre]) => {
                       const r = `/compramos/${t}`;
@@ -862,6 +1061,14 @@ export default function AdminGoogle() {
                           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10 }}>
                             <Text style={{ color: PANEL.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, minWidth: 96 }}>{nombre}</Text>
                             <AccionTexto nativeID={`google-comprobar-compramos-${t}`} icono="search-outline" texto="Comprobar" etiqueta={`Comprobar ${nombre} en Google`} onPress={() => void comprobar(r)} disabled={inspecciones[r] === "cargando"} />
+                            <AccionTexto
+                              nativeID={`google-fotos-${t}`}
+                              icono="images-outline"
+                              texto={fotosCompramos?.[t]?.length ? `Fotos (${fotosCompramos[t].length}/${MAX_FOTOS})` : "Fotos"}
+                              etiqueta={`Cambiar las fotos de ${nombre}`}
+                              onPress={() => setEditandoFotos([t, nombre])}
+                              disabled={!fotosCompramos}
+                            />
                           </View>
                           <Text style={{ color: PANEL.text, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                             <Text style={{ fontWeight: "900" }}>Google: </Text>
