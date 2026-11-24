@@ -85,7 +85,179 @@ async function enLotes<T, R>(items: T[], lote: number, f: (x: T) => Promise<R>):
   return salida;
 }
 
+// --- Google Search Console (dueño, 2026-11-24: «trackearlo desde el panel… con nuestro diseño») ------------------------
+// Administración → Google (components/panel/google.tsx) pide aquí, con la sesión del administrador, lo que da Search
+// Console de la propiedad https://videojuegoszaragoza.com/: clics, veces que sale, porcentaje de clics y posición media
+// (y por día), las búsquedas, las páginas, los países, los mapas de la web y «Comprobar una página en Google» (URL
+// Inspection). Va en esta función porque api/ está en el tope de 12 de Vercel Hobby.
+// La llave es una cuenta de servicio de Google con permiso «Restringido» (solo lectura) en Search Console; su JSON lo
+// guarda el dueño en Vercel como GOOGLE_SEARCH_CONSOLE_CREDENCIALES (nunca sale de aquí ni se escribe en el registro).
+const SITIO_GOOGLE = "https://videojuegoszaragoza.com/";
+type MotivoGoogle = "sin_llave" | "llave_mal" | "sin_permiso" | "error";
+class FalloGoogle extends Error {
+  constructor(public motivo: MotivoGoogle) {
+    super(motivo);
+  }
+}
+
+async function tokenGoogle(): Promise<string> {
+  const bruto = process.env.GOOGLE_SEARCH_CONSOLE_CREDENCIALES;
+  if (!bruto) throw new FalloGoogle("sin_llave");
+  let cred: { client_email?: string; private_key?: string };
+  try {
+    cred = JSON.parse(bruto);
+  } catch {
+    throw new FalloGoogle("llave_mal");
+  }
+  if (!cred.client_email || !cred.private_key) throw new FalloGoogle("llave_mal");
+  const { createSign } = await import("node:crypto");
+  const ahora = Math.floor(Date.now() / 1000);
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const cuerpo = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({
+    iss: cred.client_email,
+    scope: "https://www.googleapis.com/auth/webmasters.readonly",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: ahora,
+    exp: ahora + 3600,
+  })}`;
+  let firma: string;
+  try {
+    firma = createSign("RSA-SHA256").update(cuerpo).sign(cred.private_key.replace(/\\n/g, "\n"), "base64url");
+  } catch {
+    throw new FalloGoogle("llave_mal");
+  }
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${cuerpo}.${firma}` }).toString(),
+  });
+  const j = (await r.json().catch(() => ({}))) as { access_token?: string };
+  if (!r.ok || !j.access_token) throw new FalloGoogle("llave_mal");
+  return j.access_token;
+}
+
+async function llamarGoogle(token: string, url: string, cuerpo?: unknown): Promise<any> {
+  const r = await fetch(url, {
+    method: cuerpo ? "POST" : "GET",
+    headers: { authorization: `Bearer ${token}`, ...(cuerpo ? { "content-type": "application/json" } : {}) },
+    body: cuerpo ? JSON.stringify(cuerpo) : undefined,
+  });
+  if (r.status === 403 || r.status === 401) throw new FalloGoogle("sin_permiso");
+  if (!r.ok) throw new FalloGoogle("error");
+  return r.json();
+}
+
+const diaISO = (d: Date) => d.toISOString().slice(0, 10);
+
+async function datosGoogle(dias: number) {
+  const token = await tokenGoogle();
+  const base = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(SITIO_GOOGLE)}`;
+  // Google da los datos con 2-3 días de retraso: el periodo acaba hace 2 días (con los datos aún «frescos»).
+  const hasta = new Date(Date.now() - 2 * 86400000);
+  const desde = new Date(hasta.getTime() - (dias - 1) * 86400000);
+  const consulta = (dimensiones: string[], filas: number) =>
+    llamarGoogle(token, `${base}/searchAnalytics/query`, { startDate: diaISO(desde), endDate: diaISO(hasta), dimensions: dimensiones, rowLimit: filas, dataState: "all" });
+  const [totales, porDia, busquedas, paginas, paises, mapas] = await Promise.all([
+    consulta([], 1),
+    consulta(["date"], 120),
+    consulta(["query"], 15),
+    consulta(["page"], 15),
+    consulta(["country"], 8),
+    llamarGoogle(token, `${base}/sitemaps`),
+  ]);
+  const fila = (f: any) => ({ clics: Number(f?.clicks ?? 0), impresiones: Number(f?.impressions ?? 0), ctr: Number(f?.ctr ?? 0), posicion: Number(f?.position ?? 0) });
+  const t = (totales?.rows ?? [])[0];
+  return {
+    conectado: true,
+    desde: diaISO(desde),
+    hasta: diaISO(hasta),
+    totales: t ? fila(t) : { clics: 0, impresiones: 0, ctr: 0, posicion: 0 },
+    porDia: (porDia?.rows ?? []).map((f: any) => ({ fecha: String(f.keys?.[0] ?? ""), ...fila(f) })),
+    busquedas: (busquedas?.rows ?? []).map((f: any) => ({ texto: String(f.keys?.[0] ?? ""), ...fila(f) })),
+    paginas: (paginas?.rows ?? []).map((f: any) => ({ url: String(f.keys?.[0] ?? ""), ...fila(f) })),
+    paises: (paises?.rows ?? []).map((f: any) => ({ pais: String(f.keys?.[0] ?? "").toUpperCase(), ...fila(f) })),
+    mapas: (mapas?.sitemap ?? []).map((m: any) => ({
+      ruta: String(m.path ?? "").replace(SITIO_GOOGLE.replace(/\/$/, ""), "") || String(m.path ?? ""),
+      ultimaLectura: m.lastDownloaded ?? null,
+      enviadoEn: m.lastSubmitted ?? null,
+      pendiente: !!m.isPending,
+      errores: Number(m.errors ?? 0),
+      avisos: Number(m.warnings ?? 0),
+      paginas: (m.contents ?? []).reduce((s: number, c: any) => s + Number(c.submitted ?? 0), 0),
+    })),
+  };
+}
+
+async function inspeccionarGoogle(ruta: string) {
+  const token = await tokenGoogle();
+  const j = await llamarGoogle(token, "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect", {
+    inspectionUrl: `${SITIO_GOOGLE.replace(/\/$/, "")}${ruta}`,
+    siteUrl: SITIO_GOOGLE,
+    languageCode: "es-ES",
+  });
+  const r = j?.inspectionResult?.indexStatusResult ?? {};
+  return {
+    ruta,
+    enGoogle: r.verdict === "PASS",
+    veredicto: String(r.verdict ?? "VERDICT_UNSPECIFIED"),
+    estado: String(r.coverageState ?? ""),
+    ultimaVisita: r.lastCrawlTime ?? null,
+    canonicaGoogle: r.googleCanonical ?? null,
+    robots: String(r.robotsTxtState ?? ""),
+    descarga: String(r.pageFetchState ?? ""),
+  };
+}
+
+async function respuestaGoogle(req: any, res: any) {
+  res.setHeader("Cache-Control", "no-store");
+  const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const clave = process.env.SUPABASE_CLAVE_SERVIDOR;
+  if (!url || !clave) {
+    res.status(503).json({ ok: false, error: "sin configurar" });
+    return;
+  }
+  // Solo el administrador, con su sesión.
+  const supabase = createClient(url, clave, { auth: { persistSession: false, autoRefreshToken: false } });
+  const cab = typeof req.headers?.authorization === "string" ? req.headers.authorization.trim() : "";
+  let uid: string | null = null;
+  if (/^Bearer\s+\S+$/i.test(cab)) {
+    try {
+      const { data } = await supabase.auth.getUser(cab.replace(/^Bearer\s+/i, ""));
+      uid = data?.user?.id ?? null;
+    } catch {
+      uid = null;
+    }
+  }
+  const { data: perfil } = uid ? await supabase.from("profiles").select("role").eq("id", uid).maybeSingle<{ role: string }>() : { data: null };
+  if (perfil?.role !== "admin") {
+    res.status(403).json({ ok: false, error: "solo para administradores" });
+    return;
+  }
+  try {
+    const ruta = typeof req.query?.inspeccionar === "string" ? req.query.inspeccionar : "";
+    if (ruta) {
+      // Solo páginas de la tienda: una ruta que empieza por «/», sin dominio ni nada raro.
+      if (!/^\/[\w\-./%]*$/.test(ruta) || ruta.length > 300) {
+        res.status(400).json({ ok: false, error: "ruta no válida" });
+        return;
+      }
+      res.status(200).json({ ok: true, ...(await inspeccionarGoogle(ruta)) });
+      return;
+    }
+    const dias = [7, 28, 90].includes(Number(req.query?.dias)) ? Number(req.query.dias) : 28;
+    res.status(200).json({ ok: true, ...(await datosGoogle(dias)) });
+  } catch (e) {
+    const motivo: MotivoGoogle = e instanceof FalloGoogle ? e.motivo : "error";
+    if (motivo === "error") console.error("google: fallo al pedir a Search Console");
+    res.status(200).json({ ok: true, conectado: false, motivo });
+  }
+}
+
 export default async function handler(req: any, res: any) {
+  if (req.query?.accion === "google") {
+    await respuestaGoogle(req, res);
+    return;
+  }
   const cronSecret = process.env.CRON_SECRET;
   const auth = typeof req.headers?.authorization === "string" ? req.headers.authorization : "";
   if (!cronSecret || !iguales(auth, `Bearer ${cronSecret}`)) {
