@@ -19881,11 +19881,21 @@ async function seccionVENFOT() {
     ok(JSON.stringify(evento(estado, "vender_sin_media").map((e) => e.metadata)) === '[{"fotos":0,"video":false},{"fotos":6,"video":true},{"fotos":7,"video":false}]', `VENFOT: cada intento sin fotos o vídeo se mide (${JSON.stringify(evento(estado, "vender_sin_media").map((e) => e.metadata))})`);
     ok(sinDatos(estado), "VENFOT: la analítica no lleva datos de la persona");
 
+    // Aviso al móvil del dueño (2026-11-24): al enviar se pide a api/pago.ts con el id de la solicitud.
+    const avisosVenta = [];
+    await ctx.route("**/api/pago", (r) => {
+      const cuerpoPago = JSON.parse(r.request().postData() ?? "{}");
+      if (cuerpoPago.accion !== "venta_aviso") return r.fallback();
+      avisosVenta.push(cuerpoPago);
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, avisado: true }) });
+    });
     await p.locator("#vender-enviar").click();
     await esperar(p, async () => guardadas.length > 0, 40);
     await esperar(p, async () => media.filas.length >= 8, 40);
     const g = guardadas[0] ?? {};
     ok(guardadas.length === 1 && g.nombre === "Ana" && g.apellido === "García López" && g.ciudad === "Cuarte de Huerva" && g.contacto === "ana.prueba@gmail.com" && g.mayor_edad === true, `VENFOT: con 7 fotos y un vídeo de 25 s se envía (${JSON.stringify({ n: guardadas.length, nombre: g.nombre, ciudad: g.ciudad })})`);
+    await esperar(p, async () => avisosVenta.length > 0, 20);
+    ok(avisosVenta.length === 1 && avisosVenta[0].id === g.id, `VENFOT: al enviar se pide el aviso al móvil del dueño, una vez y con su solicitud (${JSON.stringify(avisosVenta)})`);
     const fotos = media.filas.filter((f) => f.kind === "image");
     const videos = media.filas.filter((f) => f.kind === "video");
     ok(media.subidas.length === 8 && fotos.length === 7 && videos.length === 1 && videos[0]?.duration_seconds === 25, `VENFOT: se suben 8 archivos (7 fotos y el vídeo de 25 s) (${media.subidas.length} subidas · ${fotos.length}+${videos.length} filas)`);

@@ -700,7 +700,7 @@ const ENDPOINT_PUSH_RE =
 type Vapid = { publica: string; privada: KeyObject; sujeto: string };
 // «reclamacion» (contracargos, parte 2): el registro de avisos aún no admite ese tipo (su comprobación la cambia el
 // dueño), así que esa línea del registro no se guarda; el aviso al móvil sale igual.
-type TipoAviso = "pedido_pagado" | "pedido_nuevo" | "servicio_pagado" | "prueba" | "reclamacion";
+type TipoAviso = "pedido_pagado" | "pedido_nuevo" | "servicio_pagado" | "prueba" | "reclamacion" | "venta_nueva";
 type Aviso = { tipo: TipoAviso; titulo: string; cuerpo: string; url: string; tag: string; referencia: string | null };
 type FilaSuscripcion = { id: string; endpoint: string; p256dh: string; auth: string; fallos: number | null };
 
@@ -900,6 +900,49 @@ async function avisarPedido(supabase: SupabaseClient, pedidoId: string, tipo: "p
     tag: `pedido-${pedidoId}`,
     referencia,
   });
+}
+
+// El aviso de una solicitud de «Vender» nueva (2026-11-24: las páginas «Compramos» prometen precio en menos de 1 hora).
+// Lo pide el formulario al enviarse. Se reclama en la base de datos ANTES de enviar (sell_requests.aviso_admin_enviado_en,
+// migración 20261124200000): una sola vez por solicitud y solo si es de los últimos 30 minutos, así repetir la llamada no
+// manda nada más. Sin la columna, sin VAPID o ya avisada: no hace nada. El registro aún no admite «venta_nueva» (lo
+// amplía el dueño); el aviso sale igual.
+async function avisarVenta(supabase: SupabaseClient, b: Record<string, unknown>) {
+  const id = String(b.id ?? "");
+  if (!UUID_RE.test(id)) throw new Rechazo(400, "solicitud no válida");
+  const v = vapidDelEntorno();
+  if (!v) return { ok: true, avisado: false };
+  const { data: reclamado, error } = await supabase
+    .from("sell_requests")
+    .update({ aviso_admin_enviado_en: new Date().toISOString() })
+    .eq("id", id)
+    .is("aviso_admin_enviado_en", null)
+    .gte("created_at", new Date(Date.now() - 30 * 60_000).toISOString())
+    .select("articulo,funciona_bien,ciudad,precio_estimado,nombre,apellido,opcion_venta");
+  if (error || !Array.isArray(reclamado) || reclamado.length === 0) return { ok: true, avisado: false };
+  const s = reclamado[0] as Record<string, any>;
+  const desde = typeof b.origen === "string" && /^compramos-[a-z]{2,12}$/.test(b.origen) ? `desde Compramos ${b.origen.slice(10)}` : "";
+  const cuerpo = [
+    corta(s.articulo, 48),
+    s.funciona_bien === false ? "con avería" : "",
+    corta(s.ciudad, 30),
+    s.precio_estimado ? `pide ${corta(s.precio_estimado, 20)}` : "",
+    nombreCorto(`${s.nombre ?? ""} ${s.apellido ?? ""}`),
+    desde,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  await avisarConTope(() =>
+    repartirAviso(supabase, v, {
+      tipo: "venta_nueva",
+      titulo: "Quieren venderte algo · da precio en menos de 1 hora",
+      cuerpo: corta(cuerpo, 180),
+      url: "/admin/cotizaciones",
+      tag: `venta-${id}`,
+      referencia: null,
+    })
+  );
+  return { ok: true, avisado: true };
 }
 
 // El aviso de un cobro de reparación (la etiqueta o la reparación / la vuelta): uno por sesión de Stripe.
@@ -1948,6 +1991,12 @@ export default async function handler(req: any, res: any) {
     if (b.accion === "avisos_prueba") {
       if (!(await consumirLimite(supabase, `pago:avisos:${cubo}`, LIMITE_CREAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
       responder(res, 200, await avisoDePrueba(supabase, req, b));
+      return;
+    }
+    // Aviso al móvil del dueño de una solicitud de «Vender» nueva (no necesita Stripe; una sola vez por solicitud).
+    if (b.accion === "venta_aviso") {
+      if (!(await consumirLimite(supabase, `pago:venta_aviso:${cubo}`, LIMITE_CREAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
+      responder(res, 200, await avisarVenta(supabase, b));
       return;
     }
     // Administración → Reservas: cambiar el estado (no necesita Stripe; no devuelve dinero).
