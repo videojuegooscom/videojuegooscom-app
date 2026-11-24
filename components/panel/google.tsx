@@ -16,13 +16,13 @@
  * - Sin la llave o sin permiso en Search Console, lo explica con el paso que falta (nunca un error técnico).
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, StatusBar, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { Animated, Modal, Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { AvisoPanel, CabeceraPanel, CargandoPanel } from "../../lib/admin/productos.componentes";
 import { CAMPO, TACTIL, TAMANOS } from "../../constants/temaTienda";
-import { AccionTexto, Bloque, Chip, Cifra, Detalle, EtiquetaColor, FilaCifras, FilaPastillas, PANEL, type Tono } from "../../components/admin/PiezasPanelAdmin";
+import { AccionTexto, Bloque, Cifra, Detalle, EtiquetaColor, FilaCifras, PANEL, type Tono } from "../../components/admin/PiezasPanelAdmin";
 
 type Fila = { clics: number; impresiones: number; ctr: number; posicion: number };
 type Mapa = { ruta: string; ultimaLectura: string | null; enviadoEn: string | null; pendiente: boolean; errores: number; avisos: number; paginas: number };
@@ -40,11 +40,221 @@ type Datos = {
 type SinConexion = { conectado: false; motivo: "sin_llave" | "llave_mal" | "sin_permiso" | "error" };
 type Inspeccion = { ruta: string; enGoogle: boolean; estado: string; ultimaVisita: string | null; canonicaGoogle: string | null; robots: string; descarga: string };
 
-const PERIODOS = [
-  [7, "7 días"],
-  [28, "28 días"],
-  [90, "3 meses"],
-] as const;
+// --- «Rango personalizado» (dueño, 2026-11-24: «un selector de fechas igual que el de VeoAura») ----------------------
+// Una barra «‹ periodo ›» (por defecto el mes actual; «›» no pasa del mes actual) y, al tocar el centro, una ventana con
+// «Desde» y «Hasta» que abren el calendario del sistema y se aplican al momento. Fechas AAAA-MM-DD en hora local.
+// Ajustes a las normas de la tienda: ningún texto de menos de 13 px (la invitación y el título van a 13 px) y, si la
+// invitación entera no cabe a 13 px (móvil), dice «TOCA Y ELIGE TU RANGO».
+type Rango = { desde: string; hasta: string };
+const dos = (n: number) => String(n).padStart(2, "0");
+const isoLocal = (d: Date) => `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`;
+const deIso = (s: string) => {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+};
+const mesCompleto = (y: number, m: number): Rango => ({ desde: isoLocal(new Date(y, m, 1)), hasta: isoLocal(new Date(y, m + 1, 0)) });
+const mesActual = (): Rango => {
+  const h = new Date();
+  return mesCompleto(h.getFullYear(), h.getMonth());
+};
+const esMesCompleto = (r: Rango) => {
+  const d = deIso(r.desde);
+  return d.getDate() === 1 && r.hasta === mesCompleto(d.getFullYear(), d.getMonth()).hasta;
+};
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const mayus = (t: string) => t.replace(/(^|\s)(\p{L})/gu, (_, a, b) => a + b.toUpperCase());
+function textoRango(r: Rango): string {
+  const a = deIso(r.desde);
+  const b = deIso(r.hasta);
+  const actual = mesActual();
+  if (r.desde === actual.desde && r.hasta === actual.hasta) {
+    const h = new Date();
+    return mayus(`${DIAS_SEMANA[h.getDay()]} ${h.getDate()} de ${MESES[h.getMonth()]} del ${h.getFullYear()}`);
+  }
+  if (esMesCompleto(r)) return mayus(`${MESES[a.getMonth()]} del ${a.getFullYear()}`);
+  if (a.getFullYear() !== b.getFullYear()) return `${a.getDate()} ${MESES_CORTOS[a.getMonth()]} ${a.getFullYear()} – ${b.getDate()} ${MESES_CORTOS[b.getMonth()]} ${b.getFullYear()}`;
+  if (a.getMonth() !== b.getMonth()) return `${a.getDate()} ${MESES_CORTOS[a.getMonth()]} – ${b.getDate()} ${MESES_CORTOS[b.getMonth()]} ${b.getFullYear()}`;
+  return `${a.getDate()} – ${b.getDate()} ${MESES_CORTOS[b.getMonth()]} ${b.getFullYear()}`;
+}
+const fechaCaja = (s: string) => {
+  const d = deIso(s);
+  return `${d.getDate()} ${MESES_CORTOS[d.getMonth()]} ${d.getFullYear()}`;
+};
+// ¿Cabe este texto en una línea de `ancho` px? (se mide con la letra de la tienda; fuera de la web, se supone que sí)
+const LETRA = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+let lienzo: CanvasRenderingContext2D | null = null;
+function anchoTexto(texto: string, px: number, peso: number, espaciado: number): number {
+  if (Platform.OS !== "web" || typeof document === "undefined") return 0;
+  lienzo ??= document.createElement("canvas").getContext("2d");
+  if (!lienzo) return 0;
+  lienzo.font = `${peso} ${px}px ${LETRA}`;
+  return lienzo.measureText(texto).width + espaciado * texto.length;
+}
+const INVITACION = "CLICK Y SELECCIONA RANGO PERSONALIZADO";
+const INVITACION_CORTA = "TOCA Y ELIGE TU RANGO";
+const BORDE_BARRA = "rgba(15,23,42,0.14)";
+const RAYITA = "rgba(15,23,42,0.08)";
+
+function CajaFecha({ etiqueta, valor, max, onElegir, nativeID }: { etiqueta: string; valor: string; max: string; onElegir: (v: string) => void; nativeID: string }) {
+  const [activa, setActiva] = useState(false);
+  return (
+    <View
+      nativeID={nativeID}
+      style={{ height: 48, borderRadius: 10, borderWidth: 1, borderColor: activa ? PANEL.accent : PANEL.border, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", position: "relative" }}
+    >
+      <Text style={{ color: PANEL.text, fontSize: 16, fontWeight: "600" }}>
+        {etiqueta} · {fechaCaja(valor)}
+      </Text>
+      {Platform.OS === "web"
+        ? // El calendario del sistema: un campo de fecha invisible que cubre la caja (el texto lo pinta la tienda).
+          React.createElement("input", {
+            type: "date",
+            value: valor,
+            max,
+            "aria-label": etiqueta,
+            "data-caja": nativeID,
+            onChange: (e: { target: { value: string } }) => e.target.value && onElegir(e.target.value),
+            onFocus: () => setActiva(true),
+            onBlur: () => setActiva(false),
+            onClick: (e: { currentTarget: { showPicker?: () => void } }) => {
+              try {
+                e.currentTarget.showPicker?.();
+              } catch {
+                // sin showPicker (o ya abierto): el navegador abre el suyo
+              }
+            },
+            style: { position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer", border: 0, padding: 0, margin: 0 },
+          })
+        : null}
+    </View>
+  );
+}
+
+function SelectorRango({ rango, onCambiar }: { rango: Rango; onCambiar: (r: Rango) => void }) {
+  const [abierta, setAbierta] = useState(false);
+  const [invitar, setInvitar] = useState(false);
+  const [anchoCentro, setAnchoCentro] = useState(0);
+  const [opacidad] = useState(() => new Animated.Value(1));
+  const actual = mesActual();
+  const esActual = rango.desde === actual.desde && rango.hasta === actual.hasta;
+  const hoy = isoLocal(new Date());
+  const desde = deIso(rango.desde);
+  const enMesActual = desde.getFullYear() === new Date().getFullYear() && desde.getMonth() === new Date().getMonth();
+
+  // La invitación: solo con el mes actual completo, a los 7 s, con un fundido; al cambiar de periodo, vuelta a empezar.
+  useEffect(() => {
+    opacidad.setValue(1);
+    setInvitar(false);
+    if (!esActual) return;
+    const t = setTimeout(() => {
+      Animated.timing(opacidad, { toValue: 0, duration: 160, useNativeDriver: Platform.OS !== "web" }).start(() => {
+        setInvitar(true);
+        Animated.timing(opacidad, { toValue: 1, duration: 220, useNativeDriver: Platform.OS !== "web" }).start();
+      });
+    }, 7000);
+    return () => clearTimeout(t);
+  }, [rango.desde, rango.hasta, esActual, opacidad]);
+
+  // Escape cierra la ventana.
+  useEffect(() => {
+    if (!abierta || Platform.OS !== "web" || typeof window === "undefined") return;
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAbierta(false);
+    };
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, [abierta]);
+
+  const texto = textoRango(rango);
+  // La letra baja hasta que quepa en una línea (fecha: 16 → 13 px; invitación: 13 px, y si no cabe, la corta).
+  const disponible = Math.max(0, anchoCentro - 16);
+  let px = 16;
+  while (disponible && px > 13 && anchoTexto(texto, px, 800, 0) > disponible) px -= 0.5;
+  const invitacion = disponible && anchoTexto(INVITACION, 13, 900, 0.8) > disponible ? INVITACION_CORTA : INVITACION;
+  const mover = (paso: number) => onCambiar(mesCompleto(desde.getFullYear(), desde.getMonth() + paso));
+  const elegir = (campo: keyof Rango, v: string) => {
+    const r = { ...rango, [campo]: v };
+    onCambiar(r.desde > r.hasta ? { desde: r.hasta, hasta: r.desde } : r);
+  };
+  const flecha = (signo: string, nombre: string, onPress: () => void, desactivada: boolean, nativeID: string) => (
+    <Pressable
+      nativeID={nativeID}
+      onPress={desactivada ? undefined : onPress}
+      disabled={desactivada}
+      accessibilityRole="button"
+      accessibilityLabel={nombre}
+      accessibilityState={{ disabled: desactivada }}
+      style={({ pressed }) => ({ width: 40, alignItems: "center", justifyContent: "center", opacity: desactivada ? 0.38 : pressed ? 0.7 : 1 })}
+    >
+      <Text style={{ color: PANEL.text, fontSize: 28, fontWeight: "900", lineHeight: 32 }}>{signo}</Text>
+    </Pressable>
+  );
+  const rayita = <View style={{ width: 1, marginVertical: 11, backgroundColor: RAYITA }} />;
+
+  return (
+    <>
+      <View nativeID="google-rango" style={{ flexDirection: "row", height: 48, width: "100%", maxWidth: 560, alignSelf: "center", borderWidth: 1, borderColor: BORDE_BARRA, borderRadius: 12, backgroundColor: "#FFFFFF", overflow: "hidden" }}>
+        {flecha("‹", "Rango anterior", () => mover(-1), false, "google-rango-anterior")}
+        {rayita}
+        <Pressable
+          nativeID="google-rango-centro"
+          onPress={() => setAbierta(true)}
+          onLayout={(e) => setAnchoCentro(e.nativeEvent.layout.width)}
+          accessibilityRole="button"
+          accessibilityLabel={`Rango seleccionado: ${texto}. Toca para elegir un rango personalizado`}
+          style={({ pressed }) => ({ flex: 1, minWidth: 0, alignItems: "center", justifyContent: "center", paddingHorizontal: 8, opacity: pressed ? 0.7 : 1 })}
+        >
+          <Animated.Text
+            nativeID="google-rango-texto"
+            numberOfLines={1}
+            style={[
+              { opacity: opacidad, textAlign: "center" },
+              invitar
+                ? { color: PANEL.accentDark, fontSize: 13, fontWeight: "900", letterSpacing: 0.8 }
+                : { color: PANEL.text, fontSize: px, fontWeight: "800" },
+            ]}
+          >
+            {invitar ? invitacion : texto}
+          </Animated.Text>
+        </Pressable>
+        {rayita}
+        {flecha("›", "Rango siguiente", () => mover(1), enMesActual, "google-rango-siguiente")}
+      </View>
+
+      <Modal visible={abierta} transparent animationType="fade" onRequestClose={() => setAbierta(false)}>
+        <Pressable
+          nativeID="google-rango-fondo"
+          onPress={() => setAbierta(false)}
+          accessibilityLabel="Cerrar el rango personalizado"
+          style={{ flex: 1, backgroundColor: "rgba(15,23,42,0.48)", alignItems: "center", justifyContent: "center", padding: 16 }}
+        >
+          <Pressable
+            nativeID="google-rango-ventana"
+            onPress={() => {}}
+            accessibilityRole="none"
+            style={{ width: "100%", maxWidth: 380, borderRadius: 20, borderWidth: 1, borderColor: PANEL.border, backgroundColor: "#FFFFFF", padding: 22, shadowColor: "#0F172A", shadowOpacity: 0.16, shadowRadius: 24, shadowOffset: { width: 0, height: 8 }, elevation: 8, ...(Platform.OS === "web" ? ({ cursor: "default" } as object) : {}) }}
+          >
+            <Text style={{ color: PANEL.accentDark, fontSize: 13, fontWeight: "900", letterSpacing: 1.2, textAlign: "center", textTransform: "uppercase" }}>Rango personalizado</Text>
+            <View style={{ gap: 12, marginTop: 12 }}>
+              <CajaFecha nativeID="google-rango-desde" etiqueta="Desde" valor={rango.desde} max={hoy} onElegir={(v) => elegir("desde", v)} />
+              <CajaFecha nativeID="google-rango-hasta" etiqueta="Hasta" valor={rango.hasta} max={hoy} onElegir={(v) => elegir("hasta", v)} />
+            </View>
+            <Pressable
+              nativeID="google-rango-listo"
+              onPress={() => setAbierta(false)}
+              accessibilityRole="button"
+              style={({ pressed }) => ({ marginTop: 20, minHeight: 48, borderRadius: 12, backgroundColor: PANEL.accent, alignItems: "center", justifyContent: "center", transform: [{ scale: pressed ? 0.98 : 1 }] })}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>Listo</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
+  );
+}
 
 const MOTIVOS: Record<SinConexion["motivo"], string> = {
   sin_llave: "Falta conectar Google: hay que guardar en Vercel la llave de solo lectura de Search Console (GOOGLE_SEARCH_CONSOLE_CREDENCIALES). Claude te da los pasos.",
@@ -111,7 +321,7 @@ export default function AdminGoogle() {
   const { width } = useWindowDimensions();
   const isMobile = (width && width > 0 ? width : 1024) < 700;
   const insets = useSafeAreaInsets();
-  const [dias, setDias] = useState<7 | 28 | 90>(28);
+  const [rango, setRango] = useState<Rango>(mesActual);
   const [cargando, setCargando] = useState(true);
   const [datos, setDatos] = useState<Datos | SinConexion | null>(null);
   const [fallo, setFallo] = useState(false);
@@ -119,11 +329,11 @@ export default function AdminGoogle() {
   const [inspecciones, setInspecciones] = useState<Record<string, Inspeccion | "cargando" | "error">>({});
   const [otra, setOtra] = useState("");
 
-  const cargar = useCallback(async (d: number) => {
+  const cargar = useCallback(async (r: Rango) => {
     setCargando(true);
     setFallo(false);
     try {
-      setDatos(await pedirGoogle(`dias=${d}`));
+      setDatos(await pedirGoogle(`desde=${r.desde}&hasta=${r.hasta}`));
       setActualizadoEn(Date.now());
     } catch {
       setFallo(true);
@@ -132,8 +342,8 @@ export default function AdminGoogle() {
     }
   }, []);
   useEffect(() => {
-    void cargar(dias);
-  }, [dias, cargar]);
+    void cargar(rango);
+  }, [rango, cargar]);
 
   const comprobar = useCallback(async (r: string) => {
     const limpia = r.trim().replace(/^https?:\/\/(www\.)?videojuegoszaragoza\.com/, "") || "/";
@@ -189,13 +399,9 @@ export default function AdminGoogle() {
                 Actualizado a las {new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" }).format(new Date(actualizadoEn))}
               </Text>
             ) : null}
-            <AccionTexto nativeID="google-actualizar" icono="refresh-outline" texto="Actualizar" onPress={() => void cargar(dias)} disabled={cargando} />
+            <AccionTexto nativeID="google-actualizar" icono="refresh-outline" texto="Actualizar" onPress={() => void cargar(rango)} disabled={cargando} />
           </View>
-          <FilaPastillas isMobile={isMobile} nativeID="google-periodo">
-            {PERIODOS.map(([d, t]) => (
-              <Chip key={d} nativeID={`google-periodo-${d}`} label={t} activo={dias === d} onPress={() => setDias(d)} />
-            ))}
-          </FilaPastillas>
+          <SelectorRango rango={rango} onCambiar={setRango} />
 
           {cargando && !datos ? <CargandoPanel texto="Preguntando a Google…" /> : null}
           {fallo ? <AvisoPanel tone="danger" text="No se ha podido hablar con Google ahora mismo. Prueba a actualizar en unos minutos." /> : null}

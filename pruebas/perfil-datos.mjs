@@ -17738,7 +17738,31 @@ async function seccionGSC() {
     const cifras = await texto(p, "#google-cifras");
     // (en español, las cifras de 4 dígitos van sin punto: «1250»)
     ok(/34/.test(cifras) && /1\.?250/.test(cifras) && /2,7 %/.test(cifras) && /8,4/.test(cifras) && /Veces que sales/.test(cifras), `GSC (${nombre}): las cifras de Google en español (${cifras})`);
-    ok(peticiones[0]?.params.accion === "google" && peticiones[0]?.params.dias === "28" && /^Bearer \S+/.test(peticiones[0]?.auth), `GSC (${nombre}): pide 28 días con la sesión del administrador (${JSON.stringify(peticiones[0] ?? null)})`);
+    // Por defecto, el mes actual completo (AAAA-MM-01 al último día), en hora local.
+    const mesHoy = await p.evaluate(() => {
+      const h = new Date();
+      const d2 = (n) => String(n).padStart(2, "0");
+      const ult = new Date(h.getFullYear(), h.getMonth() + 1, 0);
+      const ant = new Date(h.getFullYear(), h.getMonth() - 1, 1);
+      const ultAnt = new Date(h.getFullYear(), h.getMonth(), 0);
+      const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+      return {
+        desde: `${h.getFullYear()}-${d2(h.getMonth() + 1)}-01`, hasta: `${ult.getFullYear()}-${d2(ult.getMonth() + 1)}-${d2(ult.getDate())}`,
+        antDesde: `${ant.getFullYear()}-${d2(ant.getMonth() + 1)}-01`, antHasta: `${ultAnt.getFullYear()}-${d2(ultAnt.getMonth() + 1)}-${d2(ultAnt.getDate())}`,
+        antTexto: `${MESES[ant.getMonth()]} Del ${ant.getFullYear()}`, mes: h.getMonth() + 1, anio: h.getFullYear(),
+      };
+    });
+    ok(peticiones[0]?.params.accion === "google" && peticiones[0]?.params.desde === mesHoy.desde && peticiones[0]?.params.hasta === mesHoy.hasta && /^Bearer \S+/.test(peticiones[0]?.auth), `GSC (${nombre}): pide el mes actual completo con la sesión del administrador (${JSON.stringify(peticiones[0]?.params ?? null)})`);
+    // La barra: una sola línea de 48 px, máx. 560, con «‹ texto ›»; el texto, la fecha de hoy entera.
+    const barra = await p.evaluate(() => {
+      const b = document.getElementById("google-rango")?.getBoundingClientRect();
+      const t = document.getElementById("google-rango-texto");
+      const r = t?.getBoundingClientRect();
+      return { alto: Math.round(b?.height ?? 0), ancho: Math.round(b?.width ?? 0), textoAlto: Math.round(r?.height ?? 0), letra: parseFloat(t ? getComputedStyle(t).fontSize : "0"), texto: (t?.textContent ?? "").trim(), ventana: window.innerWidth };
+    });
+    ok(barra.alto === 48 && barra.ancho <= 560 && barra.textoAlto <= 26 && barra.letra >= 13 && /^(Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo) \d{1,2} De [A-ZÁÉ][a-zé]+ Del \d{4}$/.test(barra.texto), `GSC (${nombre}): la barra de 48 px en una línea con la fecha de hoy («${barra.texto}», ${barra.letra}px, ${barra.ancho}px)`);
+    ok((await p.locator("#google-rango-siguiente").getAttribute("aria-disabled")) === "true", `GSC (${nombre}): «›» bloqueada en el mes actual`);
+    ok(/Rango seleccionado: .* Toca para elegir un rango personalizado/.test((await p.locator("#google-rango-centro").getAttribute("aria-label")) ?? ""), `GSC (${nombre}): el centro dice qué rango es y que se puede tocar`);
     ok(/Conectado/.test(await texto(p, "#google-estado")), `GSC (${nombre}): dice «Conectado»`);
     ok(/vender consola zaragoza/.test(await texto(p, "#google-busquedas")) && /puesto 4,2/.test(await texto(p, "#google-busquedas")), `GSC (${nombre}): las búsquedas con su puesto`);
     ok(/\/vender/.test(await texto(p, "#google-paginas")) && /España/.test(await texto(p, "#google-paises")), `GSC (${nombre}): las páginas (sin el dominio) y «España»`);
@@ -17752,10 +17776,65 @@ async function seccionGSC() {
     const d = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
     ok(d.a <= d.v + 1, `GSC (${nombre}): la pantalla no se ensancha (${d.a}/${d.v})`);
     await capturar(p, `GSC-${nombre}`);
+    // La invitación a los 7 s (solo con el mes actual): en el móvil, la corta; en el ordenador, la entera.
+    // (se cuenta desde que se abre la página; se espera como mucho 12 s)
+    const t0 = Date.now();
+    for (let i = 0; i < 60 && !/RANGO/.test(await texto(p, "#google-rango-texto")); i++) await p.waitForTimeout(200);
+    const inv = (await texto(p, "#google-rango-texto"));
+    console.log(`  (invitación vista tras ${Math.round((Date.now() - t0) / 1000)} s más)`);
+    await p.locator("#google-rango").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(300);
+    const invLetra = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById("google-rango-texto")).fontSize));
+    ok((nombre === "1280" ? inv === "CLICK Y SELECCIONA RANGO PERSONALIZADO" : inv === "TOCA Y ELIGE TU RANGO" || inv === "CLICK Y SELECCIONA RANGO PERSONALIZADO") && invLetra >= 13, `GSC (${nombre}): a los 7 s invita a elegir rango, en una línea («${inv}», ${invLetra}px)`);
+    await capturar(p, `GSC-rango-${nombre}`);
+    // «‹»: el mes anterior completo, con su texto, y «›» ya se puede usar; vuelve al mes actual.
+    await p.locator("#google-rango-anterior").click();
+    for (let i = 0; i < 20 && !peticiones.some((x) => x.params.desde === mesHoy.antDesde); i++) await p.waitForTimeout(150);
+    ok(peticiones.some((x) => x.params.desde === mesHoy.antDesde && x.params.hasta === mesHoy.antHasta) && (await texto(p, "#google-rango-texto")) === mesHoy.antTexto && (await p.locator("#google-rango-siguiente").getAttribute("aria-disabled")) !== "true", `GSC (${nombre}): «‹» pide el mes anterior completo («${await texto(p, "#google-rango-texto")}»)`);
+    await p.waitForTimeout(7500);
+    ok((await texto(p, "#google-rango-texto")) === mesHoy.antTexto, `GSC (${nombre}): con otro mes no hay invitación`);
+    await p.locator("#google-rango-siguiente").click();
+    await p.waitForTimeout(300);
+    ok(/^(Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo) /.test(await texto(p, "#google-rango-texto")), `GSC (${nombre}): «›» vuelve al mes actual`);
+    // La ventana: se abre al tocar el centro y se cierra con «Listo», tocando fuera y con Escape.
+    const abierta = () => p.locator("#google-rango-ventana").isVisible().catch(() => false);
+    await p.locator("#google-rango-centro").click();
+    await p.locator("#google-rango-ventana").waitFor({ timeout: 5000 }).catch(() => {});
+    const ventana = await p.evaluate(() => {
+      const v = document.getElementById("google-rango-ventana")?.getBoundingClientRect();
+      const caja = (id) => {
+        const c = document.getElementById(id)?.getBoundingClientRect();
+        const i = document.querySelector(`input[data-caja="${id}"]`);
+        const ri = i?.getBoundingClientRect();
+        return { alto: Math.round(c?.height ?? 0), tipo: i?.getAttribute("type"), cubre: !!ri && Math.abs(ri.width - (c?.width ?? 0)) <= 2.5 && Math.abs(ri.height - (c?.height ?? 0)) <= 2.5, opacidad: i ? getComputedStyle(i).opacity : null, nombre: i?.getAttribute("aria-label"), texto: (document.getElementById(id)?.textContent ?? "").trim() };
+      };
+      return { ancho: Math.round(v?.width ?? 0), desde: caja("google-rango-desde"), hasta: caja("google-rango-hasta") };
+    });
+    ok(ventana.ancho > 0 && ventana.ancho <= 380 && ventana.desde.alto === 48 && ventana.desde.tipo === "date" && ventana.desde.cubre && ventana.desde.opacidad === "0" && ventana.desde.nombre === "Desde" && ventana.hasta.nombre === "Hasta" && /^Desde · 1 [a-z]{3} \d{4}$/.test(ventana.desde.texto), `GSC (${nombre}): la ventana con «Desde» y «Hasta» que abren el calendario del sistema (${JSON.stringify(ventana)})`);
+    await p.waitForTimeout(500);
+    await capturar(p, `GSC-ventana-${nombre}`);
+    // Elegir días: se aplica al momento; si «Desde» queda después de «Hasta», se intercambian.
+    const dia = (n) => `${mesHoy.anio}-${String(mesHoy.mes).padStart(2, "0")}-${String(n).padStart(2, "0")}`;
+    await p.locator('input[data-caja="google-rango-desde"]').fill(dia(2));
+    for (let i = 0; i < 20 && !peticiones.some((x) => x.params.desde === dia(2)); i++) await p.waitForTimeout(150);
+    ok(peticiones.some((x) => x.params.desde === dia(2)) && (await abierta()), `GSC (${nombre}): elegir «Desde» se aplica al momento, sin «Aplicar»`);
+    await p.locator('input[data-caja="google-rango-hasta"]').fill(dia(1));
+    for (let i = 0; i < 20 && !peticiones.some((x) => x.params.desde === dia(1) && x.params.hasta === dia(2)); i++) await p.waitForTimeout(150);
+    ok(peticiones.some((x) => x.params.desde === dia(1) && x.params.hasta === dia(2)), `GSC (${nombre}): si «Desde» queda después de «Hasta», se intercambian (${JSON.stringify(peticiones.at(-1)?.params ?? null)})`);
+    await p.locator("#google-rango-listo").click();
+    await p.waitForTimeout(400);
+    ok(!(await abierta()) && /^1 – 2 [a-z]{3} \d{4}$/.test(await texto(p, "#google-rango-texto")), `GSC (${nombre}): «Listo» la cierra y la barra dice el rango («${await texto(p, "#google-rango-texto")}»)`);
+    await p.locator("#google-rango-centro").click();
+    await p.locator("#google-rango-ventana").waitFor({ timeout: 5000 }).catch(() => {});
+    await p.mouse.click(5, 5);
+    await p.waitForTimeout(400);
+    const fueraCierra = !(await abierta());
+    await p.locator("#google-rango-centro").click();
+    await p.locator("#google-rango-ventana").waitFor({ timeout: 5000 }).catch(() => {});
+    await p.keyboard.press("Escape");
+    await p.waitForTimeout(400);
+    ok(fueraCierra && !(await abierta()), `GSC (${nombre}): se cierra tocando fuera y con Escape (${fueraCierra}, ${!(await abierta())})`);
     if (nombre === "390") {
-      await p.locator("#google-periodo-7").click();
-      for (let i = 0; i < 20 && !peticiones.some((x) => x.params.dias === "7"); i++) await p.waitForTimeout(150);
-      ok(peticiones.some((x) => x.params.dias === "7"), "GSC: «7 días» vuelve a pedir con 7 días");
       // La tarjeta del panel lleva aquí.
       const inicio = await pagina(ctx, "/admin");
       await inicio.locator("#panel-grupo-tienda").waitFor({ timeout: 40000 }).catch(() => {});
