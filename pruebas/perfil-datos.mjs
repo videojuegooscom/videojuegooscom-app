@@ -16602,8 +16602,8 @@ async function seccionRAPI() {
   }
 }
 
-// ===== COMPA) Comparar 2-3 productos (dueño, 2026-11-14, mejora 8; sin migración): «Comparar» de 44 px en las tarjetas del
-// catálogo y en la ficha, como mucho 3 (el 4.º, aviso amable), guardado en el dispositivo (sigue tras recargar); barra
+// ===== COMPA) Comparar 2-3 productos (dueño, 2026-11-14, mejora 8; sin migración): «Comparar» de 44 px en la ficha (desde
+// 2026-11-25 ya no en las tarjetas del catálogo: «tarjeta más limpia»), como mucho 3 (el 4.º, aviso amable), guardado en el dispositivo (sigue tras recargar); barra
 // flotante abajo con miniaturas («Quitar»), la X que vacía y «Comparar (N)» activo desde 2, que no tapa «Comprar ya» ni
 // «Añadir a la cesta» (se esconde mientras estén en su sitio) ni a Blue, sube el «Volver» flotante del catálogo y deja su
 // hueco al final de la ficha; /comparar?ids= con 2 y 3 productos (precio más bajo, estado, categoría, entrega estimada con
@@ -16661,7 +16661,8 @@ async function seccionCOMPA() {
   const conComparados = (ctx, lista) =>
     ctx.addInitScript(([k, l]) => {
       try {
-        if (!sessionStorage.getItem("vz-prueba-comparar")) {
+        // Solo la primera vez en el dispositivo (también al abrir otra pestaña del mismo contexto, como hace COMPA1).
+        if (localStorage.getItem(k) === null && !sessionStorage.getItem("vz-prueba-comparar")) {
           sessionStorage.setItem("vz-prueba-comparar", "1");
           localStorage.setItem(k, JSON.stringify(l));
         }
@@ -16675,9 +16676,10 @@ async function seccionCOMPA() {
   };
   const enCesta = (p) => p.evaluate(() => JSON.parse(localStorage.getItem("videojuegoos_cart_v1") ?? "[]").map((x) => x.id));
   const sinDatos = (estado) => !/cliente@example|Ana|ana_g|50001/.test(JSON.stringify((estado.eventosEnviados ?? []).filter((e) => /^comparar_/.test(e.event_name)).map((e) => e.metadata)));
+  // El catálogo ya no lleva «Comparar» en las tarjetas (dueño, 2026-11-25): se espera a la primera tarjeta (su título).
   const abrirCatalogo = async (ctx) => {
     const p = await pagina(ctx, "/catalogo");
-    await p.locator(`#comparar-${ID(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.getByText(T[ID(1)], { exact: true }).first().waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(500);
     return p;
   };
@@ -16690,32 +16692,29 @@ async function seccionCOMPA() {
   const columnas = (p) => p.evaluate(() => [...document.querySelectorAll('[id^="comparar-col-"]')].map((e) => e.id.slice("comparar-col-".length)));
   const idsUrl = (p) => (new URL(p.url()).searchParams.get("ids") ?? "").split(",").filter(Boolean);
 
-  // COMPA1) Catálogo (360, 390 y 1280): «Comparar» de 44 px bajo cada tarjeta; con 1 la barra dice «Elige otro» y «Comparar
-  // (1)» no se puede tocar; con 3 sí; el 4.º no entra (aviso amable); la barra cabe sin salirse y el «Volver» flotante queda
-  // encima de ella; se guarda en el dispositivo y sigue al recargar; tocar una miniatura la quita; «Comparar (2)» abre
-  // /comparar?ids=… Analítica comparar_anadido / comparar_quitado solo con id, origen y cuántos.
+  // COMPA1) Catálogo (360, 390 y 1280): las tarjetas ya NO llevan «Comparar» (dueño, 2026-11-25: «tarjeta más limpia»; se
+  // compara desde la ficha). Sin nada elegido no hay barra; con 3 elegidos (desde la ficha, aquí ya guardados en el
+  // dispositivo) la barra sale abajo con «Comparar (3)», cabe sin salirse y el «Volver» flotante queda encima de ella; sigue
+  // al recargar; tocar una miniatura la quita; «Comparar (2)» abre /comparar?ids=…; la X la vacía. Analítica
+  // comparar_quitado solo con id, origen y cuántos.
   for (const { nombre, vista } of VISTAS) {
+    {
+      const ctx0 = await contexto(navegador, CLIENTE, "user", nuevoEstado(), vista);
+      const p0 = await abrirCatalogo(ctx0);
+      const botones = await p0.evaluate(() => document.querySelectorAll('[id^="comparar-e0000000"]').length);
+      ok(botones === 0 && (await p0.getByText(T[ID(1)], { exact: true }).count()) > 0 && (await p0.locator("#comparar-barra").count()) === 0, `COMPA (${nombre}): las tarjetas del catálogo ya no llevan «Comparar» y sin nada elegido no hay barra (${botones})`);
+      await capturar(p0, `COMPA1-catalogo-limpio-${nombre}`);
+      ok(p0.errores.length === 0, `COMPA1 (${nombre}, limpio): sin errores de JavaScript (${p0.errores[0] ?? "ninguno"})`);
+      await ctx0.close();
+    }
     const estado = nuevoEstado();
     const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await conComparados(ctx, [comoGuardado(1), comoGuardado(2), comoGuardado(4)]);
     const p = await abrirCatalogo(ctx);
-    const botones = await p.evaluate(() => [...document.querySelectorAll('[id^="comparar-e0000000"]')].map((e) => ({ t: e.innerText.trim(), alto: Math.round(e.getBoundingClientRect().height), ancho: Math.round(e.getBoundingClientRect().width), rol: e.getAttribute("role") })));
-    ok(botones.length === 6 && botones.every((b) => /Comparar/.test(b.t) && b.alto >= 44 && b.ancho >= 44 && b.rol === "checkbox"), `COMPA (${nombre}): «Comparar» de 44 px (casilla) bajo cada tarjeta del catálogo (${JSON.stringify(botones.slice(0, 2))} · ${botones.length})`);
-    ok((await p.locator("#comparar-barra").count()) === 0, `COMPA (${nombre}): sin nada elegido no hay barra`);
-    await p.locator(`#comparar-${ID(1)}`).click();
-    await p.locator("#comparar-barra").waitFor({ timeout: 5000 }).catch(() => {});
-    ok((await p.locator(`#comparar-${ID(1)}`).getAttribute("aria-checked")) === "true" && /Comparando/.test(await texto(p, `#comparar-${ID(1)}`)), `COMPA (${nombre}): al tocarlo queda marcado («Comparando»)`);
-    ok(/Elige otro producto para comparar/.test(await texto(p, "#comparar-barra-pista")) && (await p.locator("#comparar-barra-ir").getAttribute("aria-disabled")) === "true", `COMPA (${nombre}): con 1, la barra pide otro y «Comparar (1)» no se puede tocar`);
-    await capturar(p, `COMPA1-catalogo-uno-${nombre}`);
-    await p.locator(`#comparar-${ID(2)}`).click();
-    await p.locator(`#comparar-${ID(4)}`).click();
-    await esperar(p, async () => (await guardados(p)).length === 3);
-    ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(1), ID(2), ID(4)]), `COMPA (${nombre}): se guardan los 3 en el dispositivo, en orden (${(await guardados(p)).map((i) => T[i]).join(" | ")})`);
-    ok(/Comparar \(3\)/.test(await texto(p, "#comparar-barra-ir")) && (await p.locator("#comparar-barra-ir").getAttribute("aria-disabled")) !== "true", `COMPA (${nombre}): «Comparar (3)» ya se puede tocar`);
-    await p.locator(`#comparar-${ID(5)}`).click();
-    await p.locator("#comparar-barra-aviso").waitFor({ timeout: 5000 }).catch(() => {});
-    // La barra crece con el aviso: el «Volver» sube con ella en cuanto la barra se mide (un momento).
+    await p.locator("#comparar-barra").waitFor({ timeout: 8000 }).catch(() => {});
     await p.waitForTimeout(400);
-    ok(/hasta 3 productos/.test(await texto(p, "#comparar-barra-aviso")) && (await guardados(p)).length === 3 && (await p.locator(`#comparar-${ID(5)}`).getAttribute("aria-checked")) === "false", `COMPA (${nombre}): el 4.º no entra y sale un aviso amable (${await texto(p, "#comparar-barra-aviso")})`);
+    ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(1), ID(2), ID(4)]), `COMPA (${nombre}): los 3 elegidos siguen en el dispositivo, en orden (${(await guardados(p)).map((i) => T[i]).join(" | ")})`);
+    ok(/Comparar \(3\)/.test(await texto(p, "#comparar-barra-ir")) && (await p.locator("#comparar-barra-ir").getAttribute("aria-disabled")) !== "true", `COMPA (${nombre}): en el catálogo, la barra con «Comparar (3)» que ya se puede tocar`);
     // Barra: todo dentro de la pantalla, de 44 px, y sin que nada fijo quede encima o debajo.
     const barra = await caja(p, "#comparar-barra");
     const piezas = await p.evaluate(() => [...document.querySelectorAll('#comparar-barra [role="button"]')].map((e) => ({ id: e.id, l: Math.round(e.getBoundingClientRect().left), r: Math.round(e.getBoundingClientRect().right), h: Math.round(e.getBoundingClientRect().height), w: Math.round(e.getBoundingClientRect().width) })));
@@ -16726,17 +16725,13 @@ async function seccionCOMPA() {
     const d = await sinDesborde(p);
     ok(d.a <= d.v + 1, `COMPA (${nombre}): el catálogo no se ensancha (${d.a}/${d.v})`);
     await capturar(p, `COMPA1-catalogo-tres-${nombre}`);
-    await esperar(p, async () => evento(estado, "comparar_anadido").length >= 3);
-    const an = evento(estado, "comparar_anadido").map((e) => e.metadata);
-    ok(an.length === 3 && an.every((m) => m.origen === "catalogo" && Object.keys(m).sort().join(",") === "id,n,origen") && an.map((m) => m.n).join(",") === "1,2,3", `COMPA (${nombre}): se mide comparar_anadido con id, origen y cuántos (${JSON.stringify(an)})`);
     if (nombre === "390") {
-      // Persistencia: al recargar siguen los 3 (tarjetas marcadas y barra).
+      // Persistencia: al recargar sigue la barra con los 3.
       await p.reload({ waitUntil: "load" });
       await p.locator("#comparar-barra").waitFor({ timeout: 30000 }).catch(() => {});
-      await p.locator(`#comparar-${ID(1)}`).waitFor({ timeout: 30000 }).catch(() => {});
       await p.waitForTimeout(500);
       const miniaturas = await p.evaluate(() => [...document.querySelectorAll('[id^="comparar-barra-e0000000"]')].map((e) => e.id.slice("comparar-barra-".length)));
-      ok(JSON.stringify(miniaturas) === JSON.stringify([ID(1), ID(2), ID(4)]) && (await p.locator(`#comparar-${ID(4)}`).getAttribute("aria-checked")) === "true", `COMPA: tras recargar sigue la comparación (${miniaturas.map((i) => T[i]).join(" | ")})`);
+      ok(JSON.stringify(miniaturas) === JSON.stringify([ID(1), ID(2), ID(4)]), `COMPA: tras recargar sigue la comparación (${miniaturas.map((i) => T[i]).join(" | ")})`);
       await p.locator(`#comparar-barra-${ID(2)}`).click();
       await esperar(p, async () => (await guardados(p)).length === 2);
       ok(JSON.stringify(await guardados(p)) === JSON.stringify([ID(1), ID(4)]) && (await p.locator(`#comparar-barra-${ID(2)}`).count()) === 0, "COMPA: tocar una miniatura de la barra la quita");
@@ -16985,9 +16980,9 @@ async function seccionCOMPA() {
   {
     const estado = nuevoEstado({ aceptaAnalitica: false });
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conComparados(ctx, [comoGuardado(1), comoGuardado(4)]);
     const p = await abrirCatalogo(ctx);
-    await p.locator(`#comparar-${ID(1)}`).click();
-    await p.locator(`#comparar-${ID(4)}`).click();
+    await p.locator("#comparar-barra-ir").waitFor({ timeout: 8000 }).catch(() => {});
     await p.locator("#comparar-barra-ir").click();
     await p.waitForURL(/\/comparar/, { timeout: 10000 }).catch(() => {});
     await p.locator("#comparar-tabla").waitFor({ timeout: 20000 }).catch(() => {});
@@ -19191,16 +19186,25 @@ async function seccionMOMB() {
   // GET /api/pago: el pago online está activo (como en la tienda).
   const conPago = (ctx) => ctx.route("**/api/pago*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, disponible: true, klarna: false, bizum: false }) }));
 
-  // MOMB1) Catálogo (390): el primer «Comparar» trae su consejo («Elige hasta 3 y pulsa «Comparar» abajo») sin tapar la barra;
-  // al cerrarlo con la X (44 px) sale, a su turno, el del catálogo (filtros y «play 5»); nunca dos a la vez; quedan dichos
-  // y al recargar no se repiten. Se mide consejo_mostrado / consejo_cerrado solo con el momento.
+  // MOMB1) Ficha (390): el primer «Comparar con otros productos» trae su consejo («Elige hasta 3 y pulsa «Comparar» abajo»)
+  // sin tapar la barra (desde 2026-11-25 «Comparar» ya no está en las tarjetas del catálogo, solo en la ficha); el consejo
+  // de la ficha se da por dicho para que no espere su turno; al cerrarlo con la X (44 px) no sale ningún otro; nunca dos a
+  // la vez; queda dicho y al recargar no se repite. Se mide consejo_mostrado / consejo_cerrado solo con el momento.
   {
     const estado = nuevoEstado();
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     await vigia(ctx);
-    const p = await pagina(ctx, "/catalogo");
-    await p.locator(`#comparar-${ID(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
-    await p.locator(`#comparar-${ID(1)}`).click();
+    await ctx.addInitScript((k) => {
+      try {
+        if (localStorage.getItem(k) === null) localStorage.setItem(k, JSON.stringify(["consejo:ficha"]));
+      } catch {
+        // sin almacenamiento
+      }
+    }, DICHOS);
+    const p = await pagina(ctx, `/producto/${ID(1)}`);
+    await p.locator("#ficha-comparar-boton").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    await p.locator("#ficha-comparar-boton").click();
     const comp = await esperarConsejo(p, "comparar", 30000);
     ok(comp, "MOMB: el primer «Comparar» trae su consejo");
     ok(/Elige hasta 3 y pulsa «Comparar» abajo/.test(await texto(p, "#blue-consejo-texto")), `MOMB: el consejo de comparar dice «Elige hasta 3 y pulsa Comparar abajo» (${await texto(p, "#blue-consejo-texto")})`);
@@ -19211,8 +19215,7 @@ async function seccionMOMB() {
     await capturar(p, "MOMB1-comparar-390");
     ok((await consejoVisible(p)) === "comparar", "MOMB: solo un consejo a la vez");
     await p.locator("#blue-consejo-cerrar").click();
-    // El del catálogo («Encuentra lo tuyo») ya no sale (dueño, 2026-11-19: «no me gusta»).
-    ok(await sinConsejo(p, 20000), "MOMB: cerrado el de comparar, en el catálogo no sale ningún otro («Encuentra lo tuyo» quitado)");
+    ok(await sinConsejo(p, 20000), "MOMB: cerrado el de comparar, no sale ningún otro");
     await esperar(p, async () => evento(estado, "consejo_cerrado").length >= 1);
     const mostrados = evento(estado, "consejo_mostrado").map((e) => e.metadata?.momento);
     const cerrados = evento(estado, "consejo_cerrado").map((e) => JSON.stringify(e.metadata));
@@ -19221,8 +19224,11 @@ async function seccionMOMB() {
     const g = await dichos(p);
     ok(g.includes("consejo:comparar") && !g.includes("consejo:catalogo"), "MOMB: queda dicho en el dispositivo");
     await p.reload({ waitUntil: "load" });
-    await p.locator(`#comparar-${ID(2)}`).waitFor({ timeout: 40000 }).catch(() => {});
-    await p.locator(`#comparar-${ID(2)}`).click().catch(() => {});
+    await p.locator("#ficha-comparar-boton").waitFor({ timeout: 40000 }).catch(() => {});
+    // Quitarlo y volver a añadirlo: el consejo ya no sale.
+    await p.locator("#ficha-comparar-boton").click().catch(() => {});
+    await p.waitForTimeout(400);
+    await p.locator("#ficha-comparar-boton").click().catch(() => {});
     ok(await sinConsejo(p, 28000), "MOMB: al recargar (y volver a comparar) no se repiten");
     ok((await p.evaluate(() => window.__dosALaVez)) === 0, "MOMB1: nunca un consejo y un mensaje de Blue a la vez");
     ok(p.errores.length === 0, `MOMB1: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
