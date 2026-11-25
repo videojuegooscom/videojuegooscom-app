@@ -18065,7 +18065,7 @@ async function seccionCMP() {
       desl.dispatchEvent(new Event("scroll"));
       return res;
     });
-    ok(barra.hay && barra.ancho === 3 && barra.izq === 0 && barra.mitad >= 40 && barra.mitad <= 60 && barra.toca === "none", `CMP (${nombre}): la barra de progreso a la izquierda avanza al bajar (${JSON.stringify(barra)})`);
+    ok(barra.hay && barra.ancho === 5 && barra.izq === 0 && barra.mitad >= 40 && barra.mitad <= 60 && barra.toca === "none", `CMP (${nombre}): la barra de progreso a la izquierda avanza al bajar (${JSON.stringify(barra)})`);
     ok(/Cuarte de Huerva/.test(await texto(p, "#compramos-zaragoza")) && /en menos de 2 horas/.test(await texto(p, "#compramos-zaragoza")) && /Etiqueta gratis/.test(await texto(p, "#compramos-espana")) && /te lo devolvemos gratis/.test(await texto(p, "#compramos-espana")), `CMP (${nombre}): «Cómo funciona» en Zaragoza y desde el resto de España`);
     // La pregunta la hace el cliente: «mi consola», nunca «tu consola» (revisión de textos, 2026-11-24).
     const faq = await texto(p, "#compramos-preguntas");
