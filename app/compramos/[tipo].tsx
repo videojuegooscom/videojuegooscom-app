@@ -62,6 +62,10 @@ type Pagina = {
   boton: string;
   /** «mi consola», «mi móvil»…: la pregunta la hace el cliente («¿Cuánto me dais por mi consola?»). */
   miAparato: string;
+  /** «la» (consola, tablet) o «lo» (móvil, portátil, PC): «te la recogemos», «te lo recogemos». */
+  lo: "la" | "lo";
+  /** Apartado «¿Quieres vender tu…?» con las palabras que busca la gente en Google (2026-11-25, «vender mi consola»). */
+  intro: { titulo: string; texto: string };
   /** Lo que hay a la venta de este tipo: categorías y, si hace falta, palabras del título. */
   categorias: string[];
   filtro: RegExp | null;
@@ -85,6 +89,12 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     articulo: "Consola",
     boton: "Vender mi consola",
     miAparato: "mi consola",
+    lo: "la",
+    intro: {
+      titulo: "¿Quieres vender tu consola?",
+      texto:
+        "Si buscas dónde vender tu consola, te la compramos: PlayStation 5, PS4, Nintendo Switch, Xbox y mandos. Nos cuentas qué tienes, te damos precio en menos de 1 hora y te pagamos al momento. En Zaragoza y alrededores pasamos a recogerla en menos de 2 horas; desde cualquier otra ciudad puedes vender tu consola online, con envío gratis desde toda España.",
+    },
     categorias: ["playstation-5", "playstation-4", "nintendo-switch", "xbox"],
     filtro: null,
     enVenta: "Consolas a la venta ahora",
@@ -93,7 +103,8 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
       { nombre: "PlayStation 4 y PS4 Pro", articulo: "PlayStation 4", texto: "Modelos normal, Slim y Pro, también con años de uso o con algún fallo." },
       { nombre: "Nintendo Switch", articulo: "Nintendo Switch", texto: "Switch, Switch OLED, Switch Lite y Switch 2, con sus Joy-Con y su base." },
       { nombre: "Xbox Series y Xbox One", articulo: "Xbox", texto: "Xbox Series X, Xbox Series S y Xbox One, con su mando." },
-      { nombre: "Mandos y accesorios", articulo: "Mando", texto: "DualSense, Joy-Con, mandos Pro, volantes y auriculares para consola." },    ],
+      { nombre: "Mandos y accesorios", articulo: "Mando", texto: "DualSense, Joy-Con, mandos Pro, volantes y auriculares para consola." },
+    ],
     revisamos: ["Que encienda y dé imagen y sonido", "Los mandos, los puertos HDMI y USB, el wifi y el bluetooth", "El lector de discos y el almacenamiento", "Que no esté bloqueada ni vinculada a otra cuenta"],
     preparar: ["Desvincula tu cuenta de PlayStation, Nintendo o Xbox (o te ayudamos a hacerlo)", "El mando y los cables de corriente y HDMI", "La caja original, si la tienes", "Si tiene algún fallo, cuéntanoslo: también compramos consolas averiadas"],
   },
@@ -105,6 +116,12 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     articulo: "Móvil",
     boton: "Vender mi móvil",
     miAparato: "mi móvil",
+    lo: "lo",
+    intro: {
+      titulo: "¿Quieres vender tu móvil?",
+      texto:
+        "Si buscas dónde vender tu móvil, te lo compramos: iPhone, Samsung Galaxy, Xiaomi, Google Pixel y cualquier Android, también con la pantalla rota o con algún fallo. Te damos precio en menos de 1 hora y te pagamos al momento. En Zaragoza y alrededores pasamos a recogerlo en menos de 2 horas; desde cualquier otra ciudad puedes vender tu móvil online, con envío gratis desde toda España.",
+    },
     categorias: ["electronica"],
     filtro: /iphone|samsung galaxy (?!tab)|galaxy [szamf]\d|xiaomi|redmi|\bpoco\b|pixel|m[oó]vil|smartphone|oppo|huawei|motorola|oneplus/i,
     enVenta: "Móviles a la venta ahora",
@@ -126,6 +143,12 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     articulo: "Portátil",
     boton: "Vender mi portátil",
     miAparato: "mi portátil",
+    lo: "lo",
+    intro: {
+      titulo: "¿Quieres vender tu portátil?",
+      texto:
+        "Si buscas dónde vender tu portátil, te lo compramos: MacBook Air y MacBook Pro, portátiles para jugar y portátiles Windows de cualquier marca. Te damos precio en menos de 1 hora y te pagamos al momento. En Zaragoza y alrededores pasamos a recogerlo en menos de 2 horas; desde cualquier otra ciudad puedes vender tu portátil online, con envío gratis desde toda España.",
+    },
     categorias: ["electronica"],
     filtro: /port[aá]til|macbook|laptop|notebook|chromebook|thinkpad|zenbook|vivobook|ideapad|\blegion\b|\bomen\b/i,
     enVenta: "Portátiles a la venta ahora",
@@ -146,6 +169,12 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     articulo: "PC",
     boton: "Vender mi PC",
     miAparato: "mi PC",
+    lo: "lo",
+    intro: {
+      titulo: "¿Quieres vender tu PC o tus periféricos?",
+      texto:
+        "Si buscas dónde vender tu PC, te lo compramos: torres completas o por piezas, PC gaming, tarjetas gráficas, monitores, teclados y ratones. Te damos precio en menos de 1 hora y te pagamos al momento. En Zaragoza y alrededores pasamos a recogerlo en menos de 2 horas; desde cualquier otra ciudad puedes vender tu PC o tu gráfica online, con envío gratis desde toda España.",
+    },
     categorias: ["electronica"],
     filtro: /\bpc\b|ordenador|monitor|tarjeta gr[aá]fica|\brtx\b|\bgtx\b|radeon|teclado|rat[oó]n|\btorre\b|procesador/i,
     enVenta: "PC y periféricos a la venta ahora",
@@ -167,6 +196,12 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     articulo: "Tablet",
     boton: "Vender mi tablet",
     miAparato: "mi tablet",
+    lo: "la",
+    intro: {
+      titulo: "¿Quieres vender tu iPad o tu tablet?",
+      texto:
+        "Si buscas dónde vender tu iPad o tu tablet, te la compramos: iPad, iPad Air, iPad Pro, iPad mini, Samsung Galaxy Tab y otras tablets Android. Te damos precio en menos de 1 hora y te pagamos al momento. En Zaragoza y alrededores pasamos a recogerla en menos de 2 horas; desde cualquier otra ciudad puedes vender tu tablet online, con envío gratis desde toda España.",
+    },
     categorias: ["electronica"],
     filtro: /ipad|tablet|galaxy tab|xiaomi pad|redmi pad/i,
     enVenta: "iPad y tablets a la venta ahora",
@@ -222,8 +257,11 @@ const PASOS_ESPANA = [
   { titulo: "Lo revisamos y te pagamos", texto: "Si su estado coincide con lo indicado, te pagamos al momento por Bizum. Si no, te hacemos una nueva oferta y, si no la aceptas, te lo devolvemos gratis." },
 ];
 
-function preguntas(p: Pagina): { q: string; a: string }[] {
+export function preguntas(p: Pagina): { q: string; a: string }[] {
   return [
+    // Las dos primeras, con las palabras que busca la gente en Google (2026-11-25).
+    { q: `¿Dónde vender ${p.miAparato} en Zaragoza?`, a: `Aquí: te ${p.lo} compramos y, en ${ZONAS}, pasamos a recoger${p.lo} en menos de 2 horas o nos ${p.lo} acercas tú. Te damos precio en menos de 1 hora y te pagamos al momento por Bizum o en efectivo.` },
+    { q: `¿Puedo vender ${p.miAparato} online desde otra ciudad?`, a: `Sí, desde cualquier punto de España. Te enviamos una etiqueta prepagada en menos de 2 horas, nos llega en 72 horas como máximo y, cuando ${p.lo} revisamos, te pagamos al momento por Bizum.` },
     { q: `¿Cuánto me dais por ${p.miAparato}?`, a: "Depende del modelo, de su estado y de lo que incluya (caja, cargador, accesorios). Cuéntanoslo con unas fotos y te haremos una oferta en menos de 1 hora, sin compromiso." },
     { q: "¿Lo compráis aunque esté averiado?", a: "Sí. Indícanos qué le ocurre y te haremos una oferta igualmente: como también nos dedicamos a la reparación, sabemos valorarlo." },
     { q: "¿Cómo me pagáis?", a: "Al momento, en cuanto lo hemos revisado: por Bizum o en efectivo. Si nos lo envías desde otra ciudad, por Bizum. Firmamos un contrato de compraventa para que todo quede por escrito." },
@@ -232,6 +270,100 @@ function preguntas(p: Pagina): { q: string; a: string }[] {
     { q: "¿Puedo cambiarlo por otro artículo de la tienda?", a: "Sí. Puedes usar su valor para llevarte otro artículo del catálogo; indícalo en el formulario." },
     { q: "¿Qué necesito para venderlo?", a: "Ser mayor de edad y el propietario del aparato." },
   ];
+}
+
+// --- Para Google (2026-11-25, «adelante 1, 2, 3») ---------------------------------------------------------------------
+const DOMINIO_WEB = "https://videojuegoszaragoza.com";
+
+/**
+ * Datos estructurados de la página (schema.org): el servicio «compramos …» de la tienda (zona: Zaragoza y toda España),
+ * sus preguntas frecuentes y la ruta Inicio › Compramos. Los usan el HTML ya generado (app/_layout.tsx) y la página al
+ * pintarse (un <script> en el <head>). Solo datos de la propia página.
+ */
+export function datosEstructuradosCompramos(tipo: TipoCompramos): Record<string, unknown> {
+  const p = PAGINAS_COMPRAMOS[tipo];
+  const url = `${DOMINIO_WEB}/compramos/${tipo}`;
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Service",
+        "@id": `${url}#servicio`,
+        name: p.h1,
+        serviceType: `Compra de ${p.corto.toLowerCase()} de segunda mano`,
+        description: `${p.lema} ${p.intro.texto}`,
+        url,
+        provider: { "@id": `${DOMINIO_WEB}/#tienda` },
+        areaServed: [
+          { "@type": "City", name: "Zaragoza" },
+          { "@type": "Country", name: "España" },
+        ],
+      },
+      {
+        "@type": "FAQPage",
+        "@id": `${url}#preguntas`,
+        mainEntity: preguntas(p).map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
+      },
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Inicio", item: `${DOMINIO_WEB}/` },
+          { "@type": "ListItem", position: 2, name: `Compramos: ${p.corto}`, item: url },
+        ],
+      },
+    ],
+  };
+}
+/** En JSON dentro de <script>: «<» escapado para que ningún texto pueda cerrar la etiqueta. */
+export const jsonSeguro = (o: unknown) => JSON.stringify(o).replace(/</g, "\\u003c");
+
+/**
+ * El texto de la página en el HTML que se genera al publicar (app/_layout.tsx lo pinta debajo de la pantalla de carga):
+ * así Google lo lee sin esperar a que arranque la tienda. Es el mismo texto que enseña la página (no hay nada que el
+ * cliente no vea) y desaparece en cuanto la tienda se pinta, sin moverse nada a la vista.
+ */
+export function VistaEstaticaCompramos({ tipo }: { tipo: TipoCompramos }) {
+  const p = PAGINAS_COMPRAMOS[tipo];
+  const nivel = (n: number) => ({ accessibilityRole: "header" as const, ...({ "aria-level": n } as object) });
+  return (
+    <View nativeID="compramos-estatica" style={{ padding: 16, gap: 8 }}>
+      <Text {...nivel(1)}>{p.h1}</Text>
+      <Text>{p.lema}</Text>
+      <Text>{SELLOS.map((s) => s.texto).join(" · ")}</Text>
+      <Text {...nivel(2)}>{p.intro.titulo}</Text>
+      <Text>{p.intro.texto}</Text>
+      <Text {...nivel(2)}>{QUE_COMPRAMOS[tipo]}</Text>
+      {p.modelos.map((m) => (
+        <Text key={m.nombre}>
+          {m.nombre}: {m.texto}
+        </Text>
+      ))}
+      <Text {...nivel(2)}>Cómo funciona</Text>
+      <Text>En Zaragoza y alrededores: {PASOS_ZARAGOZA.map((s) => `${s.titulo}. ${s.texto}`).join(" ")}</Text>
+      <Text>Desde el resto de España: {PASOS_ESPANA.map((s) => `${s.titulo}. ${s.texto}`).join(" ")}</Text>
+      <Text {...nivel(2)}>Preguntas frecuentes</Text>
+      {preguntas(p).map((f) => (
+        <Text key={f.q}>
+          {f.q} {f.a}
+        </Text>
+      ))}
+      <Text>
+        También compramos:{" "}
+        {TIPOS.filter((t) => t !== tipo).map((t, i) => (
+          <Text key={t} {...({ href: `/compramos/${t}` } as object)}>
+            {i ? ", " : ""}
+            {PAGINAS_COMPRAMOS[t].corto}
+          </Text>
+        ))}
+      </Text>
+    </View>
+  );
+}
+
+/** ¿Es una dirección «Compramos» (y cuál)? Para app/_layout.tsx. */
+export function tipoCompramosDeRuta(ruta: string | null | undefined): TipoCompramos | null {
+  const m = /^\/compramos\/([a-z]+)\/?$/.exec(ruta ?? "");
+  return m && (TIPOS as string[]).includes(m[1]) ? (m[1] as TipoCompramos) : null;
 }
 
 function H2({ children, nativeID }: { children: string; nativeID?: string }) {
@@ -348,6 +480,18 @@ export default function CompramosScreen() {
     };
   }, [tipo, p]);
 
+  // Datos estructurados para Google en el <head> mientras se ve la página (el HTML generado ya los trae; al arrancar la
+  // tienda, la cabecera generada se quita y aquí se vuelven a poner, para que Google los vea también en la página pintada).
+  useEffect(() => {
+    if (!tipo || Platform.OS !== "web" || typeof document === "undefined") return;
+    const s = document.createElement("script");
+    s.type = "application/ld+json";
+    s.id = "compramos-datos";
+    s.text = jsonSeguro(datosEstructuradosCompramos(tipo));
+    document.head.appendChild(s);
+    return () => s.remove();
+  }, [tipo]);
+
   // Con varias fotos propias, pasan solas cada 5 s (las flechas también las cambian).
   useEffect(() => {
     setVerFoto(0);
@@ -462,6 +606,12 @@ export default function CompramosScreen() {
               {cabeceraPropias ?? cabeceraFoto}
             </View>
           </View>
+
+          {/* «¿Quieres vender tu…?»: con las palabras que busca la gente en Google (2026-11-25). */}
+          <AparecerAlVer nativeID="compramos-intro" style={{ width: "100%", alignItems: "center", gap: 10 }}>
+            <H2>{p.intro.titulo}</H2>
+            <Text style={{ color: C.muted, fontSize: TAMANOS.cuerpo + 1, lineHeight: 25, textAlign: "center", maxWidth: 720 }}>{p.intro.texto}</Text>
+          </AparecerAlVer>
 
           {/* Cada apartado aparece con el fundido suave de Inicio al llegar a él (dueño, 2026-11-25: «que el scroll sea
               igual que en la página de inicio»). Siempre con width: "100%" (lección de las envolturas). */}

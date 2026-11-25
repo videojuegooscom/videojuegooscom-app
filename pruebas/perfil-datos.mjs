@@ -487,6 +487,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { extname, join, normalize, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { lanzarNavegador } from "./sin-fotos-reales.mjs";
+import { createRequire } from "node:module";
 
 const raiz = resolve(process.argv[2] ?? "dist");
 if (!existsSync(join(raiz, "index.html"))) {
@@ -18003,6 +18004,25 @@ async function seccionSEOH() {
 // En el ordenador, el texto a la izquierda y las fotos reales de Categorías a la derecha. A 360, 390 y 1280, sin
 // desbordes ni errores. (Una dirección que no existe da el 404 de Vercel: solo hay 5.)
 async function seccionCMP() {
+  // El HTML ya generado (lo que Google lee sin esperar a la tienda, 2026-11-25): su título, su descripción (una sola),
+  // su dirección oficial, sus datos estructurados y su texto; y scripts/inject-seo-html.js (al publicar en Vercel) no le
+  // pone encima los de Marca y SEO, pero sí al resto de páginas.
+  {
+    const html = readFileSync(join(raiz, "compramos/consolas.html"), "utf8");
+    const { applyToHtml } = createRequire(import.meta.url)("../scripts/inject-seo-html.js");
+    const tras = applyToHtml(html, { title: "TITULO GENERAL", description: "DESCRIPCION GENERAL", logoUrl: "" });
+    const descripciones = tras.match(/<meta[^>]*name="description"[^>]*>/g) ?? [];
+    ok(
+      /<title[^>]*>Vende tu consola: PS5, Switch y Xbox · Zaragoza y toda España \| Videojuegoszaragoza\.com<\/title>/.test(tras) &&
+        descripciones.length === 1 && /¿Quieres vender tu consola\?/.test(descripciones[0]) && !/TITULO GENERAL|DESCRIPCION GENERAL|Compramos tu electrónica/.test(tras.split("</head>")[0]) &&
+        /<link[^>]*rel="canonical"[^>]*href="https:\/\/videojuegoszaragoza\.com\/compramos\/consolas"/.test(tras) && /"@type":"FAQPage"/.test(tras),
+      `CMP: el HTML generado trae su título, una sola descripción, su dirección oficial y sus datos, y Marca y SEO no los pisa (${descripciones.length} descripciones)`
+    );
+    const cuerpo = tras.split("<body")[1] ?? "";
+    ok(/<h1[^>]*>Compramos tu consola en Zaragoza<\/h1>/.test(cuerpo) && /¿Quieres vender tu consola\?/.test(cuerpo) && /¿Dónde vender mi consola en Zaragoza\?/.test(cuerpo) && /href="\/compramos\/moviles"/.test(cuerpo), "CMP: y su texto (título, «¿Quieres vender tu consola?», preguntas y enlaces) ya escrito en el HTML");
+    const otra = applyToHtml(readFileSync(join(raiz, "vender.html"), "utf8"), { title: "TITULO GENERAL", description: "DESCRIPCION GENERAL", logoUrl: "" });
+    ok(/<title[^>]*>TITULO GENERAL<\/title>/.test(otra) && /content="DESCRIPCION GENERAL"/.test(otra), "CMP: en las demás páginas, Marca y SEO se sigue aplicando igual");
+  }
   const FOTO = (n) => `https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/prueba/c${n}.jpg`;
   const estado = () => ({
     filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }],
@@ -18026,7 +18046,19 @@ async function seccionCMP() {
     const h1 = await p.evaluate(() => Array.from(document.querySelectorAll("h1")).map((e) => (e.textContent ?? "").trim()));
     ok(h1.length === 1 && h1[0] === "Compramos tu consola en Zaragoza", `CMP (${nombre}): un solo H1 «Compramos tu consola en Zaragoza» (${h1.join(" | ")})`);
     const cab = await p.evaluate(() => ({ titulo: document.title, desc: document.querySelector('meta[name="description"]')?.getAttribute("content") ?? "", canon: document.querySelector('link[rel="canonical"]')?.getAttribute("href") ?? "" }));
-    ok(/^Compramos tu consola en Zaragoza/.test(cab.titulo) && /Bizum/.test(cab.desc) && cab.desc.length <= 200 && cab.canon === "https://videojuegoszaragoza.com/compramos/consolas", `CMP (${nombre}): título, descripción y dirección oficial para Google (${JSON.stringify(cab)})`);
+    // Con las palabras que busca la gente («vende tu consola», 2026-11-25).
+    ok(/^Vende tu consola: PS5, Switch y Xbox · Zaragoza y toda España \| /.test(cab.titulo) && /^¿Quieres vender tu consola\?/.test(cab.desc) && /Bizum/.test(cab.desc) && cab.desc.length <= 200 && cab.canon === "https://videojuegoszaragoza.com/compramos/consolas", `CMP (${nombre}): título, descripción y dirección oficial para Google (${JSON.stringify(cab)})`);
+    ok(/^¿Quieres vender tu consola\? Si buscas dónde vender tu consola/.test(await texto(p, "#compramos-intro")) && /vender tu consola online/.test(await texto(p, "#compramos-intro")), `CMP (${nombre}): el apartado «¿Quieres vender tu consola?»`);
+    const ld = await p.evaluate(() => {
+      const s = document.getElementById("compramos-datos");
+      try {
+        const g = JSON.parse(s?.textContent ?? "{}")["@graph"] ?? [];
+        return g.map((x) => x["@type"]).join(",") + `|${(g.find((x) => x["@type"] === "FAQPage")?.mainEntity ?? []).length}`;
+      } catch {
+        return "";
+      }
+    });
+    ok(ld === "Service,FAQPage,BreadcrumbList|9", `CMP (${nombre}): datos estructurados en la página pintada (servicio, 9 preguntas y ruta) (${ld})`);
     const sellos = await texto(p, "#compramos-sellos");
     ok(/Precio en menos de 1 hora/.test(sellos) && /menos de 2 horas/.test(sellos) && /Envío gratis/.test(sellos) && /Bizum o efectivo/.test(sellos), `CMP (${nombre}): los 4 sellos («${sellos}»)`);
     // Consolas retro no se compran (dueño, 2026-11-25): ni en los modelos ni en el lema.
@@ -18065,7 +18097,7 @@ async function seccionCMP() {
     ok(/Cuarte de Huerva/.test(await texto(p, "#compramos-zaragoza")) && /en menos de 2 horas/.test(await texto(p, "#compramos-zaragoza")) && /Etiqueta gratis/.test(await texto(p, "#compramos-espana")) && /te lo devolvemos gratis/.test(await texto(p, "#compramos-espana")), `CMP (${nombre}): «Cómo funciona» en Zaragoza y desde el resto de España`);
     // La pregunta la hace el cliente: «mi consola», nunca «tu consola» (revisión de textos, 2026-11-24).
     const faq = await texto(p, "#compramos-preguntas");
-    ok(/¿Cuánto me dais por mi consola\?/.test(faq) && !/por tu consola/.test(faq) && /Bizum o en efectivo/.test(faq), `CMP (${nombre}): las preguntas frecuentes`);
+    ok(/¿Cuánto me dais por mi consola\?/.test(faq) && !/por tu consola/.test(faq) && /Bizum o en efectivo/.test(faq) && /¿Dónde vender mi consola en Zaragoza\? Aquí: te la compramos/.test(faq) && /¿Puedo vender mi consola online desde otra ciudad\?/.test(faq), `CMP (${nombre}): las preguntas frecuentes, con «¿Dónde vender mi consola en Zaragoza?» y «online desde otra ciudad»`);
     const enlaces = await p.evaluate(() => Array.from(document.querySelectorAll("#compramos-otras a")).map((a) => a.getAttribute("href")).sort().join(","));
     ok(enlaces === "/compramos/moviles,/compramos/pc,/compramos/portatiles,/compramos/tablets", `CMP (${nombre}): enlaces de verdad a las otras 4 (${enlaces})`);
     if (nombre === "1280") {
@@ -18101,7 +18133,7 @@ async function seccionCMP() {
     const p = await pagina(ctx, "/compramos/moviles");
     await p.locator("#compramos-h1").waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(800);
-    ok((await texto(p, "#compramos-h1")) === "Compramos tu móvil en Zaragoza" && /^Compramos tu móvil en Zaragoza/.test(await p.title()) && /¿Cuánto me dais por mi móvil\?/.test(await texto(p, "#compramos-preguntas")), `CMP: /compramos/moviles con su título y sus preguntas`);
+    ok((await texto(p, "#compramos-h1")) === "Compramos tu móvil en Zaragoza" && /^Vende tu móvil: iPhone y Android/.test(await p.title()) && /¿Cuánto me dais por mi móvil\?/.test(await texto(p, "#compramos-preguntas")) && /¿Dónde vender mi móvil en Zaragoza\? Aquí: te lo compramos/.test(await texto(p, "#compramos-preguntas")), `CMP: /compramos/moviles con su título y sus preguntas («te lo compramos»)`);
     await capturar(p, "CMP-moviles-390");
     ok(p.errores.length === 0, `CMP: /compramos/moviles sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     // El fundido de Inicio al bajar (2026-11-25): «Preguntas frecuentes» empieza invisible y aparece al llegar a ella; lo

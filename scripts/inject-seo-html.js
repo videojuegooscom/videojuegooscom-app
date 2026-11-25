@@ -108,9 +108,22 @@ async function fetchSiteSettings() {
   };
 }
 
+// Páginas con cabecera propia (las «Compramos tu…», 2026-11-25: app/_layout.tsx escribe su título, descripción,
+// dirección oficial y datos estructurados y añade <meta name="vz-cabecera" content="propia">): aquí no se les pone
+// encima el título ni la descripción de Marca y SEO, y se quitan los genéricos de app/+html.tsx (los que no llevan
+// data-rh), para que no haya dos descripciones. El logo sí se aplica igual.
+const CABECERA_PROPIA_RE = /<meta[^>]*name="vz-cabecera"[^>]*content="propia"[^>]*>/;
+function quitarGenericas(html) {
+  return html.replace(/<meta (?:name="description"|property="og:title"|property="og:description")[^>]*>/g, (tag) => (/data-rh/.test(tag) ? tag : ""));
+}
+
 function applyToHtml(html, settings) {
   let out = html;
-  const { title, description, logoUrl } = settings;
+  const propia = CABECERA_PROPIA_RE.test(out);
+  if (propia) out = quitarGenericas(out);
+  const { logoUrl } = settings;
+  const title = propia ? "" : settings.title;
+  const description = propia ? "" : settings.description;
 
   if (title) {
     const safeTitle = escapeHtml(title);
@@ -193,4 +206,6 @@ async function main() {
   }
 }
 
-main();
+// Las pruebas (pruebas/perfil-datos.mjs, sección CMP) usan applyToHtml sin tocar dist/ ni Supabase.
+if (require.main === module) main();
+else module.exports = { applyToHtml };
