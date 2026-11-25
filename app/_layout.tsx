@@ -159,6 +159,11 @@ function hayTextoEscrito(): boolean {
   return false;
 }
 
+// Título y descripción generales del HTML ya generado (páginas sin los suyos). Al arrancar, EtiquetasCabeceraWeb pone
+// los de «Marca y SEO» y los de cada página.
+const SEO_TITULO_GENERAL = "Videojuegoszaragoza.com";
+const SEO_DESCRIPCION_GENERAL = "Compramos tu electrónica al mejor precio o la intercambiamos. Mantenimiento y reparaciones.";
+
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts(Ionicons.font);
   const [fontTimedOut, setFontTimedOut] = useState(false);
@@ -394,17 +399,21 @@ export default function RootLayout() {
     // Páginas «Compramos» (2026-11-25): además, su propio título, descripción, dirección oficial y datos
     // estructurados, y su texto debajo de la pantalla de carga, para que Google los lea sin esperar a la tienda.
     // La marca «vz-cabecera: propia» le dice a scripts/inject-seo-html.js que no ponga encima los de «Marca y SEO».
+    // Una sola descripción por página (2026-11-25): la general ya no va en app/+html.tsx, va aquí si la página no
+    // tiene la suya (salían dos en las «Compramos»).
     const tipoCompramos = tipoCompramosDeRuta(pathname);
     const cab = tipoCompramos ? cabeceraDeRuta(pathname) : null;
     const direccion = tipoCompramos ? `https://videojuegoszaragoza.com/compramos/${tipoCompramos}` : null;
+    const titulo = cab?.titulo ?? SEO_TITULO_GENERAL;
+    const descripcion = cab?.descripcion ?? SEO_DESCRIPCION_GENERAL;
     return (
       <View style={{ flex: 1 }}>
         <Head>
-          <title>{cab?.titulo ?? "Videojuegoszaragoza.com"}</title>
+          <title>{titulo}</title>
           {cab && direccion ? <meta name="vz-cabecera" content="propia" /> : null}
-          {cab?.descripcion ? <meta name="description" content={cab.descripcion} /> : null}
-          {cab ? <meta property="og:title" content={cab.titulo} /> : null}
-          {cab?.descripcion ? <meta property="og:description" content={cab.descripcion} /> : null}
+          <meta name="description" content={descripcion} />
+          <meta property="og:title" content={titulo} />
+          <meta property="og:description" content={descripcion} />
           {direccion ? <meta property="og:url" content={direccion} /> : null}
           {direccion ? <link rel="canonical" href={direccion} /> : null}
           {tipoCompramos ? <script type="application/ld+json">{jsonSeguro(datosEstructuradosCompramos(tipoCompramos))}</script> : null}

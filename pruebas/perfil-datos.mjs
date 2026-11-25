@@ -17983,6 +17983,10 @@ async function seccionSEOH() {
     await p.waitForTimeout(1500);
     const h1 = await p.evaluate(() => Array.from(document.querySelectorAll("h1")).map((e) => (e.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 50)));
     ok(h1.length === 1, `SEOH: ${ruta} tiene un solo H1 (${h1.length}: ${h1.join(" | ")})`);
+    // Con la tienda ya arrancada, una sola descripción y un solo og:title (2026-11-25: el HTML generado ya no trae la
+    // general dos veces y la de <Head> se quita sola).
+    const etiquetas = await p.evaluate(() => ({ d: document.querySelectorAll('meta[name="description"]').length, o: document.querySelectorAll('meta[property="og:title"]').length }));
+    ok(etiquetas.d === 1 && etiquetas.o === 1, `SEOH: ${ruta} con una sola descripción y un solo og:title (${JSON.stringify(etiquetas)})`);
     if (/^\/(producto|servicio)\//.test(ruta)) {
       const cab = await p.evaluate(() => ({
         titulo: document.title,
@@ -18009,6 +18013,11 @@ async function seccionCMP() {
   // pone encima los de Marca y SEO, pero sí al resto de páginas.
   {
     const html = readFileSync(join(raiz, "compramos/consolas.html"), "utf8");
+    // Tal cual sale de la exportación (sin scripts/inject-seo-html.js, que en Vercel no llega a aplicarse): UNA sola
+    // descripción por página, la suya en «Compramos» y la general en las demás (2026-11-25: salían dos).
+    const desc = (h) => h.match(/<meta[^>]*name="description"[^>]*>/g) ?? [];
+    const htmlVender = readFileSync(join(raiz, "vender.html"), "utf8");
+    ok(desc(html).length === 1 && /¿Quieres vender tu consola\?/.test(desc(html)[0]) && desc(htmlVender).length === 1 && /Compramos tu electrónica/.test(desc(htmlVender)[0]) && (htmlVender.match(/<meta[^>]*property="og:title"[^>]*>/g) ?? []).length === 1, `CMP: una sola descripción en el HTML generado (Compramos: la suya; Vender: la general) (${desc(html).length}/${desc(htmlVender).length})`);
     const { applyToHtml } = createRequire(import.meta.url)("../scripts/inject-seo-html.js");
     const tras = applyToHtml(html, { title: "TITULO GENERAL", description: "DESCRIPCION GENERAL", logoUrl: "" });
     const descripciones = tras.match(/<meta[^>]*name="description"[^>]*>/g) ?? [];

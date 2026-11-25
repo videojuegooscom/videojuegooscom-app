@@ -28,8 +28,6 @@ import { ScrollViewStyleReset } from "expo-router/html";
 import type { PropsWithChildren } from "react";
 
 const SUPABASE_ORIGIN = "https://rgvyvaineyodyxzwootl.supabase.co";
-const SEO_TITULO = "Videojuegoszaragoza.com";
-const SEO_DESCRIPCION = "Compramos tu electrónica al mejor precio o la intercambiamos. Mantenimiento y reparaciones.";
 // Scroll en el móvil (se suma a ScrollViewStyleReset, que ya fija html/body/#root al 100 %
 // y deja body con overflow:hidden para que solo se desplacen los ScrollView de la app):
 // - overscroll-behavior-y:none → la página entera no rebota ni hace "tirar para recargar"
@@ -157,14 +155,13 @@ export default function Root({ children }: PropsWithChildren) {
           content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
         />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
-        {/* Título y descripción por defecto ya escritos en el HTML (lo que ven Google en su primera
-            pasada y WhatsApp/Facebook, que no ejecutan JavaScript). Si «Marca y SEO» tiene otros
-            textos, scripts/inject-seo-html.js y EtiquetasCabeceraWeb los sustituyen. */}
-        <meta name="description" content={SEO_DESCRIPCION} />
+        {/* El título, la descripción y og:title / og:description ya escritos en el HTML los pone app/_layout.tsx (con
+            <Head>), una sola vez por página: los de la propia página («Compramos», 2026-11-25) o, si no tiene, los
+            generales (SEO_TITULO_GENERAL / SEO_DESCRIPCION_GENERAL de app/_layout.tsx). Aquí ya no van: salían dos
+            descripciones. Al
+            arrancar, EtiquetasCabeceraWeb pone los de «Marca y SEO» y los de cada página. */}
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="VideojuegosZaragoza" />
-        <meta property="og:title" content={SEO_TITULO} />
-        <meta property="og:description" content={SEO_DESCRIPCION} />
         <meta property="og:image" content="https://videojuegoszaragoza.com/icono-512.png" />
         <meta property="og:locale" content="es_ES" />
         <meta name="twitter:card" content="summary" />
