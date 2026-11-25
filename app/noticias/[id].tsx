@@ -164,7 +164,8 @@ function ponerCabecera(n: NoticiaPagina): () => void {
   const descripcion = recortar(n.resumen || n.titulo);
   const imagen = n.fotos[0] ?? `${DOMINIO}/icono-512.png`;
   const meta = (attr: "name" | "property", clave: string) =>
-    document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${clave}"]`)?.getAttribute("content") ?? null;
+    // Sin las del HTML ya generado (data-rh), que se quitan solas al arrancar la tienda.
+    document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${clave}"]:not([data-rh])`)?.getAttribute("content") ?? null;
   const antes = {
     titulo: document.title,
     descripcion: meta("name", "description"),

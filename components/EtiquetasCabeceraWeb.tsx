@@ -125,6 +125,7 @@ type Ajustes = { title: string; description: string; logoUrl: string };
 // «?…» detrás, y así Google sabe cuál es la buena y no las cuenta como copias.
 const DOMINIO = "https://videojuegoszaragoza.com";
 const MARCA = "Videojuegoszaragoza.com";
+const DESCRIPCION_GENERAL = "Compramos tu electrónica al mejor precio o la intercambiamos. Mantenimiento y reparaciones.";
 
 // Cada noticia (app/noticias/[id].tsx) pone su propio título, descripción, og:* y datos estructurados al cargarse: aquí
 // solo se pone su dirección oficial, para no pisarle el título cuando «Marca y SEO» llega después.
@@ -148,7 +149,7 @@ export function ponerCabeceraFicha(f: { ruta: string; titulo: string; descripcio
   const direccion = `${DOMINIO}${f.ruta}`;
   const titulo = `${f.titulo} | ${MARCA}`;
   const descripcion = recortarTexto(f.descripcion);
-  const meta = (attr: "name" | "property", clave: string) => document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${clave}"]`)?.getAttribute("content") ?? null;
+  const meta = (attr: "name" | "property", clave: string) => document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${clave}"]:not([data-rh])`)?.getAttribute("content") ?? null;
   const antes = { titulo: document.title, descripcion: meta("name", "description"), ogTitle: meta("property", "og:title"), ogDescription: meta("property", "og:description"), ogImage: meta("property", "og:image") };
   document.title = titulo;
   ponerEtiquetaMeta("name", "description", descripcion);
@@ -166,10 +167,12 @@ export function ponerCabeceraFicha(f: { ruta: string; titulo: string; descripcio
   };
 }
 
+// Las etiquetas del HTML ya generado que pone app/_layout.tsx con <Head> (data-rh) se quitan solas cuando la tienda
+// arranca: aquí no se reutilizan (se perdería lo escrito), se usa o se crea una propia (2026-11-25).
 export function ponerEtiquetaMeta(attr: "name" | "property", key: string, content: string) {
   if (typeof document === "undefined") return;
 
-  let el = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`);
+  let el = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]:not([data-rh])`);
   if (!el) {
     el = document.createElement("meta");
     el.setAttribute(attr, key);
@@ -181,7 +184,7 @@ export function ponerEtiquetaMeta(attr: "name" | "property", key: string, conten
 export function ponerEnlaceCabecera(rel: string, href: string) {
   if (typeof document === "undefined") return;
 
-  let el = document.head.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
+  let el = document.head.querySelector<HTMLLinkElement>(`link[rel="${rel}"]:not([data-rh])`);
   if (!el) {
     el = document.createElement("link");
     el.setAttribute("rel", rel);
@@ -242,10 +245,11 @@ export default function EtiquetasCabeceraWeb() {
     ponerEtiquetaMeta("property", "og:url", `${DOMINIO}${ruta === "/" ? "/" : ruta}`);
     if (RUTAS_CON_CABECERA_PROPIA.test(ruta)) return;
     const pagina = PAGINAS[ruta];
-    if (!pagina && !ajustes) return;
     const marca = ajustes?.title || MARCA;
     const titulo = pagina ? `${pagina.titulo} | ${marca}` : marca;
-    const descripcion = pagina?.descripcion ?? ajustes?.description;
+    // Sin la suya ni «Marca y SEO» (aún cargando o sin respuesta), la general: el HTML generado ya no la trae fija
+    // (2026-11-25) y la de <Head> se quita al arrancar, así que siempre hay una.
+    const descripcion = pagina?.descripcion || ajustes?.description || DESCRIPCION_GENERAL;
 
     if (titulo) {
       document.title = titulo;
