@@ -84,7 +84,7 @@ import { BarraComparar } from "../components/CarruselProductosCategoria";
 import AvisoAnaliticaCookies from "../components/AvisoAnaliticaCookies";
 import EfectoPensando from "../components/EfectoPensando";
 import { PerfilObligatorio } from "../components/PerfilPublico";
-import EtiquetasCabeceraWeb, { cabeceraDeRuta } from "../components/EtiquetasCabeceraWeb";
+import EtiquetasCabeceraWeb, { DESCRIPCION_GENERAL, cabeceraDeRuta } from "../components/EtiquetasCabeceraWeb";
 import { VistaEstaticaCompramos, datosEstructuradosCompramos, jsonSeguro, tipoCompramosDeRuta } from "./compramos/[tipo]";
 import TirarParaActualizar from "../components/TirarParaActualizar";
 import { medirLlegadaDesdeRedes, medirEvento } from "../lib/analiticaPropia";
@@ -159,10 +159,10 @@ function hayTextoEscrito(): boolean {
   return false;
 }
 
-// Título y descripción generales del HTML ya generado (páginas sin los suyos). Al arrancar, EtiquetasCabeceraWeb pone
-// los de «Marca y SEO» y los de cada página.
+// Título y descripción generales del HTML ya generado (páginas sin los suyos), los mismos que «Marca y SEO». Al arrancar,
+// EtiquetasCabeceraWeb pone los de «Marca y SEO» y los de cada página.
 const SEO_TITULO_GENERAL = "Videojuegoszaragoza.com";
-const SEO_DESCRIPCION_GENERAL = "Compramos tu electrónica al mejor precio o la intercambiamos. Mantenimiento y reparaciones.";
+const SEO_DESCRIPCION_GENERAL = DESCRIPCION_GENERAL;
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts(Ionicons.font);

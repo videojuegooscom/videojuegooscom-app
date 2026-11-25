@@ -18017,7 +18017,7 @@ async function seccionCMP() {
     // descripción por página, la suya en «Compramos» y la general en las demás (2026-11-25: salían dos).
     const desc = (h) => h.match(/<meta[^>]*name="description"[^>]*>/g) ?? [];
     const htmlVender = readFileSync(join(raiz, "vender.html"), "utf8");
-    ok(desc(html).length === 1 && /¿Quieres vender tu consola\?/.test(desc(html)[0]) && desc(htmlVender).length === 1 && /Compramos tu electrónica/.test(desc(htmlVender)[0]) && (htmlVender.match(/<meta[^>]*property="og:title"[^>]*>/g) ?? []).length === 1, `CMP: una sola descripción en el HTML generado (Compramos: la suya; Vender: la general) (${desc(html).length}/${desc(htmlVender).length})`);
+    ok(desc(html).length === 1 && /¿Quieres vender tu consola\?/.test(desc(html)[0]) && desc(htmlVender).length === 1 && /Compramos tu consola, móvil u ordenador en Zaragoza/.test(desc(htmlVender)[0]) && (htmlVender.match(/<meta[^>]*property="og:title"[^>]*>/g) ?? []).length === 1, `CMP: una sola descripción en el HTML generado (Compramos: la suya; Vender: la general) (${desc(html).length}/${desc(htmlVender).length})`);
     const { applyToHtml } = createRequire(import.meta.url)("../scripts/inject-seo-html.js");
     const tras = applyToHtml(html, { title: "TITULO GENERAL", description: "DESCRIPCION GENERAL", logoUrl: "" });
     const descripciones = tras.match(/<meta[^>]*name="description"[^>]*>/g) ?? [];

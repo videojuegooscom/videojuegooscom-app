@@ -201,11 +201,6 @@ async function main() {
     }
 
     console.log(`[inject-seo-html] Título/descripción de Marca y SEO aplicados en ${changed}/${files.length} archivos HTML.`);
-    const vender = path.join(DIST_DIR, "vender.html");
-    if (fs.existsSync(vender)) {
-      const cabeza = fs.readFileSync(vender, "utf8").split("</head>")[0];
-      console.log("[inject-seo-html] vender.html:", (cabeza.match(/<meta[^>]*name="description"[^>]*>/g) || []).join(" "), "| desc Marca:", settings.description.length, "| logo:", settings.logoUrl.slice(0, 40));
-    }
   } catch (e) {
     console.warn("[inject-seo-html] Error inesperado, se deja el HTML tal cual:", e && e.message ? e.message : e);
   }

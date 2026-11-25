@@ -125,7 +125,9 @@ type Ajustes = { title: string; description: string; logoUrl: string };
 // «?…» detrás, y así Google sabe cuál es la buena y no las cuenta como copias.
 const DOMINIO = "https://videojuegoszaragoza.com";
 const MARCA = "Videojuegoszaragoza.com";
-const DESCRIPCION_GENERAL = "Compramos tu electrónica al mejor precio o la intercambiamos. Mantenimiento y reparaciones.";
+// La misma que «Marca y SEO» (2026-11-25): app/_layout.tsx la escribe en el HTML ya generado, porque Vercel no publica lo
+// que scripts/inject-seo-html.js cambia en dist/. Si el dueño cambia la de Marca y SEO, se cambia también aquí.
+export const DESCRIPCION_GENERAL = "Compramos tu consola, móvil u ordenador en Zaragoza y toda España: precio en menos de 1 hora y pago al momento. Venta y reparación de electrónica.";
 
 // Cada noticia (app/noticias/[id].tsx) pone su propio título, descripción, og:* y datos estructurados al cargarse: aquí
 // solo se pone su dirección oficial, para no pisarle el título cuando «Marca y SEO» llega después.
