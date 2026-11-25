@@ -84,7 +84,8 @@ import { BarraComparar } from "../components/CarruselProductosCategoria";
 import AvisoAnaliticaCookies from "../components/AvisoAnaliticaCookies";
 import EfectoPensando from "../components/EfectoPensando";
 import { PerfilObligatorio } from "../components/PerfilPublico";
-import EtiquetasCabeceraWeb from "../components/EtiquetasCabeceraWeb";
+import EtiquetasCabeceraWeb, { cabeceraDeRuta } from "../components/EtiquetasCabeceraWeb";
+import { VistaEstaticaCompramos, datosEstructuradosCompramos, jsonSeguro, tipoCompramosDeRuta } from "./compramos/[tipo]";
 import TirarParaActualizar from "../components/TirarParaActualizar";
 import { medirLlegadaDesdeRedes, medirEvento } from "../lib/analiticaPropia";
 import { alIncidenciaDeSesion, registrarDispositivo, supabase } from "../lib/supabase";
@@ -390,11 +391,25 @@ export default function RootLayout() {
     // tienda para que el <title> no salga vacío para Google y los lectores de enlaces. Cuando
     // la tienda arranca, EtiquetasCabeceraWeb pone el título de «Marca y SEO» y el de cada página.
     // (La misma estructura que la de abajo: la bienvenida no se vuelve a montar al entrar.)
+    // Páginas «Compramos» (2026-11-25): además, su propio título, descripción, dirección oficial y datos
+    // estructurados, y su texto debajo de la pantalla de carga, para que Google los lea sin esperar a la tienda.
+    // La marca «vz-cabecera: propia» le dice a scripts/inject-seo-html.js que no ponga encima los de «Marca y SEO».
+    const tipoCompramos = tipoCompramosDeRuta(pathname);
+    const cab = tipoCompramos ? cabeceraDeRuta(pathname) : null;
+    const direccion = tipoCompramos ? `https://videojuegoszaragoza.com/compramos/${tipoCompramos}` : null;
     return (
       <View style={{ flex: 1 }}>
         <Head>
-          <title>Videojuegoszaragoza.com</title>
+          <title>{cab?.titulo ?? "Videojuegoszaragoza.com"}</title>
+          {cab && direccion ? <meta name="vz-cabecera" content="propia" /> : null}
+          {cab?.descripcion ? <meta name="description" content={cab.descripcion} /> : null}
+          {cab ? <meta property="og:title" content={cab.titulo} /> : null}
+          {cab?.descripcion ? <meta property="og:description" content={cab.descripcion} /> : null}
+          {direccion ? <meta property="og:url" content={direccion} /> : null}
+          {direccion ? <link rel="canonical" href={direccion} /> : null}
+          {tipoCompramos ? <script type="application/ld+json">{jsonSeguro(datosEstructuradosCompramos(tipoCompramos))}</script> : null}
         </Head>
+        {tipoCompramos ? <VistaEstaticaCompramos tipo={tipoCompramos} /> : null}
         {capaBienvenida}
       </View>
     );

@@ -68,26 +68,27 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   "/servicios": { titulo: "Servicios de reparación y mantenimiento", descripcion: "Reparación, limpieza y mantenimiento de consolas y dispositivos." },
   "/vender": { titulo: "Vender mi artículo", descripcion: "Vende o intercambia tu consola o dispositivo: cuéntanos qué tienes y te damos un precio." },
   "/blog": { titulo: "Blog", descripcion: "Novedades y artículos de la tienda." },
-  // «Compramos tu…» (app/compramos/[tipo].tsx, 2026-11-24): «Zaragoza» en el título, sin repetirlo de más.
+  // «Compramos tu…» (app/compramos/[tipo].tsx, 2026-11-24). Desde el 2026-11-25, con las palabras que busca la gente
+  // («vender mi consola», «vender consola online»): «Vende tu…» delante, Zaragoza y toda España, sin repetir de más.
   "/compramos/consolas": {
-    titulo: "Compramos tu consola en Zaragoza: PS5, Switch y Xbox",
-    descripcion: "Vende tu PlayStation, Nintendo Switch o Xbox en Zaragoza: precio en menos de 1 hora, recogida en menos de 2 horas y pago al momento por Bizum o en efectivo. Envío gratis desde toda España.",
+    titulo: "Vende tu consola: PS5, Switch y Xbox · Zaragoza y toda España",
+    descripcion: "¿Quieres vender tu consola? Te compramos tu PS5, Nintendo Switch o Xbox: precio en menos de 1 hora y pago al momento por Bizum o en efectivo. Recogida en Zaragoza o envío gratis.",
   },
   "/compramos/moviles": {
-    titulo: "Compramos tu móvil en Zaragoza: iPhone y Android",
-    descripcion: "Vende tu iPhone, Samsung, Xiaomi o Pixel en Zaragoza: precio en menos de 1 hora, recogida en menos de 2 horas y pago al momento por Bizum o en efectivo. Envío gratis desde toda España.",
+    titulo: "Vende tu móvil: iPhone y Android · Zaragoza y toda España",
+    descripcion: "¿Quieres vender tu móvil? Te compramos tu iPhone, Samsung, Xiaomi o Pixel, también averiado: precio en menos de 1 hora y pago al momento. Recogida en Zaragoza o envío gratis.",
   },
   "/compramos/portatiles": {
-    titulo: "Compramos tu portátil o MacBook en Zaragoza",
-    descripcion: "Vende tu MacBook, portátil gaming o portátil Windows en Zaragoza: precio en menos de 1 hora, recogida en menos de 2 horas y pago al momento. Envío gratis desde toda España.",
+    titulo: "Vende tu portátil o MacBook · Zaragoza y toda España",
+    descripcion: "¿Quieres vender tu portátil? Te compramos tu MacBook, portátil gaming o Windows: precio en menos de 1 hora y pago al momento por Bizum o en efectivo. Recogida en Zaragoza o envío gratis.",
   },
   "/compramos/pc": {
-    titulo: "Compramos tu PC, gráfica o monitor en Zaragoza",
-    descripcion: "Vende tu PC gaming, tarjeta gráfica, monitor o periféricos en Zaragoza: precio en menos de 1 hora, recogida en menos de 2 horas y pago al momento. Envío gratis desde toda España.",
+    titulo: "Vende tu PC, gráfica o monitor · Zaragoza y toda España",
+    descripcion: "¿Quieres vender tu PC? Te compramos tu PC gaming, tarjeta gráfica, monitor o periféricos: precio en menos de 1 hora y pago al momento. Recogida en Zaragoza o envío gratis.",
   },
   "/compramos/tablets": {
-    titulo: "Compramos tu iPad o tablet en Zaragoza",
-    descripcion: "Vende tu iPad o tu tablet Android en Zaragoza: precio en menos de 1 hora, recogida en menos de 2 horas y pago al momento por Bizum o en efectivo. Envío gratis desde toda España.",
+    titulo: "Vende tu iPad o tablet · Zaragoza y toda España",
+    descripcion: "¿Quieres vender tu iPad o tu tablet? Te la compramos: precio en menos de 1 hora y pago al momento por Bizum o en efectivo. Recogida en Zaragoza o envío gratis desde toda España.",
   },
   // «Comparar 2-3 productos» (mejora 8, 2026-11-14): el enlace con ?ids= se comparte; la dirección oficial va sin ellos.
   "/comparar": { titulo: "Comparar productos", descripcion: "Compara hasta 3 consolas, móviles o accesorios: precio, estado, categoría y entrega estimada." },
@@ -108,6 +109,15 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   "/politicas/terminos": { titulo: "Términos y condiciones" },
   "/politicas/normas-foro": { titulo: "Normas del Foro", descripcion: "Cómo participar en el Foro y en los comentarios de las noticias." },
 };
+
+/**
+ * Título (con la marca) y descripción propios de una página pública, o null. Lo usa también app/_layout.tsx para
+ * escribirlos ya en el HTML que se genera al publicar (páginas «Compramos», 2026-11-25).
+ */
+export function cabeceraDeRuta(ruta: string): { titulo: string; descripcion: string | null } | null {
+  const p = PAGINAS[ruta.replace(/\/+$/, "") || "/"];
+  return p ? { titulo: `${p.titulo} | ${MARCA}`, descripcion: p.descripcion ?? null } : null;
+}
 
 type Ajustes = { title: string; description: string; logoUrl: string };
 
