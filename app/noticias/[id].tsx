@@ -40,6 +40,7 @@
 import React, { useEffect, useState } from "react";
 import { Linking, Platform, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
 import { Link, router, useLocalSearchParams, type Href } from "expo-router";
+import { useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { medirNoticiaDesdeBuscador, medirEvento } from "../../lib/analiticaPropia";
@@ -291,6 +292,7 @@ export default function NoticiaScreen() {
   const ancho = width > 0 ? width : 1024;
   const isMobile = ancho < 700;
   const pagePadding = isMobile ? 16 : 24;
+  const progresoScroll = useProgresoDesplazamiento();
 
   const params = useLocalSearchParams<{ id?: string }>();
   const id = typeof params.id === "string" ? params.id : "";
@@ -390,6 +392,7 @@ export default function NoticiaScreen() {
         </View>
       ) : (
         <ScrollView
+          {...progresoScroll.propsScroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: pagePadding, paddingTop: 18, paddingBottom: 96, alignItems: "center" }}
         >
@@ -511,6 +514,8 @@ export default function NoticiaScreen() {
           </View>
         </ScrollView>
       )}
+      {/* Barra fina de progreso a la izquierda (páginas largas, 2026-11-25). Solo sale si la noticia es larga. */}
+      {progresoScroll.barra}
     </View>
   );
 }

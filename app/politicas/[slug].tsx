@@ -56,6 +56,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
+import { useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
 import { supabase } from "../../lib/supabase";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import { useRecarga } from "../../components/TirarParaActualizar";
@@ -351,6 +352,7 @@ export default function PoliticaScreen() {
   const widthSafe = width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 16 : 24;
+  const progresoScroll = useProgresoDesplazamiento();
 
   const params = useLocalSearchParams<{ slug?: string }>();
   const slug = typeof params.slug === "string" ? params.slug : "";
@@ -416,6 +418,7 @@ export default function PoliticaScreen() {
         </View>
       ) : (
         <ScrollView
+          {...progresoScroll.propsScroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             paddingHorizontal: pagePadding,
@@ -454,6 +457,8 @@ export default function PoliticaScreen() {
           </View>
         </ScrollView>
       )}
+      {/* Barra fina de progreso a la izquierda (páginas largas, 2026-11-25). */}
+      {loading ? null : progresoScroll.barra}
     </View>
   );
 }

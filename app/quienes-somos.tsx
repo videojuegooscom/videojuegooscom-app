@@ -38,6 +38,7 @@ import { Pressable, ScrollView, StatusBar, Text, useWindowDimensions, View } fro
 import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import CabeceraMarca from "../components/CabeceraMarca";
+import { useProgresoDesplazamiento } from "../components/DesplazamientoSuave";
 import { medirEvento } from "../lib/analiticaPropia";
 
 const COLORS = {
@@ -241,6 +242,7 @@ export default function QuienesSomosScreen() {
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 16 : 24;
   const cols = (n: number) => (isMobile ? 1 : n);
+  const progresoScroll = useProgresoDesplazamiento();
 
   // Analítica propia (Administración → Analítica): cuántas sesiones ven la página (y, aparte, desde dónde llegan).
   useEffect(() => {
@@ -251,6 +253,7 @@ export default function QuienesSomosScreen() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
       <ScrollView
+        {...progresoScroll.propsScroll}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingHorizontal: pagePadding,
@@ -377,6 +380,8 @@ export default function QuienesSomosScreen() {
           </Seccion>
         </View>
       </ScrollView>
+      {/* Barra fina de progreso a la izquierda (páginas largas, 2026-11-25). */}
+      {progresoScroll.barra}
     </View>
   );
 }

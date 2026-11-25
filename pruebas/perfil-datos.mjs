@@ -18035,6 +18035,37 @@ async function seccionCMP() {
     const sellos = await texto(p, "#compramos-sellos");
     ok(/Precio en menos de 1 hora/.test(sellos) && /menos de 2 horas/.test(sellos) && /Envío gratis/.test(sellos) && /Bizum o efectivo/.test(sellos), `CMP (${nombre}): los 4 sellos («${sellos}»)`);
     ok(/PlayStation 5 y PS5 Pro/.test(await texto(p, "#compramos-modelos")) && /Consolas retro/.test(await texto(p, "#compramos-modelos")), `CMP (${nombre}): los modelos que compramos`);
+    // Todo centrado (dueño, 2026-11-25), como «Quiénes somos».
+    const centrado = await p.evaluate(() => {
+      const al = (el) => (el ? getComputedStyle(el).textAlign : "");
+      const h3 = document.querySelector("#compramos-modelos [aria-level='3']");
+      const paso = document.querySelector("#compramos-zaragoza [aria-level='3']");
+      const faq = document.querySelector("#compramos-preguntas [aria-level='3']");
+      const h1 = document.getElementById("compramos-h1");
+      // Los dos botones (uno debajo del otro en el móvil, juntos en el ordenador) quedan centrados como pareja.
+      const v = document.getElementById("compramos-vender")?.getBoundingClientRect();
+      const hb = document.getElementById("compramos-hablar")?.getBoundingClientRect();
+      const col = h1?.parentElement?.getBoundingClientRect();
+      const centroPareja = v && hb ? (Math.min(v.left, hb.left) + Math.max(v.right, hb.right)) / 2 : 0;
+      return { h1: al(h1), modelo: al(h3), paso: al(paso), faq: al(faq), botonCentrado: !!col && Math.abs(centroPareja - (col.left + col.width / 2)) < 8 };
+    });
+    ok(centrado.h1 === "center" && centrado.modelo === "center" && centrado.paso === "center" && centrado.faq === "center" && centrado.botonCentrado, `CMP (${nombre}): textos y botones centrados (${JSON.stringify(centrado)})`);
+    // Barra fina de progreso a la izquierda (2026-11-25): sale en la página larga y avanza al bajar.
+    const barra = await p.evaluate(async () => {
+      const b = document.getElementById("barra-progreso");
+      const desl = Array.from(document.querySelectorAll("div")).find((d) => d.scrollHeight > d.clientHeight + 400 && /(auto|scroll)/.test(getComputedStyle(d).overflowY));
+      if (!b || !desl) return { hay: !!b, desl: !!desl };
+      desl.scrollTop = (desl.scrollHeight - desl.clientHeight) / 2;
+      desl.dispatchEvent(new Event("scroll"));
+      await new Promise((r) => setTimeout(r, 300));
+      const r = b.getBoundingClientRect();
+      const hecho = document.getElementById("barra-progreso-hecho").getBoundingClientRect();
+      const res = { hay: true, ancho: Math.round(r.width), izq: Math.round(r.left), mitad: Math.round((hecho.height / r.height) * 100), toca: getComputedStyle(b).pointerEvents };
+      desl.scrollTop = 0;
+      desl.dispatchEvent(new Event("scroll"));
+      return res;
+    });
+    ok(barra.hay && barra.ancho === 3 && barra.izq === 0 && barra.mitad >= 40 && barra.mitad <= 60 && barra.toca === "none", `CMP (${nombre}): la barra de progreso a la izquierda avanza al bajar (${JSON.stringify(barra)})`);
     ok(/Cuarte de Huerva/.test(await texto(p, "#compramos-zaragoza")) && /en menos de 2 horas/.test(await texto(p, "#compramos-zaragoza")) && /Etiqueta gratis/.test(await texto(p, "#compramos-espana")) && /te lo devolvemos gratis/.test(await texto(p, "#compramos-espana")), `CMP (${nombre}): «Cómo funciona» en Zaragoza y desde el resto de España`);
     // La pregunta la hace el cliente: «mi consola», nunca «tu consola» (revisión de textos, 2026-11-24).
     const faq = await texto(p, "#compramos-preguntas");
