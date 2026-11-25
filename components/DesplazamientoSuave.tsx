@@ -1,7 +1,9 @@
 /**
  * Archivo: components/DesplazamientoSuave.tsx
  * Función: piezas comunes del desplazamiento de la tienda: AparecerAlVer (cada apartado aparece con un fundido suave al
- *          entrar en pantalla) y BotonVolverArriba (flecha flotante para subir, que sale tras bajar bastante).
+ *          entrar en pantalla), BotonVolverArriba (flecha flotante para subir, que sale tras bajar bastante) y
+ *          useProgresoDesplazamiento (barra fina de progreso a la izquierda en las páginas largas: Compramos, Quiénes
+ *          somos, Políticas y Noticias).
  * Para qué sirve: que bajar por la tienda se sienta moderno y cuidado en todas las pantallas largas (dueño, 2026-11-19:
  *          «que se sienta futurista y moderno, como si lo hubiera hecho un diseñador con experiencia»), con las mismas
  *          piezas en todas partes.
@@ -21,8 +23,8 @@
  *   catálogo y Servicios, encima de la flecha «Volver» azul de components/BotonAtrasAlcance.tsx, sin taparla).
  */
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useRef } from "react";
-import { Animated, Platform, Pressable, View, type StyleProp, type ViewStyle } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Animated, Platform, Pressable, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from "react-native";
 
 const SUBIDA_PX = 14;
 const DURACION_MS = 420;
@@ -104,6 +106,62 @@ export function AparecerAlVer({
       {children}
     </View>
   );
+}
+
+/**
+ * Barra de progreso lateral (dueño, 2026-11-25: «en las páginas donde se tenga que scrollear mucho, una barra sutil
+ * lateral izquierda de progreso para que el usuario vaya viendo cuánto le queda»). Fina (3 px), pegada al borde
+ * izquierdo, con el carril casi invisible y lo recorrido en el azul de marca. Solo sale en páginas largas (el contenido
+ * mide más de 1,6 pantallas) y no se puede tocar (no estorba al dedo ni al gesto de «atrás» del iPhone).
+ * Uso: const pr = useProgresoDesplazamiento(); <ScrollView {...pr.propsScroll}> … y {pr.barra} dentro del contenedor de la
+ * pantalla (que ocupa toda la pantalla). Si la pantalla ya usa onScroll/onLayout, llama también a los de pr.
+ */
+export function useProgresoDesplazamiento() {
+  const progreso = useRef(new Animated.Value(0)).current;
+  const medidas = useRef({ alto: 0, contenido: 0 });
+  const [larga, setLarga] = useState(false);
+  const recalcular = useCallback(() => {
+    const { alto, contenido } = medidas.current;
+    setLarga(alto > 0 && contenido > alto * 1.6);
+  }, []);
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      const max = contentSize.height - layoutMeasurement.height;
+      progreso.setValue(max > 0 ? Math.min(1, Math.max(0, contentOffset.y / max)) : 0);
+    },
+    [progreso]
+  );
+  const onLayout = useCallback(
+    (e: LayoutChangeEvent) => {
+      medidas.current.alto = e.nativeEvent.layout.height;
+      recalcular();
+    },
+    [recalcular]
+  );
+  const onContentSizeChange = useCallback(
+    (_w: number, h: number) => {
+      medidas.current.contenido = h;
+      recalcular();
+    },
+    [recalcular]
+  );
+  const barra = larga ? (
+    <View
+      nativeID="barra-progreso"
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      {...({ "aria-hidden": true } as object)}
+      style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, backgroundColor: "rgba(11,33,56,0.06)" }}
+    >
+      <Animated.View
+        nativeID="barra-progreso-hecho"
+        style={{ width: 3, height: progreso.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }), backgroundColor: "#1EA7E8", borderBottomRightRadius: 2 }}
+      />
+    </View>
+  ) : null;
+  return { propsScroll: { onScroll, onLayout, onContentSizeChange, scrollEventThrottle: 16 }, onScroll, onLayout, onContentSizeChange, barra };
 }
 
 /** Flecha flotante «Volver arriba», abajo a la derecha. `abajo`: distancia al borde inferior (encima de la barra de pestañas o de «Comparar»). */

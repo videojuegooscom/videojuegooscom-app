@@ -31,6 +31,7 @@ import { Ionicons } from "@expo/vector-icons";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import PieDePagina from "../../components/PieDePagina";
 import ImagenInteligente from "../../components/ImagenInteligente";
+import { useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
 import CarruselProductosCategoria, { productosDeCategorias, type ProductoEstante } from "../../components/CarruselProductosCategoria";
 import { supabase } from "../../lib/supabase";
 import { marcarOrigenVender, medirEvento } from "../../lib/analiticaPropia";
@@ -237,7 +238,7 @@ function preguntas(p: Pagina): { q: string; a: string }[] {
 
 function H2({ children, nativeID }: { children: string; nativeID?: string }) {
   return (
-    <Text nativeID={nativeID} accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: C.text, fontWeight: "900", fontSize: TAMANOS.titulo2 - 2, lineHeight: 30 }}>
+    <Text nativeID={nativeID} accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: C.text, fontWeight: "900", fontSize: TAMANOS.titulo2 - 2, lineHeight: 30, textAlign: "center" }}>
       {children}
     </Text>
   );
@@ -270,34 +271,31 @@ function Boton({ texto, icono, onPress, principal, nativeID }: { texto: string; 
   );
 }
 
-// Una tarjeta con lista (pasos numerados o marcas de verificación).
+// Una tarjeta con lista (pasos numerados o marcas de verificación), todo centrado como «Quiénes somos» (dueño,
+// 2026-11-25: «centra el texto y botones y todo, siguiendo siempre nuestro diseño»): el icono o el número encima.
 function TarjetaLista({ titulo, subtitulo, icono, filas, numerada, ancho, nativeID }: { titulo: string; subtitulo?: string; icono: IconoNombre; filas: { titulo: string; texto?: string }[]; numerada?: boolean; ancho: `${number}%`; nativeID?: string }) {
   return (
-    <View nativeID={nativeID} style={{ flexGrow: 1, flexShrink: 1, flexBasis: ancho, minWidth: 0, backgroundColor: C.tile, borderRadius: 20, padding: 20, gap: 14 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: C.accentSoft, alignItems: "center", justifyContent: "center" }}>
-          <Ionicons name={icono} size={21} color={C.accent} />
+    <View nativeID={nativeID} style={{ flexGrow: 1, flexShrink: 1, flexBasis: ancho, minWidth: 0, backgroundColor: C.tile, borderRadius: 20, padding: 22, gap: 18, alignItems: "center" }}>
+      <View style={{ alignItems: "center", gap: 8 }}>
+        <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: C.accentSoft, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name={icono} size={22} color={C.accent} />
         </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text accessibilityRole="header" {...({ "aria-level": 3 } as object)} style={{ color: C.text, fontWeight: "900", fontSize: TAMANOS.destacado }}>
-            {titulo}
-          </Text>
-          {subtitulo ? <Text style={{ color: C.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>{subtitulo}</Text> : null}
-        </View>
+        <Text accessibilityRole="header" {...({ "aria-level": 3 } as object)} style={{ color: C.text, fontWeight: "900", fontSize: TAMANOS.destacado, textAlign: "center" }}>
+          {titulo}
+        </Text>
+        {subtitulo ? <Text style={{ color: C.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center", maxWidth: 420 }}>{subtitulo}</Text> : null}
       </View>
       {filas.map((f, i) => (
-        <View key={f.titulo} style={{ flexDirection: "row", gap: 12, alignItems: "flex-start" }}>
+        <View key={f.titulo} style={{ alignItems: "center", gap: 6, maxWidth: 440 }}>
           {numerada ? (
-            <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: C.accent, alignItems: "center", justifyContent: "center", marginTop: 1 }}>
+            <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: C.accent, alignItems: "center", justifyContent: "center" }}>
               <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.minimo }}>{i + 1}</Text>
             </View>
           ) : (
-            <Ionicons name="checkmark-circle" size={22} color={C.accent} style={{ marginTop: 1 }} />
+            <Ionicons name="checkmark-circle" size={22} color={C.accent} />
           )}
-          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-            <Text style={{ color: C.text, fontWeight: f.texto ? "900" : "700", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>{f.titulo}</Text>
-            {f.texto ? <Text style={{ color: C.muted, fontSize: TAMANOS.cuerpo - 1, lineHeight: 20 }}>{f.texto}</Text> : null}
-          </View>
+          <Text style={{ color: C.text, fontWeight: f.texto ? "900" : "700", fontSize: TAMANOS.cuerpo, lineHeight: 21, textAlign: "center" }}>{f.titulo}</Text>
+          {f.texto ? <Text style={{ color: C.muted, fontSize: TAMANOS.cuerpo - 1, lineHeight: 20, textAlign: "center" }}>{f.texto}</Text> : null}
         </View>
       ))}
     </View>
@@ -318,6 +316,7 @@ export default function CompramosScreen() {
   // Fotos propias que pone el dueño en Administración → Google → «Fotos» (site_settings.compramos_fotos, hasta 10).
   const [fotosPropias, setFotosPropias] = useState<string[]>([]);
   const [verFoto, setVerFoto] = useState(0);
+  const progresoScroll = useProgresoDesplazamiento();
 
   // Lo que hay a la venta de este tipo, las fotos propias y, en Consolas, las fotos reales de Categorías.
   useEffect(() => {
@@ -411,24 +410,25 @@ export default function CompramosScreen() {
   ) : null;
 
   const cabeceraTexto = (
-    <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: isMobile ? "100%" : "52%", minWidth: 0, gap: 16, justifyContent: "center" }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+    // Todo centrado, como «Quiénes somos» (dueño, 2026-11-25).
+    <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: isMobile ? "100%" : "52%", minWidth: 0, gap: 16, justifyContent: "center", alignItems: "center" }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
         <Ionicons name={p.icono} size={18} color={C.accentText} />
         <Text style={{ color: C.accentText, fontWeight: "900", fontSize: TAMANOS.minimo, letterSpacing: 1, textTransform: "uppercase" }}>Te lo compramos</Text>
       </View>
-      <Text nativeID="compramos-h1" accessibilityRole="header" {...({ "aria-level": 1 } as object)} style={{ color: C.text, fontWeight: "900", fontSize: isMobile ? 30 : 40, lineHeight: isMobile ? 36 : 47 }}>
+      <Text nativeID="compramos-h1" accessibilityRole="header" {...({ "aria-level": 1 } as object)} style={{ color: C.text, fontWeight: "900", fontSize: isMobile ? 30 : 40, lineHeight: isMobile ? 36 : 47, textAlign: "center" }}>
         {p.h1}
       </Text>
-      <Text style={{ color: C.muted, fontSize: isMobile ? 16 : 18, lineHeight: isMobile ? 24 : 27 }}>{p.lema}</Text>
-      <View nativeID="compramos-sellos" style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+      <Text style={{ color: C.muted, fontSize: isMobile ? 16 : 18, lineHeight: isMobile ? 24 : 27, textAlign: "center", maxWidth: 560 }}>{p.lema}</Text>
+      <View nativeID="compramos-sellos" style={{ width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
         {SELLOS.map((s) => (
-          <View key={s.texto} style={{ flexGrow: 1, flexBasis: "45%", minWidth: 0, flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "flex-start" : "center", gap: isMobile ? 6 : 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: C.tile }}>
+          <View key={s.texto} style={{ flexGrow: 1, flexBasis: "45%", minWidth: 0, alignItems: "center", gap: 6, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 14, backgroundColor: C.tile }}>
             <Ionicons name={s.icono} size={20} color={C.accent} />
-            <Text style={{ flexShrink: 1, color: C.text, fontWeight: "800", fontSize: isMobile ? TAMANOS.minimo + 0.5 : TAMANOS.cuerpo - 1, lineHeight: isMobile ? 18 : 19 }}>{s.texto}</Text>
+            <Text style={{ color: C.text, fontWeight: "800", fontSize: isMobile ? TAMANOS.minimo + 0.5 : TAMANOS.cuerpo - 1, lineHeight: isMobile ? 18 : 19, textAlign: "center" }}>{s.texto}</Text>
           </View>
         ))}
       </View>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
+      <View style={{ width: "100%", flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10, marginTop: 4 }}>
         <View style={{ flexGrow: isMobile ? 1 : 0 }}>
           <Boton nativeID="compramos-vender" texto={p.boton} icono="cash-outline" principal onPress={() => vender(p.articulo, "cabecera")} />
         </View>
@@ -454,7 +454,7 @@ export default function CompramosScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <StatusBar barStyle="dark-content" />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: padding, paddingTop: isMobile ? 12 : 14 }}>
+      <ScrollView {...progresoScroll.propsScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: padding, paddingTop: isMobile ? 12 : 14 }}>
         <View style={{ width: "100%", maxWidth: 1120, alignSelf: "center", gap: isMobile ? 36 : 52 }}>
           <View style={{ gap: isMobile ? 14 : 22 }}>
             <CabeceraMarca />
@@ -474,13 +474,13 @@ export default function CompramosScreen() {
                   onPress={() => vender(m.articulo, "modelo")}
                   accessibilityRole="button"
                   accessibilityLabel={`Vender ${m.nombre}`}
-                  style={({ pressed }) => ({ flexGrow: 1, flexShrink: 1, flexBasis: ancho3, minWidth: 0, borderRadius: 20, borderWidth: 1, borderColor: C.line, backgroundColor: C.bg, padding: 18, gap: 8, opacity: pressed ? 0.85 : 1 })}
+                  style={({ pressed }) => ({ flexGrow: 1, flexShrink: 1, flexBasis: ancho3, minWidth: 0, borderRadius: 20, borderWidth: 1, borderColor: C.line, backgroundColor: C.bg, padding: 20, gap: 8, alignItems: "center", opacity: pressed ? 0.85 : 1 })}
                 >
-                  <Text accessibilityRole="header" {...({ "aria-level": 3 } as object)} style={{ color: C.text, fontWeight: "900", fontSize: TAMANOS.destacado }}>
+                  <Text accessibilityRole="header" {...({ "aria-level": 3 } as object)} style={{ color: C.text, fontWeight: "900", fontSize: TAMANOS.destacado, textAlign: "center" }}>
                     {m.nombre}
                   </Text>
-                  <Text style={{ color: C.muted, fontSize: TAMANOS.cuerpo - 1, lineHeight: 20, flexGrow: 1 }}>{m.texto}</Text>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Text style={{ color: C.muted, fontSize: TAMANOS.cuerpo - 1, lineHeight: 20, flexGrow: 1, textAlign: "center" }}>{m.texto}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
                     <Text style={{ color: C.accentText, fontWeight: "900", fontSize: TAMANOS.cuerpo - 1 }}>Pedir precio</Text>
                     <Ionicons name="arrow-forward" size={16} color={C.accentText} />
                   </View>
@@ -510,20 +510,20 @@ export default function CompramosScreen() {
             <H2>Preguntas frecuentes</H2>
             <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 28, rowGap: 0 }}>
               {preguntas(p).map((f) => (
-                <View key={f.q} style={{ flexGrow: 1, flexShrink: 1, flexBasis: ancho2, minWidth: 0, gap: 4, paddingVertical: 14, borderTopWidth: 1, borderTopColor: C.line }}>
-                  <Text accessibilityRole="header" {...({ "aria-level": 3 } as object)} style={{ color: C.text, fontWeight: "900", fontSize: TAMANOS.cuerpo + 1, lineHeight: 22 }}>
+                <View key={f.q} style={{ flexGrow: 1, flexShrink: 1, flexBasis: ancho2, minWidth: 0, gap: 4, paddingVertical: 16, borderTopWidth: 1, borderTopColor: C.line, alignItems: "center" }}>
+                  <Text accessibilityRole="header" {...({ "aria-level": 3 } as object)} style={{ color: C.text, fontWeight: "900", fontSize: TAMANOS.cuerpo + 1, lineHeight: 22, textAlign: "center" }}>
                     {f.q}
                   </Text>
-                  <Text style={{ color: C.muted, fontSize: TAMANOS.cuerpo, lineHeight: 22 }}>{f.a}</Text>
+                  <Text style={{ color: C.muted, fontSize: TAMANOS.cuerpo, lineHeight: 22, textAlign: "center", maxWidth: 480 }}>{f.a}</Text>
                 </View>
               ))}
             </View>
           </View>
 
           {/* Llamada final y el resto de páginas «Compramos» (enlaces de verdad, para Google). */}
-          <View nativeID="compramos-final" style={{ borderRadius: 28, backgroundColor: C.text, padding: isMobile ? 22 : 36, gap: 16, alignItems: isMobile ? "stretch" : "center" }}>
-            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: isMobile ? 24 : 30, lineHeight: isMobile ? 30 : 36, textAlign: isMobile ? "left" : "center" }}>¿Te damos precio?</Text>
-            <Text style={{ color: "rgba(255,255,255,0.82)", fontSize: TAMANOS.cuerpo + 1, lineHeight: 24, textAlign: isMobile ? "left" : "center", maxWidth: 560 }}>
+          <View nativeID="compramos-final" style={{ borderRadius: 28, backgroundColor: C.text, padding: isMobile ? 22 : 36, gap: 16, alignItems: "center" }}>
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: isMobile ? 24 : 30, lineHeight: isMobile ? 30 : 36, textAlign: "center" }}>¿Te damos precio?</Text>
+            <Text style={{ color: "rgba(255,255,255,0.82)", fontSize: TAMANOS.cuerpo + 1, lineHeight: 24, textAlign: "center", maxWidth: 560 }}>
               Cuéntanos qué tienes y en menos de 1 hora recibirás nuestra oferta, sin compromiso.
             </Text>
             <Boton nativeID="compramos-vender-final" texto={p.boton} icono="cash-outline" principal onPress={() => vender(p.articulo, "final")} />
@@ -547,6 +547,7 @@ export default function CompramosScreen() {
         </View>
         {Platform.OS === "web" ? <View style={{ height: 72 }} /> : null}
       </ScrollView>
+      {progresoScroll.barra}
     </View>
   );
 }
