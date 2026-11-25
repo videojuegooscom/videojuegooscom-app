@@ -31,7 +31,7 @@ import { Ionicons } from "@expo/vector-icons";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import PieDePagina from "../../components/PieDePagina";
 import ImagenInteligente from "../../components/ImagenInteligente";
-import { useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
+import { AparecerAlVer, useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
 import CarruselProductosCategoria, { productosDeCategorias, type ProductoEstante } from "../../components/CarruselProductosCategoria";
 import { supabase } from "../../lib/supabase";
 import { marcarOrigenVender, medirEvento } from "../../lib/analiticaPropia";
@@ -463,7 +463,9 @@ export default function CompramosScreen() {
             </View>
           </View>
 
-          <View nativeID="compramos-modelos" style={{ gap: 16 }}>
+          {/* Cada apartado aparece con el fundido suave de Inicio al llegar a él (dueño, 2026-11-25: «que el scroll sea
+              igual que en la página de inicio»). Siempre con width: "100%" (lección de las envolturas). */}
+          <AparecerAlVer nativeID="compramos-modelos" style={{ width: "100%", gap: 16 }}>
             <H2>{QUE_COMPRAMOS[tipo]}</H2>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
               {p.modelos.map((m) => (
@@ -485,26 +487,28 @@ export default function CompramosScreen() {
                 </Pressable>
               ))}
             </View>
-          </View>
+          </AparecerAlVer>
 
-          <View nativeID="compramos-como" style={{ gap: 16 }}>
+          <AparecerAlVer nativeID="compramos-como" style={{ width: "100%", gap: 16 }}>
             <H2>Cómo funciona</H2>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
               <TarjetaLista nativeID="compramos-zaragoza" titulo="En Zaragoza y alrededores" subtitulo={ZONAS} icono="location-outline" filas={PASOS_ZARAGOZA} numerada ancho={ancho2} />
               <TarjetaLista nativeID="compramos-espana" titulo="Desde el resto de España" subtitulo="Con envío gratis" icono="map-outline" filas={PASOS_ESPANA} numerada ancho={ancho2} />
             </View>
-          </View>
+          </AparecerAlVer>
 
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+          <AparecerAlVer style={{ width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
             <TarjetaLista titulo="Qué revisamos" icono="shield-checkmark-outline" filas={p.revisamos.map((t) => ({ titulo: t }))} ancho={ancho2} />
             <TarjetaLista titulo="Qué tener preparado" icono="list-outline" filas={p.preparar.map((t) => ({ titulo: t }))} ancho={ancho2} />
-          </View>
+          </AparecerAlVer>
 
           {enVenta && enVenta.length ? (
-            <CarruselProductosCategoria nativeID="compramos-a-la-venta" titulo={p.enVenta} productos={enVenta} sinMovimiento onTocar={(id) => void medirEvento("compramos_producto", `Compramos: producto (${p.corto})`, { metadata: { pagina: tipo, id } })} />
+            <AparecerAlVer style={{ width: "100%" }}>
+              <CarruselProductosCategoria nativeID="compramos-a-la-venta" titulo={p.enVenta} productos={enVenta} sinMovimiento onTocar={(id) => void medirEvento("compramos_producto", `Compramos: producto (${p.corto})`, { metadata: { pagina: tipo, id } })} />
+            </AparecerAlVer>
           ) : null}
 
-          <View nativeID="compramos-preguntas" style={{ gap: 12 }}>
+          <AparecerAlVer nativeID="compramos-preguntas" style={{ width: "100%", gap: 12 }}>
             <H2>Preguntas frecuentes</H2>
             <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 28, rowGap: 0 }}>
               {preguntas(p).map((f) => (
@@ -516,18 +520,18 @@ export default function CompramosScreen() {
                 </View>
               ))}
             </View>
-          </View>
+          </AparecerAlVer>
 
           {/* Llamada final y el resto de páginas «Compramos» (enlaces de verdad, para Google). */}
-          <View nativeID="compramos-final" style={{ borderRadius: 28, backgroundColor: C.text, padding: isMobile ? 22 : 36, gap: 16, alignItems: "center" }}>
+          <AparecerAlVer nativeID="compramos-final" style={{ width: "100%", borderRadius: 28, backgroundColor: C.text, padding: isMobile ? 22 : 36, gap: 16, alignItems: "center" }}>
             <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: isMobile ? 24 : 30, lineHeight: isMobile ? 30 : 36, textAlign: "center" }}>¿Te damos precio?</Text>
             <Text style={{ color: "rgba(255,255,255,0.82)", fontSize: TAMANOS.cuerpo + 1, lineHeight: 24, textAlign: "center", maxWidth: 560 }}>
               Cuéntanos qué tienes y en menos de 1 hora recibirás nuestra oferta, sin compromiso.
             </Text>
             <Boton nativeID="compramos-vender-final" texto={p.boton} icono="cash-outline" principal onPress={() => vender(p.articulo, "final")} />
-          </View>
+          </AparecerAlVer>
 
-          <View nativeID="compramos-otras" style={{ gap: 12, alignItems: "center" }}>
+          <AparecerAlVer nativeID="compramos-otras" style={{ width: "100%", gap: 12, alignItems: "center" }}>
             <Text style={{ color: C.text, fontWeight: "900", fontSize: TAMANOS.destacado }}>También compramos</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
               {TIPOS.filter((t) => t !== tipo).map((t) => (
@@ -539,7 +543,7 @@ export default function CompramosScreen() {
                 </Link>
               ))}
             </View>
-          </View>
+          </AparecerAlVer>
 
           <PieDePagina sidePadding={padding} contentMaxWidth={640} />
         </View>
