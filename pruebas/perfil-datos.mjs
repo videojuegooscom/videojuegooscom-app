@@ -18034,7 +18034,8 @@ async function seccionCMP() {
     ok(/^Compramos tu consola en Zaragoza/.test(cab.titulo) && /Bizum/.test(cab.desc) && cab.desc.length <= 200 && cab.canon === "https://videojuegoszaragoza.com/compramos/consolas", `CMP (${nombre}): título, descripción y dirección oficial para Google (${JSON.stringify(cab)})`);
     const sellos = await texto(p, "#compramos-sellos");
     ok(/Precio en menos de 1 hora/.test(sellos) && /menos de 2 horas/.test(sellos) && /Envío gratis/.test(sellos) && /Bizum o efectivo/.test(sellos), `CMP (${nombre}): los 4 sellos («${sellos}»)`);
-    ok(/PlayStation 5 y PS5 Pro/.test(await texto(p, "#compramos-modelos")) && /Consolas retro/.test(await texto(p, "#compramos-modelos")), `CMP (${nombre}): los modelos que compramos`);
+    // Consolas retro no se compran (dueño, 2026-11-25): ni en los modelos ni en el lema.
+    ok(/PlayStation 5 y PS5 Pro/.test(await texto(p, "#compramos-modelos")) && /Mandos y accesorios/.test(await texto(p, "#compramos-modelos")) && !/retro/i.test(await p.evaluate(() => document.body.innerText)), `CMP (${nombre}): los modelos que compramos, sin consolas retro`);
     // Todo centrado (dueño, 2026-11-25), como «Quiénes somos».
     const centrado = await p.evaluate(() => {
       const al = (el) => (el ? getComputedStyle(el).textAlign : "");
