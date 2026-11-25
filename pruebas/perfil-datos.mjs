@@ -18108,6 +18108,26 @@ async function seccionCMP() {
     ok((await texto(p, "#compramos-h1")) === "Compramos tu móvil en Zaragoza" && /^Compramos tu móvil en Zaragoza/.test(await p.title()) && /¿Cuánto me dais por mi móvil\?/.test(await texto(p, "#compramos-preguntas")), `CMP: /compramos/moviles con su título y sus preguntas`);
     await capturar(p, "CMP-moviles-390");
     ok(p.errores.length === 0, `CMP: /compramos/moviles sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    // El fundido de Inicio al bajar (2026-11-25): «Preguntas frecuentes» empieza invisible y aparece al llegar a ella; lo
+    // de arriba (el título) sale quieto. Con las animaciones activadas, como la sección DESPL.
+    {
+      const ctx3 = await contexto(navegador, CLIENTE, "user", estado());
+      await ctx3.addInitScript(() => {
+        window.__vzAnimarDesplazamiento = true;
+      });
+      const q = await pagina(ctx3, "/compramos/consolas");
+      await q.locator("#compramos-h1").waitFor({ timeout: 40000 }).catch(() => {});
+      await q.waitForTimeout(800);
+      const opacidad = (sel) => q.evaluate((s) => getComputedStyle(document.querySelector(s)).opacity, sel);
+      const antes = await opacidad("#compramos-preguntas");
+      const titulo = await opacidad("#compramos-h1");
+      await q.locator("#compramos-preguntas").scrollIntoViewIfNeeded();
+      await q.waitForTimeout(900);
+      const despues = await opacidad("#compramos-preguntas");
+      const anchoFaq = await q.evaluate(() => Math.round(document.getElementById("compramos-preguntas").getBoundingClientRect().width));
+      ok(antes === "0" && despues === "1" && titulo === "1" && anchoFaq >= 330 && q.errores.length === 0, `CMP: los apartados aparecen con el fundido de Inicio al bajar (antes ${antes}, después ${despues}, título ${titulo}, ancho ${anchoFaq})`);
+      await ctx3.close();
+    }
     // Fotos propias (Administración → Google → «Fotos»): una a una, con flechas y puntos.
     {
       const propias = [FOTO(7), FOTO(8), FOTO(9)];
