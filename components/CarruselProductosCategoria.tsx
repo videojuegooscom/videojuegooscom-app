@@ -195,7 +195,8 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
   extra?: React.ReactNode;
   /** Primera fila de la lista (carga rápida): la foto se pide ya y con prioridad alta; las demás, al acercarse. */
   prioridad?: boolean;
-  /** Catálogo (mejora 8): «Comparar» debajo de la tarjeta, fuera del enlace (no es un botón dentro de otro). */
+  /** «Comparar» debajo de la tarjeta, fuera del enlace (mejora 8). Ya no lo usa el catálogo (dueño, 2026-11-25: tarjeta
+   *  más limpia; se compara desde la ficha); se deja por si otra lista lo necesita. */
   comparar?: ProductoComparar;
 }) {
   const anchoPantalla = useWindowDimensions().width;

@@ -739,8 +739,8 @@ export default function CatalogoScreen() {
           // Carga rápida: las fotos de la primera fila se piden ya y con prioridad; las demás, al acercarse.
           prioridad={i < Math.max(1, cols)}
           onPress={() => pushRoute(`/producto/${p.id}` as Href)}
-          // «Comparar» (mejora 8): debajo de cada tarjeta, fuera del enlace.
-          comparar={{ id: p.id, titulo: p.title, precio: p.priceEUR, imagen: p.imageUrl }}
+          // Sin «Comparar» en la tarjeta (dueño, 2026-11-25: «quitarlo para hacer la tarjeta más limpia»): se compara desde
+          // la ficha («Comparar con otros productos») y la barra de abajo sigue saliendo aquí con lo elegido.
           extra={
             isAdmin ? (
               <Text style={{ color: colorEstadoAdmin(p.status), fontWeight: "800", fontSize: 11.5, marginTop: 4, textAlign: "center" }}>
