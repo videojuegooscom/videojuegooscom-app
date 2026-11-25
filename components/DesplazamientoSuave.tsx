@@ -110,8 +110,8 @@ export function AparecerAlVer({
 
 /**
  * Barra de progreso lateral (dueño, 2026-11-25: «en las páginas donde se tenga que scrollear mucho, una barra sutil
- * lateral izquierda de progreso para que el usuario vaya viendo cuánto le queda»). Fina (3 px), pegada al borde
- * izquierdo, con el carril casi invisible y lo recorrido en el azul de marca. Solo sale en páginas largas (el contenido
+ * lateral izquierda de progreso para que el usuario vaya viendo cuánto le queda»). De 5 px, pegada al borde
+ * izquierdo, con el carril gris claro y lo recorrido en el azul de marca con un brillo suave. Solo sale en páginas largas (el contenido
  * mide más de 1,6 pantallas) y no se puede tocar (no estorba al dedo ni al gesto de «atrás» del iPhone).
  * Uso: const pr = useProgresoDesplazamiento(); <ScrollView {...pr.propsScroll}> … y {pr.barra} dentro del contenedor de la
  * pantalla (que ocupa toda la pantalla). Si la pantalla ya usa onScroll/onLayout, llama también a los de pr.
@@ -153,11 +153,19 @@ export function useProgresoDesplazamiento() {
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       {...({ "aria-hidden": true } as object)}
-      style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, backgroundColor: "rgba(11,33,56,0.06)" }}
+      // Más visible (dueño, 2026-11-25: «que se note un poco más»): 5 px, carril gris claro y lo recorrido en azul de
+      // marca con un brillo suave hacia la página.
+      style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 5, backgroundColor: "rgba(11,33,56,0.10)", borderTopRightRadius: 3, borderBottomRightRadius: 3 }}
     >
       <Animated.View
         nativeID="barra-progreso-hecho"
-        style={{ width: 3, height: progreso.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }), backgroundColor: "#1EA7E8", borderBottomRightRadius: 2 }}
+        style={{
+          width: 5,
+          height: progreso.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }),
+          backgroundColor: "#1EA7E8",
+          borderBottomRightRadius: 3,
+          ...(Platform.OS === "web" ? ({ boxShadow: "2px 0 8px rgba(30,167,232,0.45)" } as object) : {}),
+        }}
       />
     </View>
   ) : null;
