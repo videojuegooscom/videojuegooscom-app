@@ -283,7 +283,7 @@ export function InsigniasConfianza({ revisado, garantiaMeses }: { revisado: bool
     backgroundColor: "#F1FAF4",
     flexShrink: 1,
   } as const;
-  const texto = { color: COLORES_TEXTO.texto, fontWeight: "800", fontSize: TAMANOS.minimo + 0.5, lineHeight: 18, flexShrink: 1 } as const;
+  const texto = { color: COLORES_TEXTO.texto, fontWeight: "800", fontSize: TAMANOS.minimo + 0.5, lineHeight: 18, flexShrink: 1, textAlign: "center" } as const;
   return (
     <View nativeID="ficha-confianza" style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, maxWidth: "100%" }}>
       {revisado ? (

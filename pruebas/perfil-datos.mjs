@@ -968,6 +968,12 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     }
     // Historial de Blue IA (sección BI): conversaciones y mensajes guardados ficticios; la lista tarda `retraso` ms (como
     // una red lenta) para ver qué hace la pantalla mientras tanto. Se apunta lo que se guardaría.
+    // Oferta de la semana de Inicio (sección OF): el producto destacado (una fila o un objeto, según lo pida) y sus fotos.
+    if (estado.ofertaSemana && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
+      const objeto = /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "");
+      return json(objeto ? estado.ofertaSemana.producto : [estado.ofertaSemana.producto]);
+    }
+    if (estado.ofertaSemana && url.pathname.endsWith("/rest/v1/product_media") && metodo === "GET") return json(estado.ofertaSemana.media);
     // Catálogo para comprobar los artículos de los botones guardados de Blue IA (sección BI10): solo los que siguen a la venta.
     if (estado.blueCatalogo && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
       const ids = (url.searchParams.get("id") ?? "").replace(/^in\.\(|\)$/g, "").split(",").map((s) => s.replace(/"/g, ""));
@@ -4357,6 +4363,125 @@ async function seccionNO() {
 }
 
 // ===== RE) Reseñas: el texto nuevo de Inicio y «Dejar una reseña» con 10 ideas, un recuadro que crece y emojis =====
+// ===== OF) «Oferta de la semana» de Inicio con lo de la ficha de producto (dueño, 2026-11-26: «adelante con todo»): fotos
+// enteras con «1 / N» y visor al tocar; «Comprar ya», «Añadir a la cesta» y «Preguntar por este artículo»; descripción en
+// 2 líneas con «Leer más»; sellos reales (revisado, garantía, entrega); estado en vivo (vendido); me gusta y compartir de
+// 44 px; todo centrado; la analítica propia y su línea en Administración → Analítica. A 360, 390 y 1280.
+async function seccionOF() {
+  const ID = "0f000000-0000-4000-8000-000000000001";
+  const foto = (n) => `https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/of/${n}.jpg`;
+  const producto = (extra = {}) => ({
+    id: ID, title: "Consola Nintendo Switch Oled Con Catálogo De videojuegos a descargar", price_eur: 325, status: "PUBLISHED", is_active: true,
+    description: "Consola Nintendo Switch Oled Con El Catálogo De Videojuegos De Nintendo a Descargar. Estado Funcional: 10 / 10. ¡Probado y testeado antes de entregarlo o enviarlo! Limpieza realizada para un estado impecable.",
+    images: [], is_featured_home: true, revisado: true, garantia_meses: 12, solo_entrega_mano: false, vendido_en: null, reservado_hasta: null,
+    category: { name: "Nintendo Switch" }, created_at: "2026-11-20T10:00:00Z", updated_at: "2026-11-26T10:00:00Z", ...extra,
+  });
+  const media = [1, 2, 3].map((n) => ({ id: `0f000000-0000-4000-8000-00000000010${n}`, product_id: ID, kind: "image", public_url: foto(n), file_name: `${n}.jpg`, sort_order: n - 1, is_cover: n === 1 }));
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  for (const [nombre, vista] of [
+    ["360", { viewport: { width: 360, height: 780 } }],
+    ["390", {}],
+    ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ]) {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, ofertaSemana: { producto: producto(), media } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    // Sin sesión: «Comprar ya» pide entrar (como en la ficha).
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await pagina(ctx, "/");
+    await p.locator("#oferta-semana").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#oferta-semana").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(1200);
+    const t = (await p.locator("#oferta-semana").innerText().catch(() => "")).replace(/\s+/g, " ");
+    const m = await p.evaluate(() => {
+      const caja = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const tarjeta = caja("oferta-semana");
+      const desc = document.getElementById("oferta-descripcion");
+      const botones = ["oferta-me-gusta", "oferta-compartir", "oferta-leer-mas", "oferta-ver-ficha"].map((id) => Math.round(caja(id)?.height ?? 0));
+      // El texto suelto (los botones ya centran su etiqueta) con letras.
+      const textos = Array.from(document.querySelectorAll('#oferta-semana [dir="auto"]')).filter(
+        (x) => /[a-z0-9]/i.test(x.textContent ?? "") && x.getBoundingClientRect().width > 0 && !x.closest('[id^="oferta-contador"], [role="button"], [role="link"], button, a')
+      );
+      return {
+        contador: document.getElementById("oferta-contador")?.textContent ?? "",
+        dosLineas: desc ? Math.round(desc.getBoundingClientRect().height) <= 44 : false,
+        botones,
+        centrado: textos.filter((x) => getComputedStyle(x).textAlign !== "center").map((x) => x.textContent).slice(0, 3),
+        dentro: !!tarjeta && tarjeta.left >= -1 && tarjeta.right <= window.innerWidth + 1,
+        ancho: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      };
+    });
+    ok(m.contador.trim() === "1 / 3" && !/\+\d+ fotos/.test(t), `OF (${nombre}): las fotos dicen «1 / 3» en vez de «+N fotos» (${m.contador})`);
+    ok(/Comprar ya/.test(t) && /Añadir a la cesta/.test(t) && /Preguntar por este artículo/.test(t) && /Ver ficha completa/.test(t) && !/Consultar por Chat/.test(t), `OF (${nombre}): los botones de la ficha (Comprar ya, Añadir a la cesta, Preguntar) y «Ver ficha completa ›»`);
+    ok(/Revisado por nuestro equipo/.test(t) && /Garantía de 12 meses/.test(t) && /Entrega en el día en Zaragoza/.test(t), `OF (${nombre}): los sellos reales (revisado, garantía y entrega)`);
+    ok(m.dosLineas && /Leer más/.test(t), `OF (${nombre}): la descripción en 2 líneas con «Leer más»`);
+    ok(m.botones.every((h) => h >= 44), `OF (${nombre}): me gusta, compartir, leer más y ver ficha de 44 px o más (${m.botones.join(", ")})`);
+    ok(m.centrado.length === 0, `OF (${nombre}): todo el texto centrado (${JSON.stringify(m.centrado)})`);
+    ok(m.dentro && m.ancho, `OF (${nombre}): la tarjeta cabe y la página no se ensancha`);
+    await capturar(p, `OF-${nombre}-oferta`);
+    // «Leer más» despliega la descripción entera.
+    await p.locator("#oferta-leer-mas").click();
+    await p.waitForTimeout(300);
+    ok(/Leer menos/.test(await p.locator("#oferta-semana").innerText()), `OF (${nombre}): «Leer más» despliega el texto`);
+    // Tocar la foto la abre en grande (el visor de la ficha).
+    await p.locator("#oferta-foto").click();
+    await p.waitForTimeout(800);
+    const visor = await p.evaluate(() => /1 \/ 3/.test(document.body.innerText) && !!document.querySelector('[aria-label*="Cerrar"]'));
+    ok(visor, `OF (${nombre}): tocar la foto abre el visor a pantalla completa`);
+    await p.keyboard.press("Escape");
+    await p.waitForTimeout(500);
+    // «Comprar ya» sin sesión lleva a entrar (y luego vuelve a la ficha).
+    await p.getByText("Comprar ya", { exact: true }).first().click();
+    await p.waitForURL(/\/perfil/, { timeout: 15000 }).catch(() => {});
+    ok(/\/perfil\?acceso=entrar/.test(p.url()), `OF (${nombre}): «Comprar ya» sin sesión pide entrar (${new URL(p.url()).pathname}${new URL(p.url()).search.slice(0, 20)})`);
+    for (let i = 0; i < 20 && (estado.eventosEnviados ?? []).filter((e) => e.event_name === "oferta_semana").length < 2; i++) await p.waitForTimeout(250);
+    const ev = (estado.eventosEnviados ?? []).filter((e) => e.event_name === "oferta_semana").map((e) => e.step_label.replace("Oferta de la semana: ", ""));
+    ok(ev.includes("ver fotos en grande") && ev.includes("comprar ya"), `OF (${nombre}): la analítica cuenta lo que se toca (${ev.join(" | ")})`);
+    ok(p.errores.length === 0, `OF (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // Vendido: la tarjeta lo dice y no deja comprar (estado en vivo).
+  {
+    const estado = { filas: perfil, guardados: [], ofertaSemana: { producto: producto({ vendido_en: "2026-11-26T20:00:00Z" }), media } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#oferta-estado").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#oferta-semana").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/Vendido/.test(t) && /se acaba de vender/.test(t) && !/Comprar ya/.test(t) && /Ver catálogo/.test(t), `OF: vendido, la tarjeta lo dice y ofrece el catálogo en vez de comprar (${t.slice(0, 140)})`);
+    ok(p.errores.length === 0, `OF: vendido sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // Administración → Analítica.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Oferta de la semana: comprar ya", sessions: 3 },
+        { step_label: "Oferta de la semana: añadir a la cesta", sessions: 2 },
+        { step_label: "Oferta de la semana: ver fotos en grande", sessions: 5 },
+        { step_label: "Oferta de la semana: compartir", sessions: 1 },
+        { step_label: "Oferta de la semana: me gusta", sessions: 4 },
+        { step_label: "Oferta de la semana: ver ficha", sessions: 6 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const a = await pagina(ctx, "/admin/analytics");
+    await a.locator("#analitica-oferta-semana").waitFor({ timeout: 40000 }).catch(() => {});
+    const linea = (await a.locator("#analitica-oferta-semana").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/«Comprar ya»: 3 · «Añadir a la cesta»: 2 · fotos en grande: 5 · compartir: 1 · me gusta: 4 · «Ver ficha completa»: 6/.test(linea), `OF: Administración → Analítica cuenta lo que se toca en la oferta (${linea})`);
+    ok(a.errores.length === 0, `OF: Analítica sin errores de JavaScript (${a.errores.length})`);
+    await ctx.close();
+  }
+}
+
 async function seccionRE() {
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
   const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, resenas: [], publicarResenas: true };
@@ -26604,6 +26729,7 @@ try {
   if (SOLO === "Y") await seccionY();
   if (SOLO === "Z") await seccionZ();
   if (SOLO === "RE") await seccionRE();
+  if (SOLO === "OF") await seccionOF();
   if (SOLO === "EN") await seccionEN();
   if (SOLO === "NO") await seccionNO();
   if (SOLO === "BU") await seccionBU();
