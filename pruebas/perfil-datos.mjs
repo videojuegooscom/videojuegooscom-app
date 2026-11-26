@@ -3463,6 +3463,23 @@ async function seccionX() {
   );
   ok(!!art && art.altos.every((h) => h >= 44) && art.miniaturas.every((w) => w === 48), `X: cada artículo lleva su miniatura de 48 px y mide al menos 44 px (${JSON.stringify(art && { altos: art.altos, miniaturas: art.miniaturas })})`);
   await capturar(p, "X2-blue-ia-articulos");
+
+  // Al subir por el chat, los mensajes pasan por detrás de un panel blanco (horario, botones y recuadro): no se
+  // mezclan con sus letras (dueño, 2026-11-26).
+  const panel = await p.evaluate(() => {
+    const c = document.getElementById("blue-ia-compositor");
+    if (!c) return null;
+    const fondo = getComputedStyle(c).backgroundColor;
+    const alfa = /rgba\(/.test(fondo) ? Number(fondo.split(",").at(-1).replace(")", "")) : /rgb\(/.test(fondo) ? 1 : 0;
+    const r = c.getBoundingClientRect();
+    const h = document.getElementById("blue-ia-horario")?.getBoundingClientRect();
+    return { alfa, abajo: Math.round(window.innerHeight - r.bottom), horarioDentro: !!h && h.top >= r.top && h.bottom <= r.bottom };
+  });
+  await p.mouse.move(195, 300);
+  await p.mouse.wheel(0, -260);
+  await p.waitForTimeout(500);
+  await capturar(p, "X3-blue-ia-subiendo");
+  ok(!!panel && panel.alfa >= 0.9 && panel.horarioDentro, `X: el horario y los botones van en un panel blanco que tapa los mensajes al subir (${JSON.stringify(panel)})`);
   ok(p.errores.length === 0, `X: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
   await ctx.close();
 }
@@ -4299,9 +4316,16 @@ async function seccionRE() {
   const arribaSin = await p.evaluate(() => {
     const capa = document.getElementById("inicio-volver-arriba");
     const b = capa?.querySelector('[role="button"], [tabindex]')?.getBoundingClientRect() ?? capa?.firstElementChild?.getBoundingClientRect();
-    return capa && b ? { opacidad: Number(getComputedStyle(capa).opacity), centro: Math.abs(b.left + b.width / 2 - window.innerWidth / 2) <= 4 } : null;
+    // Hueco hasta la barra de pestañas (lo más alto de sus pestañas).
+    const pestanas = Array.from(document.querySelectorAll('[role="tab"]')).map((t) => t.getBoundingClientRect().top).filter((y) => y > window.innerHeight / 2);
+    const barra = pestanas.length ? Math.min(...pestanas) : window.innerHeight;
+    return capa && b
+      ? { opacidad: Number(getComputedStyle(capa).opacity), centro: Math.abs(b.left + b.width / 2 - window.innerWidth / 2) <= 4, hueco: Math.round(barra - b.bottom) }
+      : null;
   });
   ok(!!arribaSin && arribaSin.opacidad > 0.9 && arribaSin.centro, `RE: cerrada, «Volver arriba» vuelve, abajo en el centro (${JSON.stringify(arribaSin)})`);
+  // Más abajo (dueño, 2026-11-26, con captura): justo encima de la barra de pestañas, no a media pantalla.
+  ok(!!arribaSin && arribaSin.hueco >= 4 && arribaSin.hueco <= 30, `RE: «Volver arriba» va justo encima de la barra de pestañas (hueco ${arribaSin?.hueco} px)`);
   await boton.click();
   const ideas = p.locator("#resena-sugerencias [role='button']");
   await ideas.first().waitFor({ timeout: 20000 }).catch(() => {});

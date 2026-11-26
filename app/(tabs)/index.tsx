@@ -2225,10 +2225,13 @@ export default function PantallaInicio() {
           left: 0,
           right: 0,
           alignItems: "center",
-          bottom:
-            (isMobile ? mobileTabBarHeight : desktopTabBarHeight) +
-            14 +
-            (isMobile && searchSnapPosition === "bottom" ? MEDIDAS_BUSCADOR.searchBarHeightMobile + 14 : 0),
+          // En el móvil la pantalla ya acaba encima de la barra de pestañas: con el buscador arriba va a 16 px de ella
+          // (dueño, 2026-11-26, con captura: antes quedaba a media pantalla, unos 120 px más arriba).
+          bottom: isMobile
+            ? searchSnapPosition === "bottom"
+              ? mobileTabBarHeight + 14 + MEDIDAS_BUSCADOR.searchBarHeightMobile + 14
+              : 16
+            : desktopTabBarHeight + 14,
           opacity: scrollTopAnim,
           transform: [
             {

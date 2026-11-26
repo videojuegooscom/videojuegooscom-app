@@ -1339,15 +1339,34 @@ export default function BlueIAScreen() {
         {/* Compositor fijo abajo del todo, con las sugerencias rápidas justo
             encima (solo antes de la primera pregunta) — mismo estilo que el
             compositor de Chat Global. */}
+        {/* Panel blanco con esquinas arriba (dueño, 2026-11-26): al subir por el chat los mensajes pasaban por detrás
+            del horario y de los botones sin fondo y se mezclaban las letras. */}
         <View
+          nativeID="blue-ia-compositor"
           onLayout={(e) => setAltoCompositor(Math.round(e.nativeEvent.layout.height))}
-          style={{
-            position: "absolute",
-            left: 12,
-            right: 12,
-            bottom: 12,
-            gap: 10,
-          }}
+          style={[
+            {
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              gap: 10,
+              paddingTop: 12,
+              paddingHorizontal: 12,
+              paddingBottom: 12,
+              backgroundColor: "rgba(255,255,255,0.97)",
+              borderTopLeftRadius: 22,
+              borderTopRightRadius: 22,
+              borderTopWidth: 1,
+              borderColor: COLORS.border,
+              shadowColor: "#0B2138",
+              shadowOpacity: 0.08,
+              shadowRadius: 16,
+              shadowOffset: { width: 0, height: -4 },
+              elevation: 8,
+            },
+            Platform.OS === "web" ? ({ backdropFilter: "blur(10px)" } as any) : null,
+          ]}
         >
           {showQuickSuggestions && (
             <SugerenciasAutomaticas items={quickActions} onPress={(item) => handleAsk(item.prompt)} />
