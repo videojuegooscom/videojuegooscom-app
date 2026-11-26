@@ -4215,6 +4215,8 @@ async function seccionRE() {
     "RE: en Inicio, «Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes.», sin el subtítulo de antes"
   );
   // Apartado centrado (dueño, 2026-11-26): el resumen y su botón, al centro.
+  await p.getByText("Todavía no hay reseñas").first().waitFor({ timeout: 20000 }).catch(() => {});
+  await p.locator("#inicio-faq-titulo").waitFor({ state: "attached", timeout: 20000 }).catch(() => {});
   const centrado = await p.evaluate(() => {
     const r = document.getElementById("resenas-resumen");
     const t = [...(r?.querySelectorAll("div") ?? [])].find((n) => /Todavía no hay reseñas|\/ 5/.test(n.textContent ?? "") && !n.querySelector("div"));
@@ -4223,6 +4225,17 @@ async function seccionRE() {
     return t && caja && tc ? { alinea: getComputedStyle(t).textAlign, centro: Math.abs(tc.left + tc.width / 2 - (caja.left + caja.width / 2)) <= 4 } : null;
   });
   ok(!!centrado && centrado.alinea === "center" && centrado.centro, `RE: el resumen de reseñas va centrado (${JSON.stringify(centrado)})`);
+  // Preguntas frecuentes (dueño, 2026-11-26): se ve que es el título del apartado y «Vender» dice las condiciones de ahora.
+  const faq = await p.evaluate(() => {
+    const hoja = (raiz, re) => [...(raiz?.querySelectorAll("*") ?? [])].find((d) => re.test(d.textContent ?? "") && !d.children.length);
+    const t = hoja(document.getElementById("inicio-faq-titulo"), /^Preguntas frecuentes$/);
+    const tp = hoja(document.body, /^¿Cómo compro un artículo\?$/);
+    return t && tp ? { titulo: parseFloat(getComputedStyle(t).fontSize), pregunta: parseFloat(getComputedStyle(tp).fontSize), ayuda: /Ayuda/i.test(document.getElementById("inicio-faq-titulo").innerText) } : null;
+  });
+  ok(!!faq && faq.titulo >= faq.pregunta + 8 && faq.ayuda, `RE: «Preguntas frecuentes» se distingue como título del apartado (${JSON.stringify(faq)})`);
+  await p.getByText("¿Puedo vender o cambiar mi consola?", { exact: true }).click();
+  await p.waitForTimeout(500);
+  ok(/te la tasamos en menos de 30 minutos, las 24 horas/.test(await p.evaluate(() => document.body.innerText)), "RE: la respuesta de «¿Puedo vender…?» dice la tasación en menos de 30 minutos");
   await boton.click();
   const ideas = p.locator("#resena-sugerencias [role='button']");
   await ideas.first().waitFor({ timeout: 20000 }).catch(() => {});
