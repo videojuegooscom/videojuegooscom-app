@@ -1706,6 +1706,9 @@ export default function AdminAnalytics() {
       // Blue IA (app/(tabs)/blue-ia.tsx): quién vuelve y sigue su última conversación y quién empieza una nueva.
       blueRetomada: findExact("Blue IA: conversación retomada"),
       blueNueva: findExact("Blue IA: nueva conversación"),
+      // Modelo mixto (api/blue-ia.ts, 2026-11-26): qué modelo ha contestado.
+      blueModeloAvanzado: findExact("Blue IA: respuesta · modelo avanzado"),
+      blueModeloBase: findExact("Blue IA: respuesta · modelo base"),
       // «Quiénes somos» (app/quienes-somos.tsx): quién la ve y cuántos llegan desde Inicio o desde entrar/crear cuenta.
       quienesVista: findExact("Quiénes somos: vista"),
       quienesInicio: findExact("Quiénes somos: desde Inicio"),
@@ -2383,6 +2386,24 @@ export default function AdminAnalytics() {
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Blue IA → siguen su última conversación: {coreFunnel.blueRetomada}{" "}
                       {coreFunnel.blueRetomada === 1 ? "sesión" : "sesiones"} · empiezan una nueva: {coreFunnel.blueNueva}
+                    </Text>
+                  </View>
+                  {/* Modelo mixto de Blue IA (2026-11-26): qué modelo contesta. */}
+                  <View
+                    nativeID="analitica-blue-modelo"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="sparkles-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Blue IA → respuestas del modelo avanzado: {coreFunnel.blueModeloAvanzado} · de gpt-4o-mini:{" "}
+                      {coreFunnel.blueModeloBase} (sesiones)
                     </Text>
                   </View>
                   <View
