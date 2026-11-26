@@ -24643,7 +24643,7 @@ async function seccionPANRED2() {
       await p.locator(`#producto-fila-${P(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
       await p.waitForTimeout(700);
       const cifras = await texto(p, "#productos-cifras");
-      ok(/5 Total/.test(cifras) && /3 Publicados/.test(cifras) && /3 Visibles/.test(cifras) && /2 Ocultos/.test(cifras) && /1 Destacados portada/.test(cifras) && /1 Vendidos/.test(cifras), `PANRED2 (${nombre}): Productos, las cifras (${cifras})`);
+      ok(/5 Total/.test(cifras) && /3 Publicados/.test(cifras) && /3 Visibles/.test(cifras) && /2 Ocultos/.test(cifras) && /1 Destacados\b/.test(cifras) && /1 Vendidos/.test(cifras), `PANRED2 (${nombre}): Productos, las cifras (${cifras})`);
       const b = await caja(p, "#productos-buscar-caja");
       const c = await caja(p, "#productos-cifras");
       ok(!!b && !!c && b.bottom <= c.y && b.h >= 44 && (await letra(p, "#productos-buscar")) >= 16, `PANRED2 (${nombre}): Productos, el buscador de 16 px arriba de las cifras (${JSON.stringify(b)})`);
@@ -24818,6 +24818,50 @@ async function seccionPANRED2() {
       await ctx.close();
     });
   }
+
+  // Revisión del 2026-11-26 (el dueño vio en el iPhone una miniatura vacía): si la portada no carga, la fila enseña el
+  // icono y no un cuadro en blanco; y el «+» se esconde al bajar por la lista (tapaba el lápiz de editar) y vuelve al subir.
+  await bloque("Productos: miniatura que no carga y el «+»", async () => {
+    // Una dirección que no existe (la batería cambia las fotos de Supabase por una falsa que sí carga).
+    const fotoRota = "https://fotos.ejemplo.invalid/panred2/rota.jpg";
+    const estado = {
+      guardados: [], filas: [], categorias: [], productosAdmin: PRODUCTOS(),
+      productosMedia: [{ id: "m0000000-0000-4000-8000-000000000809", product_id: P(1), kind: "image", storage_path: "panred2/rota.jpg", public_url: fotoRota, file_name: "rota.jpg", mime_type: "image/jpeg", sort_order: 0, is_cover: true, created_at: ahora }],
+      vendp: { referencias: [{ id: PEDIDO, codigo_seguimiento: "VZ-PAN2-0001" }] },
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, { viewport: { width: 390, height: 700 } });
+    // Esta foto falla siempre (como una descarga que no llega en el iPhone).
+    await ctx.route("https://fotos.ejemplo.invalid/**", (r) => r.abort());
+    const p = await pagina(ctx, "/admin/products");
+    await p.locator(`#producto-fila-${P(1)}`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const mini = await p.evaluate((id) => {
+      const fila = document.getElementById(id);
+      return { imagenes: fila?.querySelectorAll("img").length ?? -1, icono: !!fila?.querySelector('[class*="ionicon"], svg, [dir="auto"]') };
+    }, `producto-fila-${P(1)}`);
+    ok(mini.imagenes === 0 && mini.icono, `PANRED2: si la portada no carga, la fila enseña el icono y no un cuadro vacío (${JSON.stringify(mini)})`);
+    // Se mide en el propio botón: su opacidad visible (la de su capa) y si se puede tocar.
+    const mas = () => p.evaluate(() => {
+      const b = document.getElementById("producto-nuevo");
+      const capa = b?.parentElement;
+      const desplazable = Array.from(document.querySelectorAll("div")).find((d) => d.scrollHeight > d.clientHeight + 40 && /auto|scroll/.test(getComputedStyle(d).overflowY));
+      return b && capa ? { opacidad: Number(getComputedStyle(capa).opacity), toca: getComputedStyle(b).pointerEvents !== "none", y: desplazable ? Math.round(desplazable.scrollTop) : -1 } : null;
+    });
+    const antes = await mas();
+    await p.mouse.move(195, 450);
+    await p.mouse.wheel(0, 500);
+    await p.waitForTimeout(600);
+    const bajando = await mas();
+    await p.mouse.wheel(0, -200);
+    await p.waitForTimeout(600);
+    const subiendo = await mas();
+    ok(
+      !!antes && antes.opacidad > 0.9 && !!bajando && bajando.opacidad < 0.1 && !bajando.toca && !!subiendo && subiendo.opacidad > 0.9 && subiendo.toca,
+      `PANRED2: el «+» se esconde al bajar (no tapa el lápiz) y vuelve al subir (${JSON.stringify({ antes, bajando, subiendo })})`
+    );
+    ok(p.errores.length === 0, `PANRED2: miniatura y «+» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
 }
 
 // ===== PANRED3) Tanda 3 del rediseño (2026-11-16): Administración → Chats, Cotizaciones (solicitudes de venta) e

@@ -46,7 +46,8 @@
  *   (tampoco las insignias IMAGEN/VÍDEO, a 13 desde el rediseño PANRED2) y el texto azul pequeño usa COLORS.accentText.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Image, Modal, PanResponder, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { Animated, Modal, PanResponder, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import CargaMarca from "../../components/marca/CargaMarca";
@@ -652,7 +653,9 @@ export function PieVentana({ onCerrar, children, nativeID }: { onCerrar: () => v
 }
 
 // Botón redondo flotante abajo a la derecha (al alcance del pulgar; Blue nunca va ahí), p. ej. «+» para crear. La
-// pantalla deja sitio debajo de su lista para que no tape lo último.
+// pantalla deja sitio debajo de su lista para que no tape lo último. Al bajar por la lista se esconde (y no se puede
+// tocar) para dejar libre lo que tiene debajo, como el lápiz de editar de una fila; al subir o al llegar arriba vuelve
+// (revisión del panel, 2026-11-26: tapaba el lápiz a 360 y a 1280).
 export function BotonFlotante({
   icon = "add",
   label,
@@ -665,34 +668,64 @@ export function BotonFlotante({
   nativeID?: string;
 }) {
   const insets = useSafeAreaInsets();
+  const [visible, setVisible] = useState(true);
+  const aparecer = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const ultimo = new WeakMap<EventTarget, number>();
+    const alDesplazar = (e: Event) => {
+      const el = e.target === document ? document.scrollingElement : (e.target as Element | null);
+      if (!el || !("scrollTop" in el)) return;
+      const y = (el as Element).scrollTop;
+      // La primera vez se compara con arriba del todo (un solo salto grande también cuenta como bajar).
+      const antes = ultimo.get(el) ?? 0;
+      ultimo.set(el, y);
+      if (y <= 8) setVisible(true);
+      else if (y > antes + 4) setVisible(false);
+      else if (y < antes - 4) setVisible(true);
+    };
+    document.addEventListener("scroll", alDesplazar, { capture: true, passive: true });
+    return () => document.removeEventListener("scroll", alDesplazar, { capture: true } as EventListenerOptions);
+  }, []);
+  useEffect(() => {
+    Animated.timing(aparecer, { toValue: visible ? 1 : 0, duration: 180, useNativeDriver: Platform.OS !== "web" }).start();
+  }, [visible, aparecer]);
   return (
-    <Pressable
-      nativeID={nativeID}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      {...({ title: label } as object)}
-      style={({ pressed }) => ({
+    <Animated.View
+      pointerEvents={visible ? "box-none" : "none"}
+      style={{
         position: "absolute",
         right: 16,
         bottom: 16 + insets.bottom,
-        width: 58,
-        height: 58,
-        borderRadius: 29,
-        backgroundColor: BOTON_PRINCIPAL_PANEL,
-        alignItems: "center",
-        justifyContent: "center",
-        shadowColor: "#0B2138",
-        shadowOpacity: 0.22,
-        shadowRadius: 10,
-        shadowOffset: { width: 0, height: 4 },
-        elevation: 6,
-        opacity: pressed ? 0.9 : 1,
-        transform: [{ scale: pressed ? 0.94 : 1 }],
-      })}
+        opacity: aparecer,
+        transform: [{ translateY: aparecer.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
+      }}
     >
-      <Ionicons name={icon} size={30} color="#FFFFFF" />
-    </Pressable>
+      <Pressable
+        nativeID={nativeID}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        {...({ title: label } as object)}
+        style={({ pressed }) => ({
+          width: 58,
+          height: 58,
+          borderRadius: 29,
+          backgroundColor: BOTON_PRINCIPAL_PANEL,
+          alignItems: "center",
+          justifyContent: "center",
+          shadowColor: "#0B2138",
+          shadowOpacity: 0.22,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 4 },
+          elevation: 6,
+          opacity: pressed ? 0.9 : 1,
+          transform: [{ scale: pressed ? 0.94 : 1 }],
+        })}
+      >
+        <Ionicons name={icon} size={30} color="#FFFFFF" />
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -789,11 +822,8 @@ export function MiniaturaArchivoPanel({
         }}
       >
         {kind === "image" && imageSource ? (
-          <Image
-            source={imageSource}
-            resizeMode="cover"
-            style={{ width: "100%", height: "100%" }}
-          />
+          // Por el optimizador (unos KB, no la foto original) y solo al acercarse a la pantalla (revisión 2026-11-26).
+          <ImagenInteligente uri={imageSource.uri} ancho={cardWidth} contentFit="cover" alt={mediaName} style={{ width: "100%", height: "100%" }} />
         ) : (
           <View
             style={{
