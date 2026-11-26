@@ -3571,6 +3571,14 @@ async function seccionY() {
     ok(m.sinFondo && m.texto === "" && m.tamano >= 44, `Y: es solo el icono, sin burbuja, sin texto ni número, de 44 px o más (${JSON.stringify({ sinFondo: m.sinFondo, texto: m.texto, tamano: m.tamano })})`);
     ok(!m.contador, "Y: no se enseña el total de productos de la categoría");
     ok(m.ancho <= 391, `Y: la página no se ensancha (${m.ancho})`);
+    // «Compartir» junto al título, a su altura y solo el icono (dueño, 2026-11-26); el título sigue centrado.
+    const cmp = await p.evaluate(() => {
+      const b = document.getElementById("catalogo-compartir")?.getBoundingClientRect();
+      const h = document.querySelector('[aria-level="1"]')?.getBoundingClientRect();
+      const t = (document.getElementById("catalogo-compartir")?.innerText ?? "").replace(/[-]/g, "").trim();
+      return b && h ? { lado: b.left >= h.right - 2 && b.left - h.right < 20, altura: Math.abs(b.top + b.height / 2 - (h.top + h.height / 2)) <= 6, texto: t, tam: Math.round(b.width), centro: Math.abs(h.left + h.width / 2 - window.innerWidth / 2) <= 8 } : null;
+    });
+    ok(!!cmp && cmp.lado && cmp.altura && cmp.texto === "" && cmp.tam >= 44 && cmp.centro, `Y: «Compartir» es solo el icono, al lado del título y a su altura, con el título centrado (${JSON.stringify(cmp)})`);
     await capturar(p, "Y4-categoria-buscador-filtros");
     await p.locator("#catalogo-filtros").click();
     await p.getByText("Ordenar por", { exact: true }).first().waitFor({ timeout: 15000 }).catch(() => {});

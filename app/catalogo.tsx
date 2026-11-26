@@ -1032,11 +1032,15 @@ export default function CatalogoScreen() {
         >
           <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
             <CabeceraMarca onBack={smartBack} />
-            <View style={{ alignItems: "center", gap: 2 }}>
+            {/* El título con «Compartir» a su lado, a la misma altura y solo el icono (dueño, 2026-11-26). Un hueco igual al
+                otro lado deja el título centrado. */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
+              {selectedCategory?.slug ? <View style={{ width: 44 }} /> : null}
               <Text
                 accessibilityRole="header"
                 {...({ "aria-level": 1 } as object)}
                 style={{
+                  flexShrink: 1,
                   color: COLORS.text,
                   fontSize: isMobile ? 24 : 28,
                   fontWeight: "900",
@@ -1048,20 +1052,17 @@ export default function CatalogoScreen() {
                 {pageTitle}
               </Text>
               {/* «Compartir» de la categoría (dueño, 2026-11-19): la hoja de compartir del móvil o, si no hay, copia el
-                  enlace. WhatsApp, Instagram… enseñan su vista previa con el nombre, cuántos artículos hay y la portada
-                  (api/compartir.ts, por la regla de vercel.json para sus lectores). */}
+                  enlace (el icono pasa a ✓ un momento). WhatsApp, Instagram… enseñan su vista previa con el nombre,
+                  cuántos artículos hay y la portada (api/compartir.ts, por la regla de vercel.json para sus lectores). */}
               {selectedCategory?.slug ? (
                 <Pressable
                   nativeID="catalogo-compartir"
                   onPress={compartirCategoria}
                   accessibilityRole="button"
-                  accessibilityLabel={`Compartir ${selectedCategory.name}`}
-                  style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, opacity: pressed ? 0.7 : 1 })}
+                  accessibilityLabel={compartido === "copiado" ? "Enlace copiado" : `Compartir ${selectedCategory.name}`}
+                  style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
                 >
-                  <Ionicons name={compartido === "copiado" ? "checkmark" : "share-outline"} size={18} color={COLORS.accent} />
-                  <Text style={{ color: colorTextoAzul(14), fontWeight: "800", fontSize: 14 }}>
-                    {compartido === "copiado" ? "Enlace copiado" : "Compartir"}
-                  </Text>
+                  <Ionicons name={compartido === "copiado" ? "checkmark" : "share-outline"} size={22} color={COLORS.accent} />
                 </Pressable>
               ) : null}
             </View>
