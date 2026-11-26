@@ -11667,6 +11667,14 @@ async function seccionAC() {
     ok(url.pathname === "/perfil" && url.searchParams.get("acceso") === "registro", `AC: «Crear cuenta gratis» lleva al registro (${url.pathname}${url.search})`);
     const ventaja = (await p.locator("#perfil-ventaja-avisos").innerText().catch(() => "")).trim();
     ok(/Con tu cuenta, Blue te avisa de bajadas de precio y artículos nuevos/.test(ventaja), `AC: el registro dice la ventaja (${ventaja || "nada"})`);
+    // Centrada, con la campana encima (dueño, 2026-11-26).
+    const centrada = await p.evaluate(() => {
+      const caja = document.getElementById("perfil-ventaja-avisos");
+      const t = [...(caja?.querySelectorAll("div") ?? [])].find((n) => /Blue te avisa/.test(n.textContent ?? "") && !n.querySelector("div"));
+      const r = caja?.getBoundingClientRect();
+      return t && r ? { texto: getComputedStyle(t).textAlign, centro: Math.abs(r.left + r.width / 2 - window.innerWidth / 2) <= 6 } : null;
+    });
+    ok(!!centrada && centrada.texto === "center" && centrada.centro, `AC: la ventaja va centrada (${JSON.stringify(centrada)})`);
     const volver = await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:volver_tras_acceso"));
     ok(JSON.parse(volver ?? "{}").ruta === "/", `AC: y al entrar con la cuenta vuelve a donde estaba (${volver})`);
     await esperar(p, () => evento(estado, "blue_cuenta_avisos").length > 0);
