@@ -1712,6 +1712,9 @@ export default function AdminAnalytics() {
       quienesAcceso: findExact("Quiénes somos: desde el acceso"),
       // Desde el 2026-11-26, en ese sitio de Perfil va «¿Tienes una consola…? Te lo tasamos en menos de 30 minutos».
       perfilVender: findExact("Vender: desde Perfil"),
+      // Cierre de Inicio (2026-11-26): la franja antes del pie, «Vender ahora» y «Ver catálogo».
+      cierreVender: findExact("Cierre de Inicio: Vender ahora"),
+      cierreCatalogo: findExact("Cierre de Inicio: Ver catálogo"),
       // Blue IA fuera del horario del equipo (app/(tabs)/blue-ia.tsx): quién pulsa «Hablar con el equipo» y qué hace.
       fueraHorarioAviso: findExact("Blue IA: fuera de horario, aviso"),
       fueraHorarioBlue: findExact("Blue IA: fuera de horario, sigue con Blue"),
@@ -2405,6 +2408,14 @@ export default function AdminAnalytics() {
                     <Text nativeID="analitica-perfil-vender" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Vender desde Perfil («Te lo tasamos en menos de 30 minutos») → {coreFunnel.perfilVender}{" "}
                       {coreFunnel.perfilVender === 1 ? "sesión" : "sesiones"}
+                    </Text>
+                  </View>
+                  {/* Cierre de Inicio, antes del pie (2026-11-26). */}
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="flag-outline" size={15} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-inicio-cierre" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Cierre de Inicio («¿Tienes una consola o un móvil que ya no usas?») → «Vender ahora»: {coreFunnel.cierreVender} · «Ver catálogo»:{" "}
+                      {coreFunnel.cierreCatalogo} sesiones
                     </Text>
                   </View>
                   <View
