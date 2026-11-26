@@ -98,14 +98,13 @@ import { colorTextoAzul } from "../constants/temaTienda";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
-import PortadasCategoria, { enterasInicioDe, esCategoriaServicios, faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
+import PortadasCategoria, { FotoEntera, enterasInicioDe, esCategoriaServicios, faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
 import { useRecarga } from "../components/TirarParaActualizar";
 // Directamente de DatosBlue: así Blue entero no viaja en el paquete de la tienda (carga más rápida, paso 2).
 import { crearAvisoBusqueda } from "../components/blue/DatosBlue";
 import { RejillaTarjetas, TarjetaProducto, useAlturaBarraComparar } from "../components/CarruselProductosCategoria";
 import { AparecerAlVer, BotonVolverArriba, useProgresoDesplazamiento } from "../components/DesplazamientoSuave";
 import PieDePagina, { FilaConfianza, VentanaInformacion, type DatoConfianza } from "../components/PieDePagina";
-import ImagenInteligente from "../components/ImagenInteligente";
 import { loadServices, type Service } from "./servicios";
 import { useEncimaBotonAtras } from "../components/BotonAtrasAlcance";
 import FiltrosCatalogo, {
@@ -552,7 +551,8 @@ function FinalCategoria({
       style={({ pressed }) => ({ width: anchoTarjeta, borderRadius: 18, backgroundColor: COLORS.card, padding: 8, gap: 8, opacity: pressed ? 0.85 : 1 })}
     >
       <View style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 14, overflow: "hidden", backgroundColor: COLORS.accent2, alignItems: "center", justifyContent: "center" }}>
-        {foto ? <ImagenInteligente uri={foto} ancho={anchoTarjeta} alt={titulo} style={{ width: "100%", height: "100%" }} /> : <Ionicons name={icono} size={34} color={COLORS.accent} />}
+        {/* Foto entera, sin recortar el logo ni el producto, con la misma desenfocada detrás (dueño, 2026-11-26). */}
+        {foto ? <FotoEntera uri={foto} ancho={anchoTarjeta} alt={titulo} style={{ width: "100%", height: "100%" }} /> : <Ionicons name={icono} size={34} color={COLORS.accent} />}
       </View>
       <View style={{ paddingHorizontal: 4, paddingBottom: 4, gap: 2, alignItems: "center" }}>
         <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15, lineHeight: 20, textAlign: "center" }}>
