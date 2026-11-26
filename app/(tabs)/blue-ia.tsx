@@ -14,9 +14,8 @@
  * visual que usa "Chat Global" (app/(tabs)/chat-global.tsx): los mensajes
  * ocupan toda la pantalla, hay un compositor fijo abajo del todo con un
  * cuadro de texto redondeado + botón circular de enviar, y no hay ninguna
- * tarjeta grande de bienvenida estorbando — esa información (qué es Blue
- * IA y para qué sirve) vive en un modal accesible con el icono "ⓘ" de
- * arriba a la derecha, igual que en Chat Global.
+ * tarjeta grande de bienvenida estorbando (la ventana «Qué es Blue IA» del
+ * icono "ⓘ" se quitó por completo a petición del dueño, 2026-11-26).
  *
  * Cómo funciona:
  * - El navegador nunca habla directamente con OpenAI (la clave es secreta):
@@ -32,7 +31,7 @@
  *   usuario solo ve las suyas). Con sesión, al entrar se abre la última
  *   conversación no archivada; cada pregunta + respuesta se guarda al llegar
  *   la respuesta (la conversación se crea con el primer mensaje; los errores
- *   no se guardan). El icono del reloj (junto al ⓘ) abre el panel Historial:
+ *   no se guardan). El icono del reloj (arriba) abre el panel Historial:
  *   abrir, archivar o empezar una nueva. Sin sesión no se guarda nada y el
  *   panel invita a iniciar sesión. Si llegan ?producto/?pedido/?reparacion/
  *   ?tema o ?q, se empieza una conversación nueva en vez de abrir la última.
@@ -172,12 +171,6 @@ type QuickAction = {
   prompt: string;
 };
 
-type HelpBlock = {
-  id: string;
-  title: string;
-  desc: string;
-  tone: "accent" | "success" | "gold";
-};
 
 // Un "chip" de red social que puede venir pegado a una respuesta de Blue IA
 // (ver api/blue-ia.ts → pickSocialChips) — datos limpios, nunca texto: el
@@ -262,6 +255,37 @@ type ConversacionGuardada = {
   contexto: string | null;
   updated_at: string;
 };
+
+// Botones de una respuesta de Blue guardados con el mensaje (columna blue_ia_mensajes.botones, dueño 2026-11-26): solo
+// los artículos (id, nombre, precio, si es parecido), las acciones de la tienda y la referencia del pedido. Al volver a
+// abrir la conversación se leen con las mismas comprobaciones que al llegar de la API, y los artículos se comprueban
+// contra el catálogo (los vendidos o retirados no salen).
+type BotonesGuardados = { productChips?: ProductChip[]; accionChips?: AccionChip[]; refPedido?: string };
+function botonesParaGuardar(b: BotonesGuardados): BotonesGuardados | null {
+  const salida: BotonesGuardados = {};
+  if (b.productChips?.length)
+    salida.productChips = b.productChips.slice(0, 6).map((c) => ({ id: c.id, title: c.title.slice(0, 120), price: c.price, ...(c.similar ? { similar: true } : {}) }));
+  if (b.accionChips?.length) salida.accionChips = b.accionChips.slice(0, 3);
+  if (b.refPedido) salida.refPedido = b.refPedido;
+  return Object.keys(salida).length ? salida : null;
+}
+function leerBotonesGuardados(v: unknown): BotonesGuardados {
+  if (!v || typeof v !== "object") return {};
+  const o = v as Record<string, unknown>;
+  const productChips = Array.isArray(o.productChips)
+    ? o.productChips
+        .filter((c: any) => c && typeof c.id === "string" && /^[0-9a-f-]{36}$/i.test(c.id) && typeof c.title === "string")
+        .slice(0, 6)
+        .map((c: any) => ({ id: c.id, title: String(c.title).slice(0, 120), price: Number(c.price ?? 0), similar: c.similar === true }))
+    : undefined;
+  const refPedido = typeof o.refPedido === "string" && /^VZ-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(o.refPedido) ? o.refPedido : undefined;
+  return { productChips: productChips?.length ? productChips : undefined, accionChips: leerAccionChips(o.accionChips), refPedido };
+}
+// La columna «botones» aún no existe (migración sin aplicar): se sigue guardando y leyendo solo el texto.
+function sinColumnaBotones(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return error.code === "42703" || error.code === "PGRST204" || /botones/i.test(error.message ?? "");
+}
 
 // La migración del historial aún no aplicada: se sigue sin guardar y sin avisar.
 function tablaNoExiste(error: { code?: string; message?: string } | null): boolean {
@@ -515,7 +539,6 @@ export default function BlueIAScreen() {
 
   const [draft, setDraft] = useState("");
   const [abriendoEquipo, setAbriendoEquipo] = useState(false);
-  const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [messages, setMessages] = useState<BlueIAMessage[]>([WELCOME_MESSAGE]);
 
   // Saludo: cada vez que se entra en la sección se elige el siguiente (la primera vez, el de
@@ -639,6 +662,8 @@ export default function BlueIAScreen() {
   const [usarContextoUrl, setUsarContextoUrl] = useState(true);
   const conversacionIdRef = useRef<string | null>(null);
   const historialDisponibleRef = useRef(true);
+  // ¿Existe ya la columna «botones» de los mensajes? (se descubre al usarla).
+  const columnaBotonesRef = useRef(true);
   // Cola de guardado: cada vuelta se guarda en orden, y cambiar de conversación espera a que acabe.
   const guardadoRef = useRef<Promise<void>>(Promise.resolve());
   const ultimaCargadaRef = useRef(false);
@@ -667,20 +692,36 @@ export default function BlueIAScreen() {
 
   // Pasa los mensajes guardados al formato de la pantalla.
   const cargarMensajes = useCallback(async (conv: ConversacionGuardada) => {
-    const { data, error } = await supabase
-      .from("blue_ia_mensajes")
-      .select("id,rol,texto")
-      .eq("conversacion_id", conv.id)
-      .order("created_at", { ascending: true });
+    const pedir = (columnas: string) =>
+      supabase.from("blue_ia_mensajes").select(columnas).eq("conversacion_id", conv.id).order("created_at", { ascending: true });
+    let { data, error } = await pedir(columnaBotonesRef.current ? "id,rol,texto,botones" : "id,rol,texto");
+    // Sin la columna «botones» (migración aún sin aplicar): solo el texto, como siempre.
+    if (error && columnaBotonesRef.current && sinColumnaBotones(error)) {
+      columnaBotonesRef.current = false;
+      ({ data, error } = await pedir("id,rol,texto"));
+    }
     if (error) {
       if (tablaNoExiste(error)) historialDisponibleRef.current = false;
       else console.warn("Blue IA: no se han podido cargar los mensajes", error);
       return null;
     }
-    const filas = (data ?? []) as { id: string; rol: "user" | "assistant"; texto: string }[];
+    const filas = (data ?? []) as unknown as { id: string; rol: "user" | "assistant"; texto: string; botones?: unknown }[];
+    const guardados = new Map(filas.map((f) => [f.id, f.rol === "assistant" ? leerBotonesGuardados(f.botones) : {}]));
+    // Los artículos se comprueban contra el catálogo: solo los que siguen a la venta, con su nombre y precio de ahora.
+    const ids = [...new Set([...guardados.values()].flatMap((b) => (b.productChips ?? []).map((c) => c.id)))];
+    const vigentes = new Map<string, { title: string; price: number }>();
+    if (ids.length) {
+      const { data: prods } = await supabase.from("products").select("id,title,price_eur").in("id", ids).eq("status", "PUBLISHED").eq("is_active", true);
+      for (const p of (prods ?? []) as { id: string; title: string; price_eur: number }[]) vigentes.set(p.id, { title: p.title, price: Number(p.price_eur ?? 0) });
+    }
     let primeraUser = true;
     return filas.map<BlueIAMessage>((f) => {
       const m: BlueIAMessage = { id: f.id, role: f.rol, text: f.texto };
+      const b = guardados.get(f.id) ?? {};
+      const productChips = (b.productChips ?? []).filter((c) => vigentes.has(c.id)).map((c) => ({ ...c, ...vigentes.get(c.id)! }));
+      if (productChips.length) m.productChips = productChips;
+      if (b.accionChips) m.accionChips = b.accionChips;
+      if (b.refPedido) m.refPedido = b.refPedido;
       // La primera pregunta vuelve a llevar el contexto delante para la API.
       if (f.rol === "user" && primeraUser) {
         primeraUser = false;
@@ -744,7 +785,7 @@ export default function BlueIAScreen() {
 
   // Guarda una vuelta (pregunta + respuesta); crea la conversación si es la primera.
   const guardarVuelta = useCallback(
-    (pregunta: string, respuesta: string, contextoTexto: string | null) => {
+    (pregunta: string, respuesta: string, contextoTexto: string | null, botones: BotonesGuardados | null = null) => {
       if (!userId || !historialDisponibleRef.current) return;
       guardadoRef.current = guardadoRef.current.then(async () => {
         if (!historialDisponibleRef.current) return;
@@ -773,9 +814,14 @@ export default function BlueIAScreen() {
             ["user", pregunta],
             ["assistant", respuesta],
           ] as const) {
-            const { error } = await supabase
-              .from("blue_ia_mensajes")
-              .insert({ conversacion_id, rol, texto: texto.slice(0, 4000) });
+            const fila = { conversacion_id, rol, texto: texto.slice(0, 4000) };
+            const conBotones = rol === "assistant" && botones && columnaBotonesRef.current;
+            let { error } = await supabase.from("blue_ia_mensajes").insert(conBotones ? { ...fila, botones } : fila);
+            // Sin la columna (migración aún sin aplicar): se guarda el texto como siempre.
+            if (error && conBotones && sinColumnaBotones(error)) {
+              columnaBotonesRef.current = false;
+              ({ error } = await supabase.from("blue_ia_mensajes").insert(fila));
+            }
             if (error) {
               if (tablaNoExiste(error)) historialDisponibleRef.current = false;
               else console.warn("Blue IA: no se ha podido guardar el mensaje", error);
@@ -989,30 +1035,6 @@ export default function BlueIAScreen() {
     []
   );
 
-  const helpBlocks = useMemo<HelpBlock[]>(
-    () => [
-      {
-        id: "1",
-        title: "Te ayuda a comprar mejor",
-        desc: "Si no sabes qué elegir, Blue IA te orienta según lo que buscas, el dinero que quieres gastar y el tipo de uso que le vas a dar.",
-        tone: "accent",
-      },
-      {
-        id: "2",
-        title: "Te orienta si quieres vender o cambiar",
-        desc: "También puede ayudarte si quieres vender tu dispositivo o usarlo como parte de pago para abaratar otra compra.",
-        tone: "success",
-      },
-      {
-        id: "3",
-        title: "Resuelve dudas de soporte",
-        desc: "Puedes usarla para preguntar por garantía, compatibilidades, limpieza, reparaciones, mantenimiento o dudas generales de la tienda.",
-        tone: "gold",
-      },
-    ],
-    []
-  );
-
   // Único punto por el que sale cualquier pregunta hacia Blue IA: lo llaman
   // el compositor de abajo, las sugerencias rápidas y el autoenvío al
   // llegar desde "Preguntas frecuentes" de Inicio.
@@ -1120,7 +1142,9 @@ export default function BlueIAScreen() {
           clean,
           String(data.reply),
           // Solo se usa al crear la conversación.
-          contextoActivo ? `Preguntas por: ${contextoActivo.visible}` : null
+          contextoActivo ? `Preguntas por: ${contextoActivo.visible}` : null,
+          // Sus botones, para que sigan al volver a la conversación (dueño, 2026-11-26).
+          botonesParaGuardar({ productChips, accionChips, refPedido })
         );
       } catch (e: any) {
         console.error("Error consultando a Blue IA:", e);
@@ -1290,7 +1314,9 @@ export default function BlueIAScreen() {
           keyboardDismissMode="on-drag"
           contentContainerStyle={{
             paddingHorizontal: 16,
-            paddingTop: 14,
+            // Margen arriba (dueño, 2026-11-26): en el iPhone la barra de la hora difumina lo que queda debajo y los
+            // botones de arriba se veían borrosos.
+            paddingTop: 48,
             // Hueco para el compositor (crece con el horario y con el aviso fuera de horario).
             paddingBottom: Math.max(showQuickSuggestions ? 230 : 160, altoCompositor + 28),
             alignItems: "center",
@@ -1298,19 +1324,10 @@ export default function BlueIAScreen() {
         >
           {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
           <View style={{ width: "100%", maxWidth: 860, gap: 10 }}>
-            {/*
-              Icono "ⓘ" arriba, centrado: abre el modal con qué es Blue IA. Va dentro de
-              la conversación (se desplaza con ella) para no tapar nunca los mensajes.
-            */}
-            {/* Arriba, junto a ⓘ y el Historial (dueño, 2026-11-26): «Nueva conversación» (con una empezada) y
-                «Hablar con el equipo», que antes iban junto al recuadro de escribir con el horario. */}
+            {/* Arriba, centrados (dueño, 2026-11-26): Historial, «Nueva conversación» (con una empezada) y «Hablar con el
+                equipo». Van dentro de la conversación (se desplazan con ella) para no tapar nunca los mensajes. La
+                ventana «Qué es Blue IA» (ⓘ) se quitó por completo a petición del dueño. */}
             <View nativeID="blue-ia-cabecera" style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 4 }}>
-              <IconoCabecera
-                icon="information-circle-outline"
-                label="Qué es Blue IA"
-                texto="Blue IA"
-                onPress={() => setInfoModalOpen(true)}
-              />
               {/* Historial de conversaciones guardadas en la cuenta. */}
               <IconoCabecera icon="time-outline" label="Historial" texto="Historial" onPress={abrirHistorial} />
               {conversacionEmpezada ? (
@@ -1533,12 +1550,6 @@ export default function BlueIAScreen() {
       </View>
     </SafeAreaView>
 
-    <BlueIAInfoModal
-      visible={infoModalOpen}
-      onClose={() => setInfoModalOpen(false)}
-      helpBlocks={helpBlocks}
-    />
-
     <BlueIAHistorialModal
       visible={historialOpen}
       onClose={() => setHistorialOpen(false)}
@@ -1558,7 +1569,7 @@ export default function BlueIAScreen() {
   );
 }
 
-// Icono de la cabecera (ⓘ, Historial, Nueva conversación y Hablar con el equipo): icono azul con su nombre corto
+// Icono de la cabecera (Historial, Nueva conversación y Hablar con el equipo): icono azul con su nombre corto
 // debajo, sin burbuja ni sombra; cada uno mide al menos 44 × 56 px para tocarlo bien con el pulgar.
 function IconoCabecera({
   id,
@@ -2796,141 +2807,3 @@ function BlueIASendButton({
   );
 }
 
-// Modal "ⓘ": qué es Blue IA y para qué sirve. Sustituye a la tarjeta de
-// bienvenida que antes ocupaba espacio siempre arriba de la pantalla — igual
-// que hace Chat Global con su propio InfoModal.
-function BlueIAInfoModal({
-  visible,
-  onClose,
-  helpBlocks,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  helpBlocks: HelpBlock[];
-}) {
-  return (
-    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        onPress={onClose}
-        style={{
-          flex: 1,
-          backgroundColor: COLORS.overlay,
-          justifyContent: "center",
-          alignItems: "center",
-          padding: 20,
-        }}
-      >
-        <Pressable onPress={() => {}} style={{ width: "100%", maxWidth: 480 }}>
-          <LinearGradient
-            colors={["rgba(30,167,232,0.14)", "rgba(0,170,228,0.10)", "rgba(30,167,232,0.02)"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={{ borderRadius: 28, padding: 1 }}
-          >
-            <View
-              style={{
-                borderRadius: 27,
-                backgroundColor: "#FFFFFF",
-                padding: 22,
-                gap: 14,
-                maxHeight: 560,
-              }}
-            >
-              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 480 }}>
-                <View style={{ alignItems: "center", gap: 14 }}>
-                  <Ionicons name="sparkles-outline" size={26} color={COLORS.accent} />
-
-                  <Text
-                    style={{
-                      color: COLORS.text,
-                      fontSize: 24,
-                      fontWeight: "900",
-                      textAlign: "center",
-                    }}
-                  >
-                    Blue IA
-                  </Text>
-
-                  <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
-                    Tu asistente para resolver dudas sobre productos, compras, ventas, cambios,
-                    reparaciones, limpieza, envíos y pago a plazos.
-                  </Text>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      flexWrap: "wrap",
-                      gap: 12,
-                      justifyContent: "center",
-                    }}
-                  >
-                    <MiniPill text="Productos" tone="accent" />
-                    <MiniPill text="Ventas" tone="success" />
-                    <MiniPill text="Cambios" tone="gold" />
-                    <MiniPill text="Pago a plazos" tone="accent" />
-                  </View>
-
-                  <View style={{ width: "100%", gap: 16, marginTop: 4 }}>
-                    {helpBlocks.map((item) => (
-                      <HelpCard key={item.id} item={item} />
-                    ))}
-                  </View>
-
-                  <Pressable
-                    onPress={onClose}
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.9 : 1,
-                      alignSelf: "center",
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                      backgroundColor: "#F6FAFD",
-                      paddingVertical: 9,
-                      paddingHorizontal: 16,
-                      marginTop: 4,
-                    })}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Entendido</Text>
-                  </Pressable>
-                </View>
-              </ScrollView>
-            </View>
-          </LinearGradient>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
-function MiniPill({
-  text,
-  tone,
-}: {
-  text: string;
-  tone: "accent" | "success" | "gold";
-}) {
-  // Solo texto de color, sin pastilla alrededor.
-  const color = tone === "accent" ? "#1EA7E8" : tone === "success" ? "#15803D" : "#92660B";
-
-  return (
-    <Text style={{ color, fontWeight: "900", fontSize: 12, textAlign: "center" }}>{text}</Text>
-  );
-}
-
-// Bloque de ayuda sin tarjeta: una rayita de color centrada + título y texto.
-function HelpCard({ item }: { item: HelpBlock }) {
-  const line =
-    item.tone === "accent" ? COLORS.accent : item.tone === "success" ? COLORS.success : COLORS.gold;
-
-  return (
-    <View style={{ alignItems: "center", gap: 6 }}>
-      <View style={{ width: 28, height: 3, borderRadius: 2, backgroundColor: line }} />
-      <Text style={{ color: COLORS.text, fontSize: 15, fontWeight: "900", textAlign: "center" }}>
-        {item.title}
-      </Text>
-      <Text style={{ color: COLORS.muted, lineHeight: 20, fontSize: 13, textAlign: "center" }}>
-        {item.desc}
-      </Text>
-    </View>
-  );
-}

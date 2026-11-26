@@ -968,9 +968,21 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     }
     // Historial de Blue IA (sección BI): conversaciones y mensajes guardados ficticios; la lista tarda `retraso` ms (como
     // una red lenta) para ver qué hace la pantalla mientras tanto. Se apunta lo que se guardaría.
+    // Catálogo para comprobar los artículos de los botones guardados de Blue IA (sección BI10): solo los que siguen a la venta.
+    if (estado.blueCatalogo && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
+      const ids = (url.searchParams.get("id") ?? "").replace(/^in\.\(|\)$/g, "").split(",").map((s) => s.replace(/"/g, ""));
+      return json(estado.blueCatalogo.filter((p) => ids.includes(p.id)));
+    }
     if (estado.blueHistorial && /\/rest\/v1\/blue_ia_(conversaciones|mensajes)$/.test(url.pathname)) {
       const h = estado.blueHistorial;
       const esConversaciones = url.pathname.endsWith("/blue_ia_conversaciones");
+      // Sin la columna «botones» (migración aún sin aplicar): como respondería la base de datos de verdad.
+      if (h.sinColumnaBotones && !esConversaciones) {
+        if (metodo === "POST" && "botones" in JSON.parse(peticion.postData() ?? "{}"))
+          return json({ code: "PGRST204", message: "Could not find the 'botones' column of 'blue_ia_mensajes' in the schema cache" }, 400);
+        if (metodo === "GET" && /botones/.test(url.searchParams.get("select") ?? ""))
+          return json({ code: "42703", message: "column blue_ia_mensajes.botones does not exist" }, 400);
+      }
       if (metodo === "POST") {
         const cuerpo = JSON.parse(peticion.postData() ?? "{}");
         h.guardado = [...(h.guardado ?? []), { tabla: esConversaciones ? "conversaciones" : "mensajes", cuerpo }];
@@ -3444,7 +3456,16 @@ async function seccionX() {
   });
   // Dueño, 2026-11-26: «Hablar con el equipo» va arriba, junto a ⓘ y el Historial; junto al recuadro ya no va el
   // horario fijo sino la pastilla «¿Cuál es el horario de atención?».
-  ok(!!m.boton && m.boton.arriba && m.boton.h >= 44, `X: «Hablar con el equipo» va arriba, junto a ⓘ y el Historial, y mide 44 px o más (${JSON.stringify(m.boton)})`);
+  ok(!!m.boton && m.boton.arriba && m.boton.h >= 44, `X: «Hablar con el equipo» va arriba, junto al Historial, y mide 44 px o más (${JSON.stringify(m.boton)})`);
+  // Dueño, 2026-11-26: sin la ventana «Qué es Blue IA» (ⓘ) y con margen arriba (en el iPhone, la barra de la hora
+  // difuminaba los botones).
+  await p.evaluate(() => document.querySelectorAll("div").forEach((d) => d.scrollHeight > d.clientHeight + 40 && (d.scrollTop = 0)));
+  await p.waitForTimeout(300);
+  const arriba = await p.evaluate(() => {
+    const cab = document.getElementById("blue-ia-cabecera")?.getBoundingClientRect();
+    return { info: document.querySelectorAll('[aria-label="Qué es Blue IA"]').length, margen: cab ? Math.round(cab.top) : -1 };
+  });
+  ok(arriba.info === 0 && arriba.margen >= 40, `X: sin la ventana «Qué es Blue IA» y con margen arriba (${JSON.stringify(arriba)})`);
   ok(
     m.sinHorarioFijo && sugerenciaHorario === 1 && !m.pastilla,
     `X: el horario va solo entre las sugerencias, sin horario fijo ni pastilla suelta encima del recuadro (${JSON.stringify({ sugerenciaHorario, pastilla: m.pastilla })})`
@@ -6926,6 +6947,112 @@ async function seccionBI() {
       }
       ok(pv.errores.length === 0, `BI (${nombre}): Historial sin errores de JavaScript (${pv.errores.length}${pv.errores[0] ? ": " + pv.errores[0] : ""})`);
       await ctxV.close();
+    }
+  }
+
+  // BI10) Los botones de Blue se guardan con la respuesta y vuelven al abrir la conversación (dueño, 2026-11-26: «¿por qué
+  // luego de un tiempo las opciones que me daba Blue desaparecen?»). Los artículos se comprueban contra el catálogo: el
+  // vendido no sale. Sin la columna (migración sin aplicar), todo sigue como antes.
+  {
+    const SW2 = "aaaaaaaa-0000-4000-8000-000000000001";
+    const OLED = "aaaaaaaa-0000-4000-8000-000000000002";
+    const VENDIDA = "aaaaaaaa-0000-4000-8000-000000000003";
+    const respuesta = {
+      reply: "Tenemos la Consola Nintendo Switch 2 Completa por 415,00 €.",
+      productChips: [
+        { id: SW2, title: "Consola Nintendo Switch 2 Completa", price: 415 },
+        { id: OLED, title: "Consola Nintendo Switch Oled", price: 167, similar: true },
+      ],
+      accionChips: [{ tipo: "catalogo", articulo: "", busqueda: "" }],
+    };
+    // 1) Al llegar la respuesta, se guarda con sus botones.
+    {
+      const estado = { filas: perfil, guardados: [], blueHistorial: { conversaciones: [], mensajes: [] }, blueIa: () => respuesta };
+      const ctx = await contexto(navegador, CLIENTE, "user", estado);
+      const p = await pagina(ctx, "/blue-ia");
+      const campo = p.getByPlaceholder("Pregúntale a Blue IA…");
+      await campo.waitFor({ timeout: 30000 }).catch(() => {});
+      await campo.fill("¿Qué consola me recomiendas?");
+      await p.getByRole("button", { name: "Enviar la pregunta" }).click();
+      for (let i = 0; i < 30 && !(estado.blueHistorial.guardado ?? []).some((g) => g.cuerpo?.rol === "assistant"); i++) await p.waitForTimeout(250);
+      const guardada = (estado.blueHistorial.guardado ?? []).find((g) => g.cuerpo?.rol === "assistant")?.cuerpo;
+      ok(
+        guardada?.botones?.productChips?.length === 2 && guardada.botones.productChips[1].similar === true && guardada.botones.accionChips?.[0]?.tipo === "catalogo",
+        `BI: la respuesta se guarda con sus botones (${JSON.stringify(guardada?.botones)})`
+      );
+      const pregunta = (estado.blueHistorial.guardado ?? []).find((g) => g.cuerpo?.rol === "user")?.cuerpo;
+      ok(!!pregunta && !("botones" in pregunta), "BI: la pregunta del cliente se guarda sin botones");
+      ok(p.errores.length === 0, `BI: guardar botones sin errores de JavaScript (${p.errores.length})`);
+      await ctx.close();
+    }
+    // 2) Al volver, salen otra vez; el artículo vendido no.
+    {
+      const C = "c0000000-0000-4000-8000-0000000003a1";
+      const estado = {
+        filas: perfil,
+        guardados: [],
+        blueCatalogo: [{ id: SW2, title: "Consola Nintendo Switch 2 Completa", price_eur: 399 }, { id: OLED, title: "Consola Nintendo Switch Oled", price_eur: 167 }],
+        blueHistorial: {
+          conversaciones: [{ id: C, titulo: "¿Qué consola me recomiendas?", contexto: null, updated_at: "2026-11-26T20:00:00Z" }],
+          mensajes: [
+            { id: "d0000000-0000-4000-8000-0000000003a1", conversacion_id: C, rol: "user", texto: "¿Qué consola me recomiendas?" },
+            {
+              id: "d0000000-0000-4000-8000-0000000003a2",
+              conversacion_id: C,
+              rol: "assistant",
+              texto: respuesta.reply,
+              botones: {
+                productChips: [...respuesta.productChips, { id: VENDIDA, title: "Consola Nintendo Switch Lite", price: 120, similar: true }],
+                accionChips: respuesta.accionChips,
+              },
+            },
+          ],
+        },
+      };
+      const ctx = await contexto(navegador, CLIENTE, "user", estado);
+      const p = await pagina(ctx, "/blue-ia");
+      await p.locator("#blue-ia-articulos").first().waitFor({ timeout: 30000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const vuelta = await p.evaluate(() => ({
+        articulos: Array.from(document.querySelectorAll('[id^="blue-ia-articulo-"]')).map((a) => a.id.replace("blue-ia-articulo-", "") + ":" + (a.innerText ?? "").replace(/\s+/g, " ").trim()),
+        catalogo: /Ver el catálogo/.test(document.getElementById("blue-ia-acciones")?.innerText ?? ""),
+        similares: /También tenemos estas opciones similares/.test(document.body.innerText),
+      }));
+      ok(
+        vuelta.articulos.length === 2 && /nombrado-0:.*Switch 2 Completa.*399/.test(vuelta.articulos[0]) && /similar-0:.*Oled/.test(vuelta.articulos[1]) && vuelta.similares && vuelta.catalogo,
+        `BI: al volver a la conversación salen otra vez sus botones, con el precio de ahora y sin el vendido (${JSON.stringify(vuelta)})`
+      );
+      await capturar(p, "BI10-botones-al-volver");
+      ok(p.errores.length === 0, `BI: botones al volver sin errores de JavaScript (${p.errores.length})`);
+      await ctx.close();
+    }
+    // 3) Sin la columna (migración sin aplicar): se guarda y se lee el texto como siempre.
+    {
+      const C = "c0000000-0000-4000-8000-0000000003b1";
+      const estado = {
+        filas: perfil,
+        guardados: [],
+        blueHistorial: {
+          sinColumnaBotones: true,
+          conversaciones: [{ id: C, titulo: "Hola", contexto: null, updated_at: "2026-11-26T20:00:00Z" }],
+          mensajes: [
+            { id: "d0000000-0000-4000-8000-0000000003b1", conversacion_id: C, rol: "user", texto: "Hola" },
+            { id: "d0000000-0000-4000-8000-0000000003b2", conversacion_id: C, rol: "assistant", texto: "Hola, ¿en qué te ayudo?" },
+          ],
+        },
+        blueIa: () => respuesta,
+      };
+      const ctx = await contexto(navegador, CLIENTE, "user", estado);
+      const p = await pagina(ctx, "/blue-ia");
+      await p.getByText("Hola, ¿en qué te ayudo?").waitFor({ timeout: 30000 }).catch(() => {});
+      const leida = (await p.getByText("Hola, ¿en qué te ayudo?").count()) >= 1;
+      await p.getByPlaceholder("Pregúntale a Blue IA…").fill("¿Qué consola me recomiendas?");
+      await p.getByRole("button", { name: "Enviar la pregunta" }).click();
+      for (let i = 0; i < 30 && !(estado.blueHistorial.guardado ?? []).some((g) => g.cuerpo?.rol === "assistant"); i++) await p.waitForTimeout(250);
+      const guardada = (estado.blueHistorial.guardado ?? []).find((g) => g.cuerpo?.rol === "assistant")?.cuerpo;
+      ok(leida && !!guardada && !("botones" in guardada) && guardada.texto === respuesta.reply, `BI: sin la columna, la conversación se lee y se guarda solo con el texto, como antes (${JSON.stringify(guardada)})`);
+      ok(p.errores.length === 0, `BI: sin la columna, sin errores de JavaScript (${p.errores.length})`);
+      await ctx.close();
     }
   }
 

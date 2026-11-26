@@ -1877,7 +1877,20 @@ function ForoCliente({
 // explica sin inventar. Cada conversación se despliega al tocarla y enseña los mensajes en orden (el cliente y Blue).
 
 type ConversacionBlue = { id: string; titulo: string | null; contexto: string | null; created_at: string; updated_at: string; archivada: boolean | null };
-type MensajeBlue = { id: string; conversacion_id: string; created_at: string; rol: string; texto: string };
+type MensajeBlue = { id: string; conversacion_id: string; created_at: string; rol: string; texto: string; botones?: unknown };
+
+// Nombres de los botones que Blue enseñó con una respuesta (artículos y acciones), para leerlos en la ficha.
+function nombresBotonesBlue(b: unknown): string[] {
+  if (!b || typeof b !== "object") return [];
+  const o = b as { productChips?: unknown; accionChips?: unknown };
+  const articulos = Array.isArray(o.productChips)
+    ? o.productChips.filter((c: any) => c && typeof c.title === "string").map((c: any) => `${String(c.title).slice(0, 60)}${c.similar ? " (parecido)" : ""}`)
+    : [];
+  const acciones = Array.isArray(o.accionChips)
+    ? o.accionChips.filter((c: any) => c && typeof c.tipo === "string").map((c: any) => String(c.tipo).slice(0, 30))
+    : [];
+  return [...articulos, ...acciones].slice(0, 9);
+}
 
 function BlueIACliente({ userId }: { userId: string }) {
   const [conversaciones, setConversaciones] = useState<ConversacionBlue[] | null>(null);
@@ -1962,13 +1975,12 @@ function BlueIACliente({ userId }: { userId: string }) {
     setAbierta(id);
     if (Array.isArray(mensajes[id])) return;
     setMensajes((m) => ({ ...m, [id]: "cargando" }));
-    const { data, error: e } = await supabase
-      .from("blue_ia_mensajes")
-      .select("id,conversacion_id,created_at,rol,texto")
-      .eq("conversacion_id", id)
-      .order("created_at", { ascending: true })
-      .limit(200);
-    setMensajes((m) => ({ ...m, [id]: e ? "error" : ((data ?? []) as MensajeBlue[]) }));
+    const pedir = (columnas: string) =>
+      supabase.from("blue_ia_mensajes").select(columnas).eq("conversacion_id", id).order("created_at", { ascending: true }).limit(200);
+    // Con los botones que Blue le enseñó (columna «botones», 2026-11-26); sin la columna, solo el texto.
+    let { data, error: e } = await pedir("id,conversacion_id,created_at,rol,texto,botones");
+    if (e) ({ data, error: e } = await pedir("id,conversacion_id,created_at,rol,texto"));
+    setMensajes((m) => ({ ...m, [id]: e ? "error" : ((data ?? []) as unknown as MensajeBlue[]) }));
   }
 
   const lista = conversaciones ?? [];
@@ -2052,6 +2064,11 @@ function BlueIACliente({ userId }: { userId: string }) {
                             <Text selectable style={{ color: COLORS.text, fontSize: 15, lineHeight: 21 }}>
                               {m.texto}
                             </Text>
+                            {!esCliente && nombresBotonesBlue(m.botones).length ? (
+                              <Text nativeID={`ficha-blue-ia-botones-${m.id}`} style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18 }}>
+                                Botones: {nombresBotonesBlue(m.botones).join(" · ")}
+                              </Text>
+                            ) : null}
                           </View>
                         );
                       })
