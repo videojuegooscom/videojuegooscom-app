@@ -658,6 +658,11 @@ export default function BlueIAScreen() {
   const [userId, setUserId] = useState<string | null | undefined>(undefined);
   const [historialOpen, setHistorialOpen] = useState(false);
   const [conversaciones, setConversaciones] = useState<ConversacionGuardada[]>([]);
+  // Archivadas (dueño, 2026-11-26): se ven en «Archivadas» del Historial y se pueden recuperar. Tras archivar, unos
+  // segundos de «Deshacer».
+  const [archivadas, setArchivadas] = useState<ConversacionGuardada[]>([]);
+  const [deshacer, setDeshacer] = useState<ConversacionGuardada | null>(null);
+  const deshacerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [cargandoLista, setCargandoLista] = useState(false);
   // Contexto de la conversación guardada que está abierta ("Preguntas por: …").
   const [contextoGuardado, setContextoGuardado] = useState<string | null>(null);
@@ -844,18 +849,18 @@ export default function BlueIAScreen() {
     setCargandoLista(true);
     try {
       await guardadoRef.current;
-      const { data, error } = await supabase
-        .from("blue_ia_conversaciones")
-        .select("id,titulo,contexto,updated_at")
-        .eq("archivada", false)
-        .order("updated_at", { ascending: false })
-        .limit(50);
-      if (error) {
-        if (tablaNoExiste(error)) historialDisponibleRef.current = false;
-        else console.warn("Blue IA: no se ha podido cargar la lista", error);
+      // Las de la lista y, aparte, las archivadas (apartado «Archivadas», para poder recuperarlas).
+      const [activas, guardadas] = await Promise.all([
+        supabase.from("blue_ia_conversaciones").select("id,titulo,contexto,updated_at").eq("archivada", false).order("updated_at", { ascending: false }).limit(50),
+        supabase.from("blue_ia_conversaciones").select("id,titulo,contexto,updated_at").eq("archivada", true).order("updated_at", { ascending: false }).limit(50),
+      ]);
+      if (activas.error) {
+        if (tablaNoExiste(activas.error)) historialDisponibleRef.current = false;
+        else console.warn("Blue IA: no se ha podido cargar la lista", activas.error);
         return;
       }
-      setConversaciones((data ?? []) as ConversacionGuardada[]);
+      setConversaciones((activas.data ?? []) as ConversacionGuardada[]);
+      if (!guardadas.error) setArchivadas((guardadas.data ?? []) as ConversacionGuardada[]);
     } finally {
       setCargandoLista(false);
     }
@@ -912,6 +917,12 @@ export default function BlueIAScreen() {
         return;
       }
       setConversaciones((prev) => prev.filter((c) => c.id !== conv.id));
+      setArchivadas((prev) => [conv, ...prev.filter((c) => c.id !== conv.id)]);
+      void medirEvento("blue_ia_archivar", "Blue IA: conversación archivada");
+      // «Conversación archivada · Deshacer» durante 6 s.
+      if (deshacerTimer.current) clearTimeout(deshacerTimer.current);
+      setDeshacer(conv);
+      deshacerTimer.current = setTimeout(() => setDeshacer(null), 6000);
       if (conversacionIdRef.current === conv.id) {
         conversacionIdRef.current = null;
         setUsarContextoUrl(false);
@@ -921,6 +932,28 @@ export default function BlueIAScreen() {
       }
     },
     [saludarSiguiente]
+  );
+
+  // Recuperar una archivada (desde «Archivadas» o con «Deshacer»): vuelve a la lista en su sitio por fecha.
+  const recuperarConversacion = useCallback(async (conv: ConversacionGuardada, desde: "archivadas" | "deshacer") => {
+    const { error } = await supabase.from("blue_ia_conversaciones").update({ archivada: false }).eq("id", conv.id);
+    if (error) {
+      console.warn("Blue IA: no se ha podido recuperar", error);
+      return;
+    }
+    if (deshacerTimer.current) clearTimeout(deshacerTimer.current);
+    setDeshacer(null);
+    setArchivadas((prev) => prev.filter((c) => c.id !== conv.id));
+    setConversaciones((prev) =>
+      [...prev.filter((c) => c.id !== conv.id), conv].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
+    );
+    void medirEvento("blue_ia_recuperar", `Blue IA: conversación recuperada · ${desde}`, { metadata: { desde } });
+  }, []);
+  useEffect(
+    () => () => {
+      if (deshacerTimer.current) clearTimeout(deshacerTimer.current);
+    },
+    []
   );
 
   const quickActions = useMemo<QuickAction[]>(
@@ -1572,6 +1605,10 @@ export default function BlueIAScreen() {
       onNueva={() => nuevaConversacion("historial")}
       onAbrir={abrirConversacion}
       onArchivar={archivarConversacion}
+      archivadas={archivadas}
+      onRecuperar={(c) => recuperarConversacion(c, "archivadas")}
+      deshacer={deshacer}
+      onDeshacer={() => deshacer && recuperarConversacion(deshacer, "deshacer")}
     />
     </>
   );
@@ -1632,6 +1669,10 @@ function BlueIAHistorialModal({
   onNueva,
   onAbrir,
   onArchivar,
+  archivadas,
+  onRecuperar,
+  deshacer,
+  onDeshacer,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -1642,8 +1683,20 @@ function BlueIAHistorialModal({
   onNueva: () => void;
   onAbrir: (c: ConversacionGuardada) => void;
   onArchivar: (c: ConversacionGuardada) => void;
+  archivadas: ConversacionGuardada[];
+  onRecuperar: (c: ConversacionGuardada) => void;
+  deshacer: ConversacionGuardada | null;
+  onDeshacer: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  // «Archivadas» se ve en la misma hoja, en lugar de la lista; al cerrar la hoja vuelve a la lista.
+  const [verArchivadas, setVerArchivadas] = useState(false);
+  useEffect(() => {
+    if (!visible) setVerArchivadas(false);
+  }, [visible]);
+  useEffect(() => {
+    if (verArchivadas && archivadas.length === 0) setVerArchivadas(false);
+  }, [verArchivadas, archivadas.length]);
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
       {/* Hoja que sube desde abajo (dueño, 2026-11-26: «profesional y práctico para el dedo gordo de la mano derecha»):
@@ -1676,12 +1729,16 @@ function BlueIAHistorialModal({
           {/* Cabecera centrada, como todo en la tienda (lección «Todo centrado»). */}
           <View nativeID="blue-ia-historial-cabecera" style={{ alignItems: "center", gap: 4 }}>
             <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.accentSoft, alignItems: "center", justifyContent: "center" }}>
-              <Ionicons name="time-outline" size={22} color="#0A78B4" />
+              <Ionicons name={verArchivadas ? "archive-outline" : "time-outline"} size={22} color="#0A78B4" />
             </View>
             <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
-              Historial
+              {verArchivadas ? "Archivadas" : "Historial"}
             </Text>
-            {conSesion && conversaciones.length ? (
+            {verArchivadas ? (
+              <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, textAlign: "center" }}>
+                Recupera una para que vuelva a tu Historial
+              </Text>
+            ) : conSesion && conversaciones.length ? (
               <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, textAlign: "center" }}>
                 {conversaciones.length === 1 ? "1 conversación guardada" : `${conversaciones.length} conversaciones guardadas`}
               </Text>
@@ -1692,6 +1749,8 @@ function BlueIAHistorialModal({
             <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center", paddingVertical: 6 }}>
               Inicia sesión para guardar tus conversaciones con Blue IA
             </Text>
+          ) : verArchivadas ? (
+            <ListaArchivadas archivadas={archivadas} onRecuperar={onRecuperar} />
           ) : cargando && conversaciones.length === 0 ? (
             <ActivityIndicator color={COLORS.accent} style={{ paddingVertical: 16 }} />
           ) : conversaciones.length === 0 ? (
@@ -1701,6 +1760,69 @@ function BlueIAHistorialModal({
           ) : (
             <ListaHistorial conversaciones={conversaciones} abiertaId={abiertaId} onAbrir={onAbrir} onArchivar={onArchivar} />
           )}
+
+          {/* «Archivadas (N)»: al final de la lista, centrado; abre las archivadas para recuperarlas. En «Archivadas»,
+              «Volver al Historial». */}
+          {conSesion && (verArchivadas || archivadas.length > 0) ? (
+            <Pressable
+              nativeID="blue-ia-historial-archivadas"
+              onPress={() => setVerArchivadas((v) => !v)}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                alignSelf: "center",
+                minHeight: 44,
+                paddingHorizontal: 16,
+                borderRadius: 22,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                backgroundColor: pressed ? COLORS.accentSoft : "transparent",
+              })}
+            >
+              <Ionicons name={verArchivadas ? "chevron-back" : "archive-outline"} size={18} color="#0A78B4" />
+              <Text style={{ color: "#0A78B4", fontWeight: "800", fontSize: 15, textAlign: "center" }}>
+                {verArchivadas ? "Volver al Historial" : `Archivadas (${archivadas.length})`}
+              </Text>
+            </Pressable>
+          ) : null}
+
+          {/* Tras archivar: «Conversación archivada · Deshacer» unos segundos, centrado y de 44 px. */}
+          {deshacer && !verArchivadas ? (
+            <View
+              nativeID="blue-ia-historial-deshacer"
+              accessibilityLiveRegion="polite"
+              style={{
+                alignSelf: "center",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 12,
+                minHeight: 54,
+                paddingLeft: 18,
+                paddingRight: 5,
+                borderRadius: 27,
+                backgroundColor: COLORS.text,
+              }}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 14, textAlign: "center" }}>Conversación archivada</Text>
+              <Pressable
+                nativeID="blue-ia-historial-deshacer-boton"
+                onPress={onDeshacer}
+                accessibilityRole="button"
+                style={({ pressed }) => ({
+                  minHeight: 44,
+                  paddingHorizontal: 16,
+                  borderRadius: 22,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: pressed ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.12)",
+                })}
+              >
+                <Text style={{ color: "#7FD3FA", fontWeight: "900", fontSize: 14, textAlign: "center" }}>Deshacer</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           {/* Abajo, al alcance del pulgar y con margen (dueño, 2026-11-26): la acción principal y, a la DERECHA, cerrar
               con el icono de la X. */}
@@ -1752,6 +1874,59 @@ function BlueIAHistorialModal({
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+// «Archivadas» (dueño, 2026-11-26): cada conversación archivada con su título y fecha centrados y «Recuperar» (44 px),
+// que la devuelve al Historial.
+function ListaArchivadas({ archivadas, onRecuperar }: { archivadas: ConversacionGuardada[]; onRecuperar: (c: ConversacionGuardada) => void }) {
+  return (
+    <ScrollView nativeID="blue-ia-archivadas-lista" style={{ flexShrink: 1, maxHeight: 460 }}>
+      {archivadas.map((c, i) => (
+        <View
+          key={c.id}
+          {...({ dataSet: { filaArchivada: "1" } } as object)}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            minHeight: 68,
+            paddingVertical: 12,
+            paddingHorizontal: 6,
+            borderTopWidth: i === 0 ? 0 : 1,
+            borderTopColor: COLORS.border,
+          }}
+        >
+          <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F6FA" }}>
+            <Ionicons name="archive-outline" size={20} color="rgba(11,33,56,0.62)" />
+          </View>
+          <View style={{ flex: 1, minWidth: 0, gap: 2, alignItems: "center" }}>
+            <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15, lineHeight: 20, textAlign: "center" }}>
+              {c.titulo}
+            </Text>
+            <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, textAlign: "center" }}>{fechaMadrid(c.updated_at)}</Text>
+          </View>
+          <Pressable
+            onPress={() => onRecuperar(c)}
+            accessibilityRole="button"
+            accessibilityLabel={`Recuperar: ${c.titulo}`}
+            {...({ dataSet: { recuperar: "1" } } as object)}
+            style={({ pressed }) => ({
+              minHeight: 44,
+              paddingHorizontal: 14,
+              borderRadius: 22,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              backgroundColor: pressed ? "#D8EFFC" : COLORS.accentSoft,
+            })}
+          >
+            <Ionicons name="arrow-undo-outline" size={16} color="#0A78B4" />
+            <Text style={{ color: "#0A78B4", fontWeight: "900", fontSize: 14, textAlign: "center" }}>Recuperar</Text>
+          </Pressable>
+        </View>
+      ))}
+    </ScrollView>
   );
 }
 

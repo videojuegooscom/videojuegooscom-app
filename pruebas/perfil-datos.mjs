@@ -991,12 +991,21 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       }
       // Archivar una conversación (sección BI, deslizar en el Historial): se apunta qué se archiva.
       if (metodo === "PATCH" && esConversaciones) {
-        h.archivadas = [...(h.archivadas ?? []), { id: (url.searchParams.get("id") ?? "").replace(/^eq\./, ""), cuerpo: JSON.parse(peticion.postData() ?? "{}") }];
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        h.archivadas = [...(h.archivadas ?? []), { id, cuerpo }];
+        // Se recuerda (Archivadas / Recuperar / Deshacer).
+        h.conversaciones = (h.conversaciones ?? []).map((c) => (c.id === id ? { ...c, ...cuerpo } : c));
         return r.fulfill({ status: 204, headers: CORS, body: "" });
       }
       if (metodo === "GET" && esConversaciones) {
         if (h.retraso) await new Promise((fin) => setTimeout(fin, h.retraso));
-        return json(h.conversaciones ?? []);
+        // Filtro por archivada (la lista y el apartado «Archivadas»).
+        const filtro = url.searchParams.get("archivada");
+        const lista = h.conversaciones ?? [];
+        if (filtro === "eq.true") return json(lista.filter((c) => c.archivada === true));
+        if (filtro === "eq.false") return json(lista.filter((c) => c.archivada !== true));
+        return json(lista);
       }
       if (metodo === "GET") {
         const id = (url.searchParams.get("conversacion_id") ?? "").replace(/^eq\./, "");
@@ -7036,6 +7045,104 @@ async function seccionBI() {
       ok(p.errores.length === 0, `BI: sin la columna, sin errores de JavaScript (${p.errores.length})`);
       await ctx.close();
     }
+  }
+
+  // BI9) «Archivadas» con «Recuperar» y «Deshacer» tras archivar (dueño, 2026-11-26); su línea en Analítica.
+  {
+    const conv = (n, archivada = false) => ({
+      id: `c0000000-0000-4000-8000-0000000002${String(n).padStart(2, "0")}`,
+      titulo: `Conversación ${n}`,
+      contexto: null,
+      updated_at: `2026-11-${String(26 - n).padStart(2, "0")}T10:00:00Z`,
+      archivada,
+    });
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, blueHistorial: { conversaciones: [conv(1), conv(2), conv(3), conv(4, true)], mensajes: [] } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false });
+    const p = await pagina(ctx, "/blue-ia");
+    await p.getByRole("button", { name: "Historial" }).click({ timeout: 30000 });
+    await p.locator('[data-fila-historial="1"]').first().waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const textoBoton = () => p.locator("#blue-ia-historial-archivadas").innerText().catch(() => "");
+    ok(/Archivadas \(1\)/.test(await textoBoton()), `BI: al final del Historial sale «Archivadas (1)» (${await textoBoton()})`);
+    // Archivar (en el ordenador, con su botón) → «Conversación archivada · Deshacer».
+    await p.locator('[data-archivar-raton="1"]').first().click();
+    await p.locator("#blue-ia-historial-deshacer").waitFor({ timeout: 8000 }).catch(() => {});
+    const aviso = await p.locator("#blue-ia-historial-deshacer").innerText().catch(() => "");
+    const altoDeshacer = await p.evaluate(() => Math.round(document.getElementById("blue-ia-historial-deshacer-boton")?.getBoundingClientRect().height ?? 0));
+    ok(/Conversación archivada/.test(aviso) && /Deshacer/.test(aviso) && altoDeshacer >= 44 && /Archivadas \(2\)/.test(await textoBoton()), `BI: al archivar sale «Conversación archivada · Deshacer» (${altoDeshacer} px) y suben las archivadas (${await textoBoton()})`);
+    await capturar(p, "BI9-deshacer");
+    await p.locator("#blue-ia-historial-deshacer-boton").click();
+    await p.waitForTimeout(800);
+    const filas = await p.locator('[data-fila-historial="1"]').count();
+    ok(filas === 3 && estado.blueHistorial.archivadas?.at(-1)?.cuerpo?.archivada === false && (await p.locator("#blue-ia-historial-deshacer").count()) === 0, `BI: «Deshacer» la devuelve a la lista (${filas} conversaciones)`);
+    // El aviso se va solo a los 6 s.
+    await p.locator('[data-archivar-raton="1"]').first().click();
+    await p.locator("#blue-ia-historial-deshacer").waitFor({ timeout: 8000 }).catch(() => {});
+    await p.waitForTimeout(6800);
+    ok((await p.locator("#blue-ia-historial-deshacer").count()) === 0, "BI: el aviso «Deshacer» se va solo a los 6 s");
+    // «Archivadas» → «Recuperar».
+    await p.locator("#blue-ia-historial-archivadas").click();
+    await p.locator('[data-fila-archivada="1"]').first().waitFor({ timeout: 8000 }).catch(() => {});
+    const vista = await p.evaluate(() => {
+      const h = document.getElementById("blue-ia-historial");
+      const recuperar = Array.from(document.querySelectorAll('[data-recuperar="1"]')).map((b) => Math.round(b.getBoundingClientRect().height));
+      const textos = Array.from(document.querySelectorAll('[data-fila-archivada="1"] [dir="auto"]')).filter((t) => /[a-z0-9]/i.test(t.textContent ?? ""));
+      return {
+        titulo: /Archivadas/.test(h?.innerText ?? "") && /Recupera una para que vuelva/.test(h?.innerText ?? ""),
+        filas: document.querySelectorAll('[data-fila-archivada="1"]').length,
+        recuperar,
+        centrado: textos.every((t) => getComputedStyle(t).textAlign === "center"),
+        volver: /Volver al Historial/.test(document.getElementById("blue-ia-historial-archivadas")?.innerText ?? ""),
+      };
+    });
+    ok(vista.titulo && vista.filas === 2 && vista.recuperar.every((h) => h >= 44) && vista.centrado && vista.volver, `BI: «Archivadas» enseña las 2 con «Recuperar» de 44 px, texto centrado y «Volver al Historial» (${JSON.stringify(vista)})`);
+    await capturar(p, "BI9-archivadas");
+    await p.locator('[data-recuperar="1"]').first().click();
+    await p.waitForTimeout(800);
+    await p.locator("#blue-ia-historial-archivadas").click();
+    await p.waitForTimeout(500);
+    const tras = { filas: await p.locator('[data-fila-historial="1"]').count(), boton: await textoBoton() };
+    ok(tras.filas === 3 && /Archivadas \(1\)/.test(tras.boton), `BI: «Recuperar» la devuelve al Historial (${JSON.stringify(tras)})`);
+    for (let i = 0; i < 20 && (estado.eventosEnviados ?? []).filter((e) => /^blue_ia_(archivar|recuperar)$/.test(e.event_name)).length < 4; i++) await p.waitForTimeout(250);
+    const ev = (estado.eventosEnviados ?? []).filter((e) => /^blue_ia_(archivar|recuperar)$/.test(e.event_name)).map((e) => e.step_label.replace("Blue IA: ", ""));
+    ok(ev.join("|") === "conversación archivada|conversación recuperada · deshacer|conversación archivada|conversación recuperada · archivadas", `BI: la analítica propia cuenta archivar, «Deshacer» y «Recuperar» (${ev.join(" | ")})`);
+    ok(p.errores.length === 0, `BI: «Archivadas» sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+
+    // En un móvil estrecho (360): «Archivadas» cabe, con «Recuperar» de 44 px y sin salirse.
+    {
+      const estadoM = { filas: perfil, guardados: [], blueHistorial: { conversaciones: [conv(1), conv(2, true), conv(3, true)], mensajes: [] } };
+      const ctxM = await contexto(navegador, CLIENTE, "user", estadoM, { viewport: { width: 360, height: 780 } });
+      const m = await pagina(ctxM, "/blue-ia");
+      await m.getByRole("button", { name: "Historial" }).click({ timeout: 30000 });
+      await m.locator("#blue-ia-historial-archivadas").click({ timeout: 15000 }).catch(() => {});
+      await m.locator('[data-fila-archivada="1"]').first().waitFor({ timeout: 8000 }).catch(() => {});
+      const medida = await m.evaluate(() => {
+        const botones = Array.from(document.querySelectorAll('[data-recuperar="1"]')).map((b) => b.getBoundingClientRect());
+        return { n: botones.length, alto: botones.map((b) => Math.round(b.height)), dentro: botones.every((b) => b.right <= window.innerWidth - 8) };
+      });
+      ok(medida.n === 2 && medida.alto.every((h) => h >= 44) && medida.dentro, `BI (360): «Archivadas» cabe en el móvil, con «Recuperar» de 44 px (${JSON.stringify(medida)})`);
+      await capturar(m, "BI9-archivadas-360");
+      await ctxM.close();
+    }
+
+    // Administración → Analítica.
+    const estadoA = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Blue IA: conversación archivada", sessions: 5 },
+        { step_label: "Blue IA: conversación recuperada · archivadas", sessions: 2 },
+        { step_label: "Blue IA: conversación recuperada · deshacer", sessions: 1 },
+      ],
+    };
+    const ctxA = await contexto(navegador, ADMIN, "admin", estadoA);
+    const a = await pagina(ctxA, "/admin/analytics");
+    await a.locator("#analitica-blue-archivadas").waitFor({ timeout: 40000 }).catch(() => {});
+    const linea = (await a.locator("#analitica-blue-archivadas").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/archivadas: 5 · recuperadas desde «Archivadas»: 2 · con «Deshacer»: 1/.test(linea), `BI: Administración → Analítica cuenta archivar, recuperar y deshacer (${linea})`);
+    ok(a.errores.length === 0, `BI: Analítica sin errores de JavaScript (${a.errores.length})`);
+    await ctxA.close();
   }
 }
 
