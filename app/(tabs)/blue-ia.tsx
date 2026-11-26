@@ -114,6 +114,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Animated,
+  Easing,
   Modal,
   Platform,
   Pressable,
@@ -127,6 +129,7 @@ import {
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { abrirChatEquipo } from "../../components/ConversacionProducto";
 import { portadasDeProductos } from "../../components/BarraBusqueda";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import { medirEvento } from "../../lib/analiticaPropia";
 import { estadoAtencion, HORARIO_CORTO, type EstadoAtencion } from "../../lib/horarioAtencion";
@@ -876,7 +879,7 @@ export default function BlueIAScreen() {
           "Quiero que me ayudes a elegir un producto. Pregúntame lo que necesites saber (presupuesto, qué busco, para qué lo quiero) antes de recomendarme algo.",
       },
       {
-        // El horario ya no va fijo abajo (dueño, 2026-11-26): se pregunta con esta sugerencia.
+        // El horario ya no va fijo abajo (dueño, 2026-11-26): se pregunta solo con esta sugerencia.
         id: "horario",
         icon: "time-outline",
         title: "¿Cuál es el horario de atención?",
@@ -1397,7 +1400,14 @@ export default function BlueIAScreen() {
           ]}
         >
           {showQuickSuggestions && (
-            <SugerenciasAutomaticas items={quickActions} onPress={(item) => handleAsk(item.prompt)} />
+            <SugerenciasAutomaticas
+              items={quickActions}
+              onPress={(item) => {
+                // El horario solo se pregunta desde esta sugerencia (dueño, 2026-11-26): se cuenta en Analítica.
+                if (item.id === "horario") void medirEvento("blue_ia_horario", "Blue IA: pastilla del horario");
+                handleAsk(item.prompt);
+              }}
+            />
           )}
 
           {!!errorText && (
@@ -1451,37 +1461,6 @@ export default function BlueIAScreen() {
                 </Pressable>
               </View>
             </View>
-          ) : null}
-
-          {/* El horario ya no va fijo aquí (dueño, 2026-11-26): es una pastilla que se lo pregunta a Blue IA, que lo
-              contesta con el horario y si ahora atendemos. «Nueva conversación» y «Hablar con el equipo» van arriba. */}
-          {!showQuickSuggestions ? (
-            <Pressable
-              nativeID="blue-ia-pastilla-horario"
-              disabled={sending}
-              onPress={() => {
-                void medirEvento("blue_ia_horario", "Blue IA: pastilla del horario");
-                handleAsk("¿Cuál es el horario de atención?");
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Preguntar cuál es el horario de atención"
-              style={({ pressed }) => ({
-                alignSelf: "flex-start",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                minHeight: 44,
-                paddingHorizontal: 14,
-                borderRadius: 999,
-                backgroundColor: COLORS.accentSoft,
-                borderWidth: 1,
-                borderColor: COLORS.accentBorder,
-                opacity: sending ? 0.5 : pressed ? 0.8 : 1,
-              })}
-            >
-              <Ionicons name="time-outline" size={16} color="#0A78B4" />
-              <Text style={{ color: "#0A78B4", fontWeight: "800", fontSize: 14 }}>¿Cuál es el horario de atención?</Text>
-            </Pressable>
           ) : null}
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -1608,178 +1587,456 @@ function BlueIAHistorialModal({
   onAbrir: (c: ConversacionGuardada) => void;
   onArchivar: (c: ConversacionGuardada) => void;
 }) {
+  const insets = useSafeAreaInsets();
   return (
-    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+      {/* Hoja que sube desde abajo (dueño, 2026-11-26: «profesional y práctico para el dedo gordo de la mano derecha»):
+          la lista y los botones quedan en la mitad de abajo, al alcance del pulgar; se cierra tocando fuera o con
+          «Cerrar», abajo, en vez de la X de arriba a la derecha. */}
       <Pressable
+        nativeID="blue-ia-historial-fondo"
         onPress={onClose}
-        style={{
-          flex: 1,
-          backgroundColor: COLORS.overlay,
-          justifyContent: "center",
-          alignItems: "center",
-          padding: 20,
-        }}
+        style={{ flex: 1, backgroundColor: COLORS.overlay, justifyContent: "flex-end", alignItems: "center" }}
       >
         <Pressable
+          nativeID="blue-ia-historial"
           onPress={() => {}}
           style={{
             width: "100%",
-            maxWidth: 480,
-            maxHeight: 600,
-            borderRadius: 24,
+            maxWidth: 520,
+            maxHeight: "86%",
             backgroundColor: "#FFFFFF",
-            paddingVertical: 22,
-            paddingHorizontal: 20,
-            gap: 14,
+            borderTopLeftRadius: 26,
+            borderTopRightRadius: 26,
+            paddingTop: 10,
+            paddingHorizontal: 16,
+            paddingBottom: 16 + Math.round(insets.bottom),
+            gap: 12,
           }}
         >
-          {/* Cerrar */}
-          <Pressable
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Cerrar"
-            hitSlop={10}
-            style={({ pressed }) => ({
-              position: "absolute",
-              top: 14,
-              right: 14,
-              zIndex: 2,
-              opacity: pressed ? 0.6 : 1,
-            })}
-          >
-            <Ionicons name="close" size={22} color={COLORS.text} />
-          </Pressable>
+          {/* Asa de la hoja. */}
+          <View style={{ alignSelf: "center", width: 40, height: 5, borderRadius: 3, backgroundColor: "#D6E2EE" }} />
 
-          <View style={{ alignItems: "center", gap: 6 }}>
-            <Ionicons name="time-outline" size={24} color={COLORS.accent} />
-            <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
+          {/* Cabecera centrada, como todo en la tienda (lección «Todo centrado»). */}
+          <View nativeID="blue-ia-historial-cabecera" style={{ alignItems: "center", gap: 4 }}>
+            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.accentSoft, alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="time-outline" size={22} color="#0A78B4" />
+            </View>
+            <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
               Historial
             </Text>
+            {conSesion && conversaciones.length ? (
+              <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, textAlign: "center" }}>
+                {conversaciones.length === 1 ? "1 conversación guardada" : `${conversaciones.length} conversaciones guardadas`}
+              </Text>
+            ) : null}
           </View>
 
           {!conSesion ? (
-            <View style={{ alignItems: "center", gap: 14, paddingVertical: 6 }}>
-              <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center" }}>
-                Inicia sesión para guardar tus conversaciones con Blue IA
-              </Text>
-              <BotonPrincipal
-                icon="person-circle-outline"
-                texto="Iniciar sesión"
-                onPress={() => {
-                  onClose();
-                  router.push(
-                    `/perfil?aviso=${encodeURIComponent(AVISO_LOGIN_HISTORIAL)}` as never
-                  );
-                }}
-              />
-            </View>
+            <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center", paddingVertical: 6 }}>
+              Inicia sesión para guardar tus conversaciones con Blue IA
+            </Text>
+          ) : cargando && conversaciones.length === 0 ? (
+            <ActivityIndicator color={COLORS.accent} style={{ paddingVertical: 16 }} />
+          ) : conversaciones.length === 0 ? (
+            <Text style={{ color: COLORS.muted, textAlign: "center", paddingVertical: 10 }}>
+              Aún no tienes conversaciones guardadas.
+            </Text>
           ) : (
-            <>
-              <View style={{ alignItems: "center" }}>
-                <BotonPrincipal icon="add" texto="Nueva conversación" onPress={onNueva} />
-              </View>
-
-              {cargando && conversaciones.length === 0 ? (
-                <ActivityIndicator color={COLORS.accent} style={{ paddingVertical: 16 }} />
-              ) : conversaciones.length === 0 ? (
-                <Text style={{ color: COLORS.muted, textAlign: "center", paddingVertical: 10 }}>
-                  Aún no tienes conversaciones guardadas.
-                </Text>
-              ) : (
-                <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 400 }}>
-                  {conversaciones.map((c, i) => {
-                    const abierta = c.id === abiertaId;
-                    return (
-                      <View
-                        key={c.id}
-                        style={{
-                          alignItems: "center",
-                          gap: 4,
-                          paddingVertical: 12,
-                          borderTopWidth: i === 0 ? 0 : 1,
-                          borderTopColor: COLORS.border,
-                        }}
-                      >
-                        <Pressable
-                          onPress={() => onAbrir(c)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Abrir: ${c.titulo}`}
-                          style={({ pressed }) => ({ alignItems: "center", opacity: pressed ? 0.7 : 1 })}
-                        >
-                          <Text
-                            numberOfLines={2}
-                            style={{
-                              color: abierta ? COLORS.primary : COLORS.text,
-                              fontWeight: "800",
-                              fontSize: 15,
-                              textAlign: "center",
-                            }}
-                          >
-                            {c.titulo}
-                          </Text>
-                          <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
-                            {abierta ? "Abierta · " : ""}
-                            {fechaMadrid(c.updated_at)}
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => onArchivar(c)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Archivar: ${c.titulo}`}
-                          hitSlop={6}
-                          style={({ pressed }) => ({
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 4,
-                            opacity: pressed ? 0.6 : 1,
-                          })}
-                        >
-                          <Ionicons name="archive-outline" size={13} color={COLORS.muted} />
-                          <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700" }}>
-                            Archivar
-                          </Text>
-                        </Pressable>
-                      </View>
-                    );
-                  })}
-                </ScrollView>
-              )}
-            </>
+            <ListaHistorial conversaciones={conversaciones} abiertaId={abiertaId} onAbrir={onAbrir} onArchivar={onArchivar} />
           )}
+
+          {/* Abajo, al alcance del pulgar y con margen (dueño, 2026-11-26): la acción principal y, a la DERECHA, cerrar
+              con el icono de la X. */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4, marginBottom: 12, paddingHorizontal: 12 }}>
+            <Pressable
+              nativeID="blue-ia-historial-principal"
+              onPress={
+                conSesion
+                  ? onNueva
+                  : () => {
+                      onClose();
+                      router.push(`/perfil?aviso=${encodeURIComponent(AVISO_LOGIN_HISTORIAL)}` as never);
+                    }
+              }
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                flex: 1,
+                height: 48,
+                borderRadius: 24,
+                flexDirection: "row",
+                gap: 8,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: COLORS.accent,
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Ionicons name={conSesion ? "add" : "person-circle-outline"} size={20} color="#FFFFFF" />
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{conSesion ? "Nueva conversación" : "Iniciar sesión"}</Text>
+            </Pressable>
+            <Pressable
+              nativeID="blue-ia-historial-cerrar"
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar el historial"
+              style={({ pressed }) => ({
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#F1F6FA",
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <Ionicons name="close" size={24} color={COLORS.text} />
+            </Pressable>
+          </View>
         </Pressable>
       </Pressable>
     </Modal>
   );
 }
 
-// Botón principal en píldora (#1EA7E8).
-function BotonPrincipal({
-  icon,
-  texto,
-  onPress,
+// Lista del Historial (dueño, 2026-11-26): cada conversación se desliza a la izquierda, como en el iPhone, para enseñar
+// «Archivar» (solo una abierta a la vez), y la ventana lleva su propia barra de desplazamiento a la izquierda cuando la
+// lista no cabe.
+const ANCHO_ARCHIVAR = 96;
+const CLAVE_DEMO_ARCHIVAR = "vz_blueia_historial_demo_archivar_v1";
+// Con ratón (ordenador) no se puede deslizar: cada fila enseña su botón de archivar.
+function conRaton(): boolean {
+  if (Platform.OS !== "web" || typeof window === "undefined") return false;
+  try {
+    return !!window.matchMedia?.("(hover: hover) and (pointer: fine)").matches;
+  } catch {
+    return false;
+  }
+}
+function ListaHistorial({
+  conversaciones,
+  abiertaId,
+  onAbrir,
+  onArchivar,
 }: {
-  icon: IoniconName;
-  texto: string;
-  onPress: () => void;
+  conversaciones: ConversacionGuardada[];
+  abiertaId: string | null;
+  onAbrir: (c: ConversacionGuardada) => void;
+  onArchivar: (c: ConversacionGuardada) => void;
 }) {
+  const [deslizada, setDeslizada] = useState<string | null>(null);
+  const [medidas, setMedidas] = useState({ alto: 0, contenido: 0 });
+  const desplazado = useRef(new Animated.Value(0)).current;
+  const sobra = medidas.contenido - medidas.alto;
+  const altoPulgar = sobra > 0 ? Math.max(32, (medidas.alto * medidas.alto) / medidas.contenido) : 0;
+  const [raton] = useState(conRaton);
+
+  // En el móvil, en vez de explicarlo con letras (dueño, 2026-11-26): la primera conversación sale deslizada enseñando
+  // «Archivar» 7 s y vuelve despacio a su sitio, para que se entienda el gesto. Una sola vez por dispositivo (lección
+  // «Los avisos y pistas de Blue salen una sola vez»): queda guardado al enseñarse.
+  const [demoId, setDemoId] = useState<string | null>(null);
+  const primeraId = conversaciones[0]?.id ?? null;
+  useEffect(() => {
+    if (raton || !primeraId) return;
+    let vivo = true;
+    (async () => {
+      try {
+        if (await AsyncStorage.getItem(CLAVE_DEMO_ARCHIVAR)) return;
+        await AsyncStorage.setItem(CLAVE_DEMO_ARCHIVAR, "1");
+      } catch {
+        // sin almacenamiento: se enseña igual
+      }
+      if (vivo) setDemoId(primeraId);
+    })();
+    return () => {
+      vivo = false;
+    };
+    // Solo al abrir el Historial con conversaciones.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [raton, !!primeraId]);
+
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 7,
-        borderRadius: 999,
-        paddingVertical: 11,
-        paddingHorizontal: 20,
-        backgroundColor: COLORS.primary,
-        opacity: pressed ? 0.85 : 1,
-      })}
+    <View style={{ flexShrink: 1, maxHeight: 460 }}>
+      {/* En el ordenador (con ratón) no hay gesto: se explica el botón de cada fila. */}
+      {raton ? (
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 6, marginBottom: 4 }}>
+          <Ionicons name="archive-outline" size={14} color="rgba(11,33,56,0.62)" />
+          <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, textAlign: "center" }}>Archiva una conversación con su botón de la derecha</Text>
+        </View>
+      ) : null}
+      <View style={{ flexShrink: 1 }}>
+        <ScrollView
+          nativeID="blue-ia-historial-lista"
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onLayout={(e) => {
+            const alto = Math.round(e.nativeEvent.layout.height);
+            setMedidas((m) => (m.alto === alto ? m : { ...m, alto }));
+          }}
+          onContentSizeChange={(_w, h) => {
+            const contenido = Math.round(h);
+            setMedidas((m) => (m.contenido === contenido ? m : { ...m, contenido }));
+          }}
+          onScroll={(e) => desplazado.setValue(e.nativeEvent.contentOffset.y)}
+          style={{ paddingLeft: sobra > 0 ? 12 : 0 }}
+        >
+          {conversaciones.map((c, i) => (
+            <FilaHistorial
+              key={c.id}
+              conversacion={c}
+              primera={i === 0}
+              abierta={c.id === abiertaId}
+              deslizada={deslizada === c.id}
+              demo={demoId === c.id}
+              raton={raton}
+              onDeslizar={(si) => setDeslizada(si ? c.id : null)}
+              onAbrir={() => onAbrir(c)}
+              onArchivar={() => {
+                setDeslizada(null);
+                onArchivar(c);
+              }}
+            />
+          ))}
+        </ScrollView>
+        {/* Barra de desplazamiento propia, a la IZQUIERDA como la de progreso de las páginas (dueño, 2026-11-26); también
+            en el iPhone, donde la del sistema casi no se ve. */}
+        {sobra > 0 ? (
+          <View
+            nativeID="blue-ia-historial-barra"
+            pointerEvents="none"
+            {...({ "aria-hidden": true } as object)}
+            style={{ position: "absolute", left: 0, top: 4, bottom: 4, width: 5, borderRadius: 3, backgroundColor: "rgba(11,33,56,0.10)" }}
+          >
+            <Animated.View
+              style={{
+                width: 5,
+                height: altoPulgar,
+                borderRadius: 3,
+                backgroundColor: COLORS.accent,
+                transform: [
+                  {
+                    translateY: desplazado.interpolate({
+                      inputRange: [0, sobra],
+                      outputRange: [0, Math.max(0, medidas.alto - 8 - altoPulgar)],
+                      extrapolate: "clamp",
+                    }),
+                  },
+                ],
+              }}
+            />
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function FilaHistorial({
+  conversacion: c,
+  primera,
+  abierta,
+  deslizada,
+  demo,
+  raton,
+  onDeslizar,
+  onAbrir,
+  onArchivar,
+}: {
+  conversacion: ConversacionGuardada;
+  primera: boolean;
+  abierta: boolean;
+  deslizada: boolean;
+  demo: boolean;
+  raton: boolean;
+  onDeslizar: (si: boolean) => void;
+  onAbrir: () => void;
+  onArchivar: () => void;
+}) {
+  const x = useRef(new Animated.Value(0)).current;
+  const base = useRef(0);
+
+  // Si se desliza otra, esta vuelve a su sitio.
+  useEffect(() => {
+    const destino = deslizada ? -ANCHO_ARCHIVAR : 0;
+    base.current = destino;
+    Animated.spring(x, { toValue: destino, useNativeDriver: Platform.OS !== "web", bounciness: 0, speed: 18 }).start();
+  }, [deslizada, x]);
+
+  // Demostración del gesto (una vez por dispositivo): se abre enseñando «Archivar», se queda 7 s y vuelve despacio. Si
+  // la persona toca la fila mientras tanto, manda ella.
+  const tocada = useRef(false);
+  useEffect(() => {
+    if (!demo) return;
+    const nativo = Platform.OS !== "web";
+    const abrir = setTimeout(() => {
+      if (tocada.current) return;
+      Animated.timing(x, { toValue: -ANCHO_ARCHIVAR, duration: 450, easing: Easing.out(Easing.cubic), useNativeDriver: nativo }).start();
+    }, 400);
+    const cerrar = setTimeout(() => {
+      if (tocada.current) return;
+      Animated.timing(x, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.cubic), useNativeDriver: nativo }).start();
+    }, 400 + 450 + 7000);
+    return () => {
+      clearTimeout(abrir);
+      clearTimeout(cerrar);
+    };
+  }, [demo, x]);
+
+  // El dedo: dónde tocó y hacia dónde va (se decide con sus primeros 8 px). Solo el gesto horizontal mueve la fila; el
+  // vertical sigue desplazando la lista. Con los eventos de toque, que llegan igual en la web y en el móvil.
+  const dedo = useRef<{ x0: number; y0: number; eje: "h" | "v" | null; dx: number }>({ x0: 0, y0: 0, eje: null, dx: 0 });
+  // En la web llega el evento del navegador (la posición va en su primer dedo); en el móvil, en el propio evento.
+  const punto = (e: { nativeEvent: any }) => {
+    const ne = e.nativeEvent;
+    const t = ne?.touches?.[0] ?? ne?.changedTouches?.[0] ?? ne;
+    return { x: Number(t?.pageX ?? 0), y: Number(t?.pageY ?? 0) };
+  };
+  const gesto = {
+    onTouchStart: (e: { nativeEvent: any }) => {
+      tocada.current = true;
+      // Si la demostración la tenía abierta, se sigue desde donde está.
+      x.stopAnimation((v) => {
+        base.current = v;
+      });
+      const p = punto(e);
+      dedo.current = { x0: p.x, y0: p.y, eje: null, dx: 0 };
+    },
+    onTouchMove: (e: { nativeEvent: any }) => {
+      const d = dedo.current;
+      const p = punto(e);
+      const dx = p.x - d.x0;
+      const dy = p.y - d.y0;
+      if (d.eje === null && Math.hypot(dx, dy) >= 8) d.eje = Math.abs(dx) > Math.abs(dy) * 1.2 ? "h" : "v";
+      if (d.eje !== "h") return;
+      d.dx = dx;
+      x.setValue(Math.min(0, Math.max(-ANCHO_ARCHIVAR, base.current + dx)));
+    },
+    onTouchEnd: () => {
+      const d = dedo.current;
+      if (d.eje !== "h") return;
+      const abrir = base.current + d.dx < -ANCHO_ARCHIVAR / 2;
+      base.current = abrir ? -ANCHO_ARCHIVAR : 0;
+      Animated.spring(x, { toValue: base.current, useNativeDriver: Platform.OS !== "web", bounciness: 0, speed: 18 }).start();
+      onDeslizar(abrir);
+      // El toque siguiente (sin deslizar) ya vuelve a abrir la conversación.
+      setTimeout(() => {
+        dedo.current.eje = null;
+      }, 400);
+    },
+  };
+
+  return (
+    <View
+      {...({ dataSet: { filaHistorial: "1" } } as object)}
+      style={{ overflow: "hidden", borderTopWidth: primera ? 0 : 1, borderTopColor: COLORS.border }}
     >
-      <Ionicons name={icon} size={17} color="#FFFFFF" />
-      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>{texto}</Text>
-    </Pressable>
+      {/* Detrás, a la derecha: «Archivar» (no borra nada; la conversación deja de salir en la lista). */}
+      <Pressable
+        onPress={onArchivar}
+        accessibilityRole="button"
+        accessibilityLabel={`Archivar: ${c.titulo}`}
+        {...({ dataSet: { archivarHistorial: "1" } } as object)}
+        style={({ pressed }) => ({
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          right: 0,
+          width: ANCHO_ARCHIVAR,
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 4,
+          backgroundColor: COLORS.accent,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Ionicons name="archive-outline" size={20} color="#FFFFFF" />
+        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13, textAlign: "center" }}>Archivar</Text>
+      </Pressable>
+
+      <Animated.View
+        onTouchStart={gesto.onTouchStart}
+        onTouchMove={gesto.onTouchMove}
+        onTouchEnd={gesto.onTouchEnd}
+        onTouchCancel={gesto.onTouchEnd}
+        style={[
+          { backgroundColor: "#FFFFFF", transform: [{ translateX: x }] },
+          // En la web, el navegador deja el gesto horizontal a la fila y sigue desplazando la lista en vertical.
+          Platform.OS === "web" ? ({ touchAction: "pan-y" } as any) : null,
+        ]}
+      >
+        <Pressable
+          onPress={() => {
+            // Al soltar tras deslizar no se abre la conversación.
+            if (dedo.current.eje === "h") return;
+            if (deslizada) onDeslizar(false);
+            else if (base.current < 0) {
+              // Abierta por la demostración: un toque la cierra.
+              base.current = 0;
+              Animated.spring(x, { toValue: 0, useNativeDriver: Platform.OS !== "web", bounciness: 0, speed: 18 }).start();
+            } else onAbrir();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`Abrir: ${c.titulo}`}
+          accessibilityActions={[{ name: "archivar", label: "Archivar" }]}
+          onAccessibilityAction={(e) => {
+            if (e.nativeEvent.actionName === "archivar") onArchivar();
+          }}
+          // Fila de lista profesional: icono, título y fecha alineados a la izquierda y flecha; toda la fila se toca.
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            paddingVertical: 12,
+            paddingHorizontal: 6,
+            minHeight: 68,
+            backgroundColor: pressed ? "#F4F9FD" : "#FFFFFF",
+          })}
+        >
+          <View
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: abierta ? COLORS.accent : COLORS.accentSoft,
+            }}
+          >
+            <Ionicons name="chatbubble-ellipses-outline" size={20} color={abierta ? "#FFFFFF" : "#0A78B4"} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0, gap: 2, alignItems: "center" }}>
+            <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15, lineHeight: 20, textAlign: "center" }}>
+              {c.titulo}
+            </Text>
+            <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, textAlign: "center" }}>
+              {abierta ? <Text style={{ color: "#0A78B4", fontWeight: "800" }}>Abierta ahora · </Text> : null}
+              {fechaMadrid(c.updated_at)}
+            </Text>
+          </View>
+          {raton ? (
+            // En el ordenador: botón de archivar a la vista (con ratón no se desliza).
+            <Pressable
+              onPress={onArchivar}
+              accessibilityRole="button"
+              accessibilityLabel={`Archivar: ${c.titulo}`}
+              {...({ dataSet: { archivarRaton: "1" } } as object)}
+              style={({ pressed, hovered }: any) => ({
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: hovered || pressed ? COLORS.accentSoft : "transparent",
+              })}
+            >
+              <Ionicons name="archive-outline" size={20} color="#0A78B4" />
+            </Pressable>
+          ) : (
+            <Ionicons name="chevron-forward" size={18} color="rgba(11,33,56,0.4)" />
+          )}
+        </Pressable>
+      </Animated.View>
+    </View>
   );
 }
 

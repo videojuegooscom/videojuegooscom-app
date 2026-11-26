@@ -977,6 +977,11 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         if (esConversaciones) return json({ id: "c0000000-0000-4000-8000-0000000000b2" }, 201);
         return r.fulfill({ status: 201, headers: CORS, body: "" });
       }
+      // Archivar una conversación (sección BI, deslizar en el Historial): se apunta qué se archiva.
+      if (metodo === "PATCH" && esConversaciones) {
+        h.archivadas = [...(h.archivadas ?? []), { id: (url.searchParams.get("id") ?? "").replace(/^eq\./, ""), cuerpo: JSON.parse(peticion.postData() ?? "{}") }];
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
       if (metodo === "GET" && esConversaciones) {
         if (h.retraso) await new Promise((fin) => setTimeout(fin, h.retraso));
         return json(h.conversaciones ?? []);
@@ -3402,6 +3407,9 @@ async function seccionX() {
     await p.waitForFunction((k) => document.querySelectorAll('[data-avatar-blue="1"]').length >= k, n + 1, { timeout: 15000 }).catch(() => {});
     await p.waitForTimeout(600);
   };
+  // El horario se pregunta SOLO desde las sugerencias, como «Ayúdame a elegir» (dueño, 2026-11-26).
+  await p.getByText("¿Cuál es el horario de atención?", { exact: true }).first().waitFor({ timeout: 15000 }).catch(() => {});
+  const sugerenciaHorario = await p.getByText("¿Cuál es el horario de atención?", { exact: true }).count();
   await preguntar("¿Tenéis PS5?", 1);
   await preguntar("¿Me la guardáis hasta el lunes?", 2);
   const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
@@ -3429,8 +3437,8 @@ async function seccionX() {
   // horario fijo sino la pastilla «¿Cuál es el horario de atención?».
   ok(!!m.boton && m.boton.arriba && m.boton.h >= 44, `X: «Hablar con el equipo» va arriba, junto a ⓘ y el Historial, y mide 44 px o más (${JSON.stringify(m.boton)})`);
   ok(
-    m.sinHorarioFijo && !!m.pastilla && !!m.campo && m.pastilla.y < m.campo.y && m.pastilla.h >= 44,
-    `X: encima del recuadro, la pastilla «¿Cuál es el horario de atención?» en vez del horario fijo (${JSON.stringify({ pastilla: m.pastilla, campo: m.campo })})`
+    m.sinHorarioFijo && sugerenciaHorario === 1 && !m.pastilla,
+    `X: el horario va solo entre las sugerencias, sin horario fijo ni pastilla suelta encima del recuadro (${JSON.stringify({ sugerenciaHorario, pastilla: m.pastilla })})`
   );
   // Bienvenida + 2 respuestas = 3 mensajes de Blue, cada uno con la mascota (imagen) y no el icono de antes.
   ok(m.avatares === 3 && m.conMascota && m.sinEstrellitas && m.tamano.every((w) => w === 36), `X: cada respuesta de Blue lleva la mascota de Blue (${m.avatares} mensajes, ${m.tamano.join(", ")} px)`);
@@ -3482,8 +3490,8 @@ async function seccionX() {
     const fondo = getComputedStyle(c).backgroundColor;
     const alfa = /rgba\(/.test(fondo) ? Number(fondo.split(",").at(-1).replace(")", "")) : /rgb\(/.test(fondo) ? 1 : 0;
     const r = c.getBoundingClientRect();
-    const h = document.getElementById("blue-ia-pastilla-horario")?.getBoundingClientRect();
-    return { alfa, abajo: Math.round(window.innerHeight - r.bottom), horarioDentro: !!h && h.top >= r.top && h.bottom <= r.bottom };
+    const h = document.querySelector('textarea[placeholder="Pregúntale a Blue IA…"]')?.getBoundingClientRect();
+    return { alfa, abajo: Math.round(window.innerHeight - r.bottom), recuadroDentro: !!h && h.top >= r.top && h.bottom <= r.bottom };
   });
   await p.mouse.move(195, 300);
   await p.mouse.wheel(0, -260);
@@ -3541,7 +3549,7 @@ async function seccionX() {
     ok(f.errores.length === 0, `X: Foro sin errores de JavaScript (${f.errores.length}${f.errores[0] ? ": " + f.errores[0] : ""})`);
     await ctxF.close();
   }
-  ok(!!panel && panel.alfa >= 0.9 && panel.horarioDentro, `X: la pastilla del horario y el recuadro van en un panel blanco que tapa los mensajes al subir (${JSON.stringify(panel)})`);
+  ok(!!panel && panel.alfa >= 0.9 && panel.recuadroDentro, `X: el recuadro va en un panel blanco que tapa los mensajes al subir (${JSON.stringify(panel)})`);
   ok(p.errores.length === 0, `X: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
   await ctx.close();
 }
@@ -6753,6 +6761,163 @@ async function seccionBI() {
     ok(/mostrados 8 · tocados 3 · más tocados: Vender ahora 2, Cambiar mi artículo 1/.test(t), `BI: Administración → Analítica cuenta los botones de Blue IA (${t})`);
     ok(p.errores.length === 0, `BI: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
+  }
+
+  // BI8) Historial (dueño, 2026-11-26): cada conversación se desliza a la izquierda con el dedo y enseña «Archivar»; la
+  // ventana lleva su barra de desplazamiento a la IZQUIERDA (como la de las páginas) cuando la lista no cabe.
+  const medirHistorial = (p) =>
+    p.evaluate(() => {
+      const caja = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const b = caja("blue-ia-historial-barra");
+      const l = caja("blue-ia-historial-lista");
+      const f = document.querySelector('[data-fila-historial="1"]')?.getBoundingClientRect();
+      const h = caja("blue-ia-historial");
+      return b && l && f && h
+        ? {
+            ancho: Math.round(b.width),
+            alto: Math.round(b.height),
+            izquierda: Math.round(b.left - h.left),
+            antesDeLasFilas: b.right <= f.left,
+            pegada: Math.round(window.innerHeight - h.bottom),
+            centrada: Math.abs(h.left + h.width / 2 - window.innerWidth / 2) <= 2,
+            anchoHoja: Math.round(h.width),
+          }
+        : null;
+    });
+  {
+    const muchas = Array.from({ length: 9 }, (_, i) => ({
+      id: `c0000000-0000-4000-8000-0000000001${String(i).padStart(2, "0")}`,
+      titulo: i === 0 ? "¿qué consola me recomiendas, PS5 o Switch 2?" : `Conversación ${i + 1}`,
+      contexto: null,
+      updated_at: `2026-11-${String(26 - i).padStart(2, "0")}T10:00:00Z`,
+    }));
+    const estado = { filas: perfil, guardados: [], blueHistorial: { conversaciones: muchas, mensajes: [] } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/blue-ia");
+    await p.getByRole("button", { name: "Historial" }).click({ timeout: 30000 });
+    const fila = p.locator('[data-fila-historial="1"]').first();
+    await fila.waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const barra = await medirHistorial(p);
+    ok(!!barra && barra.ancho === 5 && barra.alto > 100 && barra.antesDeLasFilas && barra.izquierda <= 20, `BI (390): el Historial lleva su barra de desplazamiento a la izquierda (${JSON.stringify(barra)})`);
+    await capturar(p, "BI8-historial-390");
+    // Hoja abajo, para el pulgar (dueño, 2026-11-26): pegada al borde de abajo, con «Nueva conversación» y «Cerrar» de
+    // 48 px en la mitad de abajo y filas de 44 px o más.
+    const hoja = await p.evaluate(() => {
+      const caja = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const h = caja("blue-ia-historial");
+      const n = caja("blue-ia-historial-principal");
+      const c = caja("blue-ia-historial-cerrar");
+      const filas = Array.from(document.querySelectorAll('[data-fila-historial="1"]')).slice(0, 3).map((f) => Math.round(f.getBoundingClientRect().height));
+      return h && n && c
+        ? {
+            pegada: Math.round(window.innerHeight - h.bottom),
+            nueva: { y: Math.round(n.top), h: Math.round(n.height) },
+            cerrar: Math.round(c.height),
+            // Dueño, 2026-11-26: la X a la DERECHA de «Nueva conversación» y los botones con margen abajo.
+            xDerecha: c.left > n.right,
+            margenAbajo: Math.round(h.bottom - Math.max(n.bottom, c.bottom)),
+            // Con margen a los lados (que la X no quede pegada al borde) y todo el texto centrado.
+            margenLados: Math.round(Math.min(n.left - h.left, h.right - c.right)),
+            centrado: ["blue-ia-historial-cabecera"]
+              .map((id) => document.getElementById(id))
+              .concat(Array.from(document.querySelectorAll('[data-fila-historial="1"]')).slice(0, 3))
+              // Solo el texto con letras (los iconos también son texto para el navegador).
+              .every((el) =>
+                Array.from(el?.querySelectorAll('[dir="auto"]') ?? [])
+                  .filter((t) => /[a-záéíóúñ0-9]/i.test(t.textContent ?? ""))
+                  .every((t) => getComputedStyle(t).textAlign === "center")
+              ),
+            mitad: Math.round(window.innerHeight / 2),
+            filas,
+          }
+        : null;
+    });
+    ok(
+      !!hoja && Math.abs(hoja.pegada) <= 2 && hoja.nueva.h >= 48 && hoja.cerrar >= 48 && hoja.xDerecha && hoja.margenAbajo >= 24 && hoja.margenLados >= 24 && hoja.centrado && hoja.nueva.y > hoja.mitad && hoja.filas.every((f) => f >= 44),
+      `BI: el Historial es una hoja abajo, con los botones de 48 px al alcance del pulgar (${JSON.stringify(hoja)})`
+    );
+    const visibleArchivar = () =>
+      p.evaluate(() => {
+        const f = document.querySelector('[data-fila-historial="1"]');
+        const delante = f?.lastElementChild?.getBoundingClientRect();
+        const caja = f?.getBoundingClientRect();
+        return delante && caja ? Math.round(caja.right - delante.right) : -1;
+      });
+    // Demostración del gesto (dueño, 2026-11-26): la primera sale deslizada enseñando «Archivar» unos 7 s y vuelve
+    // despacio; sin texto de ayuda. Una sola vez por dispositivo.
+    await p.waitForTimeout(1500);
+    const enDemo = await visibleArchivar();
+    const sinAyuda = !/Desliza una conversación/.test(await p.evaluate(() => document.getElementById("blue-ia-historial")?.innerText ?? ""));
+    await capturar(p, "BI8-historial-demo");
+    ok(enDemo >= 90 && sinAyuda, `BI: al abrir el Historial, la primera sale deslizada enseñando «Archivar», sin texto de ayuda (${enDemo} px)`);
+    await p.waitForTimeout(5000);
+    const aMitad = await visibleArchivar();
+    await p.waitForTimeout(4000);
+    const vuelta = await visibleArchivar();
+    ok(aMitad >= 90 && vuelta === 0, `BI: se queda unos 7 s y vuelve sola a su sitio (a los 6,5 s: ${aMitad} px; a los 10,5 s: ${vuelta} px)`);
+    await p.locator("#blue-ia-historial-cerrar").click();
+    await p.waitForTimeout(600);
+    await p.getByRole("button", { name: "Historial" }).click({ timeout: 15000 });
+    await fila.waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    ok((await visibleArchivar()) === 0, "BI: la segunda vez ya no se repite la demostración");
+    // Deslizar con el dedo (táctil) hacia la izquierda.
+    const caja = await fila.boundingBox();
+    const y = caja.y + caja.height / 2;
+    const cdp = await ctx.newCDPSession(p);
+    const toque = (type, x) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
+    await toque("touchStart", caja.x + caja.width - 30);
+    for (let paso = 1; paso <= 8; paso++) {
+      await toque("touchMove", caja.x + caja.width - 30 - paso * 20);
+      await p.waitForTimeout(16);
+    }
+    await toque("touchEnd", 0);
+    await cdp.detach();
+    await p.waitForTimeout(700);
+    const desplazada = await visibleArchivar();
+    ok(desplazada >= 90, `BI: al deslizar a la izquierda aparece «Archivar» (${desplazada} px)`);
+    await capturar(p, "BI8-historial-deslizar");
+    await p.locator('[data-archivar-historial="1"]').first().click();
+    await p.waitForTimeout(800);
+    const archivada = estado.blueHistorial.archivadas?.[0];
+    ok(archivada?.id === muchas[0].id, `BI: «Archivar» archiva esa conversación (${JSON.stringify(archivada)})`);
+    ok(p.errores.length === 0, `BI: Historial sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+
+    // En el ordenador y en un móvil estrecho: la misma hoja abajo y centrada, con la barra a la izquierda.
+    for (const [nombre, vista] of [
+      ["360", { viewport: { width: 360, height: 780 } }],
+      ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+    ]) {
+      const estadoV = { filas: perfil, guardados: [], blueHistorial: { conversaciones: muchas.map((c) => ({ ...c })), mensajes: [] } };
+      const ctxV = await contexto(navegador, CLIENTE, "user", estadoV, vista);
+      const pv = await pagina(ctxV, "/blue-ia");
+      await pv.getByRole("button", { name: "Historial" }).click({ timeout: 30000 });
+      await pv.locator('[data-fila-historial="1"]').first().waitFor({ timeout: 15000 }).catch(() => {});
+      await pv.waitForTimeout(700);
+      const m = await medirHistorial(pv);
+      ok(
+        !!m && m.ancho === 5 && m.antesDeLasFilas && Math.abs(m.pegada) <= 2 && m.centrada && m.anchoHoja <= 520,
+        `BI (${nombre}): hoja abajo y centrada, con la barra a la izquierda (${JSON.stringify(m)})`
+      );
+      await capturar(pv, `BI8-historial-${nombre}`);
+      if (nombre === "1280") {
+        // Con ratón no se desliza: cada fila lleva su botón de archivar (44 px) y la ayuda lo dice.
+        const botones = await pv.locator('[data-archivar-raton="1"]').count();
+        const ayuda = /con su botón de la derecha/.test(await pv.evaluate(() => document.getElementById("blue-ia-historial")?.innerText ?? ""));
+        await pv.locator('[data-archivar-raton="1"]').first().click().catch(() => {});
+        await pv.waitForTimeout(800);
+        ok(
+          botones >= 6 && ayuda && estadoV.blueHistorial.archivadas?.[0]?.id === muchas[0].id,
+          `BI (1280): con ratón, cada fila lleva su botón de archivar y funciona (${botones} botones, ayuda ${ayuda}, ${JSON.stringify(estadoV.blueHistorial.archivadas?.[0])})`
+        );
+      } else {
+        ok((await pv.locator('[data-archivar-raton="1"]').count()) === 0, `BI (${nombre}): en el móvil no sale el botón de archivar (se desliza)`);
+      }
+      ok(pv.errores.length === 0, `BI (${nombre}): Historial sin errores de JavaScript (${pv.errores.length}${pv.errores[0] ? ": " + pv.errores[0] : ""})`);
+      await ctxV.close();
+    }
   }
 }
 
