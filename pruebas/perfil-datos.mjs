@@ -4313,6 +4313,41 @@ async function seccionRE() {
     ok(pa.errores.length === 0, `RE: Usuarios sin errores de JavaScript (${pa.errores.length}${pa.errores[0] ? ": " + pa.errores[0] : ""})`);
     await ctxAdmin.close();
   }
+
+  // Sin sesión (dueño, 2026-11-26): hoja desde abajo, sin «ACCESO NECESARIO», con «Iniciar sesión», «Crear cuenta gratis» y
+  // «Ahora no» abajo, a lo ancho.
+  {
+    const est = { filas: [], guardados: [], resenas: [], productosVacios: true };
+    const c = await contexto(navegador, CLIENTE, "user", est);
+    await c.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const q = await pagina(c, "/");
+    const b = q.getByText("Dejar una reseña", { exact: true }).first();
+    await b.scrollIntoViewIfNeeded({ timeout: 30000 }).catch(() => {});
+    await b.click();
+    await q.locator("#resena-sin-sesion").waitFor({ timeout: 20000 }).catch(() => {});
+    await q.waitForTimeout(600);
+    const m = await q.evaluate(() => {
+      const v = document.getElementById("resena-ventana")?.getBoundingClientRect();
+      const r = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const [e, g, n] = ["resena-entrar", "resena-registro", "resena-ahora-no"].map(r);
+      return v && e && g && n
+        ? { pegada: Math.abs(v.bottom - window.innerHeight) <= 2, abajo: e.top > window.innerHeight * 0.55, ancho: e.width > v.width * 0.7 && g.width > v.width * 0.7, alto: Math.min(e.height, g.height, n.height), texto: document.getElementById("resena-ventana").innerText }
+        : null;
+    });
+    ok(!!m && m.pegada && m.abajo && m.ancho && m.alto >= 44 && !/ACCESO NECESARIO/.test(m.texto) && /Inicia sesión para dejar tu reseña/.test(m.texto), `RE: sin sesión sale como hoja abajo, sin «ACCESO NECESARIO», con los botones a lo ancho (${JSON.stringify({ ...m, texto: undefined })})`);
+    await capturar(q, "RE-sin-sesion-hoja");
+    await q.locator("#resena-registro").click();
+    await q.waitForURL(/\/perfil/, { timeout: 10000 }).catch(() => {});
+    ok(/acceso=registro/.test(q.url()), `RE: «Crear cuenta gratis» lleva al registro (${q.url().replace(BASE, "")})`);
+    ok(q.errores.length === 0, `RE: sin sesión, sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
+    await c.close();
+  }
 }
 
 // ===== Z) Cesta: «Blue, ayúdame a elegir un artículo» lleva a Blue IA con la pregunta ya enviada (y se cuenta) ========
