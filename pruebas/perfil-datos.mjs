@@ -4251,9 +4251,19 @@ async function seccionRE() {
   await p.waitForTimeout(900);
   const v5 = await visible(5);
   ok(!(await abierta(3)) && (await abierta(5)) && !!v5 && v5.arriba >= 0 && v5.abajo <= v5.alto, `RE: abrir otra cierra la anterior y se encuadra (${JSON.stringify(v5)})`);
+  // «Volver arriba» (dueño, 2026-11-26): abajo en el centro, y escondido mientras hay una pregunta abierta.
+  const arribaCon = await p.evaluate(() => Number(getComputedStyle(document.getElementById("inicio-volver-arriba")).opacity));
+  ok(arribaCon < 0.05, `RE: con una pregunta abierta, «Volver arriba» se esconde (opacidad ${arribaCon})`);
   await p.locator("#inicio-faq-titulo").click();
   await p.waitForTimeout(500);
   ok(!(await abierta(5)), "RE: tocar fuera de las preguntas cierra la abierta");
+  await p.waitForTimeout(400);
+  const arribaSin = await p.evaluate(() => {
+    const capa = document.getElementById("inicio-volver-arriba");
+    const b = capa?.querySelector('[role="button"], [tabindex]')?.getBoundingClientRect() ?? capa?.firstElementChild?.getBoundingClientRect();
+    return capa && b ? { opacidad: Number(getComputedStyle(capa).opacity), centro: Math.abs(b.left + b.width / 2 - window.innerWidth / 2) <= 4 } : null;
+  });
+  ok(!!arribaSin && arribaSin.opacidad > 0.9 && arribaSin.centro, `RE: cerrada, «Volver arriba» vuelve, abajo en el centro (${JSON.stringify(arribaSin)})`);
   await boton.click();
   const ideas = p.locator("#resena-sugerencias [role='button']");
   await ideas.first().waitFor({ timeout: 20000 }).catch(() => {});
