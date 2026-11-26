@@ -3607,6 +3607,18 @@ async function seccionY() {
     ok(fin.cats.includes("playstation-4") && !fin.cats.includes("playstation-5") && !fin.cats.includes("reparaciones"), `Y: y «Otras categorías» en carrusel, sin la actual ni «Reparación / Limpieza» (${fin.cats.join(", ")})`);
     ok(["Garantía", "Envíos en España", "Productos revisados", "Pago rápido"].every((t) => fin.confianza.includes(t)), `Y: «Compra con confianza» con sus 4 avisos («${fin.confianza.replace(/\s+/g, " ")}»)`);
     ok(fin.pie && fin.barra && fin.ancho <= 391, `Y: el pie de página completo y la barra de progreso, sin ensanchar la página (${JSON.stringify({ pie: fin.pie, barra: fin.barra, ancho: fin.ancho })})`);
+    // Abajo del todo, ni «Volver arriba» ni la flecha «Volver» tapan el © del pie (dueño, 2026-11-26).
+    const pisado = await p.evaluate(async () => {
+      for (const el of document.querySelectorAll("*")) if (el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY)) el.scrollTop = el.scrollHeight;
+      await new Promise((r) => setTimeout(r, 700));
+      const copy = [...document.querySelectorAll("div,span")].find((n) => [...n.childNodes].some((c) => c.nodeType === 3 && /Todos los derechos reservados/.test(c.textContent)));
+      const r = copy?.getBoundingClientRect();
+      const botones = ["catalogo-volver-arriba", "boton-atras-flotante"].map((id) => document.getElementById(id)?.getBoundingClientRect()).filter(Boolean);
+      if (!r) return "sin ©";
+      return botones.filter((b) => b.width && Math.min(r.right, b.right) - Math.max(r.left, b.left) > 1 && Math.min(r.bottom, b.bottom) - Math.max(r.top, b.top) > 1).length;
+    });
+    ok(pisado === 0, `Y: abajo del todo, los botones flotantes no tapan el © del pie (${pisado})`);
+    await capturar(p, "Y4-final-abajo");
     await p.locator("#catalogo-final-confianza").scrollIntoViewIfNeeded().catch(() => {});
     await p.waitForTimeout(400);
     await capturar(p, "Y4-final-categoria");

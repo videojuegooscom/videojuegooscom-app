@@ -1148,7 +1148,9 @@ export default function CatalogoScreen() {
         ref={listaRef}
         // 96 abajo: la última fila de productos y el botón "cargar más" quedan por encima
         // del asistente flotante Blue (72 px en la esquina inferior). Con la barra de «Comparar», además su alto.
-        contentContainerStyle={{ paddingBottom: 96 + alturaBarraComparar }}
+        // Al final, con el pie de página, también por encima de «Volver arriba» (46 px sobre la flecha «Volver»): antes
+        // tapaba el © del pie (dueño, 2026-11-26).
+        contentContainerStyle={{ paddingBottom: Math.max(96 + alturaBarraComparar, encimaVolver + 46 + 16) }}
         showsVerticalScrollIndicator={false}
         onScroll={(e) => {
           handleScroll(e);
