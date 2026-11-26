@@ -229,24 +229,23 @@ function pushRoute(route: Href) {
   router.push(route);
 }
 
-// Con `href`, es un enlace de verdad (<a href> en la web, para que Google lo siga), como «Noticias».
-function FooterLink({ label, onPress, href, nativeID }: { label: string; onPress?: () => void; href?: Href; nativeID?: string }) {
+type IconoPie = React.ComponentProps<typeof Ionicons>["name"];
+
+// Cada enlace es una casilla de la rejilla (dueño, 2026-11-26: «más profesional, como si lo hiciera un diseñador»):
+// icono azul y nombre, fondo azul muy suave, 48 px de alto. Con `href`, es un enlace de verdad (<a href> en la web,
+// para que Google lo siga), como «Noticias» y las páginas «Compramos».
+function FooterLink({ label, icon, onPress, href, nativeID }: { label: string; icon: IconoPie; onPress?: () => void; href?: Href; nativeID?: string }) {
+  const casilla = { minHeight: 48, borderRadius: 14, backgroundColor: "#F4F9FD", paddingHorizontal: 10, paddingVertical: 8, flexDirection: "row" as const, alignItems: "center" as const, gap: 8 };
   const boton = (
     <Pressable
       nativeID={nativeID}
       onPress={onPress}
-      accessibilityRole={href ? "link" : undefined}
+      accessibilityRole={href ? "link" : "button"}
       // Dentro de <Link asChild> el estilo tiene que ser un objeto (con una función, Link lo pierde).
-      style={href ? { paddingVertical: 6 } : ({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 6 })}
+      style={href ? casilla : ({ pressed }) => ({ ...casilla, opacity: pressed ? 0.7 : 1 })}
     >
-      <Text
-        style={{
-          color: "rgba(11,33,56,0.72)",
-          fontWeight: "700",
-          lineHeight: 20,
-          textAlign: "center",
-        }}
-      >
+      <Ionicons name={icon} size={18} color={ACCENT} />
+      <Text numberOfLines={2} style={{ flexShrink: 1, color: NAVY, fontWeight: "700", fontSize: TAMANOS.minimo + 1, lineHeight: 18 }}>
         {label}
       </Text>
     </Pressable>
@@ -260,13 +259,20 @@ function FooterLink({ label, onPress, href, nativeID }: { label: string; onPress
   );
 }
 
+// Desplegable del pie: icono, título y flecha; dentro, los enlaces en rejilla de dos columnas (tres en el ordenador).
+// Solo uno abierto a la vez (lo lleva PieDePagina) y, al abrirse, se encuadra solo en la pantalla, como las preguntas
+// frecuentes de Inicio (dueño, 2026-11-26).
 function FooterAccordionSection({
+  id,
   title,
+  icon,
   open,
   onToggle,
   children,
 }: {
+  id: string;
   title: string;
+  icon: IconoPie;
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -281,24 +287,37 @@ function FooterAccordionSection({
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false, // animamos "height", que no admite el driver nativo
     }).start();
-  }, [open, openAnim]);
+    if (!open || Platform.OS !== "web" || typeof document === "undefined") return;
+    const t = setTimeout(() => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.scrollMarginTop = "96px";
+      el.style.scrollMarginBottom = "96px";
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [open, openAnim, id]);
 
   return (
-    <View style={{ borderBottomWidth: 1, borderBottomColor: LINE, overflow: "hidden" }}>
+    <View nativeID={id} style={{ borderBottomWidth: 1, borderBottomColor: LINE, overflow: "hidden" }}>
       <Pressable
         onPress={onToggle}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         style={({ pressed }) => ({
           opacity: pressed ? 0.8 : 1,
-          paddingVertical: 14,
+          minHeight: 52,
+          paddingVertical: 12,
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
-          gap: 8,
+          gap: 10,
         })}
       >
-        <Text style={{ color: NAVY, fontWeight: "900", fontSize: 15 }}>{title}</Text>
+        <View style={{ width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: open ? ACCENT : "#EAF6FD" }}>
+          <Ionicons name={icon} size={16} color={open ? "#FFFFFF" : ACCENT} />
+        </View>
+        <Text style={{ color: NAVY, fontWeight: "900", fontSize: 16 }}>{title}</Text>
 
         <Animated.View
           style={{
@@ -328,9 +347,11 @@ function FooterAccordionSection({
       >
         <View
           onLayout={(e) => setContentHeight(e.nativeEvent.layout.height)}
-          style={{ paddingBottom: 12, alignItems: "center", gap: 2 }}
+          style={{ position: "absolute", left: 0, right: 0, top: 0, paddingBottom: 14, paddingTop: 2 }}
         >
-          {children}
+          <View nativeID={`${id}-enlaces`} style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+            {React.Children.map(children, (hijo) => (hijo ? <View style={{ width: "48%", minWidth: 0 }}>{hijo}</View> : null))}
+          </View>
         </View>
       </Animated.View>
     </View>
@@ -346,10 +367,9 @@ export default function PieDePagina({
   contentMaxWidth?: number;
   onPressCategorias?: () => void;
 }) {
-  const [footerNavOpen, setFooterNavOpen] = useState(false);
-  const [footerPoliciesOpen, setFooterPoliciesOpen] = useState(false);
-  const [footerCompramosOpen, setFooterCompramosOpen] = useState(false);
-  const [footerBlogOpen, setFooterBlogOpen] = useState(false);
+  // Solo un desplegable abierto a la vez (dueño, 2026-11-26).
+  const [abierto, setAbierto] = useState<"nav" | "compramos" | "politicas" | "blog" | null>(null);
+  const alternar = (cual: "nav" | "compramos" | "politicas" | "blog") => setAbierto((a) => (a === cual ? null : cual));
   const [mejorasAbierta, setMejorasAbierta] = useState(false);
 
   const handlePressCategorias =
@@ -389,73 +409,40 @@ export default function PieDePagina({
           </Text>
 
           <View style={{ borderTopWidth: 1, borderTopColor: LINE }}>
-            <FooterAccordionSection
-              title="Navegación"
-              open={footerNavOpen}
-              onToggle={() => setFooterNavOpen((value) => !value)}
-            >
-              <FooterLink label="Inicio" onPress={() => pushRoute("/" as Href)} />
-              <FooterLink label="Categorías" onPress={handlePressCategorias} />
-              <FooterLink label="Catálogo" onPress={() => pushRoute("/catalogo" as Href)} />
-              <FooterLink label="Cesta" onPress={() => pushRoute("/cesta" as Href)} />
-              <FooterLink label="Finalizar compra" onPress={() => pushRoute("/checkout" as Href)} />
-              <FooterLink label="Perfil" onPress={() => pushRoute("/perfil" as Href)} />
-              <FooterLink label="Foro" onPress={() => pushRoute("/chat-global" as Href)} />
-              <FooterLink label="Noticias" nativeID="pie-noticias" href={"/noticias" as Href} />
-              <FooterLink label="Blue IA" onPress={() => pushRoute("/blue-ia" as Href)} />
-              <FooterLink label="Quiénes somos" onPress={() => pushRoute("/quienes-somos" as Href)} />
+            <FooterAccordionSection id="pie-nav" title="Navegación" icon="compass-outline" open={abierto === "nav"} onToggle={() => alternar("nav")}>
+              <FooterLink label="Inicio" icon="home-outline" onPress={() => pushRoute("/" as Href)} />
+              <FooterLink label="Categorías" icon="grid-outline" onPress={handlePressCategorias} />
+              <FooterLink label="Catálogo" icon="pricetags-outline" nativeID="pie-catalogo" href={"/catalogo" as Href} />
+              <FooterLink label="Servicios" icon="construct-outline" nativeID="pie-servicios" href={"/servicios" as Href} />
+              <FooterLink label="Cesta" icon="bag-handle-outline" onPress={() => pushRoute("/cesta" as Href)} />
+              <FooterLink label="Finalizar compra" icon="card-outline" onPress={() => pushRoute("/checkout" as Href)} />
+              <FooterLink label="Perfil" icon="person-outline" onPress={() => pushRoute("/perfil" as Href)} />
+              <FooterLink label="Foro" icon="chatbubbles-outline" onPress={() => pushRoute("/chat-global" as Href)} />
+              <FooterLink label="Noticias" icon="newspaper-outline" nativeID="pie-noticias" href={"/noticias" as Href} />
+              <FooterLink label="Blue IA" icon="sparkles-outline" onPress={() => pushRoute("/blue-ia" as Href)} />
+              <FooterLink label="Quiénes somos" icon="people-outline" onPress={() => pushRoute("/quienes-somos" as Href)} />
             </FooterAccordionSection>
 
             {/* «Compramos tu…» (2026-11-24): enlaces de verdad para que Google encuentre las 5 páginas. */}
-            <FooterAccordionSection
-              title="Te lo compramos"
-              open={footerCompramosOpen}
-              onToggle={() => setFooterCompramosOpen((value) => !value)}
-            >
-              <FooterLink label="Tu consola" href={"/compramos/consolas" as Href} />
-              <FooterLink label="Tu móvil" href={"/compramos/moviles" as Href} />
-              <FooterLink label="Tu portátil" href={"/compramos/portatiles" as Href} />
-              <FooterLink label="Tu PC y periféricos" href={"/compramos/pc" as Href} />
-              <FooterLink label="Tu iPad o tablet" href={"/compramos/tablets" as Href} />
+            <FooterAccordionSection id="pie-compramos" title="Te lo compramos" icon="cash-outline" open={abierto === "compramos"} onToggle={() => alternar("compramos")}>
+              <FooterLink label="Tu consola" icon="game-controller-outline" href={"/compramos/consolas" as Href} />
+              <FooterLink label="Tu móvil" icon="phone-portrait-outline" href={"/compramos/moviles" as Href} />
+              <FooterLink label="Tu portátil" icon="laptop-outline" href={"/compramos/portatiles" as Href} />
+              <FooterLink label="Tu PC y periféricos" icon="desktop-outline" href={"/compramos/pc" as Href} />
+              <FooterLink label="Tu iPad o tablet" icon="tablet-portrait-outline" href={"/compramos/tablets" as Href} />
             </FooterAccordionSection>
 
-            <FooterAccordionSection
-              title="Políticas"
-              open={footerPoliciesOpen}
-              onToggle={() => setFooterPoliciesOpen((value) => !value)}
-            >
-              <FooterLink
-                label="Política de envíos"
-                onPress={() => pushRoute("/politicas/envios" as Href)}
-              />
-              <FooterLink
-                label="Política de devoluciones"
-                onPress={() => pushRoute("/politicas/devoluciones" as Href)}
-              />
-              <FooterLink
-                label="Política de privacidad"
-                onPress={() => pushRoute("/politicas/privacidad" as Href)}
-              />
-              <FooterLink
-                label="Términos y condiciones"
-                onPress={() => pushRoute("/politicas/terminos" as Href)}
-              />
+            <FooterAccordionSection id="pie-politicas" title="Políticas" icon="document-text-outline" open={abierto === "politicas"} onToggle={() => alternar("politicas")}>
+              <FooterLink label="Envíos" icon="cube-outline" onPress={() => pushRoute("/politicas/envios" as Href)} />
+              <FooterLink label="Devoluciones" icon="return-down-back-outline" onPress={() => pushRoute("/politicas/devoluciones" as Href)} />
+              <FooterLink label="Privacidad" icon="lock-closed-outline" onPress={() => pushRoute("/politicas/privacidad" as Href)} />
+              <FooterLink label="Términos y condiciones" icon="reader-outline" onPress={() => pushRoute("/politicas/terminos" as Href)} />
             </FooterAccordionSection>
 
-            <FooterAccordionSection
-              title="Blog"
-              open={footerBlogOpen}
-              onToggle={() => setFooterBlogOpen((value) => !value)}
-            >
-              <FooterLink label="Últimos artículos" onPress={() => pushRoute("/blog" as Href)} />
-              <FooterLink
-                label="Guías de compra"
-                onPress={() => pushRoute("/blog?open=elegir-consola-segunda-mano" as Href)}
-              />
-              <FooterLink
-                label="Consejos y mantenimiento"
-                onPress={() => pushRoute("/blog?open=mantenimiento-consola" as Href)}
-              />
+            <FooterAccordionSection id="pie-blog" title="Blog" icon="book-outline" open={abierto === "blog"} onToggle={() => alternar("blog")}>
+              <FooterLink label="Últimos artículos" icon="newspaper-outline" onPress={() => pushRoute("/blog" as Href)} />
+              <FooterLink label="Guías de compra" icon="compass-outline" onPress={() => pushRoute("/blog?open=elegir-consola-segunda-mano" as Href)} />
+              <FooterLink label="Consejos y mantenimiento" icon="construct-outline" onPress={() => pushRoute("/blog?open=mantenimiento-consola" as Href)} />
             </FooterAccordionSection>
           </View>
 

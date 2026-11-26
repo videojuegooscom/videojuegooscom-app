@@ -1675,13 +1675,16 @@ export default function PantallaInicio() {
     return unsubscribe;
   }, [navigation, scrollToTop]);
 
+  // «Volver arriba» se esconde mientras hay una pregunta frecuente abierta: tapaba su respuesta al encuadrarse (dueño,
+  // 2026-11-26).
+  const verVolverArriba = showScrollTop && faqAbierta === null;
   useEffect(() => {
     Animated.timing(scrollTopAnim, {
-      toValue: showScrollTop ? 1 : 0,
+      toValue: verVolverArriba ? 1 : 0,
       duration: 200,
       useNativeDriver: true,
     }).start();
-  }, [showScrollTop, scrollTopAnim]);
+  }, [verVolverArriba, scrollTopAnim]);
 
   const { width } = useWindowDimensions();
   const widthSafe = width > 0 ? width : 1024;
@@ -2212,13 +2215,16 @@ export default function PantallaInicio() {
 
       {progresoScroll.barra}
 
-      {/* "Volver arriba": aparece solo tras bajar bastante, abajo a la DERECHA (donde llega el
-          pulgar derecho). Con el buscador abajo (móvil) se coloca justo encima de él. */}
+      {/* "Volver arriba": aparece solo tras bajar bastante, abajo EN EL CENTRO (dueño, 2026-11-26: a la derecha tapaba
+          los textos). Con el buscador abajo (móvil) se coloca justo encima de él. */}
       <Animated.View
-        pointerEvents={showScrollTop ? "auto" : "none"}
+        nativeID="inicio-volver-arriba"
+        pointerEvents={verVolverArriba ? "box-none" : "none"}
         style={{
           position: "absolute",
-          right: 14,
+          left: 0,
+          right: 0,
+          alignItems: "center",
           bottom:
             (isMobile ? mobileTabBarHeight : desktopTabBarHeight) +
             14 +

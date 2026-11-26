@@ -4251,9 +4251,19 @@ async function seccionRE() {
   await p.waitForTimeout(900);
   const v5 = await visible(5);
   ok(!(await abierta(3)) && (await abierta(5)) && !!v5 && v5.arriba >= 0 && v5.abajo <= v5.alto, `RE: abrir otra cierra la anterior y se encuadra (${JSON.stringify(v5)})`);
+  // «Volver arriba» (dueño, 2026-11-26): abajo en el centro, y escondido mientras hay una pregunta abierta.
+  const arribaCon = await p.evaluate(() => Number(getComputedStyle(document.getElementById("inicio-volver-arriba")).opacity));
+  ok(arribaCon < 0.05, `RE: con una pregunta abierta, «Volver arriba» se esconde (opacidad ${arribaCon})`);
   await p.locator("#inicio-faq-titulo").click();
   await p.waitForTimeout(500);
   ok(!(await abierta(5)), "RE: tocar fuera de las preguntas cierra la abierta");
+  await p.waitForTimeout(400);
+  const arribaSin = await p.evaluate(() => {
+    const capa = document.getElementById("inicio-volver-arriba");
+    const b = capa?.querySelector('[role="button"], [tabindex]')?.getBoundingClientRect() ?? capa?.firstElementChild?.getBoundingClientRect();
+    return capa && b ? { opacidad: Number(getComputedStyle(capa).opacity), centro: Math.abs(b.left + b.width / 2 - window.innerWidth / 2) <= 4 } : null;
+  });
+  ok(!!arribaSin && arribaSin.opacidad > 0.9 && arribaSin.centro, `RE: cerrada, «Volver arriba» vuelve, abajo en el centro (${JSON.stringify(arribaSin)})`);
   await boton.click();
   const ideas = p.locator("#resena-sugerencias [role='button']");
   await ideas.first().waitFor({ timeout: 20000 }).catch(() => {});
@@ -4415,6 +4425,32 @@ async function seccionRE() {
       ok(/\/vender/.test(q.url()) && ev?.step_label === "Cierre de Inicio: Vender ahora" && ev?.metadata?.boton === "vender", `RE: «Vender ahora» del cierre lleva a Vender y se mide (${JSON.stringify(ev?.metadata ?? null)})`);
     }
     ok(q.errores.length === 0, `RE (${nombre}): cierre de Inicio sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
+    await c.close();
+  }
+
+  // Pie de página (dueño, 2026-11-26): desplegables con icono, enlaces en rejilla de dos columnas (48 px), solo uno abierto
+  // a la vez y al abrirse se encuadran.
+  {
+    const est = { filas: perfil, guardados: [], resenas: [], productosVacios: true };
+    const c = await contexto(navegador, CLIENTE, "user", est);
+    const q = await pagina(c, "/");
+    await q.locator("#pie-nav").waitFor({ state: "attached", timeout: 30000 }).catch(() => {});
+    await q.locator("#pie-nav").scrollIntoViewIfNeeded().catch(() => {});
+    await q.getByText("Navegación", { exact: true }).click();
+    await q.waitForTimeout(900);
+    const rejilla = await q.evaluate(() => {
+      const casillas = [...document.querySelectorAll("#pie-nav-enlaces > div")].map((d) => d.getBoundingClientRect());
+      const caja = document.getElementById("pie-nav")?.getBoundingClientRect();
+      const filas = new Set(casillas.map((r) => Math.round(r.top))).size;
+      return caja ? { n: casillas.length, filas, alto: Math.min(...casillas.map((r) => r.height)), dentro: caja.top >= 0 && caja.bottom <= window.innerHeight, ancho: document.documentElement.scrollWidth <= window.innerWidth + 1 } : null;
+    });
+    ok(!!rejilla && rejilla.n === 11 && rejilla.filas === 6 && rejilla.alto >= 44 && rejilla.ancho, `RE: el pie despliega «Navegación» en rejilla de dos columnas (11 enlaces con «Servicios», 6 filas, 44 px o más) (${JSON.stringify(rejilla)})`);
+    await capturar(q, "RE-pie-navegacion");
+    await q.getByText("Políticas", { exact: true }).click();
+    await q.waitForTimeout(900);
+    const alturas = await q.evaluate(() => ["pie-nav", "pie-politicas"].map((id) => Math.round(document.getElementById(id)?.getBoundingClientRect().height ?? 0)));
+    ok(alturas[0] < 70 && alturas[1] > 120, `RE: abrir «Políticas» cierra «Navegación» (solo uno abierto) (${alturas.join(" / ")})`);
+    ok(q.errores.length === 0, `RE: pie sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
     await c.close();
   }
 
@@ -10258,7 +10294,11 @@ async function seccionNW() {
         fuenteTarget: fuente?.getAttribute("target") ?? "",
         fuenteRel: fuente?.getAttribute("rel") ?? "",
         foto: decodeURIComponent(raiz?.querySelector("img")?.getAttribute("src") ?? ""),
-        enlaces: [...(raiz?.querySelectorAll("#noticia-enlaces a") ?? [])].map((a) => a.getAttribute("href")),
+        // Desde el 2026-11-26 los enlaces a Noticias, Catálogo y Servicios están en el pie de página (enlaces de verdad).
+        enlaces: ["#pie-noticias", "#pie-catalogo", "#pie-servicios"].map((s) => {
+          const e = document.querySelector(s);
+          return e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "";
+        }),
       };
     });
     ok(datos.h1 === NOTICIAS[0].titulo, `NW: la noticia tiene su título como h1 («${datos.h1}»)`);
@@ -10276,15 +10316,15 @@ async function seccionNW() {
     ok(/nw1\.jpg/.test(datos.foto), `NW: la foto principal es la comprobada (${datos.foto.slice(-12)})`);
     ok(
       datos.enlaces.includes("/noticias") && datos.enlaces.includes("/catalogo") && datos.enlaces.includes("/servicios"),
-      `NW: enlaces de verdad a Más noticias, Catálogo y Servicios (${datos.enlaces.join(", ")})`
+      `NW: enlaces de verdad a Noticias, Catálogo y Servicios, ahora en el pie de página (${datos.enlaces.join(", ")})`
     );
-    // Los enlaces con forma de píldora (44 px, fondo azul claro, icono y texto en fila): <Link asChild> no pierde el estilo.
-    const pildora = await p.evaluate(() => {
-      const e = document.querySelector("#noticia-mas");
-      const r = e?.getBoundingClientRect();
-      return e ? { fondo: getComputedStyle(e).backgroundColor, fila: getComputedStyle(e).flexDirection, alto: Math.round(r.height) } : null;
-    });
-    ok(!!pildora && pildora.fondo === "rgb(234, 246, 253)" && pildora.fila === "row" && pildora.alto >= 44, `NW: los enlaces del final son píldoras de la tienda (${JSON.stringify(pildora)})`);
+    // Final de la noticia (dueño, 2026-11-26): sin las píldoras de antes; «Compra con confianza» y el pie de página.
+    const final = await p.evaluate(() => ({
+      pildoras: !!document.querySelector("#noticia-enlaces, #noticia-mas"),
+      confianza: ["Garantía", "Envíos en España", "Productos revisados", "Pago rápido"].every((t) => (document.getElementById("noticia-confianza")?.innerText ?? "").includes(t)),
+      pie: !!document.getElementById("pie-nav"),
+    }));
+    ok(!final.pildoras && final.confianza && final.pie, `NW: al final, «Compra con confianza» y el pie de página en vez de las píldoras (${JSON.stringify(final)})`);
     const c = await cabecera(p);
     ok(c.titulo === TITULO && c.ogTitulo === TITULO, `NW: su <title> y og:title («${c.titulo}»)`);
     ok(c.canonical === `https://videojuegoszaragoza.com/noticias/${N1}`, `NW: su dirección oficial (canonical ${c.canonical})`);
@@ -10299,7 +10339,7 @@ async function seccionNW() {
     ok(ev?.step_label === "Noticias: página vista · Consolas", `NW: la visita se cuenta por categoría (${ev?.step_label ?? "nada"})`);
     ok(!(estado.eventosEnviados ?? []).some((e) => e.event_name === "noticia_buscador"), "NW: sin venir de un buscador no se cuenta como llegada desde Google");
     await capturar(p, "NW1-pagina-noticia");
-    await p.locator("#noticia-enlaces").scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator("#noticia-confianza").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, "NW1b-pagina-noticia-final");
     ok(p.errores.length === 0, `NW: la página de la noticia sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     const tapado = await p.evaluate(() => {
@@ -10402,7 +10442,8 @@ async function seccionNW() {
     await p.locator("#pie-noticias").waitFor({ state: "attached", timeout: 40000 }).catch(() => {});
     const pie = await p.evaluate(() => {
       const e = document.querySelector("#pie-noticias");
-      return { href: e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "", texto: e?.textContent?.trim() ?? "" };
+      // (sin el carácter del icono, de la zona de uso privado de Unicode: desde el 2026-11-26 cada enlace del pie lleva icono)
+      return { href: e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "", texto: (e?.textContent ?? "").replace(/[-]/g, "").trim() };
     });
     ok(pie.href === "/noticias" && pie.texto === "Noticias", `NW: el pie de página tiene «Noticias» como enlace (${JSON.stringify(pie)})`);
     await p.close();
@@ -10410,7 +10451,8 @@ async function seccionNW() {
     await f.locator(`#abrir-noticia-${N1}`).waitFor({ timeout: 40000 }).catch(() => {});
     const abrir = await f.evaluate((id) => {
       const e = document.querySelector(`#abrir-noticia-${id}`);
-      return { href: e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "", texto: e?.textContent?.trim() ?? "" };
+      // (sin el carácter del icono, de la zona de uso privado de Unicode: desde el 2026-11-26 cada enlace del pie lleva icono)
+      return { href: e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "", texto: (e?.textContent ?? "").replace(/[-]/g, "").trim() };
     }, N1);
     ok(abrir.href === `/noticias/${N1}` && abrir.texto === "Abrir la noticia", `NW: la tarjeta del Foro enlaza a su página («${abrir.texto}» → ${abrir.href})`);
     await f.locator(`#abrir-noticia-${N1}`).scrollIntoViewIfNeeded().catch(() => {});
