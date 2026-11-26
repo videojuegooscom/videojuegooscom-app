@@ -1617,20 +1617,19 @@ function BlueIAHistorialModal({
           {/* Asa de la hoja. */}
           <View style={{ alignSelf: "center", width: 40, height: 5, borderRadius: 3, backgroundColor: "#D6E2EE" }} />
 
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4 }}>
+          {/* Cabecera centrada, como todo en la tienda (lección «Todo centrado»). */}
+          <View nativeID="blue-ia-historial-cabecera" style={{ alignItems: "center", gap: 4 }}>
             <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.accentSoft, alignItems: "center", justifyContent: "center" }}>
               <Ionicons name="time-outline" size={22} color="#0A78B4" />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-                Historial
+            <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
+              Historial
+            </Text>
+            {conSesion && conversaciones.length ? (
+              <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, textAlign: "center" }}>
+                {conversaciones.length === 1 ? "1 conversación guardada" : `${conversaciones.length} conversaciones guardadas`}
               </Text>
-              {conSesion && conversaciones.length ? (
-                <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13 }}>
-                  {conversaciones.length === 1 ? "1 conversación guardada" : `${conversaciones.length} conversaciones guardadas`}
-                </Text>
-              ) : null}
-            </View>
+            ) : null}
           </View>
 
           {!conSesion ? (
@@ -1649,7 +1648,7 @@ function BlueIAHistorialModal({
 
           {/* Abajo, al alcance del pulgar y con margen (dueño, 2026-11-26): la acción principal y, a la DERECHA, cerrar
               con el icono de la X. */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4, marginBottom: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4, marginBottom: 12, paddingHorizontal: 12 }}>
             <Pressable
               nativeID="blue-ia-historial-principal"
               onPress={
@@ -1760,9 +1759,9 @@ function ListaHistorial({
     <View style={{ flexShrink: 1, maxHeight: 460 }}>
       {/* En el ordenador (con ratón) no hay gesto: se explica el botón de cada fila. */}
       {raton ? (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 6, marginBottom: 4 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 6, marginBottom: 4 }}>
           <Ionicons name="archive-outline" size={14} color="rgba(11,33,56,0.62)" />
-          <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, flex: 1 }}>Archiva una conversación con su botón de la derecha</Text>
+          <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, textAlign: "center" }}>Archiva una conversación con su botón de la derecha</Text>
         </View>
       ) : null}
       <View style={{ flexShrink: 1 }}>
@@ -1951,7 +1950,7 @@ function FilaHistorial({
         })}
       >
         <Ionicons name="archive-outline" size={20} color="#FFFFFF" />
-        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13 }}>Archivar</Text>
+        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13, textAlign: "center" }}>Archivar</Text>
       </Pressable>
 
       <Animated.View
@@ -2005,11 +2004,11 @@ function FilaHistorial({
           >
             <Ionicons name="chatbubble-ellipses-outline" size={20} color={abierta ? "#FFFFFF" : "#0A78B4"} />
           </View>
-          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-            <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15, lineHeight: 20 }}>
+          <View style={{ flex: 1, minWidth: 0, gap: 2, alignItems: "center" }}>
+            <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15, lineHeight: 20, textAlign: "center" }}>
               {c.titulo}
             </Text>
-            <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13 }}>
+            <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, textAlign: "center" }}>
               {abierta ? <Text style={{ color: "#0A78B4", fontWeight: "800" }}>Abierta ahora · </Text> : null}
               {fechaMadrid(c.updated_at)}
             </Text>

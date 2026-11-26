@@ -6817,13 +6817,24 @@ async function seccionBI() {
             // Dueño, 2026-11-26: la X a la DERECHA de «Nueva conversación» y los botones con margen abajo.
             xDerecha: c.left > n.right,
             margenAbajo: Math.round(h.bottom - Math.max(n.bottom, c.bottom)),
+            // Con margen a los lados (que la X no quede pegada al borde) y todo el texto centrado.
+            margenLados: Math.round(Math.min(n.left - h.left, h.right - c.right)),
+            centrado: ["blue-ia-historial-cabecera"]
+              .map((id) => document.getElementById(id))
+              .concat(Array.from(document.querySelectorAll('[data-fila-historial="1"]')).slice(0, 3))
+              // Solo el texto con letras (los iconos también son texto para el navegador).
+              .every((el) =>
+                Array.from(el?.querySelectorAll('[dir="auto"]') ?? [])
+                  .filter((t) => /[a-záéíóúñ0-9]/i.test(t.textContent ?? ""))
+                  .every((t) => getComputedStyle(t).textAlign === "center")
+              ),
             mitad: Math.round(window.innerHeight / 2),
             filas,
           }
         : null;
     });
     ok(
-      !!hoja && Math.abs(hoja.pegada) <= 2 && hoja.nueva.h >= 48 && hoja.cerrar >= 48 && hoja.xDerecha && hoja.margenAbajo >= 24 && hoja.nueva.y > hoja.mitad && hoja.filas.every((f) => f >= 44),
+      !!hoja && Math.abs(hoja.pegada) <= 2 && hoja.nueva.h >= 48 && hoja.cerrar >= 48 && hoja.xDerecha && hoja.margenAbajo >= 24 && hoja.margenLados >= 24 && hoja.centrado && hoja.nueva.y > hoja.mitad && hoja.filas.every((f) => f >= 44),
       `BI: el Historial es una hoja abajo, con los botones de 48 px al alcance del pulgar (${JSON.stringify(hoja)})`
     );
     const visibleArchivar = () =>
