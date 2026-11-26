@@ -902,7 +902,8 @@ async function avisarPedido(supabase: SupabaseClient, pedidoId: string, tipo: "p
   });
 }
 
-// El aviso de una solicitud de «Vender» nueva (2026-11-24: las páginas «Compramos» prometen precio en menos de 1 hora).
+// El aviso de una solicitud de «Vender» nueva (las páginas «Compramos» prometen tasación en menos de 30 minutos, 24/7,
+// desde el 2026-11-26).
 // Lo pide el formulario al enviarse. Se reclama en la base de datos ANTES de enviar (sell_requests.aviso_admin_enviado_en,
 // migración 20261124200000): una sola vez por solicitud y solo si es de los últimos 30 minutos, así repetir la llamada no
 // manda nada más. Sin la columna, sin VAPID o ya avisada: no hace nada. El registro aún no admite «venta_nueva» (lo
@@ -935,7 +936,7 @@ async function avisarVenta(supabase: SupabaseClient, b: Record<string, unknown>)
   await avisarConTope(() =>
     repartirAviso(supabase, v, {
       tipo: "venta_nueva",
-      titulo: "Quieren venderte algo · da precio en menos de 1 hora",
+      titulo: "Quieren venderte algo · tásalo en menos de 30 minutos",
       cuerpo: corta(cuerpo, 180),
       url: "/admin/cotizaciones",
       tag: `venta-${id}`,

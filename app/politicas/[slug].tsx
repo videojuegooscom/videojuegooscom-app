@@ -236,7 +236,7 @@ const POLITICAS_DE_RESERVA: Record<string, Policy> = {
       {
         heading: "Si nos vendes tu aparato",
         body:
-          "Te damos un precio en menos de 1 hora a partir de lo que nos cuentas y de tus fotos, sin compromiso. En Zaragoza y alrededores lo recogemos o nos lo acercas en menos de 2 horas; desde el resto de España te enviamos en menos de 2 horas una etiqueta de envío sin coste y nos llega en 72 horas como máximo. Al recibirlo lo revisamos: si está como nos indicaste, te pagamos al momento por Bizum o en efectivo (en efectivo, solo en mano). Si no coincide, te proponemos un nuevo precio y, si no lo aceptas, te lo devolvemos sin coste. Para vender tienes que ser mayor de edad y el propietario del aparato, y firmamos un contrato de compraventa.",
+          "Te lo tasamos en menos de 30 minutos, las 24 horas, los 7 días de la semana, a partir de lo que nos cuentas en el formulario y de tus fotos, sin compromiso. En Zaragoza lo recogemos en tu dirección en menos de 1 hora y en los alrededores en menos de 1 hora y media, o nos lo acercas tú; desde el resto de España te enviamos en menos de 2 horas una etiqueta de envío sin coste y nos llega en 72 horas como máximo. Al recibirlo comprobamos que todo esté como nos indicaste en el formulario: si es así, te pagamos al momento por Bizum o en efectivo (en efectivo, solo en mano). Si no coincide, te proponemos un nuevo precio y, si no lo aceptas, te lo devolvemos sin coste. Para vender tienes que ser mayor de edad y el propietario del aparato, y firmamos un contrato de compraventa.",
       },
       {
         heading: "Precios y pago",

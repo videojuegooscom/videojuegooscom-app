@@ -72,23 +72,23 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   // («vender mi consola», «vender consola online»): «Vende tu…» delante, Zaragoza y toda España, sin repetir de más.
   "/compramos/consolas": {
     titulo: "Vende tu consola: PS5, Switch y Xbox · Zaragoza y toda España",
-    descripcion: "¿Quieres vender tu consola? Te compramos tu PS5, Nintendo Switch o Xbox: precio en menos de 1 hora y pago al momento por Bizum o en efectivo. Recogida en Zaragoza o envío gratis.",
+    descripcion: "¿Quieres vender tu consola? Te compramos tu PS5, Nintendo Switch o Xbox: tasación en menos de 30 minutos y pago al momento por Bizum o en efectivo. Recogida en Zaragoza o envío gratis.",
   },
   "/compramos/moviles": {
     titulo: "Vende tu móvil: iPhone y Android · Zaragoza y toda España",
-    descripcion: "¿Quieres vender tu móvil? Te compramos tu iPhone, Samsung, Xiaomi o Pixel, también averiado: precio en menos de 1 hora y pago al momento. Recogida en Zaragoza o envío gratis.",
+    descripcion: "¿Quieres vender tu móvil? Te compramos tu iPhone, Samsung, Xiaomi o Pixel, también averiado: tasación en menos de 30 minutos y pago al momento. Recogida en Zaragoza o envío gratis.",
   },
   "/compramos/portatiles": {
     titulo: "Vende tu portátil o MacBook · Zaragoza y toda España",
-    descripcion: "¿Quieres vender tu portátil? Te compramos tu MacBook, portátil gaming o Windows: precio en menos de 1 hora y pago al momento por Bizum o en efectivo. Recogida en Zaragoza o envío gratis.",
+    descripcion: "¿Quieres vender tu portátil? Te compramos tu MacBook, portátil gaming o Windows: tasación en menos de 30 minutos y pago al momento por Bizum o en efectivo. Recogida en Zaragoza o envío gratis.",
   },
   "/compramos/pc": {
     titulo: "Vende tu PC, gráfica o monitor · Zaragoza y toda España",
-    descripcion: "¿Quieres vender tu PC? Te compramos tu PC gaming, tarjeta gráfica, monitor o periféricos: precio en menos de 1 hora y pago al momento. Recogida en Zaragoza o envío gratis.",
+    descripcion: "¿Quieres vender tu PC? Te compramos tu PC gaming, tarjeta gráfica, monitor o periféricos: tasación en menos de 30 minutos y pago al momento. Recogida en Zaragoza o envío gratis.",
   },
   "/compramos/tablets": {
     titulo: "Vende tu iPad o tablet · Zaragoza y toda España",
-    descripcion: "¿Quieres vender tu iPad o tu tablet? Te la compramos: precio en menos de 1 hora y pago al momento por Bizum o en efectivo. Recogida en Zaragoza o envío gratis desde toda España.",
+    descripcion: "¿Quieres vender tu iPad o tu tablet? Te la compramos: tasación en menos de 30 minutos y pago al momento por Bizum o en efectivo. Recogida en Zaragoza o envío gratis desde toda España.",
   },
   // «Comparar 2-3 productos» (mejora 8, 2026-11-14): el enlace con ?ids= se comparte; la dirección oficial va sin ellos.
   "/comparar": { titulo: "Comparar productos", descripcion: "Compara hasta 3 consolas, móviles o accesorios: precio, estado, categoría y entrega estimada." },
@@ -127,7 +127,7 @@ const DOMINIO = "https://videojuegoszaragoza.com";
 const MARCA = "Videojuegoszaragoza.com";
 // La misma que «Marca y SEO» (2026-11-25): app/_layout.tsx la escribe en el HTML ya generado, porque Vercel no publica lo
 // que scripts/inject-seo-html.js cambia en dist/. Si el dueño cambia la de Marca y SEO, se cambia también aquí.
-export const DESCRIPCION_GENERAL = "Compramos tu consola, móvil u ordenador en Zaragoza y toda España: precio en menos de 1 hora y pago al momento. Venta y reparación de electrónica.";
+export const DESCRIPCION_GENERAL = "Compramos tu consola, móvil u ordenador en Zaragoza y toda España: tasación en menos de 30 minutos y pago al momento. Venta y reparación de electrónica.";
 
 // Cada noticia (app/noticias/[id].tsx) pone su propio título, descripción, og:* y datos estructurados al cargarse: aquí
 // solo se pone su dirección oficial, para no pisarle el título cuando «Marca y SEO» llega después.
