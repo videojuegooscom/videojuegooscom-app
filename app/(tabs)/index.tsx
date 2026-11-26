@@ -706,15 +706,22 @@ function TituloOferta({ isMobile }: { isMobile?: boolean }) {
 // Pregunta frecuente desplegable: fondo limpio (sin burbuja), línea fina entre preguntas, la
 // flecha gira y la respuesta se abre con una animación suave de altura y fundido. La
 // respuesta se mide en una capa absoluta para conocer su alto real sin que se corte.
+// Al abrirse, la pregunta se encuadra sola en la pantalla (dueño, 2026-11-26): cuando termina de desplegarse, se
+// desplaza lo justo para que se vean la pregunta y su respuesta enteras, sin quedar bajo el buscador flotante.
+// `instantanea`: cerrar sin animación (al tocar fuera, para que la página no dé un salto lento).
 function PreguntaFrecuente({
+  id,
   pregunta,
   respuesta,
   abierta,
+  instantanea,
   onToggle,
 }: {
+  id: string;
   pregunta: string;
   respuesta: string;
   abierta: boolean;
+  instantanea?: boolean;
   onToggle: () => void;
 }) {
   const progreso = useRef(new Animated.Value(0)).current;
@@ -723,17 +730,27 @@ function PreguntaFrecuente({
   useEffect(() => {
     Animated.timing(progreso, {
       toValue: abierta ? 1 : 0,
-      duration: 280,
+      duration: instantanea ? 0 : 280,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
-  }, [abierta, progreso]);
+    if (!abierta || Platform.OS !== "web" || typeof document === "undefined") return;
+    const t = setTimeout(() => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      // Hueco para el buscador flotante (arriba o abajo) y la barra de pestañas.
+      el.style.scrollMarginTop = "96px";
+      el.style.scrollMarginBottom = "96px";
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 320);
+    return () => clearTimeout(t);
+  }, [abierta, instantanea, progreso, id]);
 
   const altura = progreso.interpolate({ inputRange: [0, 1], outputRange: [0, alto] });
   const giro = progreso.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "180deg"] });
 
   return (
-    <View style={{ borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+    <View nativeID={id} style={{ borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
       <Pressable
         onPress={onToggle}
         accessibilityRole="button"
@@ -1488,6 +1505,8 @@ export default function PantallaInicio() {
   const [infoPop, setInfoPop] = useState<DatoConfianza | null>(null);
   // Pregunta frecuente abierta (solo una a la vez).
   const [faqAbierta, setFaqAbierta] = useState<number | null>(null);
+  // Cerrada al tocar fuera: sin animación, para corregir el desplazamiento de una vez.
+  const [faqCierreRapido, setFaqCierreRapido] = useState(false);
   // Botón flotante "volver arriba" ⬆️: aparece tras bajar bastante.
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
@@ -1496,6 +1515,30 @@ export default function PantallaInicio() {
   const scrollRef = useRef<ScrollView | null>(null);
   // Barra de progreso lateral izquierda, como en Compramos y Quiénes somos (dueño, 2026-11-26).
   const progresoScroll = useProgresoDesplazamiento();
+
+  // Preguntas frecuentes: tocar fuera de la lista (un toque, no al arrastrar para bajar) cierra la abierta. Si estaba por
+  // encima de lo tocado, se resta lo que medía su respuesta para que lo que se ve no salte (dueño, 2026-11-26).
+  useEffect(() => {
+    if (faqAbierta === null || Platform.OS !== "web" || typeof document === "undefined") return;
+    const alTocar = (e: MouseEvent) => {
+      const lista = document.getElementById("inicio-faq-lista");
+      if (!lista || lista.contains(e.target as Node)) return;
+      const item = document.getElementById(`inicio-faq-${faqAbierta}`);
+      const antes = item?.getBoundingClientRect();
+      setFaqCierreRapido(true);
+      setFaqAbierta(null);
+      if (!item || !antes || antes.bottom > e.clientY) return;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const menos = antes.height - item.getBoundingClientRect().height;
+          const nodo = (scrollRef.current as unknown as { getScrollableNode?: () => HTMLElement | null } | null)?.getScrollableNode?.();
+          if (nodo && menos > 0) nodo.scrollTop = Math.max(0, nodo.scrollTop - menos);
+        })
+      );
+    };
+    document.addEventListener("click", alTocar);
+    return () => document.removeEventListener("click", alTocar);
+  }, [faqAbierta]);
   const [categoriesY, setCategoriesY] = useState(0);
   // Portadas de las categorías (panel → Categorías), por slug: salen en sus tarjetas.
   const portadasCategorias = usePortadasCategorias();
@@ -2072,14 +2115,21 @@ export default function PantallaInicio() {
               <Text style={{ color: COLORS.muted, fontSize: TAMANOS.cuerpo, textAlign: "center" }}>Lo que más nos preguntáis, resuelto.</Text>
             </View>
 
-            <View style={{ width: "100%", maxWidth: 640, alignSelf: "center", borderTopWidth: 1, borderTopColor: COLORS.border }}>
+            {/* Solo una abierta a la vez (abrir otra cierra la anterior) y tocar fuera de la lista la cierra (dueño,
+                2026-11-26). */}
+            <View nativeID="inicio-faq-lista" style={{ width: "100%", maxWidth: 640, alignSelf: "center", borderTopWidth: 1, borderTopColor: COLORS.border }}>
               {PREGUNTAS_INICIO.map((item, i) => (
                 <PreguntaFrecuente
                   key={item.pregunta}
+                  id={`inicio-faq-${i}`}
                   pregunta={item.pregunta}
                   respuesta={item.respuesta}
                   abierta={faqAbierta === i}
-                  onToggle={() => setFaqAbierta((a) => (a === i ? null : i))}
+                  instantanea={faqCierreRapido}
+                  onToggle={() => {
+                    setFaqCierreRapido(false);
+                    setFaqAbierta((a) => (a === i ? null : i));
+                  }}
                 />
               ))}
             </View>
