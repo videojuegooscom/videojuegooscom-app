@@ -1646,25 +1646,9 @@ function BlueIAHistorialModal({
             <ListaHistorial conversaciones={conversaciones} abiertaId={abiertaId} onAbrir={onAbrir} onArchivar={onArchivar} />
           )}
 
-          {/* Abajo, al alcance del pulgar: la acción principal y «Cerrar». */}
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <Pressable
-              nativeID="blue-ia-historial-cerrar"
-              onPress={onClose}
-              accessibilityRole="button"
-              accessibilityLabel="Cerrar el historial"
-              style={({ pressed }) => ({
-                height: 48,
-                paddingHorizontal: 18,
-                borderRadius: 24,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: "#F1F6FA",
-                opacity: pressed ? 0.8 : 1,
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 15 }}>Cerrar</Text>
-            </Pressable>
+          {/* Abajo, al alcance del pulgar y con margen (dueño, 2026-11-26): la acción principal y, a la DERECHA, cerrar
+              con el icono de la X. */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4, marginBottom: 12 }}>
             <Pressable
               nativeID="blue-ia-historial-principal"
               onPress={
@@ -1690,6 +1674,23 @@ function BlueIAHistorialModal({
             >
               <Ionicons name={conSesion ? "add" : "person-circle-outline"} size={20} color="#FFFFFF" />
               <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{conSesion ? "Nueva conversación" : "Iniciar sesión"}</Text>
+            </Pressable>
+            <Pressable
+              nativeID="blue-ia-historial-cerrar"
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar el historial"
+              style={({ pressed }) => ({
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#F1F6FA",
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <Ionicons name="close" size={24} color={COLORS.text} />
             </Pressable>
           </View>
         </Pressable>

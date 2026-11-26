@@ -6810,11 +6810,20 @@ async function seccionBI() {
       const c = caja("blue-ia-historial-cerrar");
       const filas = Array.from(document.querySelectorAll('[data-fila-historial="1"]')).slice(0, 3).map((f) => Math.round(f.getBoundingClientRect().height));
       return h && n && c
-        ? { pegada: Math.round(window.innerHeight - h.bottom), nueva: { y: Math.round(n.top), h: Math.round(n.height) }, cerrar: Math.round(c.height), mitad: Math.round(window.innerHeight / 2), filas }
+        ? {
+            pegada: Math.round(window.innerHeight - h.bottom),
+            nueva: { y: Math.round(n.top), h: Math.round(n.height) },
+            cerrar: Math.round(c.height),
+            // Dueño, 2026-11-26: la X a la DERECHA de «Nueva conversación» y los botones con margen abajo.
+            xDerecha: c.left > n.right,
+            margenAbajo: Math.round(h.bottom - Math.max(n.bottom, c.bottom)),
+            mitad: Math.round(window.innerHeight / 2),
+            filas,
+          }
         : null;
     });
     ok(
-      !!hoja && Math.abs(hoja.pegada) <= 2 && hoja.nueva.h >= 48 && hoja.cerrar >= 48 && hoja.nueva.y > hoja.mitad && hoja.filas.every((f) => f >= 44),
+      !!hoja && Math.abs(hoja.pegada) <= 2 && hoja.nueva.h >= 48 && hoja.cerrar >= 48 && hoja.xDerecha && hoja.margenAbajo >= 24 && hoja.nueva.y > hoja.mitad && hoja.filas.every((f) => f >= 44),
       `BI: el Historial es una hoja abajo, con los botones de 48 px al alcance del pulgar (${JSON.stringify(hoja)})`
     );
     const visibleArchivar = () =>
