@@ -3548,6 +3548,7 @@ async function seccionY() {
       serviciosAdmin: [
         { id: "5e000000-0000-4000-8000-0000000000a1", title: "Sustitución de joysticks", description: "", price_eur: 24.97, status: "PUBLISHED", is_active: true },
         { id: "5e000000-0000-4000-8000-0000000000a2", title: "Mantenimiento Playstation 5", description: "", price_eur: 45, status: "PUBLISHED", is_active: true },
+        { id: "5e000000-0000-4000-8000-0000000000a3", title: "Mantenimiento Playstation 4", description: "", price_eur: 30, status: "PUBLISHED", is_active: true },
       ],
     };
     const ctx = await contexto(navegador, CLIENTE, "user", cliente);
@@ -3603,7 +3604,7 @@ async function seccionY() {
         ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
       };
     });
-    ok(/Servicios para tu PlayStation 5/.test(fin.tituloServ) && /Mantenimiento Playstation 5/.test(fin.tituloServ) && /45,00 €/.test(fin.tituloServ) && fin.primero.endsWith("a2") && fin.nServ === 2 && fin.todos, `Y: al final, «Servicios para tu PlayStation 5» en carrusel, primero el de PS5 y «Ver todos» (${JSON.stringify({ primero: fin.primero, n: fin.nServ })})`);
+    ok(/Servicios para tu PlayStation 5/.test(fin.tituloServ) && /Mantenimiento Playstation 5/.test(fin.tituloServ) && /45,00 €/.test(fin.tituloServ) && fin.primero.endsWith("a2") && fin.nServ === 2 && fin.todos && !/Playstation 4/.test(fin.tituloServ), `Y: al final, «Servicios para tu PlayStation 5» en carrusel, primero el de PS5, sin el de PS4 y con «Ver todos» (${JSON.stringify({ primero: fin.primero, n: fin.nServ })})`);
     ok(fin.cats.includes("playstation-4") && !fin.cats.includes("playstation-5") && !fin.cats.includes("reparaciones"), `Y: y «Otras categorías» en carrusel, sin la actual ni «Reparación / Limpieza» (${fin.cats.join(", ")})`);
     ok(["Garantía", "Envíos en España", "Productos revisados", "Pago rápido"].every((t) => fin.confianza.includes(t)), `Y: «Compra con confianza» con sus 4 avisos («${fin.confianza.replace(/\s+/g, " ")}»)`);
     ok(fin.pie && fin.barra && fin.ancho <= 391, `Y: el pie de página completo y la barra de progreso, sin ensanchar la página (${JSON.stringify({ pie: fin.pie, barra: fin.barra, ancho: fin.ancho })})`);

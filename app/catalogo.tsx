@@ -535,7 +535,11 @@ function FinalCategoria({
   const desde = actual?.slug ?? null;
   const nombreActual = actual ? normalizar(actual.name) : "";
   const propios = nombreActual ? servicios.filter((s) => normalizar(s.title).includes(nombreActual)) : [];
-  const ordenados = [...propios, ...servicios.filter((s) => !propios.includes(s))];
+  // Dentro de una categoría, fuera los servicios de OTRA consola («Mantenimiento Playstation 4» en PlayStation 5; dueño,
+  // 2026-11-26); los generales (p. ej. «Sustitución de joysticks») se quedan, detrás de los propios.
+  const otrasConsolas = actual ? categorias.filter((c) => c.id !== actual.id).map((c) => normalizar(c.name)) : [];
+  const deOtra = (s: Service) => otrasConsolas.some((n) => n && normalizar(s.title).includes(n));
+  const ordenados = [...propios, ...servicios.filter((s) => !propios.includes(s) && !deOtra(s))];
   const otras = categorias.filter((c) => c.is_active && c.id !== actual?.id && !esCategoriaServicios(c.slug));
   const anchoTarjeta = isMobile ? 200 : 240;
   const medir = (bloque: string, nombre: string) =>
