@@ -2718,6 +2718,48 @@ async function seccionDESPL() {
     ok(abajo > 100 && arriba < 10, `DESPL: tocar «Perfil» estando en Perfil sube arriba (${abajo} → ${arriba} px)`);
     await ctx.close();
   }
+
+  // DESPL6) Teclado del iPhone en Blue IA (dueño, 2026-11-26): mientras se escribe, la barra de pestañas se esconde y la
+  // tienda mide lo que deja el teclado; al salir del campo, todo vuelve. El teclado se imita con un visualViewport falso.
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", nuevoEstado(), { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await ctx.addInitScript(() => {
+      const falso = new EventTarget();
+      let alto = window.innerHeight;
+      Object.defineProperty(falso, "height", { get: () => alto });
+      Object.defineProperty(falso, "width", { get: () => window.innerWidth });
+      for (const k of ["offsetTop", "offsetLeft", "pageTop", "pageLeft"]) Object.defineProperty(falso, k, { get: () => 0 });
+      Object.defineProperty(falso, "scale", { get: () => 1 });
+      Object.defineProperty(window, "visualViewport", { configurable: true, get: () => falso });
+      window.__vzTeclado = (px) => {
+        alto = window.innerHeight - px;
+        falso.dispatchEvent(new Event("resize"));
+      };
+    });
+    const p = await pagina(ctx, "/blue-ia");
+    const campo = p.getByPlaceholder("Pregúntale a Blue IA…");
+    await campo.waitFor({ timeout: 30000 }).catch(() => {});
+    const barraVisible = () => p.evaluate(() => {
+      const b = document.querySelector('[data-testid="pestana-index"]');
+      return !!b && b.getBoundingClientRect().height > 0 && getComputedStyle(b).visibility !== "hidden";
+    });
+    const antes = await barraVisible();
+    await campo.focus();
+    await p.evaluate(() => window.__vzTeclado(340));
+    await p.waitForTimeout(500);
+    const con = await p.evaluate(() => ({ raiz: document.getElementById("root")?.style.height ?? "", campoAbajo: Math.round(document.querySelector('textarea[placeholder="Pregúntale a Blue IA…"]')?.getBoundingClientRect().bottom ?? 0), visible: window.innerHeight - 340 }));
+    const durante = await barraVisible();
+    await capturar(p, "DESPL6-teclado-blue");
+    await campo.blur();
+    await p.evaluate(() => window.__vzTeclado(0));
+    await p.waitForTimeout(500);
+    const despues = await barraVisible();
+    const raizDespues = await p.evaluate(() => document.getElementById("root")?.style.height ?? "");
+    ok(antes && !durante && con.raiz === `${con.visible}px` && con.campoAbajo <= con.visible, `DESPL: con el teclado abierto en Blue IA se esconde la barra y el campo queda encima del teclado (${JSON.stringify({ antes, durante, ...con })})`);
+    ok(despues && raizDespues === "", `DESPL: al cerrar el teclado vuelve la barra y la medida de siempre (${JSON.stringify({ despues, raizDespues })})`);
+    ok(p.errores.length === 0, `DESPL: Blue IA con el teclado sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
 }
 
 // ===== S) Panel de control: el número de novedades de cada recuadro ===============================================
