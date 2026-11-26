@@ -3479,6 +3479,58 @@ async function seccionX() {
   await p.mouse.wheel(0, -260);
   await p.waitForTimeout(500);
   await capturar(p, "X3-blue-ia-subiendo");
+
+  // Como en WhatsApp (dueño, 2026-11-26): cada mensaje deja al menos el 18 % del ancho libre en el lado contrario
+  // (los de Blue, a la derecha; los de la persona, a la izquierda).
+  const huecosBlue = await p.evaluate(() =>
+    Array.from(document.querySelectorAll("[data-burbuja-blue]")).map((fila) => {
+      const r = fila.getBoundingClientRect();
+      const b = fila.lastElementChild.getBoundingClientRect();
+      const blue = fila.getAttribute("data-burbuja-blue") === "blue";
+      return { quien: blue ? "blue" : "persona", hueco: Math.round(((blue ? r.right - b.right : b.left - r.left) / r.width) * 100) };
+    })
+  );
+  ok(
+    // El de los botones de artículos (el último de Blue) deja algo menos, el 10 %, para que quepa el nombre del artículo.
+    huecosBlue.length >= 6 &&
+      huecosBlue.some((h) => h.quien === "persona") &&
+      huecosBlue.slice(0, -1).every((h) => h.hueco >= 18) &&
+      huecosBlue.at(-1).hueco >= 9,
+    `X: los mensajes de Blue y los de la persona dejan el mismo hueco en el lado contrario, como en WhatsApp (${huecosBlue.map((h) => `${h.quien} ${h.hueco} %`).join(", ")})`
+  );
+
+  // Lo mismo en el Foro: los de los demás a la izquierda y los propios a la derecha, como mucho al 80 %.
+  {
+    const mensaje = (id, user_id, display_name, body, minuto) => ({ id, created_at: `2026-10-30T18:${minuto}:00Z`, user_id, username: "x", display_name, role: "member", body, reply_to_id: null });
+    const largo = "Yo la compré aquí hace un mes y va genial, me la entregaron el mismo día en Zaragoza y venía revisada.";
+    const estadoForo = {
+      filas: estado.filas,
+      guardados: [],
+      mensajes: [
+        mensaje("m1000000-0000-4000-8000-000000000001", CLIENTE.id, "Ana", `¿Alguien tiene la Switch OLED? ${largo}`, "03"),
+        mensaje("m2000000-0000-4000-8000-000000000002", "22222222-2222-4222-8222-222222222222", "Luis", largo, "02"),
+      ],
+    };
+    const ctxF = await contexto(navegador, CLIENTE, "user", estadoForo);
+    const f = await pagina(ctxF, "/chat-global?tab=chat");
+    await f.getByText(largo, { exact: true }).waitFor({ timeout: 30000 }).catch(() => {});
+    await f.waitForTimeout(800);
+    const huecosForo = await f.evaluate(() =>
+      Array.from(document.querySelectorAll("[data-burbuja-foro]")).map((m) => {
+        const r = m.parentElement.getBoundingClientRect();
+        const b = m.getBoundingClientRect();
+        const mia = m.getAttribute("data-burbuja-foro") === "mia";
+        return { quien: mia ? "mía" : "otro", hueco: Math.round(((mia ? b.left - r.left : r.right - b.right) / r.width) * 100) };
+      })
+    );
+    ok(
+      huecosForo.length === 2 && huecosForo.every((h) => h.hueco >= 18),
+      `X: en el Foro, los mensajes propios y los de los demás dejan el mismo hueco en el lado contrario (${huecosForo.map((h) => `${h.quien} ${h.hueco} %`).join(", ")})`
+    );
+    await capturar(f, "X4-foro-escalonado");
+    ok(f.errores.length === 0, `X: Foro sin errores de JavaScript (${f.errores.length}${f.errores[0] ? ": " + f.errores[0] : ""})`);
+    await ctxF.close();
+  }
   ok(!!panel && panel.alfa >= 0.9 && panel.horarioDentro, `X: el horario y los botones van en un panel blanco que tapa los mensajes al subir (${JSON.stringify(panel)})`);
   ok(p.errores.length === 0, `X: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
   await ctx.close();

@@ -1753,19 +1753,26 @@ function BlueIABubble({ message }: { message: BlueIAMessage }) {
   const mine = message.role === "user";
 
   return (
+    // Como en WhatsApp (dueño, 2026-11-26): cada mensaje deja el mismo hueco (20 % del ancho) en el lado contrario, así
+    // los de Blue y los de la persona se ven escalonados.
     <View
+      {...({ dataSet: { burbujaBlue: mine ? "persona" : "blue" } } as object)}
       style={{
         flexDirection: "row",
         justifyContent: mine ? "flex-end" : "flex-start",
         alignItems: "flex-end",
         gap: 8,
+        paddingLeft: mine ? "20%" : 0,
+        // Con botones de artículos, algo menos de hueco para que su nombre quepa entero en el móvil.
+        paddingRight: mine ? 0 : message.productChips?.length ? "10%" : "20%",
       }}
     >
       {!mine && <AvatarBlue />}
 
       <View
         style={{
-          maxWidth: "82%",
+          flexShrink: 1,
+          maxWidth: "100%",
           borderRadius: 18,
           borderWidth: 1,
           borderColor: message.isError
