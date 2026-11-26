@@ -218,10 +218,64 @@ const COLORS = {
   accentTexto: colorTextoAzul(TAMANOS.minimo),
 };
 
+/**
+ * Teclado del móvil en la web (dueño, 2026-11-26, captura de Blue IA en el iPhone): `tabBarHideOnKeyboard` no funciona
+ * en la web y Safari deja la barra de pestañas y un hueco en blanco entre lo que escribes y el teclado. Mientras se
+ * escribe en un campo y el teclado tapa la pantalla (la parte visible, visualViewport, mide 120 px menos que la
+ * ventana), la tienda ocupa solo lo que se ve —el recuadro queda pegado encima del teclado— y la barra de pestañas se
+ * esconde. Al cerrar el teclado todo vuelve a su sitio. Solo en pantallas táctiles; en Android, que ya encoge la
+ * ventana, no cambia nada.
+ */
+function useTecladoAbiertoWeb(): boolean {
+  const [abierto, setAbierto] = React.useState(false);
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined" || !window.visualViewport) return;
+    if (!window.matchMedia?.("(pointer: coarse)").matches) return;
+    const vv = window.visualViewport;
+    const raiz = document.getElementById("root");
+    let ultimo = false;
+    const poner = (alto: string) => {
+      document.documentElement.style.height = alto;
+      document.body.style.height = alto;
+      if (raiz) raiz.style.height = alto;
+    };
+    const actualizar = () => {
+      const el = document.activeElement as HTMLElement | null;
+      const escribiendo = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      const abre = escribiendo && window.innerHeight - vv.height > 120;
+      if (abre) {
+        poner(`${Math.round(vv.height)}px`);
+        // Safari desplaza la página para enseñar el campo: con la tienda ya a la medida de lo visible, arriba del todo.
+        if (window.scrollY !== 0) window.scrollTo(0, 0);
+      } else if (ultimo) {
+        poner("");
+      }
+      if (abre !== ultimo) {
+        ultimo = abre;
+        setAbierto(abre);
+      }
+    };
+    const alSalir = () => window.setTimeout(actualizar, 60);
+    vv.addEventListener("resize", actualizar);
+    vv.addEventListener("scroll", actualizar);
+    document.addEventListener("focusin", actualizar);
+    document.addEventListener("focusout", alSalir);
+    return () => {
+      vv.removeEventListener("resize", actualizar);
+      vv.removeEventListener("scroll", actualizar);
+      document.removeEventListener("focusin", actualizar);
+      document.removeEventListener("focusout", alSalir);
+      poner("");
+    };
+  }, []);
+  return abierto;
+}
+
 export default function TabsLayout() {
   // Zona segura inferior del iPhone en la web (ver lib/barraPestanas.ts): se suma a la altura y al
   // margen inferior para que los nombres de las secciones no queden cortados por abajo.
   const bottomInset = useMargenInferiorBarraPestanas();
+  const tecladoAbierto = useTecladoAbiertoWeb();
 
   return (
     <Tabs
@@ -243,6 +297,8 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: COLORS.muted,
         tabBarHideOnKeyboard: true,
         tabBarStyle: {
+          // Con el teclado del móvil abierto (web), escondida: el recuadro de escribir queda pegado al teclado.
+          ...(tecladoAbierto ? { display: "none" as const } : null),
           backgroundColor: COLORS.card,
           borderTopColor: COLORS.border,
           borderTopWidth: 1,
