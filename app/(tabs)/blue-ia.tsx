@@ -114,6 +114,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Animated,
   Modal,
   Platform,
   Pressable,
@@ -1662,69 +1663,243 @@ function BlueIAHistorialModal({
                   Aún no tienes conversaciones guardadas.
                 </Text>
               ) : (
-                <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 400 }}>
-                  {conversaciones.map((c, i) => {
-                    const abierta = c.id === abiertaId;
-                    return (
-                      <View
-                        key={c.id}
-                        style={{
-                          alignItems: "center",
-                          gap: 4,
-                          paddingVertical: 12,
-                          borderTopWidth: i === 0 ? 0 : 1,
-                          borderTopColor: COLORS.border,
-                        }}
-                      >
-                        <Pressable
-                          onPress={() => onAbrir(c)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Abrir: ${c.titulo}`}
-                          style={({ pressed }) => ({ alignItems: "center", opacity: pressed ? 0.7 : 1 })}
-                        >
-                          <Text
-                            numberOfLines={2}
-                            style={{
-                              color: abierta ? COLORS.primary : COLORS.text,
-                              fontWeight: "800",
-                              fontSize: 15,
-                              textAlign: "center",
-                            }}
-                          >
-                            {c.titulo}
-                          </Text>
-                          <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
-                            {abierta ? "Abierta · " : ""}
-                            {fechaMadrid(c.updated_at)}
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => onArchivar(c)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Archivar: ${c.titulo}`}
-                          hitSlop={6}
-                          style={({ pressed }) => ({
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 4,
-                            opacity: pressed ? 0.6 : 1,
-                          })}
-                        >
-                          <Ionicons name="archive-outline" size={13} color={COLORS.muted} />
-                          <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700" }}>
-                            Archivar
-                          </Text>
-                        </Pressable>
-                      </View>
-                    );
-                  })}
-                </ScrollView>
+                <ListaHistorial
+                  conversaciones={conversaciones}
+                  abiertaId={abiertaId}
+                  onAbrir={onAbrir}
+                  onArchivar={onArchivar}
+                />
               )}
             </>
           )}
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+// Lista del Historial (dueño, 2026-11-26): cada conversación se desliza a la izquierda, como en el iPhone, para enseñar
+// «Archivar» (solo una abierta a la vez), y la ventana lleva su propia barra de desplazamiento a la derecha cuando la
+// lista no cabe.
+const ANCHO_ARCHIVAR = 96;
+function ListaHistorial({
+  conversaciones,
+  abiertaId,
+  onAbrir,
+  onArchivar,
+}: {
+  conversaciones: ConversacionGuardada[];
+  abiertaId: string | null;
+  onAbrir: (c: ConversacionGuardada) => void;
+  onArchivar: (c: ConversacionGuardada) => void;
+}) {
+  const [deslizada, setDeslizada] = useState<string | null>(null);
+  const [medidas, setMedidas] = useState({ alto: 0, contenido: 0 });
+  const desplazado = useRef(new Animated.Value(0)).current;
+  const sobra = medidas.contenido - medidas.alto;
+  const altoPulgar = sobra > 0 ? Math.max(32, (medidas.alto * medidas.alto) / medidas.contenido) : 0;
+
+  return (
+    <View style={{ maxHeight: 400 }}>
+      <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", marginBottom: 6 }}>
+        Desliza una conversación a la izquierda para archivarla
+      </Text>
+      <View style={{ flexShrink: 1 }}>
+        <ScrollView
+          nativeID="blue-ia-historial-lista"
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onLayout={(e) => {
+            const alto = Math.round(e.nativeEvent.layout.height);
+            setMedidas((m) => (m.alto === alto ? m : { ...m, alto }));
+          }}
+          onContentSizeChange={(_w, h) => {
+            const contenido = Math.round(h);
+            setMedidas((m) => (m.contenido === contenido ? m : { ...m, contenido }));
+          }}
+          onScroll={(e) => desplazado.setValue(e.nativeEvent.contentOffset.y)}
+          style={{ paddingRight: sobra > 0 ? 12 : 0 }}
+        >
+          {conversaciones.map((c, i) => (
+            <FilaHistorial
+              key={c.id}
+              conversacion={c}
+              primera={i === 0}
+              abierta={c.id === abiertaId}
+              deslizada={deslizada === c.id}
+              onDeslizar={(si) => setDeslizada(si ? c.id : null)}
+              onAbrir={() => onAbrir(c)}
+              onArchivar={() => {
+                setDeslizada(null);
+                onArchivar(c);
+              }}
+            />
+          ))}
+        </ScrollView>
+        {/* Barra de desplazamiento propia (también en el iPhone, donde la del sistema casi no se ve). */}
+        {sobra > 0 ? (
+          <View
+            nativeID="blue-ia-historial-barra"
+            pointerEvents="none"
+            {...({ "aria-hidden": true } as object)}
+            style={{ position: "absolute", right: 0, top: 4, bottom: 4, width: 5, borderRadius: 3, backgroundColor: "rgba(11,33,56,0.10)" }}
+          >
+            <Animated.View
+              style={{
+                width: 5,
+                height: altoPulgar,
+                borderRadius: 3,
+                backgroundColor: COLORS.accent,
+                transform: [
+                  {
+                    translateY: desplazado.interpolate({
+                      inputRange: [0, sobra],
+                      outputRange: [0, Math.max(0, medidas.alto - 8 - altoPulgar)],
+                      extrapolate: "clamp",
+                    }),
+                  },
+                ],
+              }}
+            />
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function FilaHistorial({
+  conversacion: c,
+  primera,
+  abierta,
+  deslizada,
+  onDeslizar,
+  onAbrir,
+  onArchivar,
+}: {
+  conversacion: ConversacionGuardada;
+  primera: boolean;
+  abierta: boolean;
+  deslizada: boolean;
+  onDeslizar: (si: boolean) => void;
+  onAbrir: () => void;
+  onArchivar: () => void;
+}) {
+  const x = useRef(new Animated.Value(0)).current;
+  const base = useRef(0);
+
+  // Si se desliza otra, esta vuelve a su sitio.
+  useEffect(() => {
+    const destino = deslizada ? -ANCHO_ARCHIVAR : 0;
+    base.current = destino;
+    Animated.spring(x, { toValue: destino, useNativeDriver: Platform.OS !== "web", bounciness: 0, speed: 18 }).start();
+  }, [deslizada, x]);
+
+  // El dedo: dónde tocó y hacia dónde va (se decide con sus primeros 8 px). Solo el gesto horizontal mueve la fila; el
+  // vertical sigue desplazando la lista. Con los eventos de toque, que llegan igual en la web y en el móvil.
+  const dedo = useRef<{ x0: number; y0: number; eje: "h" | "v" | null; dx: number }>({ x0: 0, y0: 0, eje: null, dx: 0 });
+  // En la web llega el evento del navegador (la posición va en su primer dedo); en el móvil, en el propio evento.
+  const punto = (e: { nativeEvent: any }) => {
+    const ne = e.nativeEvent;
+    const t = ne?.touches?.[0] ?? ne?.changedTouches?.[0] ?? ne;
+    return { x: Number(t?.pageX ?? 0), y: Number(t?.pageY ?? 0) };
+  };
+  const gesto = {
+    onTouchStart: (e: { nativeEvent: any }) => {
+      const p = punto(e);
+      dedo.current = { x0: p.x, y0: p.y, eje: null, dx: 0 };
+    },
+    onTouchMove: (e: { nativeEvent: any }) => {
+      const d = dedo.current;
+      const p = punto(e);
+      const dx = p.x - d.x0;
+      const dy = p.y - d.y0;
+      if (d.eje === null && Math.hypot(dx, dy) >= 8) d.eje = Math.abs(dx) > Math.abs(dy) * 1.2 ? "h" : "v";
+      if (d.eje !== "h") return;
+      d.dx = dx;
+      x.setValue(Math.min(0, Math.max(-ANCHO_ARCHIVAR, base.current + dx)));
+    },
+    onTouchEnd: () => {
+      const d = dedo.current;
+      if (d.eje !== "h") return;
+      const abrir = base.current + d.dx < -ANCHO_ARCHIVAR / 2;
+      base.current = abrir ? -ANCHO_ARCHIVAR : 0;
+      Animated.spring(x, { toValue: base.current, useNativeDriver: Platform.OS !== "web", bounciness: 0, speed: 18 }).start();
+      onDeslizar(abrir);
+      // El toque siguiente (sin deslizar) ya vuelve a abrir la conversación.
+      setTimeout(() => {
+        dedo.current.eje = null;
+      }, 400);
+    },
+  };
+
+  return (
+    <View
+      {...({ dataSet: { filaHistorial: "1" } } as object)}
+      style={{ overflow: "hidden", borderTopWidth: primera ? 0 : 1, borderTopColor: COLORS.border }}
+    >
+      {/* Detrás, a la derecha: «Archivar» (no borra nada; la conversación deja de salir en la lista). */}
+      <Pressable
+        onPress={onArchivar}
+        accessibilityRole="button"
+        accessibilityLabel={`Archivar: ${c.titulo}`}
+        {...({ dataSet: { archivarHistorial: "1" } } as object)}
+        style={({ pressed }) => ({
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          right: 0,
+          width: ANCHO_ARCHIVAR,
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 4,
+          backgroundColor: COLORS.accent,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Ionicons name="archive-outline" size={20} color="#FFFFFF" />
+        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13 }}>Archivar</Text>
+      </Pressable>
+
+      <Animated.View
+        onTouchStart={gesto.onTouchStart}
+        onTouchMove={gesto.onTouchMove}
+        onTouchEnd={gesto.onTouchEnd}
+        onTouchCancel={gesto.onTouchEnd}
+        style={[
+          { backgroundColor: "#FFFFFF", transform: [{ translateX: x }] },
+          // En la web, el navegador deja el gesto horizontal a la fila y sigue desplazando la lista en vertical.
+          Platform.OS === "web" ? ({ touchAction: "pan-y" } as any) : null,
+        ]}
+      >
+        <Pressable
+          onPress={() => {
+            // Al soltar tras deslizar no se abre la conversación.
+            if (dedo.current.eje === "h") return;
+            if (deslizada) onDeslizar(false);
+            else onAbrir();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`Abrir: ${c.titulo}`}
+          accessibilityActions={[{ name: "archivar", label: "Archivar" }]}
+          onAccessibilityAction={(e) => {
+            if (e.nativeEvent.actionName === "archivar") onArchivar();
+          }}
+          style={({ pressed }) => ({ alignItems: "center", gap: 4, paddingVertical: 14, paddingHorizontal: 8, minHeight: 64, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+        >
+          <Text
+            numberOfLines={2}
+            style={{ color: abierta ? COLORS.primary : COLORS.text, fontWeight: "800", fontSize: 15, textAlign: "center" }}
+          >
+            {c.titulo}
+          </Text>
+          <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: "center" }}>
+            {abierta ? "Abierta · " : ""}
+            {fechaMadrid(c.updated_at)}
+          </Text>
+        </Pressable>
+      </Animated.View>
+    </View>
   );
 }
 

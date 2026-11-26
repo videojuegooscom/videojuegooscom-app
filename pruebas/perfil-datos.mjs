@@ -977,6 +977,11 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         if (esConversaciones) return json({ id: "c0000000-0000-4000-8000-0000000000b2" }, 201);
         return r.fulfill({ status: 201, headers: CORS, body: "" });
       }
+      // Archivar una conversación (sección BI, deslizar en el Historial): se apunta qué se archiva.
+      if (metodo === "PATCH" && esConversaciones) {
+        h.archivadas = [...(h.archivadas ?? []), { id: (url.searchParams.get("id") ?? "").replace(/^eq\./, ""), cuerpo: JSON.parse(peticion.postData() ?? "{}") }];
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
       if (metodo === "GET" && esConversaciones) {
         if (h.retraso) await new Promise((fin) => setTimeout(fin, h.retraso));
         return json(h.conversaciones ?? []);
@@ -6755,6 +6760,60 @@ async function seccionBI() {
     const t = (await p.locator("#analitica-blue-botones").innerText().catch(() => "")).replace(/\n/g, " ");
     ok(/mostrados 8 · tocados 3 · más tocados: Vender ahora 2, Cambiar mi artículo 1/.test(t), `BI: Administración → Analítica cuenta los botones de Blue IA (${t})`);
     ok(p.errores.length === 0, `BI: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // BI8) Historial (dueño, 2026-11-26): cada conversación se desliza a la izquierda con el dedo y enseña «Archivar»; la
+  // ventana lleva su barra de desplazamiento a la derecha cuando la lista no cabe.
+  {
+    const muchas = Array.from({ length: 9 }, (_, i) => ({
+      id: `c0000000-0000-4000-8000-0000000001${String(i).padStart(2, "0")}`,
+      titulo: i === 0 ? "¿qué consola me recomiendas, PS5 o Switch 2?" : `Conversación ${i + 1}`,
+      contexto: null,
+      updated_at: `2026-11-${String(26 - i).padStart(2, "0")}T10:00:00Z`,
+    }));
+    const estado = { filas: perfil, guardados: [], blueHistorial: { conversaciones: muchas, mensajes: [] } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/blue-ia");
+    await p.getByRole("button", { name: "Historial" }).click({ timeout: 30000 });
+    const fila = p.locator('[data-fila-historial="1"]').first();
+    await fila.waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const barra = await p.evaluate(() => {
+      const b = document.getElementById("blue-ia-historial-barra")?.getBoundingClientRect();
+      const l = document.getElementById("blue-ia-historial-lista")?.getBoundingClientRect();
+      return b && l ? { ancho: Math.round(b.width), derecha: Math.round(l.right - b.right), alto: Math.round(b.height) } : null;
+    });
+    ok(!!barra && barra.ancho === 5 && barra.alto > 100, `BI: el Historial lleva su barra de desplazamiento a la derecha (${JSON.stringify(barra)})`);
+    const visibleArchivar = () =>
+      p.evaluate(() => {
+        const f = document.querySelector('[data-fila-historial="1"]');
+        const delante = f?.lastElementChild?.getBoundingClientRect();
+        const caja = f?.getBoundingClientRect();
+        return delante && caja ? Math.round(caja.right - delante.right) : -1;
+      });
+    ok((await visibleArchivar()) === 0, "BI: al abrir el Historial, «Archivar» está escondido");
+    // Deslizar con el dedo (táctil) hacia la izquierda.
+    const caja = await fila.boundingBox();
+    const y = caja.y + caja.height / 2;
+    const cdp = await ctx.newCDPSession(p);
+    const toque = (type, x) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
+    await toque("touchStart", caja.x + caja.width - 30);
+    for (let paso = 1; paso <= 8; paso++) {
+      await toque("touchMove", caja.x + caja.width - 30 - paso * 20);
+      await p.waitForTimeout(16);
+    }
+    await toque("touchEnd", 0);
+    await cdp.detach();
+    await p.waitForTimeout(700);
+    const desplazada = await visibleArchivar();
+    ok(desplazada >= 90, `BI: al deslizar a la izquierda aparece «Archivar» (${desplazada} px)`);
+    await capturar(p, "BI8-historial-deslizar");
+    await p.locator('[data-archivar-historial="1"]').first().click();
+    await p.waitForTimeout(800);
+    const archivada = estado.blueHistorial.archivadas?.[0];
+    ok(archivada?.id === muchas[0].id, `BI: «Archivar» archiva esa conversación (${JSON.stringify(archivada)})`);
+    ok(p.errores.length === 0, `BI: Historial sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
 }
