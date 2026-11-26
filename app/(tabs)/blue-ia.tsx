@@ -115,6 +115,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Animated,
+  Easing,
   Modal,
   Platform,
   Pressable,
@@ -1703,6 +1704,7 @@ function BlueIAHistorialModal({
 // «Archivar» (solo una abierta a la vez), y la ventana lleva su propia barra de desplazamiento a la izquierda cuando la
 // lista no cabe.
 const ANCHO_ARCHIVAR = 96;
+const CLAVE_DEMO_ARCHIVAR = "vz_blueia_historial_demo_archivar_v1";
 // Con ratón (ordenador) no se puede deslizar: cada fila enseña su botón de archivar.
 function conRaton(): boolean {
   if (Platform.OS !== "web" || typeof window === "undefined") return false;
@@ -1730,14 +1732,39 @@ function ListaHistorial({
   const altoPulgar = sobra > 0 ? Math.max(32, (medidas.alto * medidas.alto) / medidas.contenido) : 0;
   const [raton] = useState(conRaton);
 
+  // En el móvil, en vez de explicarlo con letras (dueño, 2026-11-26): la primera conversación sale deslizada enseñando
+  // «Archivar» 7 s y vuelve despacio a su sitio, para que se entienda el gesto. Una sola vez por dispositivo (lección
+  // «Los avisos y pistas de Blue salen una sola vez»): queda guardado al enseñarse.
+  const [demoId, setDemoId] = useState<string | null>(null);
+  const primeraId = conversaciones[0]?.id ?? null;
+  useEffect(() => {
+    if (raton || !primeraId) return;
+    let vivo = true;
+    (async () => {
+      try {
+        if (await AsyncStorage.getItem(CLAVE_DEMO_ARCHIVAR)) return;
+        await AsyncStorage.setItem(CLAVE_DEMO_ARCHIVAR, "1");
+      } catch {
+        // sin almacenamiento: se enseña igual
+      }
+      if (vivo) setDemoId(primeraId);
+    })();
+    return () => {
+      vivo = false;
+    };
+    // Solo al abrir el Historial con conversaciones.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [raton, !!primeraId]);
+
   return (
     <View style={{ flexShrink: 1, maxHeight: 460 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 6, marginBottom: 4 }}>
-        <Ionicons name={raton ? "archive-outline" : "hand-left-outline"} size={14} color="rgba(11,33,56,0.62)" />
-        <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, flex: 1 }}>
-          {raton ? "Archiva una conversación con su botón de la derecha" : "Desliza una conversación a la izquierda para archivarla"}
-        </Text>
-      </View>
+      {/* En el ordenador (con ratón) no hay gesto: se explica el botón de cada fila. */}
+      {raton ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 6, marginBottom: 4 }}>
+          <Ionicons name="archive-outline" size={14} color="rgba(11,33,56,0.62)" />
+          <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, flex: 1 }}>Archiva una conversación con su botón de la derecha</Text>
+        </View>
+      ) : null}
       <View style={{ flexShrink: 1 }}>
         <ScrollView
           nativeID="blue-ia-historial-lista"
@@ -1761,6 +1788,7 @@ function ListaHistorial({
               primera={i === 0}
               abierta={c.id === abiertaId}
               deslizada={deslizada === c.id}
+              demo={demoId === c.id}
               raton={raton}
               onDeslizar={(si) => setDeslizada(si ? c.id : null)}
               onAbrir={() => onAbrir(c)}
@@ -1809,6 +1837,7 @@ function FilaHistorial({
   primera,
   abierta,
   deslizada,
+  demo,
   raton,
   onDeslizar,
   onAbrir,
@@ -1818,6 +1847,7 @@ function FilaHistorial({
   primera: boolean;
   abierta: boolean;
   deslizada: boolean;
+  demo: boolean;
   raton: boolean;
   onDeslizar: (si: boolean) => void;
   onAbrir: () => void;
@@ -1833,6 +1863,26 @@ function FilaHistorial({
     Animated.spring(x, { toValue: destino, useNativeDriver: Platform.OS !== "web", bounciness: 0, speed: 18 }).start();
   }, [deslizada, x]);
 
+  // Demostración del gesto (una vez por dispositivo): se abre enseñando «Archivar», se queda 7 s y vuelve despacio. Si
+  // la persona toca la fila mientras tanto, manda ella.
+  const tocada = useRef(false);
+  useEffect(() => {
+    if (!demo) return;
+    const nativo = Platform.OS !== "web";
+    const abrir = setTimeout(() => {
+      if (tocada.current) return;
+      Animated.timing(x, { toValue: -ANCHO_ARCHIVAR, duration: 450, easing: Easing.out(Easing.cubic), useNativeDriver: nativo }).start();
+    }, 400);
+    const cerrar = setTimeout(() => {
+      if (tocada.current) return;
+      Animated.timing(x, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.cubic), useNativeDriver: nativo }).start();
+    }, 400 + 450 + 7000);
+    return () => {
+      clearTimeout(abrir);
+      clearTimeout(cerrar);
+    };
+  }, [demo, x]);
+
   // El dedo: dónde tocó y hacia dónde va (se decide con sus primeros 8 px). Solo el gesto horizontal mueve la fila; el
   // vertical sigue desplazando la lista. Con los eventos de toque, que llegan igual en la web y en el móvil.
   const dedo = useRef<{ x0: number; y0: number; eje: "h" | "v" | null; dx: number }>({ x0: 0, y0: 0, eje: null, dx: 0 });
@@ -1844,6 +1894,11 @@ function FilaHistorial({
   };
   const gesto = {
     onTouchStart: (e: { nativeEvent: any }) => {
+      tocada.current = true;
+      // Si la demostración la tenía abierta, se sigue desde donde está.
+      x.stopAnimation((v) => {
+        base.current = v;
+      });
       const p = punto(e);
       dedo.current = { x0: p.x, y0: p.y, eje: null, dx: 0 };
     },
@@ -1915,7 +1970,11 @@ function FilaHistorial({
             // Al soltar tras deslizar no se abre la conversación.
             if (dedo.current.eje === "h") return;
             if (deslizada) onDeslizar(false);
-            else onAbrir();
+            else if (base.current < 0) {
+              // Abierta por la demostración: un toque la cierra.
+              base.current = 0;
+              Animated.spring(x, { toValue: 0, useNativeDriver: Platform.OS !== "web", bounciness: 0, speed: 18 }).start();
+            } else onAbrir();
           }}
           accessibilityRole="button"
           accessibilityLabel={`Abrir: ${c.titulo}`}

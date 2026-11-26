@@ -6833,7 +6833,24 @@ async function seccionBI() {
         const caja = f?.getBoundingClientRect();
         return delante && caja ? Math.round(caja.right - delante.right) : -1;
       });
-    ok((await visibleArchivar()) === 0, "BI: al abrir el Historial, «Archivar» está escondido");
+    // Demostración del gesto (dueño, 2026-11-26): la primera sale deslizada enseñando «Archivar» unos 7 s y vuelve
+    // despacio; sin texto de ayuda. Una sola vez por dispositivo.
+    await p.waitForTimeout(1500);
+    const enDemo = await visibleArchivar();
+    const sinAyuda = !/Desliza una conversación/.test(await p.evaluate(() => document.getElementById("blue-ia-historial")?.innerText ?? ""));
+    await capturar(p, "BI8-historial-demo");
+    ok(enDemo >= 90 && sinAyuda, `BI: al abrir el Historial, la primera sale deslizada enseñando «Archivar», sin texto de ayuda (${enDemo} px)`);
+    await p.waitForTimeout(5000);
+    const aMitad = await visibleArchivar();
+    await p.waitForTimeout(4000);
+    const vuelta = await visibleArchivar();
+    ok(aMitad >= 90 && vuelta === 0, `BI: se queda unos 7 s y vuelve sola a su sitio (a los 6,5 s: ${aMitad} px; a los 10,5 s: ${vuelta} px)`);
+    await p.locator("#blue-ia-historial-cerrar").click();
+    await p.waitForTimeout(600);
+    await p.getByRole("button", { name: "Historial" }).click({ timeout: 15000 });
+    await fila.waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    ok((await visibleArchivar()) === 0, "BI: la segunda vez ya no se repite la demostración");
     // Deslizar con el dedo (táctil) hacia la izquierda.
     const caja = await fila.boundingBox();
     const y = caja.y + caja.height / 2;
