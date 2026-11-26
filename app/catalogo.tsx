@@ -98,14 +98,13 @@ import { colorTextoAzul } from "../constants/temaTienda";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
-import PortadasCategoria, { enterasInicioDe, esCategoriaServicios, faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
+import PortadasCategoria, { FotoEntera, enterasInicioDe, esCategoriaServicios, faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
 import { useRecarga } from "../components/TirarParaActualizar";
 // Directamente de DatosBlue: así Blue entero no viaja en el paquete de la tienda (carga más rápida, paso 2).
 import { crearAvisoBusqueda } from "../components/blue/DatosBlue";
 import { RejillaTarjetas, TarjetaProducto, useAlturaBarraComparar } from "../components/CarruselProductosCategoria";
 import { AparecerAlVer, BotonVolverArriba, useProgresoDesplazamiento } from "../components/DesplazamientoSuave";
 import PieDePagina, { FilaConfianza, VentanaInformacion, type DatoConfianza } from "../components/PieDePagina";
-import ImagenInteligente from "../components/ImagenInteligente";
 import { loadServices, type Service } from "./servicios";
 import { useEncimaBotonAtras } from "../components/BotonAtrasAlcance";
 import FiltrosCatalogo, {
@@ -536,7 +535,11 @@ function FinalCategoria({
   const desde = actual?.slug ?? null;
   const nombreActual = actual ? normalizar(actual.name) : "";
   const propios = nombreActual ? servicios.filter((s) => normalizar(s.title).includes(nombreActual)) : [];
-  const ordenados = [...propios, ...servicios.filter((s) => !propios.includes(s))];
+  // Dentro de una categoría, fuera los servicios de OTRA consola («Mantenimiento Playstation 4» en PlayStation 5; dueño,
+  // 2026-11-26); los generales (p. ej. «Sustitución de joysticks») se quedan, detrás de los propios.
+  const otrasConsolas = actual ? categorias.filter((c) => c.id !== actual.id).map((c) => normalizar(c.name)) : [];
+  const deOtra = (s: Service) => otrasConsolas.some((n) => n && normalizar(s.title).includes(n));
+  const ordenados = [...propios, ...servicios.filter((s) => !propios.includes(s) && !deOtra(s))];
   const otras = categorias.filter((c) => c.is_active && c.id !== actual?.id && !esCategoriaServicios(c.slug));
   const anchoTarjeta = isMobile ? 200 : 240;
   const medir = (bloque: string, nombre: string) =>
@@ -552,7 +555,8 @@ function FinalCategoria({
       style={({ pressed }) => ({ width: anchoTarjeta, borderRadius: 18, backgroundColor: COLORS.card, padding: 8, gap: 8, opacity: pressed ? 0.85 : 1 })}
     >
       <View style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 14, overflow: "hidden", backgroundColor: COLORS.accent2, alignItems: "center", justifyContent: "center" }}>
-        {foto ? <ImagenInteligente uri={foto} ancho={anchoTarjeta} alt={titulo} style={{ width: "100%", height: "100%" }} /> : <Ionicons name={icono} size={34} color={COLORS.accent} />}
+        {/* Foto entera, sin recortar el logo ni el producto, con la misma desenfocada detrás (dueño, 2026-11-26). */}
+        {foto ? <FotoEntera uri={foto} ancho={anchoTarjeta} alt={titulo} style={{ width: "100%", height: "100%" }} /> : <Ionicons name={icono} size={34} color={COLORS.accent} />}
       </View>
       <View style={{ paddingHorizontal: 4, paddingBottom: 4, gap: 2, alignItems: "center" }}>
         <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15, lineHeight: 20, textAlign: "center" }}>
@@ -623,7 +627,14 @@ function FinalCategoria({
           }}
         />
       </AparecerAlVer>
-      <VentanaInformacion item={infoConfianza} onClose={() => setInfoConfianza(null)} />
+      <VentanaInformacion
+        item={infoConfianza}
+        onClose={() => setInfoConfianza(null)}
+        onCambiar={(d) => {
+          medir("confianza", d.title);
+          setInfoConfianza(d);
+        }}
+      />
     </View>
   );
 }
@@ -1148,7 +1159,9 @@ export default function CatalogoScreen() {
         ref={listaRef}
         // 96 abajo: la última fila de productos y el botón "cargar más" quedan por encima
         // del asistente flotante Blue (72 px en la esquina inferior). Con la barra de «Comparar», además su alto.
-        contentContainerStyle={{ paddingBottom: 96 + alturaBarraComparar }}
+        // Al final, con el pie de página, también por encima de «Volver arriba» (46 px sobre la flecha «Volver»): antes
+        // tapaba el © del pie (dueño, 2026-11-26).
+        contentContainerStyle={{ paddingBottom: Math.max(96 + alturaBarraComparar, encimaVolver + 46 + 16) }}
         showsVerticalScrollIndicator={false}
         onScroll={(e) => {
           handleScroll(e);

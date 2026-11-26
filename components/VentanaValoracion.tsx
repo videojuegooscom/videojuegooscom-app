@@ -88,6 +88,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { medirEvento } from "../lib/analiticaPropia";
 import type { CambioEstadoPedido } from "../lib/envio";
@@ -822,6 +823,7 @@ export function VentanaMejoras({ visible, onClose, origen }: { visible: boolean;
   const [altoCampo, setAltoCampo] = useState(ALTO_MIN_COMENTARIO);
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const insets = useSafeAreaInsets();
 
   // El recuadro crece con lo escrito (como el de la reseña).
   useLayoutEffect(() => {
@@ -905,26 +907,58 @@ export function VentanaMejoras({ visible, onClose, origen }: { visible: boolean;
     onClose();
   }
 
+  // Botones a lo ancho y de 48 px, abajo de la hoja: al alcance del pulgar (dueño, 2026-11-26).
   const botonAzul = ({ pressed }: { pressed: boolean }) => ({
     opacity: pressed ? 0.9 : 1,
     minHeight: 48,
+    alignSelf: "stretch" as const,
     borderRadius: 999,
     paddingHorizontal: 22,
     alignItems: "center" as const,
     justifyContent: "center" as const,
     backgroundColor: COLORS.accent,
   });
+  const botonAhoraNo = (
+    <Pressable
+      nativeID="mejoras-ahora-no"
+      onPress={cerrar}
+      accessibilityRole="button"
+      style={({ pressed }) => ({ minHeight: 48, alignSelf: "stretch", borderRadius: 999, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF6FD", opacity: pressed ? 0.8 : 1 })}
+    >
+      <Text style={{ color: colorTextoAzul(15), fontWeight: "900", fontSize: 15 }}>Ahora no</Text>
+    </Pressable>
+  );
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={cerrar}>
-      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.60)", padding: 16, justifyContent: "center" }}>
-        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }} keyboardShouldPersistTaps="handled">
+      {/* Hoja que sube desde abajo (dueño, 2026-11-26: «práctico con el dedo gordo de la mano derecha»): los botones
+          quedan abajo, a lo ancho; tocar fuera la cierra. */}
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.60)", justifyContent: "flex-end" }}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end" }} keyboardShouldPersistTaps="handled">
+          <Pressable nativeID="mejoras-fondo" onPress={cerrar} accessibilityLabel="Cerrar" style={{ flexGrow: 1, minHeight: 40 }} />
           <Animated.View
             nativeID="mejoras-ventana"
-            style={{ width: "100%", maxWidth: 460, alignSelf: "center", opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}
+            style={{
+              width: "100%",
+              maxWidth: 520,
+              alignSelf: "center",
+              opacity: fadeAnim,
+              transform: [{ translateY: scaleAnim.interpolate({ inputRange: [0.9, 1], outputRange: [40, 0] }) }],
+            }}
           >
             <View
-              style={{ borderRadius: 24, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.bg2, padding: 20, gap: 14, ...softShadow() }}
+              style={{
+                borderTopLeftRadius: 26,
+                borderTopRightRadius: 26,
+                borderWidth: 1,
+                borderBottomWidth: 0,
+                borderColor: COLORS.border,
+                backgroundColor: COLORS.bg2,
+                padding: 20,
+                paddingBottom: 20 + Math.round(insets.bottom),
+                gap: 14,
+                ...softShadow(),
+              }}
             >
               <Pressable
                 onPress={cerrar}
@@ -954,7 +988,7 @@ export function VentanaMejoras({ visible, onClose, origen }: { visible: boolean;
               {fase === "checking" ? (
                 <Text style={{ color: COLORS.muted, textAlign: "center", paddingVertical: 20 }}>Un momento…</Text>
               ) : fase === "auth-required" ? (
-                <View style={{ alignItems: "center", gap: 12 }}>
+                <View style={{ alignItems: "stretch", gap: 12 }}>
                   <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 21 }}>
                     Inicia sesión para mandarnos tus ideas: así sabemos de quién son y podemos contestarte si hace falta.
                   </Text>
@@ -963,15 +997,20 @@ export function VentanaMejoras({ visible, onClose, origen }: { visible: boolean;
                       cerrar();
                       pushRoute("/perfil?acceso=entrar" as Href);
                     }}
+                    containerStyle={{ alignSelf: "stretch" }}
                     style={botonAzul}
                   >
                     <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Iniciar sesión</Text>
                   </AnimatedPressable>
+                  {botonAhoraNo}
                 </View>
               ) : fase === "no-disponible" ? (
-                <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 21, paddingVertical: 8 }}>
-                  Muy pronto podrás mandarnos tus ideas desde aquí. Mientras, escríbenos por el chat de la tienda.
-                </Text>
+                <View style={{ alignItems: "center", gap: 12 }}>
+                  <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 21, paddingVertical: 8 }}>
+                    Muy pronto podrás mandarnos tus ideas desde aquí. Mientras, escríbenos por el chat de la tienda.
+                  </Text>
+                  {botonAhoraNo}
+                </View>
               ) : fase === "success" ? (
                 <View style={{ alignItems: "center", gap: 12 }}>
                   <Ionicons name="checkmark-circle" size={44} color={COLORS.success} />
@@ -979,7 +1018,7 @@ export function VentanaMejoras({ visible, onClose, origen }: { visible: boolean;
                   <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
                     El equipo lee todas las ideas. Las que mejoran la tienda para todos, las hacemos.
                   </Text>
-                  <AnimatedPressable onPress={cerrar} style={botonAzul}>
+                  <AnimatedPressable onPress={cerrar} containerStyle={{ alignSelf: "stretch" }} style={botonAzul}>
                     <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Cerrar</Text>
                   </AnimatedPressable>
                 </View>
@@ -1023,9 +1062,10 @@ export function VentanaMejoras({ visible, onClose, origen }: { visible: boolean;
                       {error}
                     </Text>
                   ) : null}
-                  <AnimatedPressable onPress={enviar} disabled={enviando || !valido} style={(s: { pressed: boolean }) => ({ ...botonAzul(s), opacity: enviando || !valido ? 0.55 : s.pressed ? 0.9 : 1 })}>
+                  <AnimatedPressable onPress={enviar} disabled={enviando || !valido} containerStyle={{ alignSelf: "stretch" }} style={(s: { pressed: boolean }) => ({ ...botonAzul(s), opacity: enviando || !valido ? 0.55 : s.pressed ? 0.9 : 1 })}>
                     <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{enviando ? "Enviando…" : "Enviar idea"}</Text>
                   </AnimatedPressable>
+                  {botonAhoraNo}
                 </View>
               )}
             </View>

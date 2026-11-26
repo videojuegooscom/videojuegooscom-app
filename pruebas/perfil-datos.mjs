@@ -3548,6 +3548,7 @@ async function seccionY() {
       serviciosAdmin: [
         { id: "5e000000-0000-4000-8000-0000000000a1", title: "Sustitución de joysticks", description: "", price_eur: 24.97, status: "PUBLISHED", is_active: true },
         { id: "5e000000-0000-4000-8000-0000000000a2", title: "Mantenimiento Playstation 5", description: "", price_eur: 45, status: "PUBLISHED", is_active: true },
+        { id: "5e000000-0000-4000-8000-0000000000a3", title: "Mantenimiento Playstation 4", description: "", price_eur: 30, status: "PUBLISHED", is_active: true },
       ],
     };
     const ctx = await contexto(navegador, CLIENTE, "user", cliente);
@@ -3603,18 +3604,45 @@ async function seccionY() {
         ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
       };
     });
-    ok(/Servicios para tu PlayStation 5/.test(fin.tituloServ) && /Mantenimiento Playstation 5/.test(fin.tituloServ) && /45,00 €/.test(fin.tituloServ) && fin.primero.endsWith("a2") && fin.nServ === 2 && fin.todos, `Y: al final, «Servicios para tu PlayStation 5» en carrusel, primero el de PS5 y «Ver todos» (${JSON.stringify({ primero: fin.primero, n: fin.nServ })})`);
+    ok(/Servicios para tu PlayStation 5/.test(fin.tituloServ) && /Mantenimiento Playstation 5/.test(fin.tituloServ) && /45,00 €/.test(fin.tituloServ) && fin.primero.endsWith("a2") && fin.nServ === 2 && fin.todos && !/Playstation 4/.test(fin.tituloServ), `Y: al final, «Servicios para tu PlayStation 5» en carrusel, primero el de PS5, sin el de PS4 y con «Ver todos» (${JSON.stringify({ primero: fin.primero, n: fin.nServ })})`);
     ok(fin.cats.includes("playstation-4") && !fin.cats.includes("playstation-5") && !fin.cats.includes("reparaciones"), `Y: y «Otras categorías» en carrusel, sin la actual ni «Reparación / Limpieza» (${fin.cats.join(", ")})`);
     ok(["Garantía", "Envíos en España", "Productos revisados", "Pago rápido"].every((t) => fin.confianza.includes(t)), `Y: «Compra con confianza» con sus 4 avisos («${fin.confianza.replace(/\s+/g, " ")}»)`);
     ok(fin.pie && fin.barra && fin.ancho <= 391, `Y: el pie de página completo y la barra de progreso, sin ensanchar la página (${JSON.stringify({ pie: fin.pie, barra: fin.barra, ancho: fin.ancho })})`);
+    // Abajo del todo, ni «Volver arriba» ni la flecha «Volver» tapan el © del pie (dueño, 2026-11-26).
+    const pisado = await p.evaluate(async () => {
+      for (const el of document.querySelectorAll("*")) if (el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY)) el.scrollTop = el.scrollHeight;
+      await new Promise((r) => setTimeout(r, 700));
+      const copy = [...document.querySelectorAll("div,span")].find((n) => [...n.childNodes].some((c) => c.nodeType === 3 && /Todos los derechos reservados/.test(c.textContent)));
+      const r = copy?.getBoundingClientRect();
+      const botones = ["catalogo-volver-arriba", "boton-atras-flotante"].map((id) => document.getElementById(id)?.getBoundingClientRect()).filter(Boolean);
+      if (!r) return "sin ©";
+      return botones.filter((b) => b.width && Math.min(r.right, b.right) - Math.max(r.left, b.left) > 1 && Math.min(r.bottom, b.bottom) - Math.max(r.top, b.top) > 1).length;
+    });
+    ok(pisado === 0, `Y: abajo del todo, los botones flotantes no tapan el © del pie (${pisado})`);
+    await capturar(p, "Y4-final-abajo");
     await p.locator("#catalogo-final-confianza").scrollIntoViewIfNeeded().catch(() => {});
     await p.waitForTimeout(400);
     await capturar(p, "Y4-final-categoria");
     await p.getByText("Pago rápido").first().click();
     await p.waitForTimeout(400);
     ok(/te la tasamos en menos de 30 minutos y te pagamos al momento/.test(await p.evaluate(() => document.body.innerText)), "Y: «Pago rápido» explica las condiciones de compra de ahora");
-    await p.keyboard.press("Escape");
+    // Hoja de abajo para el pulgar (dueño, 2026-11-26): «‹», «Entendido» y «›» abajo, de 48 px, y se pasa de un aviso a otro.
+    const hoja = await p.evaluate(() => {
+      const r = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const [a, c, s] = ["confianza-anterior", "confianza-cerrar", "confianza-siguiente"].map(r);
+      return a && c && s ? { abajo: Math.min(a.top, c.top, s.top) > window.innerHeight * 0.6, alto: Math.min(a.height, c.height, s.height), derecha: s.left > c.left && c.left > a.left } : null;
+    });
+    ok(!!hoja && hoja.abajo && hoja.alto >= 44 && hoja.derecha, `Y: el detalle sale abajo con «‹», «Entendido» y «›» al alcance del pulgar (${JSON.stringify(hoja)})`);
+    await p.locator("#confianza-siguiente").click();
     await p.waitForTimeout(300);
+    const trasSiguiente = await p.evaluate(() => document.getElementById("confianza-ventana")?.innerText ?? "");
+    await p.locator("#confianza-anterior").click();
+    await p.waitForTimeout(300);
+    const trasAnterior = await p.evaluate(() => document.getElementById("confianza-ventana")?.innerText ?? "");
+    ok(/Garantía/.test(trasSiguiente) && /Pago rápido/.test(trasAnterior), "Y: «›» pasa al siguiente aviso (del último, al primero) y «‹» vuelve");
+    await p.locator("#confianza-cerrar").click();
+    await p.waitForTimeout(400);
+    ok(!(await p.locator("#confianza-ventana").count()), "Y: «Entendido» la cierra");
     await p.locator("#catalogo-final-categoria-playstation-4").click();
     await p.waitForTimeout(1200);
     const evFin = (cliente.eventosEnviados ?? []).filter((e) => e.event_name === "catalogo_final");
@@ -5445,6 +5473,20 @@ async function seccionME() {
     await pie.click();
     await p.getByText("Iniciar sesión", { exact: true }).last().waitFor({ timeout: 15000 }).catch(() => {});
     ok(/Inicia sesión para mandarnos tus ideas/.test(await ventana(p)) && (await p.locator("#mejoras-texto").count()) === 0, `ME: sin sesión pide iniciarla y no deja escribir (${(await ventana(p)).slice(0, 80)})`);
+    // Hoja abajo para el pulgar (dueño, 2026-11-26): «Iniciar sesión» y «Ahora no» a lo ancho, abajo, de 48 px.
+    await p.waitForTimeout(400);
+    const pulgar = await p.evaluate(() => {
+      const v = document.getElementById("mejoras-ventana")?.getBoundingClientRect();
+      const no = document.getElementById("mejoras-ahora-no")?.getBoundingClientRect();
+      return v && no ? { pegada: Math.abs(v.bottom - window.innerHeight) <= 2, abajo: no.top > window.innerHeight * 0.65, alto: Math.round(no.height), ancho: no.width > v.width * 0.7 } : null;
+    });
+    ok(!!pulgar && pulgar.pegada && pulgar.abajo && pulgar.alto >= 44 && pulgar.ancho, `ME: sale como hoja abajo, con «Ahora no» a lo ancho al alcance del pulgar (${JSON.stringify(pulgar)})`);
+    await capturar(p, "ME-hoja-sin-sesion");
+    await p.locator("#mejoras-ahora-no").click();
+    await p.waitForTimeout(400);
+    ok(!(await p.locator("#mejoras-ventana").count()), "ME: «Ahora no» la cierra");
+    await pie.click();
+    await p.getByText("Iniciar sesión", { exact: true }).last().waitFor({ timeout: 15000 }).catch(() => {});
     await p.locator("#mejoras-ventana").getByText("Iniciar sesión", { exact: true }).click();
     await p.waitForURL(/\/perfil/, { timeout: 10000 }).catch(() => {});
     ok(/\/perfil\?acceso=entrar/.test(p.url()) && !(estado.mejorasEnviadas ?? []).length, `ME: «Iniciar sesión» lleva a entrar en la cuenta (${new URL(p.url()).pathname}${new URL(p.url()).search})`);
