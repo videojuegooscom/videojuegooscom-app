@@ -4428,6 +4428,32 @@ async function seccionRE() {
     await c.close();
   }
 
+  // Pie de página (dueño, 2026-11-26): desplegables con icono, enlaces en rejilla de dos columnas (48 px), solo uno abierto
+  // a la vez y al abrirse se encuadran.
+  {
+    const est = { filas: perfil, guardados: [], resenas: [], productosVacios: true };
+    const c = await contexto(navegador, CLIENTE, "user", est);
+    const q = await pagina(c, "/");
+    await q.locator("#pie-nav").waitFor({ state: "attached", timeout: 30000 }).catch(() => {});
+    await q.locator("#pie-nav").scrollIntoViewIfNeeded().catch(() => {});
+    await q.getByText("Navegación", { exact: true }).click();
+    await q.waitForTimeout(900);
+    const rejilla = await q.evaluate(() => {
+      const casillas = [...document.querySelectorAll("#pie-nav-enlaces > div")].map((d) => d.getBoundingClientRect());
+      const caja = document.getElementById("pie-nav")?.getBoundingClientRect();
+      const filas = new Set(casillas.map((r) => Math.round(r.top))).size;
+      return caja ? { n: casillas.length, filas, alto: Math.min(...casillas.map((r) => r.height)), dentro: caja.top >= 0 && caja.bottom <= window.innerHeight, ancho: document.documentElement.scrollWidth <= window.innerWidth + 1 } : null;
+    });
+    ok(!!rejilla && rejilla.n === 10 && rejilla.filas === 5 && rejilla.alto >= 44 && rejilla.ancho, `RE: el pie despliega «Navegación» en rejilla de dos columnas (10 enlaces, 5 filas, 44 px o más) (${JSON.stringify(rejilla)})`);
+    await capturar(q, "RE-pie-navegacion");
+    await q.getByText("Políticas", { exact: true }).click();
+    await q.waitForTimeout(900);
+    const alturas = await q.evaluate(() => ["pie-nav", "pie-politicas"].map((id) => Math.round(document.getElementById(id)?.getBoundingClientRect().height ?? 0)));
+    ok(alturas[0] < 70 && alturas[1] > 120, `RE: abrir «Políticas» cierra «Navegación» (solo uno abierto) (${alturas.join(" / ")})`);
+    ok(q.errores.length === 0, `RE: pie sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
+    await c.close();
+  }
+
   // Administración → Analítica: la línea «Cierre de Inicio».
   {
     const admin = { filas: [], guardados: [], embudo: [{ step_label: "Inicio", sessions: 10 }, { step_label: "Cierre de Inicio: Vender ahora", sessions: 3 }, { step_label: "Cierre de Inicio: Ver catálogo", sessions: 2 }] };
@@ -10412,7 +10438,8 @@ async function seccionNW() {
     await p.locator("#pie-noticias").waitFor({ state: "attached", timeout: 40000 }).catch(() => {});
     const pie = await p.evaluate(() => {
       const e = document.querySelector("#pie-noticias");
-      return { href: e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "", texto: e?.textContent?.trim() ?? "" };
+      // (sin el carácter del icono, de la zona de uso privado de Unicode: desde el 2026-11-26 cada enlace del pie lleva icono)
+      return { href: e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "", texto: (e?.textContent ?? "").replace(/[-]/g, "").trim() };
     });
     ok(pie.href === "/noticias" && pie.texto === "Noticias", `NW: el pie de página tiene «Noticias» como enlace (${JSON.stringify(pie)})`);
     await p.close();
@@ -10420,7 +10447,8 @@ async function seccionNW() {
     await f.locator(`#abrir-noticia-${N1}`).waitFor({ timeout: 40000 }).catch(() => {});
     const abrir = await f.evaluate((id) => {
       const e = document.querySelector(`#abrir-noticia-${id}`);
-      return { href: e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "", texto: e?.textContent?.trim() ?? "" };
+      // (sin el carácter del icono, de la zona de uso privado de Unicode: desde el 2026-11-26 cada enlace del pie lleva icono)
+      return { href: e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "", texto: (e?.textContent ?? "").replace(/[-]/g, "").trim() };
     }, N1);
     ok(abrir.href === `/noticias/${N1}` && abrir.texto === "Abrir la noticia", `NW: la tarjeta del Foro enlaza a su página («${abrir.texto}» → ${abrir.href})`);
     await f.locator(`#abrir-noticia-${N1}`).scrollIntoViewIfNeeded().catch(() => {});
