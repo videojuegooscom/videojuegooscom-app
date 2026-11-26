@@ -2624,6 +2624,19 @@ async function seccionDESPL() {
     await p.waitForTimeout(900);
     const despues = await opacidad(p, "#inicio-quienes-somos");
     ok(despues === 1, `DESPL: al llegar a él aparece entero con el fundido (opacidad ${despues})`);
+    // Barra de progreso lateral también en Inicio (dueño, 2026-11-26): a la izquierda, sin tocarse, y avanza al bajar.
+    const barra = await p.evaluate(async () => {
+      const b = document.getElementById("barra-progreso");
+      const desl = Array.from(document.querySelectorAll("div")).find((d) => d.scrollHeight > d.clientHeight + 400 && /(auto|scroll)/.test(getComputedStyle(d).overflowY));
+      if (!b || !desl) return { hay: !!b, desl: !!desl };
+      desl.scrollTop = (desl.scrollHeight - desl.clientHeight) / 2;
+      desl.dispatchEvent(new Event("scroll"));
+      await new Promise((r) => setTimeout(r, 300));
+      const r = b.getBoundingClientRect();
+      const hecho = document.getElementById("barra-progreso-hecho").getBoundingClientRect();
+      return { hay: true, ancho: Math.round(r.width), izq: Math.round(r.left), mitad: Math.round((hecho.height / r.height) * 100), toca: getComputedStyle(b).pointerEvents };
+    });
+    ok(barra.hay && barra.ancho === 5 && barra.izq === 0 && barra.mitad >= 40 && barra.mitad <= 60 && barra.toca === "none", `DESPL: Inicio con la barra de progreso a la izquierda que avanza al bajar (${JSON.stringify(barra)})`);
     await capturar(p, "DESPL1-inicio-quienes-somos");
     ok(p.errores.length === 0, `DESPL: Inicio sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();

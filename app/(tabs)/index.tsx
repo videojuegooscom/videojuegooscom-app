@@ -120,7 +120,7 @@ import {
 import { useRecarga } from "../../components/TirarParaActualizar";
 import Resenas from "../../components/Resenas";
 import PieDePagina from "../../components/PieDePagina";
-import { AparecerAlVer } from "../../components/DesplazamientoSuave";
+import { AparecerAlVer, useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import { RedJuntoAlLogo, ResenasCanales, useRedesJuntoAlLogo, useResenasCanales } from "../../components/EnlacesRedesSociales";
 import CargaMarca from "../../components/marca/CargaMarca";
@@ -1624,6 +1624,8 @@ export default function PantallaInicio() {
   const scrollTopAnim = useRef(new Animated.Value(0)).current;
 
   const scrollRef = useRef<ScrollView | null>(null);
+  // Barra de progreso lateral izquierda, como en Compramos y Quiénes somos (dueño, 2026-11-26).
+  const progresoScroll = useProgresoDesplazamiento();
   const [categoriesY, setCategoriesY] = useState(0);
   // Portadas de las categorías (panel → Categorías), por slug: salen en sus tarjetas.
   const portadasCategorias = usePortadasCategorias();
@@ -1983,7 +1985,12 @@ export default function PantallaInicio() {
           gap: isMobile ? 28 : 40,
         }}
         showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
+        onScroll={(e) => {
+          handleScroll(e);
+          progresoScroll.onScroll(e);
+        }}
+        onLayout={progresoScroll.onLayout}
+        onContentSizeChange={progresoScroll.onContentSizeChange}
         scrollEventThrottle={16}
       >
         {/* Apartados separados por <Separador /> (línea fina + aire), sin recuadros. */}
@@ -2210,6 +2217,8 @@ export default function PantallaInicio() {
           onPressCategorias={scrollToCategories}
         />
       </ScrollView>
+
+      {progresoScroll.barra}
 
       {/* "Volver arriba": aparece solo tras bajar bastante, abajo a la DERECHA (donde llega el
           pulgar derecho). Con el buscador abajo (móvil) se coloca justo encima de él. */}

@@ -2,8 +2,8 @@
  * Archivo: components/DesplazamientoSuave.tsx
  * Función: piezas comunes del desplazamiento de la tienda: AparecerAlVer (cada apartado aparece con un fundido suave al
  *          entrar en pantalla), BotonVolverArriba (flecha flotante para subir, que sale tras bajar bastante) y
- *          useProgresoDesplazamiento (barra fina de progreso a la izquierda en las páginas largas: Compramos, Quiénes
- *          somos, Políticas y Noticias).
+ *          useProgresoDesplazamiento (barra fina de progreso a la izquierda en las páginas largas: Inicio, Compramos,
+ *          Quiénes somos, Políticas y Noticias).
  * Para qué sirve: que bajar por la tienda se sienta moderno y cuidado en todas las pantallas largas (dueño, 2026-11-19:
  *          «que se sienta futurista y moderno, como si lo hubiera hecho un diseñador con experiencia»), con las mismas
  *          piezas en todas partes.
