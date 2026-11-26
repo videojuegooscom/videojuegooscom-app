@@ -236,10 +236,11 @@ function volver() {
   router.replace("/noticias" as Href);
 }
 
+// Todo el texto de la noticia centrado, como el resto de la tienda (dueño, 2026-11-26).
 function Seccion({ id, titulo, children }: { id: string; titulo: string; children: React.ReactNode }) {
   return (
-    <View nativeID={id} style={{ width: "100%", gap: 8 }}>
-      <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontWeight: "900", fontSize: 17 }}>
+    <View nativeID={id} style={{ width: "100%", gap: 8, alignItems: "center" }}>
+      <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
         {titulo}
       </Text>
       {children}
@@ -247,14 +248,15 @@ function Seccion({ id, titulo, children }: { id: string; titulo: string; childre
   );
 }
 
+// Centradas: cada punto con su viñeta azul delante, en la misma línea del texto.
 function Vinetas({ items }: { items: string[] }) {
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: 8, width: "100%" }}>
       {items.map((t, i) => (
-        <View key={i} style={{ flexDirection: "row", gap: 8 }}>
-          <Text style={{ color: COLORS.accent, fontWeight: "900", lineHeight: 22 }}>•</Text>
-          <Text style={{ flex: 1, color: COLORS.text, fontSize: 15, lineHeight: 22 }}>{t}</Text>
-        </View>
+        <Text key={i} style={{ color: COLORS.text, fontSize: 15, lineHeight: 22, textAlign: "center" }}>
+          <Text style={{ color: COLORS.accent, fontWeight: "900" }}>• </Text>
+          {t}
+        </Text>
       ))}
     </View>
   );
@@ -429,14 +431,14 @@ export default function NoticiaScreen() {
             ) : null}
 
             {n.resumen ? (
-              <Text nativeID="noticia-resumen" style={{ color: COLORS.text, fontSize: 16.5, lineHeight: 25, fontWeight: "600" }}>
+              <Text nativeID="noticia-resumen" style={{ color: COLORS.text, fontSize: 16.5, lineHeight: 25, fontWeight: "600", textAlign: "center" }}>
                 {n.resumen}
               </Text>
             ) : null}
 
             {n.contexto ? (
               <Seccion id="noticia-contexto" titulo="Contexto">
-                <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 23 }}>{n.contexto}</Text>
+                <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 23, textAlign: "center" }}>{n.contexto}</Text>
               </Seccion>
             ) : null}
             {n.puntosClave.length ? (
@@ -451,12 +453,12 @@ export default function NoticiaScreen() {
             ) : null}
             {n.porQueImporta ? (
               <Seccion id="noticia-importa" titulo="Por qué importa">
-                <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 23 }}>{n.porQueImporta}</Text>
+                <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 23, textAlign: "center" }}>{n.porQueImporta}</Text>
               </Seccion>
             ) : null}
             {n.afectaA ? (
               <Seccion id="noticia-afecta" titulo="A quién afecta">
-                <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 23 }}>{n.afectaA}</Text>
+                <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 23, textAlign: "center" }}>{n.afectaA}</Text>
               </Seccion>
             ) : null}
 
