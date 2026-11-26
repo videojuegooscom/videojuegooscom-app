@@ -4214,6 +4214,15 @@ async function seccionRE() {
     /Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes\./.test(inicio) && !/lo que opina la gente/.test(inicio) && !/Opiniones reales de clientes que ya han comprado/.test(inicio),
     "RE: en Inicio, «Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes.», sin el subtítulo de antes"
   );
+  // Apartado centrado (dueño, 2026-11-26): el resumen y su botón, al centro.
+  const centrado = await p.evaluate(() => {
+    const r = document.getElementById("resenas-resumen");
+    const t = [...(r?.querySelectorAll("div") ?? [])].find((n) => /Todavía no hay reseñas|\/ 5/.test(n.textContent ?? "") && !n.querySelector("div"));
+    const caja = r?.getBoundingClientRect();
+    const tc = t?.getBoundingClientRect();
+    return t && caja && tc ? { alinea: getComputedStyle(t).textAlign, centro: Math.abs(tc.left + tc.width / 2 - (caja.left + caja.width / 2)) <= 4 } : null;
+  });
+  ok(!!centrado && centrado.alinea === "center" && centrado.centro, `RE: el resumen de reseñas va centrado (${JSON.stringify(centrado)})`);
   await boton.click();
   const ideas = p.locator("#resena-sugerencias [role='button']");
   await ideas.first().waitFor({ timeout: 20000 }).catch(() => {});
