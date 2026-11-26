@@ -876,6 +876,13 @@ export default function BlueIAScreen() {
           "Quiero que me ayudes a elegir un producto. Pregúntame lo que necesites saber (presupuesto, qué busco, para qué lo quiero) antes de recomendarme algo.",
       },
       {
+        // El horario ya no va fijo abajo (dueño, 2026-11-26): se pregunta con esta sugerencia.
+        id: "horario",
+        icon: "time-outline",
+        title: "¿Cuál es el horario de atención?",
+        prompt: "¿Cuál es el horario de atención?",
+      },
+      {
         id: "2",
         icon: "cash-outline",
         title: "Quiero vender",
@@ -1259,14 +1266,35 @@ export default function BlueIAScreen() {
               Icono "ⓘ" arriba, centrado: abre el modal con qué es Blue IA. Va dentro de
               la conversación (se desplaza con ella) para no tapar nunca los mensajes.
             */}
-            <View style={{ flexDirection: "row", justifyContent: "center", gap: 20 }}>
+            {/* Arriba, junto a ⓘ y el Historial (dueño, 2026-11-26): «Nueva conversación» (con una empezada) y
+                «Hablar con el equipo», que antes iban junto al recuadro de escribir con el horario. */}
+            <View nativeID="blue-ia-cabecera" style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 4 }}>
               <IconoCabecera
                 icon="information-circle-outline"
                 label="Qué es Blue IA"
+                texto="Blue IA"
                 onPress={() => setInfoModalOpen(true)}
               />
               {/* Historial de conversaciones guardadas en la cuenta. */}
-              <IconoCabecera icon="time-outline" label="Historial" onPress={abrirHistorial} />
+              <IconoCabecera icon="time-outline" label="Historial" texto="Historial" onPress={abrirHistorial} />
+              {conversacionEmpezada ? (
+                <IconoCabecera
+                  id="blue-ia-nueva"
+                  icon="create-outline"
+                  label="Nueva conversación"
+                  texto="Nueva"
+                  disabled={sending}
+                  onPress={() => nuevaConversacion("boton")}
+                />
+              ) : null}
+              <IconoCabecera
+                id="blue-ia-equipo"
+                icon="headset-outline"
+                label="Hablar con el equipo"
+                texto="Equipo"
+                busy={abriendoEquipo}
+                onPress={pulsarHablarEquipo}
+              />
             </View>
             {/* Contexto: el de la URL (producto, pedido…) o el de la conversación guardada. */}
             {contextoActivo ? (
@@ -1384,6 +1412,7 @@ export default function BlueIAScreen() {
               <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14, lineHeight: 20, textAlign: "center" }}>
                 Ahora estamos fuera del horario de atención. El equipo vuelve {atencion.vuelve}.
               </Text>
+              <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18, textAlign: "center" }}>{HORARIO_CORTO}</Text>
               <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19, textAlign: "center", maxWidth: 520 }}>
                 Te recomendamos esperar a ese horario para que te atendamos. Mientras, Blue puede intentar ayudarte con tu
                 problema.
@@ -1424,21 +1453,36 @@ export default function BlueIAScreen() {
             </View>
           ) : null}
 
-          {/* Horario del equipo, siempre a la vista (dueño, 2026-11-03). */}
-          <Text nativeID="blue-ia-horario" style={{ color: COLORS.muted, fontSize: 11.5, lineHeight: 16, textAlign: "center" }}>
-            <Text style={{ color: atencion.abierto ? "#1F9E52" : COLORS.muted, fontWeight: "900" }}>
-              {atencion.abierto ? `● Equipo atendiendo hasta las ${atencion.hasta}` : `● Equipo fuera de horario · vuelve ${atencion.vuelve}`}
-            </Text>
-            {"\n"}
-            {HORARIO_CORTO}
-          </Text>
-
-          {/* El único acceso al equipo, siempre a la vista junto al recuadro de escribir; con una conversación en marcha,
-              a su lado «Nueva conversación» (la anterior queda en el Historial). */}
-          <View style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", columnGap: 6 }}>
-            {conversacionEmpezada ? <NuevaConversacionButton disabled={sending} onPress={() => nuevaConversacion("boton")} /> : null}
-            <HablarEquipoButton busy={abriendoEquipo} onPress={pulsarHablarEquipo} />
-          </View>
+          {/* El horario ya no va fijo aquí (dueño, 2026-11-26): es una pastilla que se lo pregunta a Blue IA, que lo
+              contesta con el horario y si ahora atendemos. «Nueva conversación» y «Hablar con el equipo» van arriba. */}
+          {!showQuickSuggestions ? (
+            <Pressable
+              nativeID="blue-ia-pastilla-horario"
+              disabled={sending}
+              onPress={() => {
+                void medirEvento("blue_ia_horario", "Blue IA: pastilla del horario");
+                handleAsk("¿Cuál es el horario de atención?");
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Preguntar cuál es el horario de atención"
+              style={({ pressed }) => ({
+                alignSelf: "flex-start",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                minHeight: 44,
+                paddingHorizontal: 14,
+                borderRadius: 999,
+                backgroundColor: COLORS.accentSoft,
+                borderWidth: 1,
+                borderColor: COLORS.accentBorder,
+                opacity: sending ? 0.5 : pressed ? 0.8 : 1,
+              })}
+            >
+              <Ionicons name="time-outline" size={16} color="#0A78B4" />
+              <Text style={{ color: "#0A78B4", fontWeight: "800", fontSize: 14 }}>¿Cuál es el horario de atención?</Text>
+            </Pressable>
+          ) : null}
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <TextInput
@@ -1498,31 +1542,45 @@ export default function BlueIAScreen() {
   );
 }
 
-// Icono de la cabecera (ⓘ e Historial): solo el icono azul, sin burbuja ni
-// sombra; hitSlop amplio para que sea fácil de tocar.
+// Icono de la cabecera (ⓘ, Historial, Nueva conversación y Hablar con el equipo): icono azul con su nombre corto
+// debajo, sin burbuja ni sombra; cada uno mide al menos 44 × 56 px para tocarlo bien con el pulgar.
 function IconoCabecera({
+  id,
   icon,
   label,
+  texto,
+  disabled,
+  busy,
   onPress,
 }: {
+  id?: string;
   icon: IoniconName;
   label: string;
+  texto: string;
+  disabled?: boolean;
+  busy?: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable
+      nativeID={id}
       onPress={onPress}
+      disabled={disabled || busy}
       accessibilityRole="button"
       accessibilityLabel={label}
-      hitSlop={12}
       style={({ pressed }) => ({
-        padding: 2,
+        minWidth: 64,
+        minHeight: 44,
+        paddingHorizontal: 6,
+        paddingVertical: 4,
+        gap: 2,
         alignItems: "center",
         justifyContent: "center",
-        opacity: pressed ? 0.6 : 1,
+        opacity: disabled ? 0.45 : pressed ? 0.6 : 1,
       })}
     >
-      <Ionicons name={icon} size={20} color={COLORS.accent} />
+      {busy ? <ActivityIndicator size="small" color={COLORS.accent} /> : <Ionicons name={icon} size={20} color={COLORS.accent} />}
+      <Text style={{ color: "#0A78B4", fontWeight: "800", fontSize: 13 }}>{texto}</Text>
     </Pressable>
   );
 }
@@ -1753,19 +1811,26 @@ function BlueIABubble({ message }: { message: BlueIAMessage }) {
   const mine = message.role === "user";
 
   return (
+    // Como en WhatsApp (dueño, 2026-11-26): cada mensaje deja el mismo hueco (20 % del ancho) en el lado contrario, así
+    // los de Blue y los de la persona se ven escalonados.
     <View
+      {...({ dataSet: { burbujaBlue: mine ? "persona" : "blue" } } as object)}
       style={{
         flexDirection: "row",
         justifyContent: mine ? "flex-end" : "flex-start",
         alignItems: "flex-end",
         gap: 8,
+        paddingLeft: mine ? "20%" : 0,
+        // Con botones de artículos, algo menos de hueco para que su nombre quepa entero en el móvil.
+        paddingRight: mine ? 0 : message.productChips?.length ? "10%" : "20%",
       }}
     >
       {!mine && <AvatarBlue />}
 
       <View
         style={{
-          maxWidth: "82%",
+          flexShrink: 1,
+          maxWidth: "100%",
           borderRadius: 18,
           borderWidth: 1,
           borderColor: message.isError
@@ -2254,61 +2319,6 @@ function QuickSuggestionChip({
         <Ionicons name={item.icon} size={16} color={COLORS.accent} />
         <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>{item.title}</Text>
       </View>
-    </Pressable>
-  );
-}
-
-// "Hablar con el equipo": discreto (enlace con auriculares) junto al recuadro de escribir; es el único. Se ve igual
-// que antes, pero ahora toda su fila mide 44 px para tocarlo bien con el pulgar.
-function HablarEquipoButton({ busy, onPress }: { busy?: boolean; onPress: () => void }) {
-  const color = COLORS.primary;
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={busy}
-      accessibilityRole="button"
-      accessibilityLabel="Hablar con el equipo"
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 7,
-        borderRadius: 999,
-        minHeight: 44,
-        paddingHorizontal: 12,
-        opacity: busy ? 0.6 : pressed ? 0.85 : 1,
-      })}
-    >
-      {busy ? <ActivityIndicator size="small" color={color} /> : <Ionicons name="headset-outline" size={15} color={color} />}
-      <Text style={{ color, fontWeight: "900", fontSize: 13 }}>Hablar con el equipo</Text>
-    </Pressable>
-  );
-}
-
-// «Nueva conversación»: mismo estilo que «Hablar con el equipo», a su lado. La conversación de ahora se queda en el
-// Historial (con sesión); mientras Blue IA contesta, espera.
-function NuevaConversacionButton({ disabled, onPress }: { disabled?: boolean; onPress: () => void }) {
-  const color = COLORS.primary;
-  return (
-    <Pressable
-      nativeID="blue-ia-nueva"
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel="Nueva conversación"
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 7,
-        borderRadius: 999,
-        minHeight: 44,
-        paddingHorizontal: 12,
-        opacity: disabled ? 0.45 : pressed ? 0.85 : 1,
-      })}
-    >
-      <Ionicons name="create-outline" size={15} color={color} />
-      <Text style={{ color, fontWeight: "900", fontSize: 13 }}>Nueva conversación</Text>
     </Pressable>
   );
 }

@@ -1712,6 +1712,8 @@ export default function AdminAnalytics() {
       // Botones de artículos de Blue IA (2026-11-26): el nombrado en la respuesta o uno de los «similares».
       blueArticuloNombrado: findExact("Blue IA: artículo tocado · nombrado"),
       blueArticuloSimilar: findExact("Blue IA: artículo tocado · similar"),
+      // Pastilla «¿Cuál es el horario de atención?» (2026-11-26): sustituye al horario fijo junto al recuadro.
+      bluePastillaHorario: findExact("Blue IA: pastilla del horario"),
       // «Quiénes somos» (app/quienes-somos.tsx): quién la ve y cuántos llegan desde Inicio o desde entrar/crear cuenta.
       quienesVista: findExact("Quiénes somos: vista"),
       quienesInicio: findExact("Quiénes somos: desde Inicio"),
@@ -2407,7 +2409,7 @@ export default function AdminAnalytics() {
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Blue IA → respuestas del modelo avanzado: {coreFunnel.blueModeloAvanzado} · de gpt-4o-mini:{" "}
                       {coreFunnel.blueModeloBase} (sesiones) · artículos tocados: el nombrado {coreFunnel.blueArticuloNombrado} ·
-                      «opciones similares» {coreFunnel.blueArticuloSimilar}
+                      «opciones similares» {coreFunnel.blueArticuloSimilar} · pastilla del horario {coreFunnel.bluePastillaHorario}
                     </Text>
                   </View>
                   <View

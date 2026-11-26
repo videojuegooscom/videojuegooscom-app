@@ -1702,9 +1702,12 @@ const MessageBubble = React.memo(function MessageBubble({
 
   return (
     <View
+      {...({ dataSet: { burbujaForo: mine ? "mia" : "otro" } } as object)}
       style={{
-        alignSelf: mine ? "flex-end" : "stretch",
-        maxWidth: "100%",
+        // Como en WhatsApp (dueño, 2026-11-26): los de los demás a la izquierda y los propios a la derecha, cada uno como
+        // mucho al 80 % del ancho, con el mismo hueco en el lado contrario.
+        alignSelf: mine ? "flex-end" : "flex-start",
+        maxWidth: "80%",
         gap: grouped ? 4 : 8,
         marginTop: grouped ? 2 : 6,
       }}
