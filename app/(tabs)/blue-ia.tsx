@@ -128,6 +128,7 @@ import {
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { abrirChatEquipo } from "../../components/ConversacionProducto";
 import { portadasDeProductos } from "../../components/BarraBusqueda";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import { medirEvento } from "../../lib/analiticaPropia";
 import { estadoAtencion, HORARIO_CORTO, type EstadoAtencion } from "../../lib/horarioAtencion";
@@ -1585,93 +1586,112 @@ function BlueIAHistorialModal({
   onAbrir: (c: ConversacionGuardada) => void;
   onArchivar: (c: ConversacionGuardada) => void;
 }) {
+  const insets = useSafeAreaInsets();
   return (
-    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+      {/* Hoja que sube desde abajo (dueño, 2026-11-26: «profesional y práctico para el dedo gordo de la mano derecha»):
+          la lista y los botones quedan en la mitad de abajo, al alcance del pulgar; se cierra tocando fuera o con
+          «Cerrar», abajo, en vez de la X de arriba a la derecha. */}
       <Pressable
+        nativeID="blue-ia-historial-fondo"
         onPress={onClose}
-        style={{
-          flex: 1,
-          backgroundColor: COLORS.overlay,
-          justifyContent: "center",
-          alignItems: "center",
-          padding: 20,
-        }}
+        style={{ flex: 1, backgroundColor: COLORS.overlay, justifyContent: "flex-end", alignItems: "center" }}
       >
         <Pressable
+          nativeID="blue-ia-historial"
           onPress={() => {}}
           style={{
             width: "100%",
-            maxWidth: 480,
-            maxHeight: 600,
-            borderRadius: 24,
+            maxWidth: 520,
+            maxHeight: "86%",
             backgroundColor: "#FFFFFF",
-            paddingVertical: 22,
-            paddingHorizontal: 20,
-            gap: 14,
+            borderTopLeftRadius: 26,
+            borderTopRightRadius: 26,
+            paddingTop: 10,
+            paddingHorizontal: 16,
+            paddingBottom: 16 + Math.round(insets.bottom),
+            gap: 12,
           }}
         >
-          {/* Cerrar */}
-          <Pressable
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Cerrar"
-            hitSlop={10}
-            style={({ pressed }) => ({
-              position: "absolute",
-              top: 14,
-              right: 14,
-              zIndex: 2,
-              opacity: pressed ? 0.6 : 1,
-            })}
-          >
-            <Ionicons name="close" size={22} color={COLORS.text} />
-          </Pressable>
+          {/* Asa de la hoja. */}
+          <View style={{ alignSelf: "center", width: 40, height: 5, borderRadius: 3, backgroundColor: "#D6E2EE" }} />
 
-          <View style={{ alignItems: "center", gap: 6 }}>
-            <Ionicons name="time-outline" size={24} color={COLORS.accent} />
-            <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
-              Historial
-            </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4 }}>
+            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.accentSoft, alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="time-outline" size={22} color="#0A78B4" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+                Historial
+              </Text>
+              {conSesion && conversaciones.length ? (
+                <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13 }}>
+                  {conversaciones.length === 1 ? "1 conversación guardada" : `${conversaciones.length} conversaciones guardadas`}
+                </Text>
+              ) : null}
+            </View>
           </View>
 
           {!conSesion ? (
-            <View style={{ alignItems: "center", gap: 14, paddingVertical: 6 }}>
-              <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center" }}>
-                Inicia sesión para guardar tus conversaciones con Blue IA
-              </Text>
-              <BotonPrincipal
-                icon="person-circle-outline"
-                texto="Iniciar sesión"
-                onPress={() => {
-                  onClose();
-                  router.push(
-                    `/perfil?aviso=${encodeURIComponent(AVISO_LOGIN_HISTORIAL)}` as never
-                  );
-                }}
-              />
-            </View>
+            <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center", paddingVertical: 6 }}>
+              Inicia sesión para guardar tus conversaciones con Blue IA
+            </Text>
+          ) : cargando && conversaciones.length === 0 ? (
+            <ActivityIndicator color={COLORS.accent} style={{ paddingVertical: 16 }} />
+          ) : conversaciones.length === 0 ? (
+            <Text style={{ color: COLORS.muted, textAlign: "center", paddingVertical: 10 }}>
+              Aún no tienes conversaciones guardadas.
+            </Text>
           ) : (
-            <>
-              <View style={{ alignItems: "center" }}>
-                <BotonPrincipal icon="add" texto="Nueva conversación" onPress={onNueva} />
-              </View>
-
-              {cargando && conversaciones.length === 0 ? (
-                <ActivityIndicator color={COLORS.accent} style={{ paddingVertical: 16 }} />
-              ) : conversaciones.length === 0 ? (
-                <Text style={{ color: COLORS.muted, textAlign: "center", paddingVertical: 10 }}>
-                  Aún no tienes conversaciones guardadas.
-                </Text>
-              ) : (
-                <ListaHistorial
-                  conversaciones={conversaciones}
-                  abiertaId={abiertaId}
-                  onAbrir={onAbrir}
-                  onArchivar={onArchivar}
-                />
-              )}
-            </>
+            <ListaHistorial conversaciones={conversaciones} abiertaId={abiertaId} onAbrir={onAbrir} onArchivar={onArchivar} />
           )}
+
+          {/* Abajo, al alcance del pulgar: la acción principal y «Cerrar». */}
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <Pressable
+              nativeID="blue-ia-historial-cerrar"
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar el historial"
+              style={({ pressed }) => ({
+                height: 48,
+                paddingHorizontal: 18,
+                borderRadius: 24,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#F1F6FA",
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 15 }}>Cerrar</Text>
+            </Pressable>
+            <Pressable
+              nativeID="blue-ia-historial-principal"
+              onPress={
+                conSesion
+                  ? onNueva
+                  : () => {
+                      onClose();
+                      router.push(`/perfil?aviso=${encodeURIComponent(AVISO_LOGIN_HISTORIAL)}` as never);
+                    }
+              }
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                flex: 1,
+                height: 48,
+                borderRadius: 24,
+                flexDirection: "row",
+                gap: 8,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: COLORS.accent,
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Ionicons name={conSesion ? "add" : "person-circle-outline"} size={20} color="#FFFFFF" />
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{conSesion ? "Nueva conversación" : "Iniciar sesión"}</Text>
+            </Pressable>
+          </View>
         </Pressable>
       </Pressable>
     </Modal>
@@ -1700,10 +1720,11 @@ function ListaHistorial({
   const altoPulgar = sobra > 0 ? Math.max(32, (medidas.alto * medidas.alto) / medidas.contenido) : 0;
 
   return (
-    <View style={{ maxHeight: 400 }}>
-      <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", marginBottom: 6 }}>
-        Desliza una conversación a la izquierda para archivarla
-      </Text>
+    <View style={{ flexShrink: 1, maxHeight: 460 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 6, marginBottom: 4 }}>
+        <Ionicons name="hand-left-outline" size={14} color="rgba(11,33,56,0.62)" />
+        <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, flex: 1 }}>Desliza una conversación a la izquierda para archivarla</Text>
+      </View>
       <View style={{ flexShrink: 1 }}>
         <ScrollView
           nativeID="blue-ia-historial-lista"
@@ -1885,52 +1906,42 @@ function FilaHistorial({
           onAccessibilityAction={(e) => {
             if (e.nativeEvent.actionName === "archivar") onArchivar();
           }}
-          style={({ pressed }) => ({ alignItems: "center", gap: 4, paddingVertical: 14, paddingHorizontal: 8, minHeight: 64, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+          // Fila de lista profesional: icono, título y fecha alineados a la izquierda y flecha; toda la fila se toca.
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            paddingVertical: 12,
+            paddingHorizontal: 6,
+            minHeight: 68,
+            backgroundColor: pressed ? "#F4F9FD" : "#FFFFFF",
+          })}
         >
-          <Text
-            numberOfLines={2}
-            style={{ color: abierta ? COLORS.primary : COLORS.text, fontWeight: "800", fontSize: 15, textAlign: "center" }}
+          <View
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: abierta ? COLORS.accent : COLORS.accentSoft,
+            }}
           >
-            {c.titulo}
-          </Text>
-          <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: "center" }}>
-            {abierta ? "Abierta · " : ""}
-            {fechaMadrid(c.updated_at)}
-          </Text>
+            <Ionicons name="chatbubble-ellipses-outline" size={20} color={abierta ? "#FFFFFF" : "#0A78B4"} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15, lineHeight: 20 }}>
+              {c.titulo}
+            </Text>
+            <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13 }}>
+              {abierta ? <Text style={{ color: "#0A78B4", fontWeight: "800" }}>Abierta ahora · </Text> : null}
+              {fechaMadrid(c.updated_at)}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="rgba(11,33,56,0.4)" />
         </Pressable>
       </Animated.View>
     </View>
-  );
-}
-
-// Botón principal en píldora (#1EA7E8).
-function BotonPrincipal({
-  icon,
-  texto,
-  onPress,
-}: {
-  icon: IoniconName;
-  texto: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 7,
-        borderRadius: 999,
-        paddingVertical: 11,
-        paddingHorizontal: 20,
-        backgroundColor: COLORS.primary,
-        opacity: pressed ? 0.85 : 1,
-      })}
-    >
-      <Ionicons name={icon} size={17} color="#FFFFFF" />
-      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>{texto}</Text>
-    </Pressable>
   );
 }
 
