@@ -3409,11 +3409,15 @@ async function seccionX() {
   const botones = await p.getByRole("button", { name: "Hablar con el equipo" }).count();
   ok(botones === 1 && !/Prefieres que te atienda una persona/.test(t), `X: «Hablar con el equipo» sale una sola vez y ya no «¿Prefieres que te atienda una persona?» (${botones} botones)`);
   const m = await p.evaluate(() => {
-    const b = document.querySelector('[aria-label="Hablar con el equipo"]')?.getBoundingClientRect();
+    const b = document.querySelector('[aria-label="Hablar con el equipo"]');
+    const cab = document.getElementById("blue-ia-cabecera");
+    const pastilla = document.getElementById("blue-ia-pastilla-horario")?.getBoundingClientRect();
     const c = document.querySelector('textarea[placeholder="Pregúntale a Blue IA…"], input[placeholder="Pregúntale a Blue IA…"]')?.getBoundingClientRect();
     const avatares = Array.from(document.querySelectorAll('[data-avatar-blue="1"]'));
     return {
-      boton: b ? { y: b.y, h: b.height } : null,
+      boton: b ? { arriba: !!cab && cab.contains(b), h: Math.round(b.getBoundingClientRect().height) } : null,
+      pastilla: pastilla ? { y: pastilla.y, h: Math.round(pastilla.height) } : null,
+      sinHorarioFijo: !document.getElementById("blue-ia-horario"),
       campo: c ? { y: c.y } : null,
       avatares: avatares.length,
       conMascota: avatares.every((a) => !!a.querySelector("img")),
@@ -3421,7 +3425,13 @@ async function seccionX() {
       sinEstrellitas: avatares.every((a) => !a.textContent?.trim()),
     };
   });
-  ok(!!m.boton && !!m.campo && m.boton.y < m.campo.y && m.campo.y - (m.boton.y + m.boton.h) < 40 && m.boton.h >= 44, `X: el botón va justo encima del recuadro de escribir y mide 44 px (${JSON.stringify({ boton: m.boton, campo: m.campo })})`);
+  // Dueño, 2026-11-26: «Hablar con el equipo» va arriba, junto a ⓘ y el Historial; junto al recuadro ya no va el
+  // horario fijo sino la pastilla «¿Cuál es el horario de atención?».
+  ok(!!m.boton && m.boton.arriba && m.boton.h >= 44, `X: «Hablar con el equipo» va arriba, junto a ⓘ y el Historial, y mide 44 px o más (${JSON.stringify(m.boton)})`);
+  ok(
+    m.sinHorarioFijo && !!m.pastilla && !!m.campo && m.pastilla.y < m.campo.y && m.pastilla.h >= 44,
+    `X: encima del recuadro, la pastilla «¿Cuál es el horario de atención?» en vez del horario fijo (${JSON.stringify({ pastilla: m.pastilla, campo: m.campo })})`
+  );
   // Bienvenida + 2 respuestas = 3 mensajes de Blue, cada uno con la mascota (imagen) y no el icono de antes.
   ok(m.avatares === 3 && m.conMascota && m.sinEstrellitas && m.tamano.every((w) => w === 36), `X: cada respuesta de Blue lleva la mascota de Blue (${m.avatares} mensajes, ${m.tamano.join(", ")} px)`);
   await capturar(p, "X1-blue-ia");
@@ -3472,7 +3482,7 @@ async function seccionX() {
     const fondo = getComputedStyle(c).backgroundColor;
     const alfa = /rgba\(/.test(fondo) ? Number(fondo.split(",").at(-1).replace(")", "")) : /rgb\(/.test(fondo) ? 1 : 0;
     const r = c.getBoundingClientRect();
-    const h = document.getElementById("blue-ia-horario")?.getBoundingClientRect();
+    const h = document.getElementById("blue-ia-pastilla-horario")?.getBoundingClientRect();
     return { alfa, abajo: Math.round(window.innerHeight - r.bottom), horarioDentro: !!h && h.top >= r.top && h.bottom <= r.bottom };
   });
   await p.mouse.move(195, 300);
@@ -3531,7 +3541,7 @@ async function seccionX() {
     ok(f.errores.length === 0, `X: Foro sin errores de JavaScript (${f.errores.length}${f.errores[0] ? ": " + f.errores[0] : ""})`);
     await ctxF.close();
   }
-  ok(!!panel && panel.alfa >= 0.9 && panel.horarioDentro, `X: el horario y los botones van en un panel blanco que tapa los mensajes al subir (${JSON.stringify(panel)})`);
+  ok(!!panel && panel.alfa >= 0.9 && panel.horarioDentro, `X: la pastilla del horario y el recuadro van en un panel blanco que tapa los mensajes al subir (${JSON.stringify(panel)})`);
   ok(p.errores.length === 0, `X: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
   await ctx.close();
 }
@@ -6573,7 +6583,8 @@ async function seccionBI() {
       return { nueva: caja("#blue-ia-nueva"), equipo: caja('[aria-label="Hablar con el equipo"]'), campo: caja('textarea[placeholder="Pregúntale a Blue IA…"]'), ancho: window.innerWidth };
     });
     const dentro = (c) => !!c && c.x >= 0 && c.x + c.w <= m.ancho && c.h >= 44;
-    ok(dentro(m.nueva) && dentro(m.equipo) && !!m.campo && m.nueva.y < m.campo.y, `BI: «Nueva conversación» sale junto a «Hablar con el equipo», encima del recuadro, y se toca bien (${JSON.stringify(m)})`);
+    // Dueño, 2026-11-26: los dos van arriba, en la misma fila que ⓘ y el Historial.
+    ok(dentro(m.nueva) && dentro(m.equipo) && Math.abs(m.nueva.y - m.equipo.y) <= 4, `BI: «Nueva conversación» sale junto a «Hablar con el equipo», arriba, y se toca bien (${JSON.stringify(m)})`);
     for (let i = 0; i < 20 && !evento(estado, "blue_ia_conversacion_retomada").length; i++) await p.waitForTimeout(250);
     ok(evento(estado, "blue_ia_conversacion_retomada").length === 1, "BI: la analítica propia cuenta la conversación retomada");
     await capturar(p, "BI1-conversacion-retomada");
@@ -6908,9 +6919,10 @@ async function seccionHO() {
     // (sus temporizadores van con ese reloj); sin reloj falso se escribe entero (sección BI).
     await ctx.clock.install({ time: new Date("2026-11-03T07:15:00Z") });
     const p = await pagina(ctx, "/blue-ia");
-    await p.locator("#blue-ia-horario").waitFor({ timeout: 30000 }).catch(() => {});
-    const linea = await texto(p, "#blue-ia-horario");
-    ok(/Equipo fuera de horario · vuelve hoy a las 10:00/.test(linea) && linea.includes(HORARIO), `HO: fuera de horario, la línea lo dice y enseña el horario (${linea})`);
+    // Dueño, 2026-11-26: el horario ya no va fijo junto al recuadro (lo da la pastilla «¿Cuál es el horario de
+    // atención?»); fuera de horario lo enseña el aviso de «Hablar con el equipo».
+    await p.getByPlaceholder("Pregúntale a Blue IA…").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await p.locator("#blue-ia-horario").count()) === 0, "HO: el horario ya no va fijo junto al recuadro de escribir");
     // Una pregunta primero: el aviso no debe tapar la conversación.
     await p.getByPlaceholder("Pregúntale a Blue IA…").fill("Mi consola no enciende");
     await p.getByRole("button", { name: "Enviar la pregunta" }).click();
@@ -6918,7 +6930,7 @@ async function seccionHO() {
     await p.locator('[aria-label="Hablar con el equipo"]').click();
     await p.locator("#blue-ia-aviso-horario").waitFor({ timeout: 8000 }).catch(() => {});
     const aviso = await texto(p, "#blue-ia-aviso-horario");
-    ok(/fuera del horario de atención\. El equipo vuelve hoy a las 10:00/.test(aviso) && /esperar a ese horario/.test(aviso) && /Blue puede intentar ayudarte/.test(aviso), `HO: «Hablar con el equipo» fuera de horario avisa, recomienda esperar y ofrece seguir con Blue (${aviso.slice(0, 160)})`);
+    ok(/fuera del horario de atención\. El equipo vuelve hoy a las 10:00/.test(aviso) && aviso.includes(HORARIO) && /esperar a ese horario/.test(aviso) && /Blue puede intentar ayudarte/.test(aviso), `HO: «Hablar con el equipo» fuera de horario avisa con el horario, recomienda esperar y ofrece seguir con Blue (${aviso.slice(0, 200)})`);
     const b1 = await caja(p, "#blue-ia-seguir-blue");
     const b2 = await caja(p, "#blue-ia-escribir-igualmente");
     ok([b1, b2].every((b) => !!b && b.h >= 44 && b.x >= 0 && b.x + b.w <= b.ancho), `HO: sus dos botones se tocan bien y no se salen (${JSON.stringify([b1, b2])})`);
@@ -6950,16 +6962,14 @@ async function seccionHO() {
     await ctx.close();
   }
 
-  // HO2) En horario (martes 12:00): la línea dice hasta cuándo y «Hablar con el equipo» va directo, sin aviso.
+  // HO2) En horario (martes 12:00): «Hablar con el equipo» va directo, sin aviso.
   {
     const estado = { filas: [], guardados: [], aceptaAnalitica: true };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     await sinSesion(ctx);
     await ctx.clock.install({ time: new Date("2026-11-03T11:00:00Z") });
     const p = await pagina(ctx, "/blue-ia");
-    await p.locator("#blue-ia-horario").waitFor({ timeout: 30000 }).catch(() => {});
-    const linea = await texto(p, "#blue-ia-horario");
-    ok(/Equipo atendiendo hasta las 14:00/.test(linea) && linea.includes(HORARIO), `HO: en horario, la línea dice hasta cuándo (${linea})`);
+    await p.locator('[aria-label="Hablar con el equipo"]').waitFor({ timeout: 30000 }).catch(() => {});
     await capturar(p, "HO2-en-horario");
     await p.locator('[aria-label="Hablar con el equipo"]').click();
     await p.waitForURL(/\/perfil/, { timeout: 15000 }).catch(() => {});
@@ -6974,8 +6984,9 @@ async function seccionHO() {
     await sinSesion(ctx);
     await ctx.clock.install({ time: new Date("2026-11-08T15:00:00Z") });
     const p = await pagina(ctx, "/blue-ia");
-    await p.locator("#blue-ia-horario").waitFor({ timeout: 30000 }).catch(() => {});
-    ok(/vuelve mañana a las 10:00/.test(await texto(p, "#blue-ia-horario")), "HO: el domingo por la tarde dice que vuelve mañana a las 10:00");
+    await p.locator('[aria-label="Hablar con el equipo"]').click({ timeout: 30000 }).catch(() => {});
+    await p.locator("#blue-ia-aviso-horario").waitFor({ timeout: 8000 }).catch(() => {});
+    ok(/vuelve mañana a las 10:00/.test(await texto(p, "#blue-ia-aviso-horario")), "HO: el domingo por la tarde, el aviso dice que vuelve mañana a las 10:00");
     await ctx.close();
   }
 
