@@ -876,7 +876,7 @@ export default function BlueIAScreen() {
           "Quiero que me ayudes a elegir un producto. Pregúntame lo que necesites saber (presupuesto, qué busco, para qué lo quiero) antes de recomendarme algo.",
       },
       {
-        // El horario ya no va fijo abajo (dueño, 2026-11-26): se pregunta con esta sugerencia.
+        // El horario ya no va fijo abajo (dueño, 2026-11-26): se pregunta solo con esta sugerencia.
         id: "horario",
         icon: "time-outline",
         title: "¿Cuál es el horario de atención?",
@@ -1397,7 +1397,14 @@ export default function BlueIAScreen() {
           ]}
         >
           {showQuickSuggestions && (
-            <SugerenciasAutomaticas items={quickActions} onPress={(item) => handleAsk(item.prompt)} />
+            <SugerenciasAutomaticas
+              items={quickActions}
+              onPress={(item) => {
+                // El horario solo se pregunta desde esta sugerencia (dueño, 2026-11-26): se cuenta en Analítica.
+                if (item.id === "horario") void medirEvento("blue_ia_horario", "Blue IA: pastilla del horario");
+                handleAsk(item.prompt);
+              }}
+            />
           )}
 
           {!!errorText && (
@@ -1451,37 +1458,6 @@ export default function BlueIAScreen() {
                 </Pressable>
               </View>
             </View>
-          ) : null}
-
-          {/* El horario ya no va fijo aquí (dueño, 2026-11-26): es una pastilla que se lo pregunta a Blue IA, que lo
-              contesta con el horario y si ahora atendemos. «Nueva conversación» y «Hablar con el equipo» van arriba. */}
-          {!showQuickSuggestions ? (
-            <Pressable
-              nativeID="blue-ia-pastilla-horario"
-              disabled={sending}
-              onPress={() => {
-                void medirEvento("blue_ia_horario", "Blue IA: pastilla del horario");
-                handleAsk("¿Cuál es el horario de atención?");
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Preguntar cuál es el horario de atención"
-              style={({ pressed }) => ({
-                alignSelf: "flex-start",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                minHeight: 44,
-                paddingHorizontal: 14,
-                borderRadius: 999,
-                backgroundColor: COLORS.accentSoft,
-                borderWidth: 1,
-                borderColor: COLORS.accentBorder,
-                opacity: sending ? 0.5 : pressed ? 0.8 : 1,
-              })}
-            >
-              <Ionicons name="time-outline" size={16} color="#0A78B4" />
-              <Text style={{ color: "#0A78B4", fontWeight: "800", fontSize: 14 }}>¿Cuál es el horario de atención?</Text>
-            </Pressable>
           ) : null}
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

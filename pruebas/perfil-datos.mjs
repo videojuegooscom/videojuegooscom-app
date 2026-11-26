@@ -3402,6 +3402,9 @@ async function seccionX() {
     await p.waitForFunction((k) => document.querySelectorAll('[data-avatar-blue="1"]').length >= k, n + 1, { timeout: 15000 }).catch(() => {});
     await p.waitForTimeout(600);
   };
+  // El horario se pregunta SOLO desde las sugerencias, como «Ayúdame a elegir» (dueño, 2026-11-26).
+  await p.getByText("¿Cuál es el horario de atención?", { exact: true }).first().waitFor({ timeout: 15000 }).catch(() => {});
+  const sugerenciaHorario = await p.getByText("¿Cuál es el horario de atención?", { exact: true }).count();
   await preguntar("¿Tenéis PS5?", 1);
   await preguntar("¿Me la guardáis hasta el lunes?", 2);
   const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
@@ -3429,8 +3432,8 @@ async function seccionX() {
   // horario fijo sino la pastilla «¿Cuál es el horario de atención?».
   ok(!!m.boton && m.boton.arriba && m.boton.h >= 44, `X: «Hablar con el equipo» va arriba, junto a ⓘ y el Historial, y mide 44 px o más (${JSON.stringify(m.boton)})`);
   ok(
-    m.sinHorarioFijo && !!m.pastilla && !!m.campo && m.pastilla.y < m.campo.y && m.pastilla.h >= 44,
-    `X: encima del recuadro, la pastilla «¿Cuál es el horario de atención?» en vez del horario fijo (${JSON.stringify({ pastilla: m.pastilla, campo: m.campo })})`
+    m.sinHorarioFijo && sugerenciaHorario === 1 && !m.pastilla,
+    `X: el horario va solo entre las sugerencias, sin horario fijo ni pastilla suelta encima del recuadro (${JSON.stringify({ sugerenciaHorario, pastilla: m.pastilla })})`
   );
   // Bienvenida + 2 respuestas = 3 mensajes de Blue, cada uno con la mascota (imagen) y no el icono de antes.
   ok(m.avatares === 3 && m.conMascota && m.sinEstrellitas && m.tamano.every((w) => w === 36), `X: cada respuesta de Blue lleva la mascota de Blue (${m.avatares} mensajes, ${m.tamano.join(", ")} px)`);
@@ -3482,8 +3485,8 @@ async function seccionX() {
     const fondo = getComputedStyle(c).backgroundColor;
     const alfa = /rgba\(/.test(fondo) ? Number(fondo.split(",").at(-1).replace(")", "")) : /rgb\(/.test(fondo) ? 1 : 0;
     const r = c.getBoundingClientRect();
-    const h = document.getElementById("blue-ia-pastilla-horario")?.getBoundingClientRect();
-    return { alfa, abajo: Math.round(window.innerHeight - r.bottom), horarioDentro: !!h && h.top >= r.top && h.bottom <= r.bottom };
+    const h = document.querySelector('textarea[placeholder="Pregúntale a Blue IA…"]')?.getBoundingClientRect();
+    return { alfa, abajo: Math.round(window.innerHeight - r.bottom), recuadroDentro: !!h && h.top >= r.top && h.bottom <= r.bottom };
   });
   await p.mouse.move(195, 300);
   await p.mouse.wheel(0, -260);
@@ -3541,7 +3544,7 @@ async function seccionX() {
     ok(f.errores.length === 0, `X: Foro sin errores de JavaScript (${f.errores.length}${f.errores[0] ? ": " + f.errores[0] : ""})`);
     await ctxF.close();
   }
-  ok(!!panel && panel.alfa >= 0.9 && panel.horarioDentro, `X: la pastilla del horario y el recuadro van en un panel blanco que tapa los mensajes al subir (${JSON.stringify(panel)})`);
+  ok(!!panel && panel.alfa >= 0.9 && panel.recuadroDentro, `X: el recuadro va en un panel blanco que tapa los mensajes al subir (${JSON.stringify(panel)})`);
   ok(p.errores.length === 0, `X: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
   await ctx.close();
 }
