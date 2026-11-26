@@ -153,12 +153,14 @@ type HubTab = "chat" | "news" | "novedades" | "torneos" | "privados";
 // "chat" (la clave interna no cambia para no tocar el resto del archivo) es
 // ahora el "Foro" público; "privados" es la bandeja de conversaciones
 // privadas por producto.
+// Orden por defecto (dueño, 2026-11-26, con captura): Foro, Noticias Gaming, Chat, Nuestras Novedades y Torneos. Quien
+// ya las haya movido conserva su orden (ORDEN_TABS_KEY).
 const TAB_ITEMS: { key: HubTab; label: string }[] = [
   { key: "chat", label: "Foro" },
   { key: "news", label: "Noticias Gaming" },
+  { key: "privados", label: "Chat" },
   { key: "novedades", label: "Nuestras Novedades" },
   { key: "torneos", label: "Torneos" },
-  { key: "privados", label: "Chat" },
 ];
 
 // Orden de las pestañas que elige cada persona (mantener pulsada y arrastrar). Se guarda en el
@@ -2394,7 +2396,7 @@ function BottomBar({
         <Pressable
           onPress={onToggleTabsMenu}
           testID="selector-pestanas"
-          accessibilityLabel="Cambiar de pestaña del Foro: Foro, Noticias Gaming, Nuestras Novedades, Torneos y Chat"
+          accessibilityLabel="Cambiar de pestaña del Foro: Foro, Noticias Gaming, Chat, Nuestras Novedades y Torneos"
           style={({ pressed }) => ({
             width: TACTIL.minimo,
             height: TACTIL.minimo,

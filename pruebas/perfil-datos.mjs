@@ -4480,6 +4480,31 @@ async function seccionOF() {
     ok(a.errores.length === 0, `OF: Analítica sin errores de JavaScript (${a.errores.length})`);
     await ctx.close();
   }
+
+  // Foro (dueño, 2026-11-26, con captura): por defecto las pestañas salen Foro, Noticias Gaming, Chat, Nuestras Novedades
+  // y Torneos; quien las haya movido conserva su orden.
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: perfil, guardados: [] });
+    const p = await pagina(ctx, "/chat-global");
+    const boton = p.locator('[aria-label^="Cambiar de pestaña del Foro"]');
+    await boton.waitFor({ timeout: 40000 }).catch(() => {});
+    await boton.click().catch(() => {});
+    await p.waitForTimeout(700);
+    const orden = await p.evaluate(() => {
+      const nombres = ["Foro", "Noticias Gaming", "Chat", "Nuestras Novedades", "Torneos"];
+      return Array.from(document.querySelectorAll('[dir="auto"]'))
+        .map((b) => ({ t: (b.textContent ?? "").trim(), y: b.getBoundingClientRect().top, x: b.getBoundingClientRect().right }))
+        // Las del desplegable van a la derecha, una debajo de otra.
+        .filter((b) => nombres.includes(b.t) && b.y > 0 && b.x > window.innerWidth * 0.6)
+        .sort((a, b) => a.y - b.y)
+        .map((b) => b.t)
+        // El botón de arriba repite el nombre de la pestaña abierta: cada nombre cuenta una vez.
+        .filter((t, i, todos) => todos.indexOf(t) === i);
+    });
+    ok(orden.join(" · ") === "Foro · Noticias Gaming · Chat · Nuestras Novedades · Torneos", `OF: el Foro trae las pestañas en el orden por defecto (${orden.join(" · ")})`);
+    ok(p.errores.length === 0, `OF: Foro sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
 }
 
 async function seccionRE() {
