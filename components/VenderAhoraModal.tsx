@@ -1337,7 +1337,7 @@ export default function VenderAhoraModal({
       const { error } = await supabase.from("sell_requests").insert(payload);
       if (error) throw error;
       const insertedRow = { id: requestId };
-      // Aviso al móvil del dueño (2026-11-24: «precio en menos de 1 hora»). El servidor lo manda una sola vez por solicitud;
+      // Aviso al móvil del dueño (desde el 2026-11-26: «tasación en menos de 30 minutos, 24/7»). El servidor lo manda una sola vez por solicitud;
       // si falla, la solicitud ya está guardada y se ve en Administración igual.
       if (Platform.OS === "web") {
         void fetch("/api/pago", {

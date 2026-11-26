@@ -13,8 +13,9 @@
  * Estado: ACTIVO
  *
  * Notas:
- * - Las condiciones las dio el dueño el 2026-11-24: precio en menos de 1 hora; en Zaragoza y alrededores (las zonas de
- *   entrega del mismo día de lib/envio.ts) se recoge o nos lo acercan en menos de 2 horas; desde otra ciudad, etiqueta
+ * - Las condiciones las dio el dueño el 2026-11-24 y las cambió el 2026-11-26: tasación en menos de 30 minutos, 24/7; en
+ *   Zaragoza se recoge en su dirección en menos de 1 hora y en los alrededores (las zonas de entrega del mismo día de
+ *   lib/envio.ts) en menos de 1 hora y media, o nos lo acercan; desde otra ciudad, etiqueta
  *   de envío en menos de 2 horas y llega en 72 horas como máximo; se revisa y se paga al momento por Bizum o en efectivo;
  *   si no coincide, se le dice cuánto podemos darle. Etiqueta y devolución sin coste: «como lo hacen las tiendas
  *   profesionales» (dueño). Lo mismo dice Términos y condiciones («Si nos vendes tu aparato»).
@@ -80,12 +81,13 @@ type Pagina = {
 
 // Las 7 zonas de entrega del mismo día (lib/envio.ts, ZONAS_MISMO_DIA): las mismas para recoger.
 const ZONAS = "Zaragoza, Cuarte de Huerva, Santa Fe, Cadrete, María de Huerva, Muel y La Muela";
+const ALREDEDORES = "Cuarte de Huerva, Santa Fe, Cadrete, María de Huerva, Muel y La Muela";
 
 export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
   consolas: {
     corto: "Consolas",
     h1: "Compramos tu consola en Zaragoza",
-    lema: "PlayStation, Nintendo Switch, Xbox y mandos. Te damos precio en menos de 1 hora y te pagamos al momento.",
+    lema: "PlayStation, Nintendo Switch, Xbox y mandos. Tasación en menos de 30 minutos, las 24 horas, y pago al momento.",
     icono: "game-controller-outline",
     articulo: "Consola",
     boton: "Vender mi consola",
@@ -94,7 +96,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     intro: {
       titulo: "¿Quieres vender tu consola?",
       texto:
-        "Si buscas dónde vender tu consola, te la compramos: PlayStation 5, PS4, Nintendo Switch, Xbox y mandos. Nos cuentas qué tienes, te damos precio en menos de 1 hora y te pagamos al momento. En Zaragoza y alrededores pasamos a recogerla en menos de 2 horas; desde cualquier otra ciudad puedes vender tu consola online, con envío gratis desde toda España.",
+        "Si buscas dónde vender tu consola, te la compramos: PlayStation 5, PS4, Nintendo Switch, Xbox y mandos. Nos cuentas qué tienes, te la tasamos en menos de 30 minutos, las 24 horas, y te pagamos al momento. En Zaragoza pasamos a recogerla en menos de 1 hora y en los alrededores en menos de 1 hora y media; desde cualquier otra ciudad puedes vender tu consola online, con envío gratis desde toda España.",
     },
     categorias: ["playstation-5", "playstation-4", "nintendo-switch", "xbox"],
     filtro: null,
@@ -112,7 +114,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
   moviles: {
     corto: "Móviles",
     h1: "Compramos tu móvil en Zaragoza",
-    lema: "iPhone, Samsung Galaxy, Xiaomi, Google Pixel y cualquier Android. Te damos precio en menos de 1 hora y te pagamos al momento.",
+    lema: "iPhone, Samsung Galaxy, Xiaomi, Google Pixel y cualquier Android. Tasación en menos de 30 minutos, las 24 horas, y pago al momento.",
     icono: "phone-portrait-outline",
     articulo: "Móvil",
     boton: "Vender mi móvil",
@@ -121,7 +123,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     intro: {
       titulo: "¿Quieres vender tu móvil?",
       texto:
-        "Si buscas dónde vender tu móvil, te lo compramos: iPhone, Samsung Galaxy, Xiaomi, Google Pixel y cualquier Android, también con la pantalla rota o con algún fallo. Te damos precio en menos de 1 hora y te pagamos al momento. En Zaragoza y alrededores pasamos a recogerlo en menos de 2 horas; desde cualquier otra ciudad puedes vender tu móvil online, con envío gratis desde toda España.",
+        "Si buscas dónde vender tu móvil, te lo compramos: iPhone, Samsung Galaxy, Xiaomi, Google Pixel y cualquier Android, también con la pantalla rota o con algún fallo. Tasación en menos de 30 minutos, las 24 horas, y pago al momento. En Zaragoza pasamos a recogerlo en menos de 1 hora y en los alrededores en menos de 1 hora y media; desde cualquier otra ciudad puedes vender tu móvil online, con envío gratis desde toda España.",
     },
     categorias: ["electronica"],
     filtro: /iphone|samsung galaxy (?!tab)|galaxy [szamf]\d|xiaomi|redmi|\bpoco\b|pixel|m[oó]vil|smartphone|oppo|huawei|motorola|oneplus/i,
@@ -139,7 +141,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
   portatiles: {
     corto: "Portátiles",
     h1: "Compramos tu portátil en Zaragoza",
-    lema: "MacBook, portátiles para jugar y portátiles Windows de cualquier marca. Te damos precio en menos de 1 hora y te pagamos al momento.",
+    lema: "MacBook, portátiles para jugar y portátiles Windows de cualquier marca. Tasación en menos de 30 minutos, las 24 horas, y pago al momento.",
     icono: "laptop-outline",
     articulo: "Portátil",
     boton: "Vender mi portátil",
@@ -148,7 +150,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     intro: {
       titulo: "¿Quieres vender tu portátil?",
       texto:
-        "Si buscas dónde vender tu portátil, te lo compramos: MacBook Air y MacBook Pro, portátiles para jugar y portátiles Windows de cualquier marca. Te damos precio en menos de 1 hora y te pagamos al momento. En Zaragoza y alrededores pasamos a recogerlo en menos de 2 horas; desde cualquier otra ciudad puedes vender tu portátil online, con envío gratis desde toda España.",
+        "Si buscas dónde vender tu portátil, te lo compramos: MacBook Air y MacBook Pro, portátiles para jugar y portátiles Windows de cualquier marca. Tasación en menos de 30 minutos, las 24 horas, y pago al momento. En Zaragoza pasamos a recogerlo en menos de 1 hora y en los alrededores en menos de 1 hora y media; desde cualquier otra ciudad puedes vender tu portátil online, con envío gratis desde toda España.",
     },
     categorias: ["electronica"],
     filtro: /port[aá]til|macbook|laptop|notebook|chromebook|thinkpad|zenbook|vivobook|ideapad|\blegion\b|\bomen\b/i,
@@ -165,7 +167,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
   pc: {
     corto: "PC y periféricos",
     h1: "Compramos tu PC y tus periféricos en Zaragoza",
-    lema: "Ordenadores de sobremesa, PC gaming, tarjetas gráficas, monitores, teclados y ratones. Te damos precio en menos de 1 hora y te pagamos al momento.",
+    lema: "Ordenadores de sobremesa, PC gaming, tarjetas gráficas, monitores, teclados y ratones. Tasación en menos de 30 minutos, las 24 horas, y pago al momento.",
     icono: "desktop-outline",
     articulo: "PC",
     boton: "Vender mi PC",
@@ -174,7 +176,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     intro: {
       titulo: "¿Quieres vender tu PC o tus periféricos?",
       texto:
-        "Si buscas dónde vender tu PC, te lo compramos: torres completas o por piezas, PC gaming, tarjetas gráficas, monitores, teclados y ratones. Te damos precio en menos de 1 hora y te pagamos al momento. En Zaragoza y alrededores pasamos a recogerlo en menos de 2 horas; desde cualquier otra ciudad puedes vender tu PC o tu gráfica online, con envío gratis desde toda España.",
+        "Si buscas dónde vender tu PC, te lo compramos: torres completas o por piezas, PC gaming, tarjetas gráficas, monitores, teclados y ratones. Tasación en menos de 30 minutos, las 24 horas, y pago al momento. En Zaragoza pasamos a recogerlo en menos de 1 hora y en los alrededores en menos de 1 hora y media; desde cualquier otra ciudad puedes vender tu PC o tu gráfica online, con envío gratis desde toda España.",
     },
     categorias: ["electronica"],
     filtro: /\bpc\b|ordenador|monitor|tarjeta gr[aá]fica|\brtx\b|\bgtx\b|radeon|teclado|rat[oó]n|\btorre\b|procesador/i,
@@ -192,7 +194,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
   tablets: {
     corto: "iPad y tablets",
     h1: "Compramos tu iPad o tu tablet en Zaragoza",
-    lema: "iPad, iPad Air, iPad Pro, iPad mini y tablets Android como la Samsung Galaxy Tab. Te damos precio en menos de 1 hora y te pagamos al momento.",
+    lema: "iPad, iPad Air, iPad Pro, iPad mini y tablets Android como la Samsung Galaxy Tab. Tasación en menos de 30 minutos, las 24 horas, y pago al momento.",
     icono: "tablet-portrait-outline",
     articulo: "Tablet",
     boton: "Vender mi tablet",
@@ -201,7 +203,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     intro: {
       titulo: "¿Quieres vender tu iPad o tu tablet?",
       texto:
-        "Si buscas dónde vender tu iPad o tu tablet, te la compramos: iPad, iPad Air, iPad Pro, iPad mini, Samsung Galaxy Tab y otras tablets Android. Te damos precio en menos de 1 hora y te pagamos al momento. En Zaragoza y alrededores pasamos a recogerla en menos de 2 horas; desde cualquier otra ciudad puedes vender tu tablet online, con envío gratis desde toda España.",
+        "Si buscas dónde vender tu iPad o tu tablet, te la compramos: iPad, iPad Air, iPad Pro, iPad mini, Samsung Galaxy Tab y otras tablets Android. Tasación en menos de 30 minutos, las 24 horas, y pago al momento. En Zaragoza pasamos a recogerla en menos de 1 hora y en los alrededores en menos de 1 hora y media; desde cualquier otra ciudad puedes vender tu tablet online, con envío gratis desde toda España.",
     },
     categorias: ["electronica"],
     filtro: /ipad|tablet|galaxy tab|xiaomi pad|redmi pad/i,
@@ -237,36 +239,46 @@ export async function generateStaticParams(): Promise<{ tipo: string }[]> {
   return TIPOS.map((tipo) => ({ tipo }));
 }
 
+// Tasación en menos de 30 minutos, 24/7; recogida en Zaragoza en menos de 1 hora y en los alrededores en menos de 1 hora
+// y media (dueño, 2026-11-26).
 const SELLOS: { icono: IconoNombre; texto: string }[] = [
-  { icono: "time-outline", texto: "Precio en menos de 1 hora" },
-  { icono: "car-outline", texto: "Recogida en Zaragoza en menos de 2 horas" },
+  { icono: "time-outline", texto: "Tasación en menos de 30 minutos, 24/7" },
+  { icono: "car-outline", texto: "Recogida en Zaragoza en menos de 1 hora" },
   { icono: "cube-outline", texto: "Envío gratis desde toda España" },
   { icono: "cash-outline", texto: "Pago al momento: Bizum o efectivo" },
 ];
 
+const PASO_FORMULARIO = {
+  titulo: "Cuéntanos qué tienes",
+  texto: "Rellena el formulario y completa cada apartado obligatorio. Para que la tasación sea más precisa, completa también los opcionales.",
+};
+const PASO_TASACION = {
+  titulo: "Te lo tasamos en menos de 30 minutos",
+  texto: "Las 24 horas, los 7 días de la semana. Te enviamos nuestra oferta por el chat de la tienda o por correo.",
+};
 const PASOS_ZARAGOZA = [
-  { titulo: "Cuéntanos qué tienes", texto: "Rellena el formulario y añade unas fotos. Sin compromiso." },
-  { titulo: "Precio en menos de 1 hora", texto: "Te enviamos nuestra oferta por el chat de la tienda o por correo." },
-  { titulo: "Lo recogemos en menos de 2 horas", texto: "Pasamos a recogerlo o nos lo acercas tú, como prefieras." },
-  { titulo: "Lo revisamos y te pagamos", texto: "Si su estado coincide con lo indicado, te pagamos al momento por Bizum o en efectivo." },
+  PASO_FORMULARIO,
+  PASO_TASACION,
+  { titulo: "Lo recogemos en menos de 1 hora", texto: "En tu dirección de Zaragoza en menos de 1 hora, y en los alrededores en menos de 1 hora y media. O nos lo acercas tú." },
+  { titulo: "Lo comprobamos y te pagamos", texto: "Comprobamos que todo esté como indicaste en el formulario y te pagamos al momento por Bizum o en efectivo." },
 ];
 const PASOS_ESPANA = [
-  { titulo: "Cuéntanos qué tienes", texto: "Rellena el formulario y añade unas fotos. Sin compromiso." },
-  { titulo: "Precio en menos de 1 hora", texto: "Te enviamos nuestra oferta por el chat de la tienda o por correo." },
+  PASO_FORMULARIO,
+  PASO_TASACION,
   { titulo: "Etiqueta gratis en menos de 2 horas", texto: "Te enviamos una etiqueta prepagada: solo tienes que embalarlo y entregarlo." },
   { titulo: "Nos llega en 72 horas como máximo", texto: "Puedes seguir el envío en todo momento." },
-  { titulo: "Lo revisamos y te pagamos", texto: "Si su estado coincide con lo indicado, te pagamos al momento por Bizum. Si no, te hacemos una nueva oferta y, si no la aceptas, te lo devolvemos gratis." },
+  { titulo: "Lo comprobamos y te pagamos", texto: "Comprobamos que todo esté como indicaste en el formulario y te pagamos al momento por Bizum. Si no, te hacemos una nueva oferta y, si no la aceptas, te lo devolvemos gratis." },
 ];
 
 export function preguntas(p: Pagina): { q: string; a: string }[] {
   return [
     // Las dos primeras, con las palabras que busca la gente en Google (2026-11-25).
-    { q: `¿Dónde vender ${p.miAparato} en Zaragoza?`, a: `Aquí: te ${p.lo} compramos y, en ${ZONAS}, pasamos a recoger${p.lo} en menos de 2 horas o nos ${p.lo} acercas tú. Te damos precio en menos de 1 hora y te pagamos al momento por Bizum o en efectivo.` },
+    { q: `¿Dónde vender ${p.miAparato} en Zaragoza?`, a: `Aquí: te ${p.lo} compramos y pasamos a recoger${p.lo} a tu dirección en menos de 1 hora (en los alrededores, en menos de 1 hora y media), o nos ${p.lo} acercas tú. Te ${p.lo} tasamos en menos de 30 minutos, las 24 horas, y te pagamos al momento por Bizum o en efectivo.` },
     { q: `¿Puedo vender ${p.miAparato} online desde otra ciudad?`, a: `Sí, desde cualquier punto de España. Te enviamos una etiqueta prepagada en menos de 2 horas, nos llega en 72 horas como máximo y, cuando ${p.lo} revisamos, te pagamos al momento por Bizum.` },
-    { q: `¿Cuánto me dais por ${p.miAparato}?`, a: "Depende del modelo, de su estado y de lo que incluya (caja, cargador, accesorios). Cuéntanoslo con unas fotos y te haremos una oferta en menos de 1 hora, sin compromiso." },
+    { q: `¿Cuánto me dais por ${p.miAparato}?`, a: "Depende del modelo, de su estado y de lo que incluya (caja, cargador, accesorios). Rellena el formulario con sus fotos (cuantos más apartados completes, más precisa será la tasación) y te haremos una oferta en menos de 30 minutos, las 24 horas, sin compromiso." },
     { q: "¿Lo compráis aunque esté averiado?", a: "Sí. Indícanos qué le ocurre y te haremos una oferta igualmente: como también nos dedicamos a la reparación, sabemos valorarlo." },
     { q: "¿Cómo me pagáis?", a: "Al momento, en cuanto lo hemos revisado: por Bizum o en efectivo. Si nos lo envías desde otra ciudad, por Bizum. Firmamos un contrato de compraventa para que todo quede por escrito." },
-    { q: "¿Dónde lo recogéis?", a: `En ${ZONAS}, en menos de 2 horas, o nos lo acercas tú. Desde el resto de España te enviamos una etiqueta prepagada sin coste.` },
+    { q: "¿Dónde lo recogéis?", a: `En tu dirección de Zaragoza, en menos de 1 hora; en ${ALREDEDORES}, en menos de 1 hora y media. También nos lo puedes acercar tú. Desde el resto de España te enviamos una etiqueta prepagada sin coste.` },
     { q: "¿Qué pasa si al revisarlo no coincide con lo que indiqué?", a: "Te explicamos lo que hemos encontrado y te hacemos una nueva oferta. Si no la aceptas, te lo devolvemos sin coste." },
     { q: "¿Puedo cambiarlo por otro artículo de la tienda?", a: "Sí. Puedes usar su valor para llevarte otro artículo del catálogo; indícalo en el formulario." },
     { q: "¿Qué necesito para venderlo?", a: "Ser mayor de edad y el propietario del aparato." },
@@ -683,7 +695,7 @@ export default function CompramosScreen() {
           <AparecerAlVer nativeID="compramos-final" style={{ width: "100%", borderRadius: 28, backgroundColor: C.text, padding: isMobile ? 22 : 36, gap: 16, alignItems: "center" }}>
             <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: isMobile ? 24 : 30, lineHeight: isMobile ? 30 : 36, textAlign: "center" }}>¿Te damos precio?</Text>
             <Text style={{ color: "rgba(255,255,255,0.82)", fontSize: TAMANOS.cuerpo + 1, lineHeight: 24, textAlign: "center", maxWidth: 560 }}>
-              Cuéntanos qué tienes y en menos de 1 hora recibirás nuestra oferta, sin compromiso.
+              Cuéntanos qué tienes y en menos de 30 minutos, las 24 horas, recibirás nuestra oferta, sin compromiso.
             </Text>
             <Boton nativeID="compramos-vender-final" texto={p.boton} icono="cash-outline" principal onPress={() => vender(p.articulo, "final")} />
           </AparecerAlVer>

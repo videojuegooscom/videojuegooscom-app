@@ -18082,7 +18082,8 @@ async function seccionCMP() {
     });
     ok(ld === "Service,FAQPage,BreadcrumbList|9", `CMP (${nombre}): datos estructurados en la página pintada (servicio, 9 preguntas y ruta) (${ld})`);
     const sellos = await texto(p, "#compramos-sellos");
-    ok(/Precio en menos de 1 hora/.test(sellos) && /menos de 2 horas/.test(sellos) && /Envío gratis/.test(sellos) && /Bizum o efectivo/.test(sellos), `CMP (${nombre}): los 4 sellos («${sellos}»)`);
+    // Condiciones del 2026-11-26: tasación en menos de 30 minutos 24/7 y recogida en Zaragoza en menos de 1 hora.
+    ok(/Tasación en menos de 30 minutos, 24\/7/.test(sellos) && /Recogida en Zaragoza en menos de 1 hora/.test(sellos) && /Envío gratis/.test(sellos) && /Bizum o efectivo/.test(sellos), `CMP (${nombre}): los 4 sellos («${sellos}»)`);
     // Consolas retro no se compran (dueño, 2026-11-25): ni en los modelos ni en el lema.
     ok(/PlayStation 5 y PS5 Pro/.test(await texto(p, "#compramos-modelos")) && /Mandos y accesorios/.test(await texto(p, "#compramos-modelos")) && !/retro/i.test(await p.evaluate(() => document.body.innerText)), `CMP (${nombre}): los modelos que compramos, sin consolas retro`);
     // Todo centrado (dueño, 2026-11-25), como «Quiénes somos».
@@ -18116,7 +18117,7 @@ async function seccionCMP() {
       return res;
     });
     ok(barra.hay && barra.ancho === 5 && barra.izq === 0 && barra.mitad >= 40 && barra.mitad <= 60 && barra.toca === "none", `CMP (${nombre}): la barra de progreso a la izquierda avanza al bajar (${JSON.stringify(barra)})`);
-    ok(/Cuarte de Huerva/.test(await texto(p, "#compramos-zaragoza")) && /en menos de 2 horas/.test(await texto(p, "#compramos-zaragoza")) && /Etiqueta gratis/.test(await texto(p, "#compramos-espana")) && /te lo devolvemos gratis/.test(await texto(p, "#compramos-espana")), `CMP (${nombre}): «Cómo funciona» en Zaragoza y desde el resto de España`);
+    ok(/Cuarte de Huerva/.test(await texto(p, "#compramos-zaragoza")) && /Te lo tasamos en menos de 30 minutos/.test(await texto(p, "#compramos-zaragoza")) && /en menos de 1 hora y media/.test(await texto(p, "#compramos-zaragoza")) && /completa cada apartado obligatorio/.test(await texto(p, "#compramos-zaragoza")) && /Comprobamos que todo esté como indicaste en el formulario/.test(await texto(p, "#compramos-zaragoza")) && /Etiqueta gratis/.test(await texto(p, "#compramos-espana")) && /te lo devolvemos gratis/.test(await texto(p, "#compramos-espana")), `CMP (${nombre}): «Cómo funciona» en Zaragoza y desde el resto de España`);
     // La pregunta la hace el cliente: «mi consola», nunca «tu consola» (revisión de textos, 2026-11-24).
     const faq = await texto(p, "#compramos-preguntas");
     ok(/¿Cuánto me dais por mi consola\?/.test(faq) && !/por tu consola/.test(faq) && /Bizum o en efectivo/.test(faq) && /¿Dónde vender mi consola en Zaragoza\? Aquí: te la compramos/.test(faq) && /¿Puedo vender mi consola online desde otra ciudad\?/.test(faq), `CMP (${nombre}): las preguntas frecuentes, con «¿Dónde vender mi consola en Zaragoza?» y «online desde otra ciudad»`);
