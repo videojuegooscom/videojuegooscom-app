@@ -263,6 +263,37 @@ type ConversacionGuardada = {
   updated_at: string;
 };
 
+// Botones de una respuesta de Blue guardados con el mensaje (columna blue_ia_mensajes.botones, dueño 2026-11-26): solo
+// los artículos (id, nombre, precio, si es parecido), las acciones de la tienda y la referencia del pedido. Al volver a
+// abrir la conversación se leen con las mismas comprobaciones que al llegar de la API, y los artículos se comprueban
+// contra el catálogo (los vendidos o retirados no salen).
+type BotonesGuardados = { productChips?: ProductChip[]; accionChips?: AccionChip[]; refPedido?: string };
+function botonesParaGuardar(b: BotonesGuardados): BotonesGuardados | null {
+  const salida: BotonesGuardados = {};
+  if (b.productChips?.length)
+    salida.productChips = b.productChips.slice(0, 6).map((c) => ({ id: c.id, title: c.title.slice(0, 120), price: c.price, ...(c.similar ? { similar: true } : {}) }));
+  if (b.accionChips?.length) salida.accionChips = b.accionChips.slice(0, 3);
+  if (b.refPedido) salida.refPedido = b.refPedido;
+  return Object.keys(salida).length ? salida : null;
+}
+function leerBotonesGuardados(v: unknown): BotonesGuardados {
+  if (!v || typeof v !== "object") return {};
+  const o = v as Record<string, unknown>;
+  const productChips = Array.isArray(o.productChips)
+    ? o.productChips
+        .filter((c: any) => c && typeof c.id === "string" && /^[0-9a-f-]{36}$/i.test(c.id) && typeof c.title === "string")
+        .slice(0, 6)
+        .map((c: any) => ({ id: c.id, title: String(c.title).slice(0, 120), price: Number(c.price ?? 0), similar: c.similar === true }))
+    : undefined;
+  const refPedido = typeof o.refPedido === "string" && /^VZ-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(o.refPedido) ? o.refPedido : undefined;
+  return { productChips: productChips?.length ? productChips : undefined, accionChips: leerAccionChips(o.accionChips), refPedido };
+}
+// La columna «botones» aún no existe (migración sin aplicar): se sigue guardando y leyendo solo el texto.
+function sinColumnaBotones(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return error.code === "42703" || error.code === "PGRST204" || /botones/i.test(error.message ?? "");
+}
+
 // La migración del historial aún no aplicada: se sigue sin guardar y sin avisar.
 function tablaNoExiste(error: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
@@ -634,6 +665,8 @@ export default function BlueIAScreen() {
   const [usarContextoUrl, setUsarContextoUrl] = useState(true);
   const conversacionIdRef = useRef<string | null>(null);
   const historialDisponibleRef = useRef(true);
+  // ¿Existe ya la columna «botones» de los mensajes? (se descubre al usarla).
+  const columnaBotonesRef = useRef(true);
   // Cola de guardado: cada vuelta se guarda en orden, y cambiar de conversación espera a que acabe.
   const guardadoRef = useRef<Promise<void>>(Promise.resolve());
   const ultimaCargadaRef = useRef(false);
@@ -662,20 +695,36 @@ export default function BlueIAScreen() {
 
   // Pasa los mensajes guardados al formato de la pantalla.
   const cargarMensajes = useCallback(async (conv: ConversacionGuardada) => {
-    const { data, error } = await supabase
-      .from("blue_ia_mensajes")
-      .select("id,rol,texto")
-      .eq("conversacion_id", conv.id)
-      .order("created_at", { ascending: true });
+    const pedir = (columnas: string) =>
+      supabase.from("blue_ia_mensajes").select(columnas).eq("conversacion_id", conv.id).order("created_at", { ascending: true });
+    let { data, error } = await pedir(columnaBotonesRef.current ? "id,rol,texto,botones" : "id,rol,texto");
+    // Sin la columna «botones» (migración aún sin aplicar): solo el texto, como siempre.
+    if (error && columnaBotonesRef.current && sinColumnaBotones(error)) {
+      columnaBotonesRef.current = false;
+      ({ data, error } = await pedir("id,rol,texto"));
+    }
     if (error) {
       if (tablaNoExiste(error)) historialDisponibleRef.current = false;
       else console.warn("Blue IA: no se han podido cargar los mensajes", error);
       return null;
     }
-    const filas = (data ?? []) as { id: string; rol: "user" | "assistant"; texto: string }[];
+    const filas = (data ?? []) as unknown as { id: string; rol: "user" | "assistant"; texto: string; botones?: unknown }[];
+    const guardados = new Map(filas.map((f) => [f.id, f.rol === "assistant" ? leerBotonesGuardados(f.botones) : {}]));
+    // Los artículos se comprueban contra el catálogo: solo los que siguen a la venta, con su nombre y precio de ahora.
+    const ids = [...new Set([...guardados.values()].flatMap((b) => (b.productChips ?? []).map((c) => c.id)))];
+    const vigentes = new Map<string, { title: string; price: number }>();
+    if (ids.length) {
+      const { data: prods } = await supabase.from("products").select("id,title,price_eur").in("id", ids).eq("status", "PUBLISHED").eq("is_active", true);
+      for (const p of (prods ?? []) as { id: string; title: string; price_eur: number }[]) vigentes.set(p.id, { title: p.title, price: Number(p.price_eur ?? 0) });
+    }
     let primeraUser = true;
     return filas.map<BlueIAMessage>((f) => {
       const m: BlueIAMessage = { id: f.id, role: f.rol, text: f.texto };
+      const b = guardados.get(f.id) ?? {};
+      const productChips = (b.productChips ?? []).filter((c) => vigentes.has(c.id)).map((c) => ({ ...c, ...vigentes.get(c.id)! }));
+      if (productChips.length) m.productChips = productChips;
+      if (b.accionChips) m.accionChips = b.accionChips;
+      if (b.refPedido) m.refPedido = b.refPedido;
       // La primera pregunta vuelve a llevar el contexto delante para la API.
       if (f.rol === "user" && primeraUser) {
         primeraUser = false;
@@ -739,7 +788,7 @@ export default function BlueIAScreen() {
 
   // Guarda una vuelta (pregunta + respuesta); crea la conversación si es la primera.
   const guardarVuelta = useCallback(
-    (pregunta: string, respuesta: string, contextoTexto: string | null) => {
+    (pregunta: string, respuesta: string, contextoTexto: string | null, botones: BotonesGuardados | null = null) => {
       if (!userId || !historialDisponibleRef.current) return;
       guardadoRef.current = guardadoRef.current.then(async () => {
         if (!historialDisponibleRef.current) return;
@@ -768,9 +817,14 @@ export default function BlueIAScreen() {
             ["user", pregunta],
             ["assistant", respuesta],
           ] as const) {
-            const { error } = await supabase
-              .from("blue_ia_mensajes")
-              .insert({ conversacion_id, rol, texto: texto.slice(0, 4000) });
+            const fila = { conversacion_id, rol, texto: texto.slice(0, 4000) };
+            const conBotones = rol === "assistant" && botones && columnaBotonesRef.current;
+            let { error } = await supabase.from("blue_ia_mensajes").insert(conBotones ? { ...fila, botones } : fila);
+            // Sin la columna (migración aún sin aplicar): se guarda el texto como siempre.
+            if (error && conBotones && sinColumnaBotones(error)) {
+              columnaBotonesRef.current = false;
+              ({ error } = await supabase.from("blue_ia_mensajes").insert(fila));
+            }
             if (error) {
               if (tablaNoExiste(error)) historialDisponibleRef.current = false;
               else console.warn("Blue IA: no se ha podido guardar el mensaje", error);
@@ -1087,7 +1141,9 @@ export default function BlueIAScreen() {
           clean,
           String(data.reply),
           // Solo se usa al crear la conversación.
-          contextoActivo ? `Preguntas por: ${contextoActivo.visible}` : null
+          contextoActivo ? `Preguntas por: ${contextoActivo.visible}` : null,
+          // Sus botones, para que sigan al volver a la conversación (dueño, 2026-11-26).
+          botonesParaGuardar({ productChips, accionChips, refPedido })
         );
       } catch (e: any) {
         console.error("Error consultando a Blue IA:", e);
