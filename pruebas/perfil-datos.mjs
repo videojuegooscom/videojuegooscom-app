@@ -4444,7 +4444,7 @@ async function seccionRE() {
       const filas = new Set(casillas.map((r) => Math.round(r.top))).size;
       return caja ? { n: casillas.length, filas, alto: Math.min(...casillas.map((r) => r.height)), dentro: caja.top >= 0 && caja.bottom <= window.innerHeight, ancho: document.documentElement.scrollWidth <= window.innerWidth + 1 } : null;
     });
-    ok(!!rejilla && rejilla.n === 10 && rejilla.filas === 5 && rejilla.alto >= 44 && rejilla.ancho, `RE: el pie despliega «Navegación» en rejilla de dos columnas (10 enlaces, 5 filas, 44 px o más) (${JSON.stringify(rejilla)})`);
+    ok(!!rejilla && rejilla.n === 11 && rejilla.filas === 6 && rejilla.alto >= 44 && rejilla.ancho, `RE: el pie despliega «Navegación» en rejilla de dos columnas (11 enlaces con «Servicios», 6 filas, 44 px o más) (${JSON.stringify(rejilla)})`);
     await capturar(q, "RE-pie-navegacion");
     await q.getByText("Políticas", { exact: true }).click();
     await q.waitForTimeout(900);
@@ -10294,7 +10294,11 @@ async function seccionNW() {
         fuenteTarget: fuente?.getAttribute("target") ?? "",
         fuenteRel: fuente?.getAttribute("rel") ?? "",
         foto: decodeURIComponent(raiz?.querySelector("img")?.getAttribute("src") ?? ""),
-        enlaces: [...(raiz?.querySelectorAll("#noticia-enlaces a") ?? [])].map((a) => a.getAttribute("href")),
+        // Desde el 2026-11-26 los enlaces a Noticias, Catálogo y Servicios están en el pie de página (enlaces de verdad).
+        enlaces: ["#pie-noticias", "#pie-catalogo", "#pie-servicios"].map((s) => {
+          const e = document.querySelector(s);
+          return e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "";
+        }),
       };
     });
     ok(datos.h1 === NOTICIAS[0].titulo, `NW: la noticia tiene su título como h1 («${datos.h1}»)`);
@@ -10312,15 +10316,15 @@ async function seccionNW() {
     ok(/nw1\.jpg/.test(datos.foto), `NW: la foto principal es la comprobada (${datos.foto.slice(-12)})`);
     ok(
       datos.enlaces.includes("/noticias") && datos.enlaces.includes("/catalogo") && datos.enlaces.includes("/servicios"),
-      `NW: enlaces de verdad a Más noticias, Catálogo y Servicios (${datos.enlaces.join(", ")})`
+      `NW: enlaces de verdad a Noticias, Catálogo y Servicios, ahora en el pie de página (${datos.enlaces.join(", ")})`
     );
-    // Los enlaces con forma de píldora (44 px, fondo azul claro, icono y texto en fila): <Link asChild> no pierde el estilo.
-    const pildora = await p.evaluate(() => {
-      const e = document.querySelector("#noticia-mas");
-      const r = e?.getBoundingClientRect();
-      return e ? { fondo: getComputedStyle(e).backgroundColor, fila: getComputedStyle(e).flexDirection, alto: Math.round(r.height) } : null;
-    });
-    ok(!!pildora && pildora.fondo === "rgb(234, 246, 253)" && pildora.fila === "row" && pildora.alto >= 44, `NW: los enlaces del final son píldoras de la tienda (${JSON.stringify(pildora)})`);
+    // Final de la noticia (dueño, 2026-11-26): sin las píldoras de antes; «Compra con confianza» y el pie de página.
+    const final = await p.evaluate(() => ({
+      pildoras: !!document.querySelector("#noticia-enlaces, #noticia-mas"),
+      confianza: ["Garantía", "Envíos en España", "Productos revisados", "Pago rápido"].every((t) => (document.getElementById("noticia-confianza")?.innerText ?? "").includes(t)),
+      pie: !!document.getElementById("pie-nav"),
+    }));
+    ok(!final.pildoras && final.confianza && final.pie, `NW: al final, «Compra con confianza» y el pie de página en vez de las píldoras (${JSON.stringify(final)})`);
     const c = await cabecera(p);
     ok(c.titulo === TITULO && c.ogTitulo === TITULO, `NW: su <title> y og:title («${c.titulo}»)`);
     ok(c.canonical === `https://videojuegoszaragoza.com/noticias/${N1}`, `NW: su dirección oficial (canonical ${c.canonical})`);
@@ -10335,7 +10339,7 @@ async function seccionNW() {
     ok(ev?.step_label === "Noticias: página vista · Consolas", `NW: la visita se cuenta por categoría (${ev?.step_label ?? "nada"})`);
     ok(!(estado.eventosEnviados ?? []).some((e) => e.event_name === "noticia_buscador"), "NW: sin venir de un buscador no se cuenta como llegada desde Google");
     await capturar(p, "NW1-pagina-noticia");
-    await p.locator("#noticia-enlaces").scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator("#noticia-confianza").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, "NW1b-pagina-noticia-final");
     ok(p.errores.length === 0, `NW: la página de la noticia sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     const tapado = await p.evaluate(() => {

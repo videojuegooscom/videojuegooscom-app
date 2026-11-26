@@ -412,7 +412,8 @@ export default function PieDePagina({
             <FooterAccordionSection id="pie-nav" title="Navegación" icon="compass-outline" open={abierto === "nav"} onToggle={() => alternar("nav")}>
               <FooterLink label="Inicio" icon="home-outline" onPress={() => pushRoute("/" as Href)} />
               <FooterLink label="Categorías" icon="grid-outline" onPress={handlePressCategorias} />
-              <FooterLink label="Catálogo" icon="pricetags-outline" onPress={() => pushRoute("/catalogo" as Href)} />
+              <FooterLink label="Catálogo" icon="pricetags-outline" nativeID="pie-catalogo" href={"/catalogo" as Href} />
+              <FooterLink label="Servicios" icon="construct-outline" nativeID="pie-servicios" href={"/servicios" as Href} />
               <FooterLink label="Cesta" icon="bag-handle-outline" onPress={() => pushRoute("/cesta" as Href)} />
               <FooterLink label="Finalizar compra" icon="card-outline" onPress={() => pushRoute("/checkout" as Href)} />
               <FooterLink label="Perfil" icon="person-outline" onPress={() => pushRoute("/perfil" as Href)} />

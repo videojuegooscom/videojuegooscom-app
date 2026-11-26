@@ -48,6 +48,7 @@ import ImagenInteligente from "../../components/ImagenInteligente";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import CabeceraMarca from "../../components/CabeceraMarca";
+import PieDePagina, { FilaConfianza, VentanaInformacion, type DatoConfianza } from "../../components/PieDePagina";
 import { ponerEnlaceCabecera, ponerEtiquetaMeta } from "../../components/EtiquetasCabeceraWeb";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import { faltaColumna } from "../servicio/[id]";
@@ -296,6 +297,7 @@ export default function NoticiaScreen() {
   const isMobile = ancho < 700;
   const pagePadding = isMobile ? 16 : 24;
   const progresoScroll = useProgresoDesplazamiento();
+  const [infoConfianza, setInfoConfianza] = useState<DatoConfianza | null>(null);
 
   const params = useLocalSearchParams<{ id?: string }>();
   const id = typeof params.id === "string" ? params.id : "";
@@ -509,16 +511,23 @@ export default function NoticiaScreen() {
               <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Comentar en el Foro</Text>
             </Pressable>
 
-            <View nativeID="noticia-enlaces" style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
-              <EnlacePildora id="noticia-mas" href="/noticias" texto="Más noticias" icono="newspaper-outline" />
-              <EnlacePildora id="noticia-catalogo" href="/catalogo" texto="Catálogo" icono="grid-outline" />
-              <EnlacePildora id="noticia-servicios" href="/servicios" texto="Servicios" icono="construct-outline" />
+            {/* En vez de «Más noticias», «Catálogo» y «Servicios» (dueño, 2026-11-26): «Compra con confianza» y el pie de
+                página completo, como en Inicio (los tres enlaces siguen en el pie, como enlaces de verdad). */}
+            <View nativeID="noticia-confianza" style={{ alignItems: "center", gap: 10, marginTop: 12 }}>
+              <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontWeight: "900", fontSize: 19, textAlign: "center" }}>
+                Compra con confianza
+              </Text>
+              <FilaConfianza isMobile={isMobile} onPressItem={setInfoConfianza} />
             </View>
+          </View>
+          <View style={{ width: "100%", marginTop: 28 }}>
+            <PieDePagina sidePadding={pagePadding} contentMaxWidth={760} />
           </View>
         </ScrollView>
       )}
       {/* Barra fina de progreso a la izquierda (páginas largas, 2026-11-25). Solo sale si la noticia es larga. */}
       {progresoScroll.barra}
+      <VentanaInformacion item={infoConfianza} onClose={() => setInfoConfianza(null)} onCambiar={setInfoConfianza} />
     </View>
   );
 }
