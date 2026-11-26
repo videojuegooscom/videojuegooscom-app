@@ -1714,6 +1714,10 @@ export default function AdminAnalytics() {
       blueArticuloSimilar: findExact("Blue IA: artículo tocado · similar"),
       // Pastilla «¿Cuál es el horario de atención?» (2026-11-26): sustituye al horario fijo junto al recuadro.
       bluePastillaHorario: findExact("Blue IA: pastilla del horario"),
+      // Historial de Blue IA (2026-11-26): archivar, recuperar desde «Archivadas» y «Deshacer».
+      blueArchivadas: findExact("Blue IA: conversación archivada"),
+      blueRecuperadas: findExact("Blue IA: conversación recuperada · archivadas"),
+      blueDeshechas: findExact("Blue IA: conversación recuperada · deshacer"),
       // «Quiénes somos» (app/quienes-somos.tsx): quién la ve y cuántos llegan desde Inicio o desde entrar/crear cuenta.
       quienesVista: findExact("Quiénes somos: vista"),
       quienesInicio: findExact("Quiénes somos: desde Inicio"),
@@ -2410,6 +2414,24 @@ export default function AdminAnalytics() {
                       Blue IA → respuestas del modelo avanzado: {coreFunnel.blueModeloAvanzado} · de gpt-4o-mini:{" "}
                       {coreFunnel.blueModeloBase} (sesiones) · artículos tocados: el nombrado {coreFunnel.blueArticuloNombrado} ·
                       «opciones similares» {coreFunnel.blueArticuloSimilar} · pastilla del horario {coreFunnel.bluePastillaHorario}
+                    </Text>
+                  </View>
+                  {/* Historial de Blue IA (2026-11-26): archivar, «Archivadas» → «Recuperar» y «Deshacer». */}
+                  <View
+                    nativeID="analitica-blue-archivadas"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="archive-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Blue IA → conversaciones archivadas: {coreFunnel.blueArchivadas} · recuperadas desde «Archivadas»:{" "}
+                      {coreFunnel.blueRecuperadas} · con «Deshacer»: {coreFunnel.blueDeshechas} (sesiones)
                     </Text>
                   </View>
                   <View
