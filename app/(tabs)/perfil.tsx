@@ -488,9 +488,10 @@ function AuthPill({
   }
 
   const flex = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.9] });
+  // Elegida: azul suave (desde el 2026-11-26 el botón azul fuerte de enviar va abajo, debajo de «Contraseña»).
   const backgroundColor = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#F8FBFE", COLORS.accent],
+    outputRange: ["#F8FBFE", "#EAF6FD"],
   });
   const borderColor = anim.interpolate({
     inputRange: [0, 1],
@@ -498,7 +499,7 @@ function AuthPill({
   });
   const textColor = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: [COLORS.text, "#FFFFFF"],
+    outputRange: [COLORS.text, COLORES_TEXTO.azulTexto],
   });
   const fontSize = anim.interpolate({ inputRange: [0, 1], outputRange: [13.5, 15] });
 
@@ -525,7 +526,7 @@ function AuthPill({
             }}
           >
             {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <ActivityIndicator color={COLORS.accent} />
             ) : (
               <Animated.Text
                 style={{ color: textColor, fontWeight: "900", fontSize }}
@@ -540,6 +541,46 @@ function AuthPill({
         </Animated.View>
       </Pressable>
     </Animated.View>
+  );
+}
+
+// Botón de envío al final del formulario, justo debajo de «Contraseña» (dueño, 2026-11-26: «si no, el usuario tiene
+// que subir para darle a "Crear cuenta"»): a lo ancho, 52 px, azul de marca. Sin los datos completos se ve más suave y
+// no envía (las pestañas de arriba siguen cambiando de modo y, pulsadas otra vez, también envían).
+function BotonEnviarAcceso({
+  nativeID,
+  texto,
+  activo,
+  cargando,
+  onPress,
+}: {
+  nativeID: string;
+  texto: string;
+  activo: boolean;
+  cargando: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      disabled={cargando}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !activo || cargando, busy: cargando }}
+      style={({ pressed }) => ({
+        minHeight: 52,
+        borderRadius: 14,
+        backgroundColor: COLORS.accent,
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "row",
+        gap: 8,
+        marginTop: 4,
+        opacity: !activo ? 0.55 : pressed ? 0.88 : 1,
+      })}
+    >
+      {cargando ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>{texto}</Text>}
+    </Pressable>
   );
 }
 
@@ -1283,18 +1324,12 @@ export default function PerfilScreen() {
                       {sessionRole === "guest" ? "Inicia sesión o regístrate" : "Tu cuenta está activa"}
                     </Text>
 
-                    <Text
-                      style={{
-                        color: COLORS.muted,
-                        lineHeight: 22,
-                        maxWidth: 460,
-                        textAlign: "center",
-                      }}
-                    >
-                      {sessionRole === "guest"
-                        ? "Accede con tu email y contraseña, o crea una cuenta nueva en un minuto."
-                        : "Has iniciado sesión correctamente."}
-                    </Text>
+                    {/* Sin sesión, sin subtítulo (dueño, 2026-11-26: «Accede con tu email y contraseña…» sobraba). */}
+                    {sessionRole === "guest" ? null : (
+                      <Text style={{ color: COLORS.muted, lineHeight: 22, maxWidth: 460, textAlign: "center" }}>
+                        Has iniciado sesión correctamente.
+                      </Text>
+                    )}
                     {/* La ventaja de tener cuenta (dueño, 2026-11-11): los avisos de Blue de bajadas y novedades. */}
                     {sessionRole === "guest" ? (
                       // Centrado, como el resto de la cabecera (dueño, 2026-11-26): la campana encima y el texto debajo,
@@ -1394,6 +1429,17 @@ export default function PerfilScreen() {
                               }}
                             />
                           </View>
+
+                          <BotonEnviarAcceso
+                            nativeID="acceso-enviar-signin"
+                            texto="Iniciar sesión"
+                            activo={canSubmitLogin}
+                            cargando={isSubmitting}
+                            onPress={() => {
+                              clearMessages();
+                              if (canSubmitLogin) signIn();
+                            }}
+                          />
 
                           <Pressable
                             onPress={sendPasswordReset}
@@ -1514,6 +1560,18 @@ export default function PerfilScreen() {
                               </Text>
                             ) : null}
                           </View>
+
+                          <BotonEnviarAcceso
+                            nativeID="acceso-enviar-signup"
+                            texto="Crear cuenta"
+                            activo={canSubmitRegister}
+                            cargando={isSubmitting}
+                            onPress={() => {
+                              clearMessages();
+                              if (canSubmitRegister) signUp();
+                              else medirContrasenaCorta();
+                            }}
+                          />
                         </View>
                       </RevealPanel>
                     ) : null}

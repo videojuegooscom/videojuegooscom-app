@@ -9091,9 +9091,17 @@ async function seccionC8() {
     await capturar(p, "C8a-crear-cuenta-7");
     await clave.fill("clave123");
     ok((await p.locator("#registro-contrasena-aviso").count()) === 0, "C8: con 8, el aviso se va");
-    await clave.press("Enter");
+    // «Crear cuenta» también justo debajo de la contraseña, a lo ancho (dueño, 2026-11-26), y sin el subtítulo de antes.
+    const abajo = await p.evaluate(() => {
+      const b = document.getElementById("acceso-enviar-signup")?.getBoundingClientRect();
+      const c = document.getElementById("registro-contrasena")?.getBoundingClientRect();
+      return b && c ? { debajo: b.top >= c.bottom && b.top - c.bottom < 60, alto: Math.round(b.height), ancho: b.width >= c.width - 2 } : null;
+    });
+    ok(!!abajo && abajo.debajo && abajo.alto >= 48 && abajo.ancho && !/Accede con tu email y contraseña/.test(await p.evaluate(() => document.body.innerText)), `C8: «Crear cuenta» va justo debajo de la contraseña, a lo ancho, y sin «Accede con tu email…» (${JSON.stringify(abajo)})`);
+    await capturar(p, "C8a-crear-cuenta-boton-abajo");
+    await p.locator("#acceso-enviar-signup").click();
     await esperar(p, () => (estado.altas ?? []).length > 0);
-    ok((estado.altas ?? []).length === 1, "C8: y la cuenta se crea");
+    ok((estado.altas ?? []).length === 1, "C8: y la cuenta se crea con el botón de abajo");
     ok(p.errores.length === 0, `C8: crear cuenta sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
@@ -9165,9 +9173,16 @@ async function seccionC8() {
     await p.getByPlaceholder("Tu contraseña").waitFor({ timeout: 30000 }).catch(() => {});
     await p.getByPlaceholder("tu@email.com").first().fill(CLIENTE.email);
     await p.getByPlaceholder("Tu contraseña").fill("abc123");
-    await p.getByPlaceholder("Tu contraseña").press("Enter");
+    // «Iniciar sesión» justo debajo de la contraseña (dueño, 2026-11-26).
+    const abajo = await p.evaluate(() => {
+      const b = document.getElementById("acceso-enviar-signin")?.getBoundingClientRect();
+      const c = document.querySelector('input[placeholder="Tu contraseña"]')?.getBoundingClientRect();
+      return b && c ? { debajo: b.top >= c.bottom && b.top - c.bottom < 60, alto: Math.round(b.height) } : null;
+    });
+    ok(!!abajo && abajo.debajo && abajo.alto >= 48, `C8: «Iniciar sesión» va justo debajo de la contraseña (${JSON.stringify(abajo)})`);
+    await p.locator("#acceso-enviar-signin").click();
     await esperar(p, () => (estado.entradas ?? []).length > 0);
-    ok((estado.entradas ?? [])[0]?.ok === true, `C8: entrar con una contraseña antigua de 6 sigue funcionando (${JSON.stringify(estado.entradas ?? [])})`);
+    ok((estado.entradas ?? [])[0]?.ok === true, `C8: entrar con una contraseña antigua de 6 sigue funcionando, con el botón de abajo (${JSON.stringify(estado.entradas ?? [])})`);
     await ctx.close();
   }
 
