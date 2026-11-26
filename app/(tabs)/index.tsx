@@ -2139,7 +2139,7 @@ export default function PantallaInicio() {
         hidden={headerHidden}
       />
 
-      <VentanaInformacion item={infoPop} onClose={() => setInfoPop(null)} />
+      <VentanaInformacion item={infoPop} onClose={() => setInfoPop(null)} onCambiar={setInfoPop} />
     </View>
   );
 }

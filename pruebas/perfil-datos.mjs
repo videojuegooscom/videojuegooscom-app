@@ -3626,8 +3626,23 @@ async function seccionY() {
     await p.getByText("Pago rápido").first().click();
     await p.waitForTimeout(400);
     ok(/te la tasamos en menos de 30 minutos y te pagamos al momento/.test(await p.evaluate(() => document.body.innerText)), "Y: «Pago rápido» explica las condiciones de compra de ahora");
-    await p.keyboard.press("Escape");
+    // Hoja de abajo para el pulgar (dueño, 2026-11-26): «‹», «Entendido» y «›» abajo, de 48 px, y se pasa de un aviso a otro.
+    const hoja = await p.evaluate(() => {
+      const r = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const [a, c, s] = ["confianza-anterior", "confianza-cerrar", "confianza-siguiente"].map(r);
+      return a && c && s ? { abajo: Math.min(a.top, c.top, s.top) > window.innerHeight * 0.6, alto: Math.min(a.height, c.height, s.height), derecha: s.left > c.left && c.left > a.left } : null;
+    });
+    ok(!!hoja && hoja.abajo && hoja.alto >= 44 && hoja.derecha, `Y: el detalle sale abajo con «‹», «Entendido» y «›» al alcance del pulgar (${JSON.stringify(hoja)})`);
+    await p.locator("#confianza-siguiente").click();
     await p.waitForTimeout(300);
+    const trasSiguiente = await p.evaluate(() => document.getElementById("confianza-ventana")?.innerText ?? "");
+    await p.locator("#confianza-anterior").click();
+    await p.waitForTimeout(300);
+    const trasAnterior = await p.evaluate(() => document.getElementById("confianza-ventana")?.innerText ?? "");
+    ok(/Garantía/.test(trasSiguiente) && /Pago rápido/.test(trasAnterior), "Y: «›» pasa al siguiente aviso (del último, al primero) y «‹» vuelve");
+    await p.locator("#confianza-cerrar").click();
+    await p.waitForTimeout(400);
+    ok(!(await p.locator("#confianza-ventana").count()), "Y: «Entendido» la cierra");
     await p.locator("#catalogo-final-categoria-playstation-4").click();
     await p.waitForTimeout(1200);
     const evFin = (cliente.eventosEnviados ?? []).filter((e) => e.event_name === "catalogo_final");

@@ -627,7 +627,14 @@ function FinalCategoria({
           }}
         />
       </AparecerAlVer>
-      <VentanaInformacion item={infoConfianza} onClose={() => setInfoConfianza(null)} />
+      <VentanaInformacion
+        item={infoConfianza}
+        onClose={() => setInfoConfianza(null)}
+        onCambiar={(d) => {
+          medir("confianza", d.title);
+          setInfoConfianza(d);
+        }}
+      />
     </View>
   );
 }

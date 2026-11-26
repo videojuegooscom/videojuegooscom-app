@@ -46,7 +46,8 @@ import { Ionicons } from "@expo/vector-icons";
 import type { Href } from "expo-router";
 import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Easing, Modal, Pressable, Text, View } from "react-native";
+import { Animated, Easing, Modal, PanResponder, Platform, Pressable, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 import EnlacesRedesSociales from "./EnlacesRedesSociales";
 import MarcaAnimada from "./marca/MarcaAnimada";
@@ -116,24 +117,100 @@ export function FilaConfianza({ isMobile, onPressItem }: { isMobile?: boolean; o
   );
 }
 
-export function VentanaInformacion({ item, onClose }: { item: DatoConfianza | null; onClose: () => void }) {
+/**
+ * El detalle de un aviso de «Compra con confianza», como hoja que sube desde abajo (dueño, 2026-11-26: «que se pueda
+ * usar perfectamente con el dedo gordo de la mano derecha»): abajo, «‹» anterior, «Entendido» y «›» siguiente (48 px
+ * de alto); también se pasa deslizando a izquierda o derecha, con las flechas del teclado, y se cierra tocando fuera o
+ * con Escape. `onCambiar` recibe el aviso al que se pasa.
+ */
+export function VentanaInformacion({ item, onClose, onCambiar }: { item: DatoConfianza | null; onClose: () => void; onCambiar?: (item: DatoConfianza) => void }) {
+  const insets = useSafeAreaInsets();
+  const i = item ? DATOS_CONFIANZA.findIndex((d) => d.title === item.title) : -1;
+  const total = DATOS_CONFIANZA.length;
+  const ir = (paso: number) => {
+    if (i < 0) return;
+    const siguiente = DATOS_CONFIANZA[(i + paso + total) % total];
+    if (onCambiar) onCambiar(siguiente);
+  };
+  const irRef = useRef(ir);
+  irRef.current = ir;
+  const arrastre = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 14 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+      onPanResponderRelease: (_e, g) => {
+        if (g.dx <= -50) irRef.current(1);
+        else if (g.dx >= 50) irRef.current(-1);
+      },
+    })
+  ).current;
+  useEffect(() => {
+    if (!item || Platform.OS !== "web" || typeof window === "undefined") return;
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight") irRef.current(1);
+      else if (e.key === "ArrowLeft") irRef.current(-1);
+    };
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, [item]);
+
+  const flecha = (paso: number, nombre: string, icono: "chevron-back" | "chevron-forward") => (
+    <Pressable
+      nativeID={`confianza-${paso < 0 ? "anterior" : "siguiente"}`}
+      onPress={() => ir(paso)}
+      accessibilityRole="button"
+      accessibilityLabel={nombre}
+      style={({ pressed }) => ({ width: 56, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF6FD", opacity: pressed ? 0.75 : 1 })}
+    >
+      <Ionicons name={icono} size={24} color={COLORES_TEXTO.azulTexto} />
+    </Pressable>
+  );
+
   return (
-    <Modal visible={!!item} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", padding: 20 }}
-        onPress={onClose}
-      >
+    <Modal visible={!!item} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable nativeID="confianza-fondo" style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end", alignItems: "center" }} onPress={onClose}>
         <Pressable
+          nativeID="confianza-ventana"
           onPress={() => {}}
-          style={{ width: "100%", maxWidth: 380, backgroundColor: "#FFFFFF", borderRadius: 20, padding: 20, gap: 12, alignItems: "center" }}
+          {...arrastre.panHandlers}
+          style={{
+            width: "100%",
+            maxWidth: 520,
+            backgroundColor: "#FFFFFF",
+            borderTopLeftRadius: 26,
+            borderTopRightRadius: 26,
+            paddingTop: 10,
+            paddingHorizontal: 20,
+            paddingBottom: 16 + Math.round(insets.bottom),
+            gap: 12,
+            alignItems: "center",
+          }}
         >
-          {/* Cerrar en la esquina (absoluto) para no descentrar icono y título. */}
-          <Pressable onPress={onClose} hitSlop={10} style={{ position: "absolute", top: 16, right: 16 }}>
-            <Ionicons name="close" size={20} color={COLORES_TEXTO.secundario} />
-          </Pressable>
-          {item ? <Ionicons name={item.icon} size={24} color={ACCENT_CONFIANZA} /> : null}
-          <Text style={{ color: "#0B2138", fontWeight: "900", fontSize: 16, textAlign: "center" }}>{item?.title ?? ""}</Text>
-          <Text style={{ color: COLORES_TEXTO.secundario, lineHeight: 20, textAlign: "center" }}>{item?.detail ?? ""}</Text>
+          {/* Asa de la hoja. */}
+          <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: "#D6E2EE" }} />
+          {item ? <Ionicons name={item.icon} size={28} color={ACCENT_CONFIANZA} /> : null}
+          <Text accessibilityRole="header" style={{ color: "#0B2138", fontWeight: "900", fontSize: 18, textAlign: "center" }}>
+            {item?.title ?? ""}
+          </Text>
+          <Text style={{ color: COLORES_TEXTO.secundario, fontSize: TAMANOS.cuerpo, lineHeight: 22, textAlign: "center", minHeight: 66 }}>{item?.detail ?? ""}</Text>
+          {/* Dónde estás: un punto por aviso. */}
+          <View nativeID="confianza-puntos" accessibilityLabel={`${i + 1} de ${total}`} style={{ flexDirection: "row", gap: 6 }}>
+            {DATOS_CONFIANZA.map((d, k) => (
+              <View key={d.title} style={{ width: k === i ? 18 : 7, height: 7, borderRadius: 4, backgroundColor: k === i ? ACCENT_CONFIANZA : "#D6E2EE" }} />
+            ))}
+          </View>
+          {/* Abajo, al alcance del pulgar: anterior, «Entendido» (cierra) y siguiente. */}
+          <View style={{ width: "100%", flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 }}>
+            {flecha(-1, "Aviso anterior", "chevron-back")}
+            <Pressable
+              nativeID="confianza-cerrar"
+              onPress={onClose}
+              accessibilityRole="button"
+              style={({ pressed }) => ({ flex: 1, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: ACCENT_CONFIANZA, opacity: pressed ? 0.85 : 1 })}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Entendido</Text>
+            </Pressable>
+            {flecha(1, "Aviso siguiente", "chevron-forward")}
+          </View>
         </Pressable>
       </Pressable>
     </Modal>
