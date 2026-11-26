@@ -101,7 +101,7 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     modelos: [
       { nombre: "PlayStation 5 y PS5 Pro", articulo: "PlayStation 5", texto: "Con lector o digital, Slim y Pro. Mejor precio con su mando DualSense, sus cables y su caja." },
       { nombre: "PlayStation 4 y PS4 Pro", articulo: "PlayStation 4", texto: "Modelos normal, Slim y Pro, también con años de uso o con algún fallo." },
-      { nombre: "Nintendo Switch", articulo: "Nintendo Switch", texto: "Switch, Switch OLED, Switch Lite y Switch 2, con sus Joy-Con y su base." },
+      { nombre: "Nintendo Switch", articulo: "Nintendo Switch", texto: "Switch, Switch OLED y Switch 2, con sus Joy-Con y su base." },
       { nombre: "Xbox Series y Xbox One", articulo: "Xbox", texto: "Xbox Series X, Xbox Series S y Xbox One, con su mando." },
       { nombre: "Mandos y accesorios", articulo: "Mando", texto: "DualSense, Joy-Con, mandos Pro, volantes y auriculares para consola." },
     ],

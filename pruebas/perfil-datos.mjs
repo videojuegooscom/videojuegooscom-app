@@ -18071,7 +18071,7 @@ async function seccionCMP() {
     const sellos = await texto(p, "#compramos-sellos");
     ok(/Precio en menos de 1 hora/.test(sellos) && /menos de 2 horas/.test(sellos) && /Envío gratis/.test(sellos) && /Bizum o efectivo/.test(sellos), `CMP (${nombre}): los 4 sellos («${sellos}»)`);
     // Consolas retro no se compran (dueño, 2026-11-25): ni en los modelos ni en el lema.
-    ok(/PlayStation 5 y PS5 Pro/.test(await texto(p, "#compramos-modelos")) && /Mandos y accesorios/.test(await texto(p, "#compramos-modelos")) && !/retro/i.test(await p.evaluate(() => document.body.innerText)), `CMP (${nombre}): los modelos que compramos, sin consolas retro`);
+    ok(/PlayStation 5 y PS5 Pro/.test(await texto(p, "#compramos-modelos")) && /Mandos y accesorios/.test(await texto(p, "#compramos-modelos")) && !/retro|Switch Lite/i.test(await p.evaluate(() => document.body.innerText)), `CMP (${nombre}): los modelos que compramos, sin consolas retro ni Switch Lite`);
     // Todo centrado (dueño, 2026-11-25), como «Quiénes somos».
     const centrado = await p.evaluate(() => {
       const al = (el) => (el ? getComputedStyle(el).textAlign : "");
