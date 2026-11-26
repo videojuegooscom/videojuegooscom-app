@@ -193,7 +193,7 @@ type ServiceMediaRow = {
   sort_order: number | null;
 };
 
-type Service = {
+export type Service = {
   id: string;
   title: string;
   description: string;
@@ -201,7 +201,8 @@ type Service = {
   imageUrl: string | null;
 };
 
-async function loadServices(): Promise<Service[]> {
+/** Los servicios publicados con su foto de portada. También los usa el final de cada categoría (app/catalogo.tsx). */
+export async function loadServices(): Promise<Service[]> {
   const { data: rows, error } = await supabase
     .from("services")
     .select("id,title,description,price_eur")

@@ -46,10 +46,100 @@ import { Ionicons } from "@expo/vector-icons";
 import type { Href } from "expo-router";
 import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Easing, Pressable, Text, View } from "react-native";
+import { Animated, Easing, Modal, Pressable, Text, View } from "react-native";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 import EnlacesRedesSociales from "./EnlacesRedesSociales";
 import MarcaAnimada from "./marca/MarcaAnimada";
 import { VentanaMejoras } from "./VentanaValoracion";
+
+// --- «Compra con confianza» (antes solo en app/(tabs)/index.tsx; desde el 2026-11-26 también al final de cada categoría
+// del catálogo, app/catalogo.tsx). Información sencilla (icono + texto, sin fondo ni borde); al tocar un aviso se abre
+// VentanaInformacion con el detalle. Textos con las condiciones reales de la tienda.
+export type DatoConfianza = { icon: React.ComponentProps<typeof Ionicons>["name"]; title: string; detail: string };
+
+export const DATOS_CONFIANZA: DatoConfianza[] = [
+  {
+    icon: "checkmark-circle-outline",
+    title: "Garantía",
+    detail: "Todo lo que vendemos incluye garantía de tienda: si algo falla, te lo solucionamos sin líos.",
+  },
+  {
+    icon: "cube-outline",
+    title: "Envíos en España",
+    detail:
+      "Enviamos a toda España bien protegido y con seguimiento: sale en 1-2 días y llega en 72 horas como máximo. En Zaragoza te lo llevamos el mismo día, a domicilio o en mano en Cuarte de Huerva.",
+  },
+  {
+    icon: "shield-checkmark-outline",
+    title: "Productos revisados",
+    detail: "Cada producto pasa una revisión de funcionamiento antes de ponerse a la venta.",
+  },
+  {
+    icon: "flash-outline",
+    title: "Pago rápido",
+    // Condiciones de compra del 2026-11-26 (las de las páginas «Compramos»).
+    detail: "Si nos vendes tu consola o electrónica, te la tasamos en menos de 30 minutos y te pagamos al momento.",
+  },
+];
+
+export function FilaConfianza({ isMobile, onPressItem }: { isMobile?: boolean; onPressItem: (item: DatoConfianza) => void }) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        flexWrap: "wrap",
+        justifyContent: "center",
+        columnGap: isMobile ? 12 : 28,
+        rowGap: TACTIL.separacion,
+      }}
+    >
+      {DATOS_CONFIANZA.map((item) => (
+        <Pressable
+          key={item.title}
+          onPress={() => onPressItem(item)}
+          accessibilityRole="button"
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.65 : 1,
+            flexDirection: "row",
+            alignItems: "center",
+            // 44 px de alto para el dedo y 8 px de separación entre avisos.
+            minHeight: TACTIL.minimo,
+            paddingHorizontal: 4,
+            gap: 8,
+          })}
+        >
+          <Ionicons name={item.icon} size={19} color={ACCENT_CONFIANZA} />
+          <Text style={{ color: COLORES_TEXTO.secundario, fontWeight: "700", fontSize: TAMANOS.cuerpo }}>{item.title}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+export function VentanaInformacion({ item, onClose }: { item: DatoConfianza | null; onClose: () => void }) {
+  return (
+    <Modal visible={!!item} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", padding: 20 }}
+        onPress={onClose}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{ width: "100%", maxWidth: 380, backgroundColor: "#FFFFFF", borderRadius: 20, padding: 20, gap: 12, alignItems: "center" }}
+        >
+          {/* Cerrar en la esquina (absoluto) para no descentrar icono y título. */}
+          <Pressable onPress={onClose} hitSlop={10} style={{ position: "absolute", top: 16, right: 16 }}>
+            <Ionicons name="close" size={20} color={COLORES_TEXTO.secundario} />
+          </Pressable>
+          {item ? <Ionicons name={item.icon} size={24} color={ACCENT_CONFIANZA} /> : null}
+          <Text style={{ color: "#0B2138", fontWeight: "900", fontSize: 16, textAlign: "center" }}>{item?.title ?? ""}</Text>
+          <Text style={{ color: COLORES_TEXTO.secundario, lineHeight: 20, textAlign: "center" }}>{item?.detail ?? ""}</Text>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+const ACCENT_CONFIANZA = "#1EA7E8";
 
 // Paleta del pie: fondo blanco, textos en azul marino y acento azul.
 const FOOTER_BG = "#FFFFFF";
