@@ -92,7 +92,6 @@ import {
   AccessibilityInfo,
   Animated,
   Easing,
-  Modal,
   Platform,
   Pressable,
   SafeAreaView,
@@ -119,7 +118,7 @@ import {
 } from "../../components/PortadasCategoria";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import Resenas from "../../components/Resenas";
-import PieDePagina from "../../components/PieDePagina";
+import PieDePagina, { FilaConfianza, VentanaInformacion, type DatoConfianza } from "../../components/PieDePagina";
 import { AparecerAlVer, useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import { RedJuntoAlLogo, ResenasCanales, useRedesJuntoAlLogo, useResenasCanales } from "../../components/EnlacesRedesSociales";
@@ -809,139 +808,8 @@ function Pill({
   );
 }
 
-// Antes "Garantía / Envíos en España / Productos revisados / Pago rápido"
-// eran píldoras con borde (parecían botones) justo debajo de la cabecera.
-// Ahora viven aquí, debajo de "Categorías", como información sencilla (solo
-// icono + texto, sin fondo ni borde) — y al tocarlas se abre un "Pop" con el
-// detalle (ver InfoPopModal más abajo).
-type DatoConfianza = { icon: IoniconName; title: string; detail: string };
-
-const DATOS_CONFIANZA: DatoConfianza[] = [
-  {
-    icon: "checkmark-circle-outline",
-    title: "Garantía",
-    detail: "Todo lo que vendemos incluye garantía de tienda: si algo falla, te lo solucionamos sin líos.",
-  },
-  {
-    icon: "cube-outline",
-    title: "Envíos en España",
-    detail:
-      "Enviamos a toda España bien protegido y con seguimiento: sale en 1-2 días y llega en 72 horas como máximo. En Zaragoza te lo llevamos el mismo día, a domicilio o en mano en Cuarte de Huerva.",
-  },
-  {
-    icon: "shield-checkmark-outline",
-    title: "Productos revisados",
-    detail: "Cada producto pasa una revisión de funcionamiento antes de ponerse a la venta.",
-  },
-  {
-    icon: "flash-outline",
-    title: "Pago rápido",
-    detail: "Si nos vendes tu consola o electrónica, la tasamos y te pagamos en menos de 24h.",
-  },
-];
-
-function FilaConfianza({
-  isMobile,
-  onPressItem,
-}: {
-  isMobile?: boolean;
-  onPressItem: (item: DatoConfianza) => void;
-}) {
-  return (
-    <View
-      style={{
-        flexDirection: "row",
-        flexWrap: "wrap",
-        justifyContent: "center",
-        columnGap: isMobile ? 12 : 28,
-        rowGap: TACTIL.separacion,
-      }}
-    >
-      {DATOS_CONFIANZA.map((item) => (
-        <Pressable
-          key={item.title}
-          onPress={() => onPressItem(item)}
-          accessibilityRole="button"
-          style={({ pressed }) => ({
-            opacity: pressed ? 0.65 : 1,
-            flexDirection: "row",
-            alignItems: "center",
-            // 44 px de alto para el dedo (antes 21) y 8 px de separación entre avisos.
-            minHeight: TACTIL.minimo,
-            paddingHorizontal: 4,
-            gap: 8,
-          })}
-        >
-          <Ionicons name={item.icon} size={19} color={COLORS.accentDark} />
-          <Text
-            style={{
-              color: COLORS.muted,
-              fontWeight: "700",
-              fontSize: TAMANOS.cuerpo,
-            }}
-          >
-            {item.title}
-          </Text>
-        </Pressable>
-      ))}
-    </View>
-  );
-}
-
-function VentanaInformacion({
-  item,
-  onClose,
-}: {
-  item: DatoConfianza | null;
-  onClose: () => void;
-}) {
-  return (
-    <Modal visible={!!item} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(0,0,0,0.55)",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 20,
-        }}
-        onPress={onClose}
-      >
-        <Pressable
-          onPress={() => {}}
-          style={{
-            width: "100%",
-            maxWidth: 380,
-            backgroundColor: COLORS.card,
-            borderRadius: 20,
-            padding: 20,
-            gap: 12,
-            alignItems: "center",
-          }}
-        >
-          {/* Cerrar en la esquina (absoluto) para no descentrar icono y título. */}
-          <Pressable
-            onPress={onClose}
-            hitSlop={10}
-            style={{ position: "absolute", top: 16, right: 16 }}
-          >
-            <Ionicons name="close" size={20} color={COLORS.muted} />
-          </Pressable>
-
-          {item ? <Ionicons name={item.icon} size={24} color={COLORS.accentDark} /> : null}
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-            {item?.title ?? ""}
-          </Text>
-
-          <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-            {item?.detail ?? ""}
-          </Text>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
+// «Compra con confianza» (FilaConfianza y VentanaInformacion) vive en components/PieDePagina.tsx desde el 2026-11-26:
+// también sale al final de cada categoría del catálogo.
 function PrimaryButton({
   title,
   subtitle,

@@ -716,6 +716,9 @@ export default function AdminAnalytics() {
     tramos: { tramo: string; n: number }[];
     // «Compartir» de una categoría (dueño, 2026-11-19): cuántas veces y de cuáles (solo el nombre de la categoría).
     compartidas: { total: number; porCategoria: { nombre: string; n: number }[] };
+    // Final de cada categoría (catalogo_final, 2026-11-26): toques en servicios, en otras categorías y en los avisos de
+    // «Compra con confianza» (solo el nombre del servicio o de la categoría).
+    finalCategoria: { servicios: number; categorias: number; confianza: number; porServicio: { nombre: string; n: number }[] };
   } | null>(null);
   useEffect(() => {
     let vivo = true;
@@ -724,7 +727,7 @@ export default function AdminAnalytics() {
       const { data, error } = await supabase
         .from("analytics_events")
         .select("event_name, metadata")
-        .in("event_name", ["busqueda", "busqueda_sin_resultados", "busqueda_sugerencia_tocada", "catalogo_filtro", "categoria_compartida"])
+        .in("event_name", ["busqueda", "busqueda_sin_resultados", "busqueda_sugerencia_tocada", "catalogo_filtro", "categoria_compartida", "catalogo_final"])
         .gte("created_at", desde)
         .order("created_at", { ascending: false })
         .limit(5000);
@@ -790,6 +793,18 @@ export default function AdminAnalytics() {
             total: lista.length,
             porCategoria: contar(lista, (f) => (typeof f.metadata?.nombre === "string" ? f.metadata.nombre : String(f.metadata?.cat ?? "")))
               .slice(0, 5)
+              .map(([k, v]) => ({ nombre: k, n: v.n })),
+          };
+        })(),
+        finalCategoria: (() => {
+          const lista = filas.filter((f) => f.event_name === "catalogo_final");
+          const deBloque = (b: string) => lista.filter((f) => f.metadata?.bloque === b);
+          return {
+            servicios: deBloque("servicio").length,
+            categorias: deBloque("categoria").length,
+            confianza: deBloque("confianza").length,
+            porServicio: contar(deBloque("servicio"), (f) => (typeof f.metadata?.nombre === "string" ? f.metadata.nombre : ""))
+              .slice(0, 3)
               .map(([k, v]) => ({ nombre: k, n: v.n })),
           };
         })(),
@@ -2473,6 +2488,17 @@ export default function AdminAnalytics() {
                       {busquedas.compartidas.porCategoria.length
                         ? ` (${busquedas.compartidas.porCategoria.map((c) => `${c.nombre} ×${c.n}`).join(" · ")})`
                         : ""}
+                    </Text>
+                  </View>
+                  {/* Final de cada categoría (dueño, 2026-11-26): qué se toca de los carruseles y de «Compra con confianza». */}
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Ionicons name="albums-outline" size={16} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-final-categoria" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Final de categoría: servicios tocados {busquedas.finalCategoria.servicios}
+                      {busquedas.finalCategoria.porServicio.length
+                        ? ` (${busquedas.finalCategoria.porServicio.map((c) => `${c.nombre} ×${c.n}`).join(" · ")})`
+                        : ""}{" "}
+                      · otras categorías {busquedas.finalCategoria.categorias} · «Compra con confianza» {busquedas.finalCategoria.confianza}
                     </Text>
                   </View>
                 </View>

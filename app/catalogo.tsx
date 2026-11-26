@@ -103,7 +103,10 @@ import { useRecarga } from "../components/TirarParaActualizar";
 // Directamente de DatosBlue: así Blue entero no viaja en el paquete de la tienda (carga más rápida, paso 2).
 import { crearAvisoBusqueda } from "../components/blue/DatosBlue";
 import { RejillaTarjetas, TarjetaProducto, useAlturaBarraComparar } from "../components/CarruselProductosCategoria";
-import { BotonVolverArriba } from "../components/DesplazamientoSuave";
+import { AparecerAlVer, BotonVolverArriba, useProgresoDesplazamiento } from "../components/DesplazamientoSuave";
+import PieDePagina, { FilaConfianza, VentanaInformacion, type DatoConfianza } from "../components/PieDePagina";
+import ImagenInteligente from "../components/ImagenInteligente";
+import { loadServices, type Service } from "./servicios";
 import { useEncimaBotonAtras } from "../components/BotonAtrasAlcance";
 import FiltrosCatalogo, {
   Chip,
@@ -490,6 +493,141 @@ function convertirFilasCatalogo(rows: ProductDbRow[], mediaMap: Map<string, Prod
   }));
 }
 
+const eur = (n: number) => `${n.toFixed(2).replace(".", ",")} €`;
+const normalizar = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+function TituloFinal({ texto, isMobile }: { texto: string; isMobile: boolean }) {
+  return (
+    <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 19 : 22, textAlign: "center" }}>
+      {texto}
+    </Text>
+  );
+}
+
+/**
+ * Final de cada categoría (dueño, 2026-11-26: «la categoría en formato carrusel con los servicios disponibles, los sellos
+ * de confianza y el pie de página»). En carrusel, los servicios publicados (primero los de la consola de la categoría:
+ * «Mantenimiento Playstation 5» en PlayStation 5) y las demás categorías con su portada; debajo, «Compra con confianza»
+ * (components/PieDePagina.tsx). Cada toque se apunta en la analítica propia (catalogo_final) y se ve en Administración →
+ * Analítica («Final de categoría»).
+ */
+function FinalCategoria({
+  isMobile,
+  categorias,
+  actual,
+  onElegirCategoria,
+}: {
+  isMobile: boolean;
+  categorias: CategoryRow[];
+  actual: CategoryRow | undefined;
+  onElegirCategoria: (c: CategoryRow) => void;
+}) {
+  const [servicios, setServicios] = useState<Service[]>([]);
+  const [infoConfianza, setInfoConfianza] = useState<DatoConfianza | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    loadServices()
+      .then((s) => vivo && setServicios(s))
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  const desde = actual?.slug ?? null;
+  const nombreActual = actual ? normalizar(actual.name) : "";
+  const propios = nombreActual ? servicios.filter((s) => normalizar(s.title).includes(nombreActual)) : [];
+  const ordenados = [...propios, ...servicios.filter((s) => !propios.includes(s))];
+  const otras = categorias.filter((c) => c.is_active && c.id !== actual?.id && !esCategoriaServicios(c.slug));
+  const anchoTarjeta = isMobile ? 200 : 240;
+  const medir = (bloque: string, nombre: string) =>
+    void medirEvento("catalogo_final", `Final de categoría: ${nombre}`, { path: "/catalogo", metadata: { bloque, nombre, desde } });
+
+  const tarjeta = (clave: string, nativeID: string, foto: string | null, icono: React.ComponentProps<typeof Ionicons>["name"], titulo: string, detalle: string | null, onPress: () => void) => (
+    <Pressable
+      key={clave}
+      nativeID={nativeID}
+      onPress={onPress}
+      accessibilityRole="link"
+      accessibilityLabel={detalle ? `${titulo}, ${detalle}` : titulo}
+      style={({ pressed }) => ({ width: anchoTarjeta, borderRadius: 18, backgroundColor: COLORS.card, padding: 8, gap: 8, opacity: pressed ? 0.85 : 1 })}
+    >
+      <View style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 14, overflow: "hidden", backgroundColor: COLORS.accent2, alignItems: "center", justifyContent: "center" }}>
+        {foto ? <ImagenInteligente uri={foto} ancho={anchoTarjeta} alt={titulo} style={{ width: "100%", height: "100%" }} /> : <Ionicons name={icono} size={34} color={COLORS.accent} />}
+      </View>
+      <View style={{ paddingHorizontal: 4, paddingBottom: 4, gap: 2, alignItems: "center" }}>
+        <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15, lineHeight: 20, textAlign: "center" }}>
+          {titulo}
+        </Text>
+        {detalle ? <Text style={{ color: colorTextoAzul(15), fontWeight: "900", fontSize: 15 }}>{detalle}</Text> : null}
+      </View>
+    </Pressable>
+  );
+  const carrusel = (nativeID: string, hijos: React.ReactNode) => (
+    <ScrollView
+      nativeID={nativeID}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      // El carrusel llega hasta el borde de la pantalla en el móvil (se ve que hay más) y se centra si cabe entero.
+      style={{ marginHorizontal: isMobile ? -12 : 0 }}
+      contentContainerStyle={{ gap: 12, paddingHorizontal: isMobile ? 12 : 0, flexGrow: 1, justifyContent: "center" }}
+    >
+      {hijos}
+    </ScrollView>
+  );
+
+  return (
+    <View nativeID="catalogo-final" style={{ width: "100%", gap: isMobile ? 28 : 36, paddingTop: 12 }}>
+      {ordenados.length ? (
+        <AparecerAlVer nativeID="catalogo-final-servicios" style={{ width: "100%", gap: 14 }}>
+          <TituloFinal texto={propios.length && actual ? `Servicios para tu ${actual.name}` : "Servicios disponibles"} isMobile={isMobile} />
+          {carrusel(
+            "catalogo-final-servicios-carrusel",
+            <>
+              {ordenados.slice(0, 8).map((s) =>
+                tarjeta(s.id, `catalogo-final-servicio-${s.id}`, s.imageUrl, "construct-outline", s.title, eur(s.priceEUR), () => {
+                  medir("servicio", s.title);
+                  router.push({ pathname: "/servicio/[id]", params: { id: s.id } } as never);
+                })
+              )}
+              {tarjeta("todos", "catalogo-final-servicios-todos", null, "arrow-forward-circle-outline", "Ver todos los servicios", null, () => {
+                medir("servicio", "Ver todos");
+                router.push("/servicios" as Href);
+              })}
+            </>
+          )}
+        </AparecerAlVer>
+      ) : null}
+
+      {otras.length ? (
+        <AparecerAlVer nativeID="catalogo-final-categorias" style={{ width: "100%", gap: 14 }}>
+          <TituloFinal texto={actual ? "Otras categorías" : "Categorías"} isMobile={isMobile} />
+          {carrusel(
+            "catalogo-final-categorias-carrusel",
+            otras.map((c) =>
+              tarjeta(c.id, `catalogo-final-categoria-${c.slug}`, portadasDe(c)[0] ?? null, "grid-outline", c.name, null, () => {
+                medir("categoria", c.name);
+                onElegirCategoria(c);
+              })
+            )
+          )}
+        </AparecerAlVer>
+      ) : null}
+
+      <AparecerAlVer nativeID="catalogo-final-confianza" style={{ width: "100%", gap: 10 }}>
+        <TituloFinal texto="Compra con confianza" isMobile={isMobile} />
+        <FilaConfianza
+          isMobile={isMobile}
+          onPressItem={(d) => {
+            medir("confianza", d.title);
+            setInfoConfianza(d);
+          }}
+        />
+      </AparecerAlVer>
+      <VentanaInformacion item={infoConfianza} onClose={() => setInfoConfianza(null)} />
+    </View>
+  );
+}
+
 export default function CatalogoScreen() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
@@ -598,6 +736,7 @@ export default function CatalogoScreen() {
   const [verArriba, setVerArriba] = useState(false);
   const verArribaRef = useRef(false);
   const encimaVolver = useEncimaBotonAtras(useAlturaBarraComparar());
+  const progresoScroll = useProgresoDesplazamiento();
   const reqSeqRef = useRef(0);
   const loadingMoreRef = useRef(false);
   const prevRawCatRef = useRef(rawCat);
@@ -1011,7 +1150,13 @@ export default function CatalogoScreen() {
         // del asistente flotante Blue (72 px en la esquina inferior). Con la barra de «Comparar», además su alto.
         contentContainerStyle={{ paddingBottom: 96 + alturaBarraComparar }}
         showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
+        onScroll={(e) => {
+          handleScroll(e);
+          progresoScroll.onScroll(e);
+        }}
+        // Barra de progreso lateral izquierda, como en Inicio y Compramos (dueño, 2026-11-26).
+        onLayout={progresoScroll.onLayout}
+        onContentSizeChange={progresoScroll.onContentSizeChange}
         scrollEventThrottle={16}
         // Buscador dentro de la lista: el primer toque ya funciona y al arrastrar se cierra el teclado.
         keyboardShouldPersistTaps="handled"
@@ -1425,10 +1570,31 @@ export default function CatalogoScreen() {
                   </Pressable>
                 </View>
               ) : null}
+
+              {/* Final de la categoría: servicios y otras categorías en carrusel y «Compra con confianza» (2026-11-26). */}
+              {!isAdmin && !hasMore ? (
+                <FinalCategoria
+                  isMobile={isMobile}
+                  categorias={categories}
+                  actual={selectedCategory}
+                  onElegirCategoria={(c) => {
+                    router.setParams({ cat: c.slug, categoria: undefined });
+                    listaRef.current?.scrollTo({ y: 0, animated: true });
+                  }}
+                />
+              ) : null}
             </View>
           </View>
         )}
+
+        {/* El pie de página completo, como en Inicio (dueño, 2026-11-26). */}
+        {!loading && !isAdmin && !hasMore ? (
+          <View style={{ paddingHorizontal: pagePadding, marginTop: 36 }}>
+            <PieDePagina sidePadding={pagePadding} contentMaxWidth={1240} />
+          </View>
+        ) : null}
       </ScrollView>
+      {progresoScroll.barra}
       <BotonVolverArriba
         nativeID="catalogo-volver-arriba"
         visible={verArriba}

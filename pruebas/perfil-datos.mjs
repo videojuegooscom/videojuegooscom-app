@@ -3544,6 +3544,11 @@ async function seccionY() {
         { price_eur: 240, condition: "GOOD" },
         { price_eur: 580, condition: "LIKE_NEW" },
       ],
+      // Servicios publicados para el final de la categoría (2026-11-26).
+      serviciosAdmin: [
+        { id: "5e000000-0000-4000-8000-0000000000a1", title: "Sustitución de joysticks", description: "", price_eur: 24.97, status: "PUBLISHED", is_active: true },
+        { id: "5e000000-0000-4000-8000-0000000000a2", title: "Mantenimiento Playstation 5", description: "", price_eur: 45, status: "PUBLISHED", is_active: true },
+      ],
     };
     const ctx = await contexto(navegador, CLIENTE, "user", cliente);
     const p = await pagina(ctx, "/catalogo?cat=playstation-5");
@@ -3579,6 +3584,44 @@ async function seccionY() {
       return b && h ? { lado: b.left >= h.right - 2 && b.left - h.right < 20, altura: Math.abs(b.top + b.height / 2 - (h.top + h.height / 2)) <= 6, texto: t, tam: Math.round(b.width), centro: Math.abs(h.left + h.width / 2 - window.innerWidth / 2) <= 8 } : null;
     });
     ok(!!cmp && cmp.lado && cmp.altura && cmp.texto === "" && cmp.tam >= 44 && cmp.centro, `Y: «Compartir» es solo el icono, al lado del título y a su altura, con el título centrado (${JSON.stringify(cmp)})`);
+    // Final de la categoría (dueño, 2026-11-26): servicios y otras categorías en carrusel, «Compra con confianza», el pie
+    // de página y la barra de progreso lateral.
+    await p.locator("#catalogo-final-servicios").waitFor({ state: "attached", timeout: 20000 }).catch(() => {});
+    const fin = await p.evaluate(() => {
+      const txt = (id) => document.getElementById(id)?.innerText ?? "";
+      const serv = Array.from(document.querySelectorAll('[id^="catalogo-final-servicio-"]')).map((n) => n.id);
+      const cats = Array.from(document.querySelectorAll('[id^="catalogo-final-categoria-"]')).map((n) => n.id.replace("catalogo-final-categoria-", ""));
+      return {
+        tituloServ: txt("catalogo-final-servicios"),
+        primero: serv[0] ?? "",
+        nServ: serv.length,
+        todos: !!document.getElementById("catalogo-final-servicios-todos"),
+        cats,
+        confianza: txt("catalogo-final-confianza"),
+        pie: /Navegación/.test(document.body.innerText) && /Políticas/.test(document.body.innerText),
+        barra: !!document.getElementById("barra-progreso"),
+        ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+      };
+    });
+    ok(/Servicios para tu PlayStation 5/.test(fin.tituloServ) && /Mantenimiento Playstation 5/.test(fin.tituloServ) && /45,00 €/.test(fin.tituloServ) && fin.primero.endsWith("a2") && fin.nServ === 2 && fin.todos, `Y: al final, «Servicios para tu PlayStation 5» en carrusel, primero el de PS5 y «Ver todos» (${JSON.stringify({ primero: fin.primero, n: fin.nServ })})`);
+    ok(fin.cats.includes("playstation-4") && !fin.cats.includes("playstation-5") && !fin.cats.includes("reparaciones"), `Y: y «Otras categorías» en carrusel, sin la actual ni «Reparación / Limpieza» (${fin.cats.join(", ")})`);
+    ok(["Garantía", "Envíos en España", "Productos revisados", "Pago rápido"].every((t) => fin.confianza.includes(t)), `Y: «Compra con confianza» con sus 4 avisos («${fin.confianza.replace(/\s+/g, " ")}»)`);
+    ok(fin.pie && fin.barra && fin.ancho <= 391, `Y: el pie de página completo y la barra de progreso, sin ensanchar la página (${JSON.stringify({ pie: fin.pie, barra: fin.barra, ancho: fin.ancho })})`);
+    await p.locator("#catalogo-final-confianza").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(400);
+    await capturar(p, "Y4-final-categoria");
+    await p.getByText("Pago rápido").first().click();
+    await p.waitForTimeout(400);
+    ok(/te la tasamos en menos de 30 minutos y te pagamos al momento/.test(await p.evaluate(() => document.body.innerText)), "Y: «Pago rápido» explica las condiciones de compra de ahora");
+    await p.keyboard.press("Escape");
+    await p.waitForTimeout(300);
+    await p.locator("#catalogo-final-categoria-playstation-4").click();
+    await p.waitForTimeout(1200);
+    const evFin = (cliente.eventosEnviados ?? []).filter((e) => e.event_name === "catalogo_final");
+    ok(/cat=playstation-4/.test(p.url()) && evFin.some((e) => e.metadata?.bloque === "categoria" && e.metadata?.desde === "playstation-5") && evFin.some((e) => e.metadata?.bloque === "confianza"), `Y: tocar otra categoría la abre y se mide en la analítica (${p.url()} · ${evFin.map((e) => e.metadata?.bloque).join(",")})`);
+    await p.goto(BASE + "/catalogo?cat=playstation-5", { waitUntil: "load" });
+    await p.locator("#catalogo-filtros").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
     await capturar(p, "Y4-categoria-buscador-filtros");
     await p.locator("#catalogo-filtros").click();
     await p.getByText("Ordenar por", { exact: true }).first().waitFor({ timeout: 15000 }).catch(() => {});
