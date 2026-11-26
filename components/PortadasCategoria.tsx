@@ -269,9 +269,9 @@ export function PortadaRecuadro({
 /**
  * Una foto entera en su caja sin recortar nada (dueño, 2026-11-07: «que se vean perfectamente»): delante, la foto nítida
  * con su forma (contain); detrás, la misma foto pequeña, desenfocada y llenando la caja, para que no queden franjas. La de
- * detrás se pide pequeña (ancho 96): casi no pesa.
+ * detrás se pide pequeña (ancho 96): casi no pesa. También la usa el mosaico de fotos de app/compramos/[tipo].tsx.
  */
-function FotoEntera({ uri, ancho, alt, prioridad, style }: { uri: string; ancho: number; alt: string; prioridad?: "high" | "normal" | "low"; style: StyleProp<ViewStyle> }) {
+export function FotoEntera({ uri, ancho, alt, prioridad, style }: { uri: string; ancho: number; alt: string; prioridad?: "high" | "normal" | "low"; style: StyleProp<ViewStyle> }) {
   return (
     <View style={[{ overflow: "hidden" }, style]} {...({ dataSet: { portadaEntera: "1" } } as object)}>
       <View
