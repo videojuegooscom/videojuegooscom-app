@@ -4370,6 +4370,46 @@ async function seccionRE() {
     ok(q.errores.length === 0, `RE: sin sesión, sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
     await c.close();
   }
+
+  // Cierre de Inicio antes del pie (dueño, 2026-11-26): recuadro azul suave centrado con «Vender ahora» y «Ver catálogo»,
+  // medido en la analítica; a 390 y 1280.
+  for (const [nombre, vista] of [["390", undefined], ["1280", { viewport: { width: 1280, height: 900 } }]]) {
+    const est = { filas: perfil, guardados: [], aceptaAnalitica: true, resenas: [], productosVacios: true };
+    const c = await contexto(navegador, CLIENTE, "user", est, vista);
+    const q = await pagina(c, "/");
+    await q.locator("#inicio-cierre").waitFor({ state: "attached", timeout: 30000 }).catch(() => {});
+    await q.locator("#inicio-cierre").scrollIntoViewIfNeeded().catch(() => {});
+    await q.waitForTimeout(500);
+    const m = await q.evaluate(() => {
+      const caja = document.getElementById("inicio-cierre")?.getBoundingClientRect();
+      const v = document.getElementById("inicio-cierre-vender")?.getBoundingClientRect();
+      const k = document.getElementById("inicio-cierre-catalogo")?.getBoundingClientRect();
+      const t = document.getElementById("inicio-cierre")?.innerText ?? "";
+      return caja && v && k ? { texto: /¿Tienes una consola o un móvil que ya no usas\?/.test(t) && /Te lo tasamos en menos de 30 minutos y te pagamos al momento\./.test(t), alto: Math.min(v.height, k.height), centro: Math.abs(caja.left + caja.width / 2 - window.innerWidth / 2) <= 8, ancho: document.documentElement.scrollWidth <= window.innerWidth + 1 } : null;
+    });
+    ok(!!m && m.texto && m.alto >= 48 && m.centro && m.ancho, `RE (${nombre}): Inicio cierra con «¿Tienes una consola o un móvil…?», «Vender ahora» y «Ver catálogo», centrado (${JSON.stringify(m)})`);
+    await capturar(q, `RE-cierre-inicio-${nombre}`);
+    if (nombre === "390") {
+      await q.locator("#inicio-cierre-vender").click();
+      await q.waitForURL(/\/vender/, { timeout: 10000 }).catch(() => {});
+      for (let i = 0; i < 20 && !(est.eventosEnviados ?? []).some((e) => e.event_name === "inicio_cierre"); i++) await q.waitForTimeout(300);
+      const ev = (est.eventosEnviados ?? []).find((e) => e.event_name === "inicio_cierre");
+      ok(/\/vender/.test(q.url()) && ev?.step_label === "Cierre de Inicio: Vender ahora" && ev?.metadata?.boton === "vender", `RE: «Vender ahora» del cierre lleva a Vender y se mide (${JSON.stringify(ev?.metadata ?? null)})`);
+    }
+    ok(q.errores.length === 0, `RE (${nombre}): cierre de Inicio sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
+    await c.close();
+  }
+
+  // Administración → Analítica: la línea «Cierre de Inicio».
+  {
+    const admin = { filas: [], guardados: [], embudo: [{ step_label: "Inicio", sessions: 10 }, { step_label: "Cierre de Inicio: Vender ahora", sessions: 3 }, { step_label: "Cierre de Inicio: Ver catálogo", sessions: 2 }] };
+    const c = await contexto(navegador, ADMIN, "admin", admin);
+    const q = await pagina(c, "/admin/analytics");
+    await q.locator("#analitica-inicio-cierre").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await q.locator("#analitica-inicio-cierre").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/«Vender ahora»: 3 · «Ver catálogo»: 2 sesiones/.test(t), `RE: Analítica cuenta el cierre de Inicio (${t})`);
+    await c.close();
+  }
 }
 
 // ===== Z) Cesta: «Blue, ayúdame a elegir un artículo» lleva a Blue IA con la pregunta ya enviada (y se cuenta) ========

@@ -2094,6 +2094,63 @@ export default function PantallaInicio() {
               </Text>
             </Pressable>
           </AparecerAlVer>
+
+          {/* Cierre de Inicio (dueño, 2026-11-26): antes del pie, a quien ya lo ha leído todo, vender o seguir mirando.
+              Se mide en Administración → Analítica («Cierre de Inicio»). */}
+          <AparecerAlVer nativeID="inicio-cierre" style={{ width: "100%", alignItems: "center" }}>
+            <View
+              style={{
+                width: "100%",
+                maxWidth: 640,
+                alignItems: "center",
+                gap: 10,
+                borderRadius: 22,
+                backgroundColor: "#EAF6FD",
+                paddingVertical: isMobile ? 22 : 26,
+                paddingHorizontal: isMobile ? 18 : 26,
+              }}
+            >
+              <Ionicons name="cash-outline" size={26} color={COLORS.accent} />
+              <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, lineHeight: isMobile ? 26 : 29, fontWeight: "900", textAlign: "center" }}>
+                ¿Tienes una consola o un móvil que ya no usas?
+              </Text>
+              <Text style={{ color: COLORS.muted, fontSize: TAMANOS.cuerpo, lineHeight: 22, textAlign: "center", maxWidth: 460 }}>
+                Te lo tasamos en menos de 30 minutos y te pagamos al momento.
+              </Text>
+              <View style={{ width: "100%", flexDirection: isMobile ? "column" : "row", justifyContent: "center", gap: 10, marginTop: 6 }}>
+                {(
+                  [
+                    { id: "inicio-cierre-vender", texto: "Vender ahora", boton: "vender", ruta: "/vender", fuerte: true },
+                    { id: "inicio-cierre-catalogo", texto: "Ver catálogo", boton: "catalogo", ruta: "/catalogo", fuerte: false },
+                  ] as const
+                ).map((b) => (
+                  <Pressable
+                    key={b.id}
+                    nativeID={b.id}
+                    onPress={() => {
+                      void medirEvento("inicio_cierre", `Cierre de Inicio: ${b.texto}`, { path: "/", metadata: { boton: b.boton } });
+                      pushRoute(b.ruta as Href);
+                    }}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({
+                      minHeight: 48,
+                      minWidth: isMobile ? undefined : 200,
+                      borderRadius: 999,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      paddingHorizontal: 22,
+                      backgroundColor: b.fuerte ? COLORS.accent : "#FFFFFF",
+                      borderWidth: b.fuerte ? 0 : 1,
+                      borderColor: "#BEE6FA",
+                      opacity: pressed ? 0.88 : 1,
+                    })}
+                  >
+                    <Text style={{ color: b.fuerte ? "#FFFFFF" : COLORES_TEXTO.azulTexto, fontWeight: "900", fontSize: 16 }}>{b.texto}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          </AparecerAlVer>
         </View>
 
         <PieDePagina
