@@ -31,6 +31,7 @@ import { Ionicons } from "@expo/vector-icons";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import PieDePagina from "../../components/PieDePagina";
 import ImagenInteligente from "../../components/ImagenInteligente";
+import { FotoEntera } from "../../components/PortadasCategoria";
 import { AparecerAlVer, useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
 import CarruselProductosCategoria, { productosDeCategorias, type ProductoEstante } from "../../components/CarruselProductosCategoria";
 import { supabase } from "../../lib/supabase";
@@ -586,7 +587,13 @@ export default function CompramosScreen() {
       <View style={{ width: "100%", aspectRatio: isMobile ? 4 / 3 : 1, borderRadius: 24, overflow: "hidden", backgroundColor: C.tile, flexDirection: "row", flexWrap: "wrap" }}>
         {fotos.map((f, i) => (
           <View key={f} style={{ width: fotos.length === 1 ? "100%" : "50%", height: fotos.length <= 2 ? "100%" : "50%", padding: fotos.length === 1 ? 0 : 3 }}>
-            <ImagenInteligente uri={f} ancho={isMobile ? 360 : 480} priority={i === 0 ? "high" : "normal"} alt={`${p.corto} que compramos en Zaragoza`} style={{ width: "100%", height: "100%", borderRadius: fotos.length === 1 ? 0 : 18 }} />
+            {fotos.length === 1 ? (
+              <ImagenInteligente uri={f} ancho={isMobile ? 360 : 480} priority="high" alt={`${p.corto} que compramos en Zaragoza`} style={{ width: "100%", height: "100%" }} />
+            ) : (
+              // En el mosaico, cada foto entera (dueño, 2026-11-26: «que se vea el producto y su nombre»): sin recortar,
+              // con la misma foto desenfocada detrás, como las portadas «enteras» de Inicio.
+              <FotoEntera uri={f} ancho={isMobile ? 360 : 480} prioridad={i === 0 ? "high" : "normal"} alt={`${p.corto} que compramos en Zaragoza`} style={{ width: "100%", height: "100%", borderRadius: 18 }} />
+            )}
           </View>
         ))}
       </View>
