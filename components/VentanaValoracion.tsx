@@ -366,6 +366,7 @@ export default function VentanaValoracion({
 
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const insetsResena = useSafeAreaInsets();
 
   useEffect(() => {
     if (!visible) return;
@@ -463,34 +464,31 @@ export default function VentanaValoracion({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(0,0,0,0.60)",
-          padding: 16,
-          justifyContent: "center",
-        }}
-      >
-        <ScrollView
-          contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
-          keyboardShouldPersistTaps="handled"
-        >
+      {/* Hoja que sube desde abajo, como «Mejoras en la tienda» (dueño, 2026-11-26: «profesional y práctico»): botones
+          abajo, al alcance del pulgar; tocar fuera la cierra. */}
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.60)", justifyContent: "flex-end" }}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end" }} keyboardShouldPersistTaps="handled">
+          <Pressable nativeID="resena-fondo" onPress={handleClose} accessibilityLabel="Cerrar" style={{ flexGrow: 1, minHeight: 40 }} />
           <Animated.View
+            nativeID="resena-ventana"
             style={{
               width: "100%",
-              maxWidth: 460,
+              maxWidth: 520,
               alignSelf: "center",
               opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
+              transform: [{ translateY: scaleAnim.interpolate({ inputRange: [0.9, 1], outputRange: [40, 0] }) }],
             }}
           >
             <View
               style={{
-                borderRadius: 24,
+                borderTopLeftRadius: 26,
+                borderTopRightRadius: 26,
                 borderWidth: 1,
+                borderBottomWidth: 0,
                 borderColor: COLORS.border,
                 backgroundColor: COLORS.bg2,
                 padding: 20,
+                paddingBottom: 20 + Math.round(insetsResena.bottom),
                 gap: 14,
                 ...softShadow(),
               }}
@@ -499,24 +497,21 @@ export default function VentanaValoracion({
                 onPress={handleClose}
                 containerStyle={{
                   position: "absolute",
-                  top: 14,
-                  right: 14,
+                  top: 10,
+                  right: 10,
                   zIndex: 2,
-                  width: 32,
-                  height: 32,
+                  width: 44,
+                  height: 44,
                 }}
                 style={({ pressed }: { pressed: boolean }) => ({
                   flex: 1,
                   opacity: pressed ? 0.8 : 1,
-                  borderRadius: 16,
+                  borderRadius: 22,
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: COLORS.card,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
                 })}
               >
-                <Ionicons name="close" size={18} color={COLORS.text} />
+                <Ionicons name="close" size={22} color={COLORS.text} />
               </AnimatedPressable>
 
               {phase === "checking" ? (
@@ -524,73 +519,52 @@ export default function VentanaValoracion({
                   <Text style={{ color: COLORS.muted }}>Comprobando tu sesión…</Text>
                 </View>
               ) : phase === "auth-required" ? (
-                <View style={{ alignItems: "center", paddingTop: 6, gap: 12 }}>
-                  <View
-                    style={{
-                      alignSelf: "center",
-                      paddingVertical: 6,
-                      paddingHorizontal: 10,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: COLORS.warnBorder,
-                      backgroundColor: COLORS.warnBg,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                      ACCESO NECESARIO
-                    </Text>
+                // Sin la etiqueta amarilla «ACCESO NECESARIO» (parecía un aviso de error; dueño, 2026-11-26): una estrella,
+                // el título y, abajo y a lo ancho, «Iniciar sesión», «Crear cuenta gratis» y «Ahora no».
+                <View nativeID="resena-sin-sesion" style={{ alignItems: "stretch", paddingTop: 6, gap: 12 }}>
+                  <View style={{ alignSelf: "center", width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF6FD" }}>
+                    <Ionicons name="star" size={26} color="#F5A524" />
                   </View>
-
-                  <Text
-                    style={{
-                      color: COLORS.text,
-                      fontSize: 20,
-                      fontWeight: "900",
-                      textAlign: "center",
-                    }}
-                  >
-                    Inicia sesión para dejar una reseña
+                  <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center", paddingHorizontal: 30 }}>
+                    Inicia sesión para dejar tu reseña
                   </Text>
-
                   <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 21 }}>
-                    Así podemos firmarla a tu nombre y evitar reseñas falsas. Puedes iniciar sesión
-                    o crear tu cuenta en un momento.
+                    Así la firmamos con tu nombre y evitamos reseñas falsas.
                   </Text>
-
-                  <View
-                    style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 4 }}
-                  >
-                    <AnimatedPressable
+                  {(
+                    [
+                      { id: "resena-entrar", texto: "Iniciar sesión", ruta: "/perfil?acceso=entrar", fuerte: true },
+                      { id: "resena-registro", texto: "Crear cuenta gratis", ruta: "/perfil?acceso=registro", fuerte: false },
+                    ] as const
+                  ).map((b) => (
+                    <Pressable
+                      key={b.id}
+                      nativeID={b.id}
                       onPress={() => {
                         handleClose();
-                        pushRoute("/perfil" as Href);
+                        pushRoute(b.ruta as Href);
                       }}
-                      style={({ pressed }: { pressed: boolean }) => ({
-                        opacity: pressed ? 0.9 : 1,
+                      accessibilityRole="button"
+                      style={({ pressed }) => ({
+                        minHeight: 48,
                         borderRadius: 999,
-                        paddingVertical: 12,
-                        paddingHorizontal: 20,
-                        backgroundColor: COLORS.accent,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: b.fuerte ? COLORS.accent : "#EAF6FD",
+                        opacity: pressed ? 0.88 : 1,
                       })}
                     >
-                      <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Iniciar sesión</Text>
-                    </AnimatedPressable>
-
-                    <AnimatedPressable
-                      onPress={handleClose}
-                      style={({ pressed }: { pressed: boolean }) => ({
-                        opacity: pressed ? 0.9 : 1,
-                        borderRadius: 999,
-                        paddingVertical: 12,
-                        paddingHorizontal: 20,
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                        backgroundColor: COLORS.card,
-                      })}
-                    >
-                      <Text style={{ color: COLORS.text, fontWeight: "900" }}>Ahora no</Text>
-                    </AnimatedPressable>
-                  </View>
+                      <Text style={{ color: b.fuerte ? "#FFFFFF" : colorTextoAzul(15), fontWeight: "900", fontSize: 15 }}>{b.texto}</Text>
+                    </Pressable>
+                  ))}
+                  <Pressable
+                    nativeID="resena-ahora-no"
+                    onPress={handleClose}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({ minHeight: 44, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+                  >
+                    <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 15 }}>Ahora no</Text>
+                  </Pressable>
                 </View>
               ) : phase === "success" ? (
                 <View style={{ alignItems: "center", gap: 12, paddingVertical: 10 }}>

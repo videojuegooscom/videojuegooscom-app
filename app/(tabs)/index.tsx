@@ -175,14 +175,15 @@ const PREGUNTAS_INICIO: { pregunta: string; respuesta: string }[] = [
       "Cada ficha indica el estado del artículo y, en su descripción, lo que incluye y su garantía. Si te queda alguna duda, pregúntale a Blue IA o escríbenos desde el chat de la tienda.",
   },
   {
+    // Condiciones de compra del 2026-11-26 (las de las páginas «Compramos»).
     pregunta: "¿Puedo vender o cambiar mi consola?",
     respuesta:
-      "Sí. Toca «Vender ahora», cuéntanos qué tienes y cómo está, y nuestro equipo te da un precio. También puedes entregarla como parte de pago de otra compra.",
+      "Sí. Toca «Vender ahora» y rellena el formulario: te la tasamos en menos de 30 minutos, las 24 horas. En Zaragoza la recogemos en tu dirección en menos de 1 hora (en los alrededores, en menos de 1 hora y media) y, desde el resto de España, te enviamos una etiqueta gratis. Al comprobarla te pagamos al momento por Bizum o en efectivo, o la usas como parte de pago de otra compra.",
   },
   {
     pregunta: "¿Reparáis y limpiáis consolas?",
     respuesta:
-      "Sí. En Servicios tienes reparación, limpieza y mantenimiento, cada uno con su precio y su ficha para contratarlo.",
+      "Sí. En Servicios tienes reparación, limpieza y mantenimiento, cada uno con su precio y su ficha para contratarlo. Si no estás en Zaragoza, puedes enviárnosla desde la península (reparación por envío).",
   },
   {
     pregunta: "¿Puedo pagar a plazos?",
@@ -750,7 +751,8 @@ function PreguntaFrecuente({
           style={{
             flexShrink: 1,
             color: abierta ? COLORS.accent : COLORS.text,
-            fontWeight: "900",
+            // Más ligeras que el título del apartado, para que se distinga (2026-11-26).
+            fontWeight: "700",
             fontSize: 16,
             lineHeight: 22,
             textAlign: "center",
@@ -2053,7 +2055,22 @@ export default function PantallaInicio() {
               <MarcaAnimada cual="pareja" ancho={isMobile ? 280 : isWide ? 360 : 320} />
             </View>
 
-            <SectionTitle title="Preguntas frecuentes" isMobile={isMobile} />
+            {/* Que se vea que es el título del apartado (dueño, 2026-11-26): «AYUDA» encima, el título más grande que las
+                preguntas y una línea debajo. */}
+            <View nativeID="inicio-faq-titulo" style={{ alignItems: "center", gap: 6, marginBottom: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="help-circle-outline" size={18} color={COLORS.accent} />
+                <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "900", fontSize: TAMANOS.minimo, letterSpacing: 1, textTransform: "uppercase" }}>Ayuda</Text>
+              </View>
+              <Text
+                accessibilityRole="header"
+                {...({ "aria-level": 2 } as object)}
+                style={{ color: COLORS.text, fontSize: isMobile ? 26 : 30, lineHeight: isMobile ? 32 : 36, fontWeight: "900", textAlign: "center" }}
+              >
+                Preguntas frecuentes
+              </Text>
+              <Text style={{ color: COLORS.muted, fontSize: TAMANOS.cuerpo, textAlign: "center" }}>Lo que más nos preguntáis, resuelto.</Text>
+            </View>
 
             <View style={{ width: "100%", maxWidth: 640, alignSelf: "center", borderTopWidth: 1, borderTopColor: COLORS.border }}>
               {PREGUNTAS_INICIO.map((item, i) => (

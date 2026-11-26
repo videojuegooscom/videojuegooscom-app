@@ -116,7 +116,7 @@ function Stars({ rating, size = 15 }: { rating: number; size?: number }) {
 function AutorResena({ nombre, perfil, fecha }: { nombre: string; perfil?: PerfilForo; fecha: string }) {
   const visible = perfil?.usuario || nombre || "Cliente";
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
       <View
         style={{
           width: 26,
@@ -153,20 +153,22 @@ function ReviewCard({
   perfil?: PerfilForo;
 }) {
   return (
+    // Centrada, como el resto de la tienda (dueño, 2026-11-26): lo comprado (si hay) arriba, las estrellas, el texto y
+    // quién la escribe, todo al centro.
     <View
       style={{
         width: "100%",
-        flexDirection: "row",
+        alignItems: "center",
         borderRadius: 18,
         borderWidth: 1,
         borderColor: "rgba(11,33,56,0.10)",
         backgroundColor: "#F6FAFD",
-        padding: isMobile ? 12 : 14,
+        padding: isMobile ? 14 : 16,
         gap: isMobile ? 10 : 12,
       }}
     >
       {soldProduct ? (
-        <View style={{ width: isMobile ? 56 : 64, gap: 4 }}>
+        <View style={{ width: isMobile ? 120 : 140, gap: 4, alignItems: "center" }}>
           {soldProduct.image ? (
             <ImagenInteligente
               uri={soldProduct.image}
@@ -188,27 +190,29 @@ function ReviewCard({
               }}
             />
           )}
-          <Text numberOfLines={2} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700", lineHeight: 16 }}>
+          <Text numberOfLines={2} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700", lineHeight: 16, textAlign: "center" }}>
             {soldProduct.title}
           </Text>
           {soldProduct.condition ? (
-            <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
+            <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, textAlign: "center" }}>
               {CONDITION_LABEL[soldProduct.condition] ?? soldProduct.condition}
             </Text>
           ) : null}
         </View>
       ) : null}
 
-      <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
-        <Stars rating={review.rating} size={13} />
+      <View style={{ width: "100%", minWidth: 0, gap: 6, alignItems: "center" }}>
+        <Stars rating={review.rating} size={15} />
 
         {review.comment?.trim() ? (
           <Text
             style={{
               color: COLORS.text,
-              fontSize: isMobile ? 14 : 15,
-              lineHeight: isMobile ? 20 : 22,
+              fontSize: isMobile ? 15 : 16,
+              lineHeight: isMobile ? 22 : 24,
               fontWeight: "700",
+              textAlign: "center",
+              maxWidth: 560,
             }}
           >
             “{review.comment.trim()}”
@@ -323,7 +327,8 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
         gap: 14,
       }}
     >
-      <View style={{ gap: 8, alignItems: isMobile ? "center" : "flex-start" }}>
+      {/* Todo el apartado centrado, en el móvil y en el ordenador (dueño, 2026-11-26). */}
+      <View style={{ gap: 8, alignItems: "center" }}>
         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Reseñas</Text>
 
         <Text
@@ -332,22 +337,14 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
             fontSize: isMobile ? 20 : 22,
             fontWeight: "900",
             lineHeight: isMobile ? 27 : 29,
-            textAlign: isMobile ? "center" : "left",
+            textAlign: "center",
+            maxWidth: 720,
           }}
         >
           Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes.
         </Text>
-
-        <Text
-          style={{
-            color: COLORS.muted,
-            lineHeight: 20,
-            fontSize: isMobile ? 14 : 15,
-            textAlign: isMobile ? "center" : "left",
-          }}
-        >
-          Opiniones reales de clientes que ya han comprado o vendido con nosotros.
-        </Text>
+        {/* Sin subtítulo (dueño, 2026-11-26): «Opiniones reales de clientes que ya han comprado o vendido con nosotros»
+            repetía el título. */}
       </View>
 
       <View
@@ -360,15 +357,8 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
           gap: 12,
         }}
       >
-        <View
-          style={{
-            flexDirection: isMobile ? "column" : "row",
-            alignItems: isMobile ? "flex-start" : "center",
-            justifyContent: "space-between",
-            gap: 12,
-          }}
-        >
-          <View style={{ flex: 1, minWidth: 0 }}>
+        <View nativeID="resenas-resumen" style={{ alignItems: "center", gap: 12 }}>
+          <View style={{ minWidth: 0, alignItems: "center" }}>
             {loading ? (
               <Text style={{ color: COLORS.muted }}>Cargando valoración…</Text>
             ) : count > 0 ? (
@@ -386,16 +376,16 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
                   {average.toFixed(1).replace(".", ",")} / 5
                 </Text>
 
-                <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
+                <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19, textAlign: "center" }}>
                   Basada en {count} reseña{count === 1 ? "" : "s"} de clientes.
                 </Text>
               </>
             ) : (
               <>
-                <Text style={{ color: COLORS.text, fontSize: isMobile ? 18 : 20, fontWeight: "900" }}>
+                <Text style={{ color: COLORS.text, fontSize: isMobile ? 18 : 20, fontWeight: "900", textAlign: "center" }}>
                   Todavía no hay reseñas
                 </Text>
-                <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
+                <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19, textAlign: "center" }}>
                   Sé la primera persona en contar tu experiencia con nosotros.
                 </Text>
               </>
@@ -415,6 +405,7 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
               borderColor: COLORS.accentBorder,
               backgroundColor: "#FFFFFF",
               alignSelf: isMobile ? "stretch" : "center",
+              minWidth: isMobile ? undefined : 320,
             })}
           >
             <Text

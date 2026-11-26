@@ -4211,9 +4211,31 @@ async function seccionRE() {
   await boton.scrollIntoViewIfNeeded({ timeout: 30000 }).catch(() => {});
   const inicio = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
   ok(
-    /Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes\./.test(inicio) && !/lo que opina la gente/.test(inicio),
-    "RE: en Inicio, «Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes.»"
+    /Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes\./.test(inicio) && !/lo que opina la gente/.test(inicio) && !/Opiniones reales de clientes que ya han comprado/.test(inicio),
+    "RE: en Inicio, «Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes.», sin el subtítulo de antes"
   );
+  // Apartado centrado (dueño, 2026-11-26): el resumen y su botón, al centro.
+  await p.getByText("Todavía no hay reseñas").first().waitFor({ timeout: 20000 }).catch(() => {});
+  await p.locator("#inicio-faq-titulo").waitFor({ state: "attached", timeout: 20000 }).catch(() => {});
+  const centrado = await p.evaluate(() => {
+    const r = document.getElementById("resenas-resumen");
+    const t = [...(r?.querySelectorAll("div") ?? [])].find((n) => /Todavía no hay reseñas|\/ 5/.test(n.textContent ?? "") && !n.querySelector("div"));
+    const caja = r?.getBoundingClientRect();
+    const tc = t?.getBoundingClientRect();
+    return t && caja && tc ? { alinea: getComputedStyle(t).textAlign, centro: Math.abs(tc.left + tc.width / 2 - (caja.left + caja.width / 2)) <= 4 } : null;
+  });
+  ok(!!centrado && centrado.alinea === "center" && centrado.centro, `RE: el resumen de reseñas va centrado (${JSON.stringify(centrado)})`);
+  // Preguntas frecuentes (dueño, 2026-11-26): se ve que es el título del apartado y «Vender» dice las condiciones de ahora.
+  const faq = await p.evaluate(() => {
+    const hoja = (raiz, re) => [...(raiz?.querySelectorAll("*") ?? [])].find((d) => re.test(d.textContent ?? "") && !d.children.length);
+    const t = hoja(document.getElementById("inicio-faq-titulo"), /^Preguntas frecuentes$/);
+    const tp = hoja(document.body, /^¿Cómo compro un artículo\?$/);
+    return t && tp ? { titulo: parseFloat(getComputedStyle(t).fontSize), pregunta: parseFloat(getComputedStyle(tp).fontSize), ayuda: /Ayuda/i.test(document.getElementById("inicio-faq-titulo").innerText) } : null;
+  });
+  ok(!!faq && faq.titulo >= faq.pregunta + 8 && faq.ayuda, `RE: «Preguntas frecuentes» se distingue como título del apartado (${JSON.stringify(faq)})`);
+  await p.getByText("¿Puedo vender o cambiar mi consola?", { exact: true }).click();
+  await p.waitForTimeout(500);
+  ok(/te la tasamos en menos de 30 minutos, las 24 horas/.test(await p.evaluate(() => document.body.innerText)), "RE: la respuesta de «¿Puedo vender…?» dice la tasación en menos de 30 minutos");
   await boton.click();
   const ideas = p.locator("#resena-sugerencias [role='button']");
   await ideas.first().waitFor({ timeout: 20000 }).catch(() => {});
@@ -4312,6 +4334,41 @@ async function seccionRE() {
     ok(/^Reseñas \(30 días\) 4 publicadas · con ideas sugeridas: 2 · con emoji: 2 · la idea más usada: «Atención de 10»$/.test(t), `RE: Administración → Usuarios cuenta las reseñas con ideas y con emoji, y la idea más usada (${t})`);
     ok(pa.errores.length === 0, `RE: Usuarios sin errores de JavaScript (${pa.errores.length}${pa.errores[0] ? ": " + pa.errores[0] : ""})`);
     await ctxAdmin.close();
+  }
+
+  // Sin sesión (dueño, 2026-11-26): hoja desde abajo, sin «ACCESO NECESARIO», con «Iniciar sesión», «Crear cuenta gratis» y
+  // «Ahora no» abajo, a lo ancho.
+  {
+    const est = { filas: [], guardados: [], resenas: [], productosVacios: true };
+    const c = await contexto(navegador, CLIENTE, "user", est);
+    await c.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const q = await pagina(c, "/");
+    const b = q.getByText("Dejar una reseña", { exact: true }).first();
+    await b.scrollIntoViewIfNeeded({ timeout: 30000 }).catch(() => {});
+    await b.click();
+    await q.locator("#resena-sin-sesion").waitFor({ timeout: 20000 }).catch(() => {});
+    await q.waitForTimeout(600);
+    const m = await q.evaluate(() => {
+      const v = document.getElementById("resena-ventana")?.getBoundingClientRect();
+      const r = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const [e, g, n] = ["resena-entrar", "resena-registro", "resena-ahora-no"].map(r);
+      return v && e && g && n
+        ? { pegada: Math.abs(v.bottom - window.innerHeight) <= 2, abajo: e.top > window.innerHeight * 0.55, ancho: e.width > v.width * 0.7 && g.width > v.width * 0.7, alto: Math.min(e.height, g.height, n.height), texto: document.getElementById("resena-ventana").innerText }
+        : null;
+    });
+    ok(!!m && m.pegada && m.abajo && m.ancho && m.alto >= 44 && !/ACCESO NECESARIO/.test(m.texto) && /Inicia sesión para dejar tu reseña/.test(m.texto), `RE: sin sesión sale como hoja abajo, sin «ACCESO NECESARIO», con los botones a lo ancho (${JSON.stringify({ ...m, texto: undefined })})`);
+    await capturar(q, "RE-sin-sesion-hoja");
+    await q.locator("#resena-registro").click();
+    await q.waitForURL(/\/perfil/, { timeout: 10000 }).catch(() => {});
+    ok(/acceso=registro/.test(q.url()), `RE: «Crear cuenta gratis» lleva al registro (${q.url().replace(BASE, "")})`);
+    ok(q.errores.length === 0, `RE: sin sesión, sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
+    await c.close();
   }
 }
 
