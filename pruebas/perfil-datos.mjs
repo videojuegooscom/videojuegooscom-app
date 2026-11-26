@@ -5473,6 +5473,20 @@ async function seccionME() {
     await pie.click();
     await p.getByText("Iniciar sesión", { exact: true }).last().waitFor({ timeout: 15000 }).catch(() => {});
     ok(/Inicia sesión para mandarnos tus ideas/.test(await ventana(p)) && (await p.locator("#mejoras-texto").count()) === 0, `ME: sin sesión pide iniciarla y no deja escribir (${(await ventana(p)).slice(0, 80)})`);
+    // Hoja abajo para el pulgar (dueño, 2026-11-26): «Iniciar sesión» y «Ahora no» a lo ancho, abajo, de 48 px.
+    await p.waitForTimeout(400);
+    const pulgar = await p.evaluate(() => {
+      const v = document.getElementById("mejoras-ventana")?.getBoundingClientRect();
+      const no = document.getElementById("mejoras-ahora-no")?.getBoundingClientRect();
+      return v && no ? { pegada: Math.abs(v.bottom - window.innerHeight) <= 2, abajo: no.top > window.innerHeight * 0.65, alto: Math.round(no.height), ancho: no.width > v.width * 0.7 } : null;
+    });
+    ok(!!pulgar && pulgar.pegada && pulgar.abajo && pulgar.alto >= 44 && pulgar.ancho, `ME: sale como hoja abajo, con «Ahora no» a lo ancho al alcance del pulgar (${JSON.stringify(pulgar)})`);
+    await capturar(p, "ME-hoja-sin-sesion");
+    await p.locator("#mejoras-ahora-no").click();
+    await p.waitForTimeout(400);
+    ok(!(await p.locator("#mejoras-ventana").count()), "ME: «Ahora no» la cierra");
+    await pie.click();
+    await p.getByText("Iniciar sesión", { exact: true }).last().waitFor({ timeout: 15000 }).catch(() => {});
     await p.locator("#mejoras-ventana").getByText("Iniciar sesión", { exact: true }).click();
     await p.waitForURL(/\/perfil/, { timeout: 10000 }).catch(() => {});
     ok(/\/perfil\?acceso=entrar/.test(p.url()) && !(estado.mejorasEnviadas ?? []).length, `ME: «Iniciar sesión» lleva a entrar en la cuenta (${new URL(p.url()).pathname}${new URL(p.url()).search})`);
