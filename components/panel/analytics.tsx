@@ -1710,6 +1710,8 @@ export default function AdminAnalytics() {
       quienesVista: findExact("Quiénes somos: vista"),
       quienesInicio: findExact("Quiénes somos: desde Inicio"),
       quienesAcceso: findExact("Quiénes somos: desde el acceso"),
+      // Desde el 2026-11-26, en ese sitio de Perfil va «¿Tienes una consola…? Te lo tasamos en menos de 30 minutos».
+      perfilVender: findExact("Vender: desde Perfil"),
       // Blue IA fuera del horario del equipo (app/(tabs)/blue-ia.tsx): quién pulsa «Hablar con el equipo» y qué hace.
       fueraHorarioAviso: findExact("Blue IA: fuera de horario, aviso"),
       fueraHorarioBlue: findExact("Blue IA: fuera de horario, sigue con Blue"),
@@ -2395,6 +2397,14 @@ export default function AdminAnalytics() {
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Quiénes somos → la ven {coreFunnel.quienesVista} {coreFunnel.quienesVista === 1 ? "sesión" : "sesiones"} · llegan
                       desde Inicio: {coreFunnel.quienesInicio} · desde entrar o crear cuenta: {coreFunnel.quienesAcceso}
+                    </Text>
+                  </View>
+                  {/* «¿Tienes una consola…? Te lo tasamos» en Perfil, antes de entrar o crear la cuenta (2026-11-26). */}
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="cash-outline" size={15} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-perfil-vender" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Vender desde Perfil («Te lo tasamos en menos de 30 minutos») → {coreFunnel.perfilVender}{" "}
+                      {coreFunnel.perfilVender === 1 ? "sesión" : "sesiones"}
                     </Text>
                   </View>
                   <View

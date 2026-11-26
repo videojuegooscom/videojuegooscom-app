@@ -6486,20 +6486,21 @@ async function seccionQS() {
     });
     const p = await pagina(ctx, "/perfil");
     await p.locator("#perfil-acceso").waitFor({ timeout: 30000 }).catch(() => {});
-    await p.locator("#perfil-quienes-somos").waitFor({ timeout: 10000 }).catch(() => {});
-    const t = (await p.locator("#perfil-quienes-somos").innerText().catch(() => "")).replace(/\n+/g, " ");
-    const c1 = await caja(p, "#perfil-quienes-somos");
-    ok(/Conoce a Daniel Gutiérrez y al equipo/.test(t) && dentro(c1), `QS: entrar/crear cuenta tiene el acceso a «Quiénes somos» y se toca bien (${t}; ${JSON.stringify(c1)})`);
+    // Desde el 2026-11-26 (dueño), en ese sitio va «¿Tienes una consola…? Te lo tasamos en menos de 30 minutos» → Vender.
+    await p.locator("#perfil-vender").waitFor({ timeout: 10000 }).catch(() => {});
+    const t = (await p.locator("#perfil-vender").innerText().catch(() => "")).replace(/\n+/g, " ");
+    const c1 = await caja(p, "#perfil-vender");
+    ok(/¿Tienes una consola o un móvil que ya no usas\? Te lo tasamos en menos de 30 minutos/.test(t) && !(await p.locator("#perfil-quienes-somos").count()) && dentro(c1), `QS: entrar/crear cuenta ofrece vender y se toca bien (${t}; ${JSON.stringify(c1)})`);
     await p.locator("#perfil-acceso").getByText("Crear cuenta").click();
     await p.waitForTimeout(700);
-    const c2 = await caja(p, "#perfil-quienes-somos");
+    const c2 = await caja(p, "#perfil-vender");
     ok(dentro(c2), `QS: con «Crear cuenta» abierto sigue ahí (${JSON.stringify(c2)})`);
     await capturar(p, "QS3-crear-cuenta");
-    await p.locator("#perfil-quienes-somos").click();
-    await p.waitForURL(/\/quienes-somos/, { timeout: 15000 }).catch(() => {});
-    await esperar(p, () => evento(estado, "quienes_somos_abierto").length > 0);
-    const ev = evento(estado, "quienes_somos_abierto")[0];
-    ok(/\/quienes-somos/.test(p.url()) && ev?.metadata?.desde === "acceso" && ev?.metadata?.modo === "signup", `QS: lleva a «Quiénes somos» y se cuenta desde el acceso (${JSON.stringify(ev?.metadata ?? null)})`);
+    await p.locator("#perfil-vender").click();
+    await p.waitForURL(/\/vender/, { timeout: 15000 }).catch(() => {});
+    await esperar(p, () => evento(estado, "perfil_vender").length > 0);
+    const ev = evento(estado, "perfil_vender")[0];
+    ok(/\/vender/.test(p.url()) && ev?.step_label === "Vender: desde Perfil" && ev?.metadata?.modo === "signup", `QS: lleva a Vender y se cuenta desde Perfil (${JSON.stringify(ev?.metadata ?? null)})`);
     ok(p.errores.length === 0, `QS: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
@@ -6513,6 +6514,7 @@ async function seccionQS() {
         { step_label: "Quiénes somos: vista", sessions: 7 },
         { step_label: "Quiénes somos: desde Inicio", sessions: 3 },
         { step_label: "Quiénes somos: desde el acceso", sessions: 2 },
+        { step_label: "Vender: desde Perfil", sessions: 4 },
       ],
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
@@ -6520,6 +6522,8 @@ async function seccionQS() {
     await p.locator("#analitica-quienes-somos").waitFor({ timeout: 40000 }).catch(() => {});
     const t = (await p.locator("#analitica-quienes-somos").innerText().catch(() => "")).replace(/\n/g, " ");
     ok(/la ven 7 sesiones · llegan desde Inicio: 3 · desde entrar o crear cuenta: 2/.test(t), `QS: Administración → Analítica lo cuenta (${t})`);
+    const tv = (await p.locator("#analitica-perfil-vender").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Vender desde Perfil .* 4 sesiones/.test(tv), `QS: y cuenta «Vender desde Perfil» (${tv})`);
     ok(p.errores.length === 0, `QS: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }

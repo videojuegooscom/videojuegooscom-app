@@ -172,7 +172,7 @@ import VentanaValoracion, {
 import PieDePagina from "../../components/PieDePagina";
 import ImagenInteligente from "../../components/ImagenInteligente";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { medirCuentaCreada, medirEvento } from "../../lib/analiticaPropia";
+import { marcarOrigenVender, medirCuentaCreada, medirEvento } from "../../lib/analiticaPropia";
 import {
   CANALES_REPOSICION,
   fijarAvisoPrecio,
@@ -1513,16 +1513,18 @@ export default function PerfilScreen() {
                       </RevealPanel>
                     ) : null}
 
-                    {/* Quién está detrás, antes de crear la cuenta o entrar (dueño, 2026-11-03). Se mide en
-                        Administración → Analítica («desde el acceso»). */}
+                    {/* Vender, antes de crear la cuenta o entrar (dueño, 2026-11-26: sustituye a «¿Quién está detrás de la
+                        tienda?», que sigue en el pie y en Inicio). Lleva a Vender y se mide en Administración → Analítica
+                        («Vender: desde Perfil»). */}
                     <Pressable
-                      nativeID="perfil-quienes-somos"
+                      nativeID="perfil-vender"
                       onPress={() => {
-                        void medirEvento("quienes_somos_abierto", "Quiénes somos: desde el acceso", {
+                        void medirEvento("perfil_vender", "Vender: desde Perfil", {
                           path: "/perfil",
                           metadata: { desde: "acceso", modo: formOpen ? mode : "ninguno" },
                         });
-                        router.push("/quienes-somos");
+                        marcarOrigenVender("perfil", 120);
+                        router.push("/vender");
                       }}
                       accessibilityRole="link"
                       style={({ pressed }) => ({
@@ -1534,8 +1536,8 @@ export default function PerfilScreen() {
                       })}
                     >
                       <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center", lineHeight: 20 }}>
-                        ¿Quién está detrás de la tienda?{" "}
-                        <Text style={{ color: COLORS.accentTexto, fontWeight: "900" }}>Conoce a Daniel Gutiérrez y al equipo →</Text>
+                        ¿Tienes una consola o un móvil que ya no usas?{" "}
+                        <Text style={{ color: COLORS.accentTexto, fontWeight: "900" }}>Te lo tasamos en menos de 30 minutos →</Text>
                       </Text>
                     </Pressable>
                   </>
