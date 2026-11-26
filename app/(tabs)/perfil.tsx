@@ -1297,9 +1297,14 @@ export default function PerfilScreen() {
                     </Text>
                     {/* La ventaja de tener cuenta (dueño, 2026-11-11): los avisos de Blue de bajadas y novedades. */}
                     {sessionRole === "guest" ? (
-                      <View nativeID="perfil-ventaja-avisos" style={{ flexDirection: "row", alignItems: "center", gap: 8, maxWidth: 460 }}>
-                        <Ionicons name="notifications-outline" size={18} color={COLORS.accent} />
-                        <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19, flexShrink: 1 }}>
+                      // Centrado, como el resto de la cabecera (dueño, 2026-11-26): la campana encima y el texto debajo,
+                      // en un recuadro azul muy suave.
+                      <View
+                        nativeID="perfil-ventaja-avisos"
+                        style={{ alignItems: "center", gap: 6, width: "100%", maxWidth: 460, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 16, backgroundColor: "#EAF6FD" }}
+                      >
+                        <Ionicons name="notifications-outline" size={20} color={COLORS.accent} />
+                        <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19, textAlign: "center" }}>
                           Con tu cuenta, Blue te avisa de bajadas de precio y artículos nuevos
                         </Text>
                       </View>
