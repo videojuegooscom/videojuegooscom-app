@@ -3456,7 +3456,16 @@ async function seccionX() {
   });
   // Dueño, 2026-11-26: «Hablar con el equipo» va arriba, junto a ⓘ y el Historial; junto al recuadro ya no va el
   // horario fijo sino la pastilla «¿Cuál es el horario de atención?».
-  ok(!!m.boton && m.boton.arriba && m.boton.h >= 44, `X: «Hablar con el equipo» va arriba, junto a ⓘ y el Historial, y mide 44 px o más (${JSON.stringify(m.boton)})`);
+  ok(!!m.boton && m.boton.arriba && m.boton.h >= 44, `X: «Hablar con el equipo» va arriba, junto al Historial, y mide 44 px o más (${JSON.stringify(m.boton)})`);
+  // Dueño, 2026-11-26: sin la ventana «Qué es Blue IA» (ⓘ) y con margen arriba (en el iPhone, la barra de la hora
+  // difuminaba los botones).
+  await p.evaluate(() => document.querySelectorAll("div").forEach((d) => d.scrollHeight > d.clientHeight + 40 && (d.scrollTop = 0)));
+  await p.waitForTimeout(300);
+  const arriba = await p.evaluate(() => {
+    const cab = document.getElementById("blue-ia-cabecera")?.getBoundingClientRect();
+    return { info: document.querySelectorAll('[aria-label="Qué es Blue IA"]').length, margen: cab ? Math.round(cab.top) : -1 };
+  });
+  ok(arriba.info === 0 && arriba.margen >= 40, `X: sin la ventana «Qué es Blue IA» y con margen arriba (${JSON.stringify(arriba)})`);
   ok(
     m.sinHorarioFijo && sugerenciaHorario === 1 && !m.pastilla,
     `X: el horario va solo entre las sugerencias, sin horario fijo ni pastilla suelta encima del recuadro (${JSON.stringify({ sugerenciaHorario, pastilla: m.pastilla })})`
