@@ -76,7 +76,7 @@
  *
  * Rediseño PANRED2 (dueño, 2026-11-16; piezas de components/admin/PiezasPanelAdmin.tsx, como Usuarios, Pedidos y Categorías):
  * buscador de 16 px arriba (título, descripción, referencia o nº de pedido VZ-…), cifras que filtran (Total, Publicados,
- * Visibles, Ocultos, Destacados portada, Vendidos), pastillas de 44 px con su recuento (fase, en la tienda, revisión y
+ * Visibles, Ocultos, Destacados (en la portada), Vendidos), pastillas de 44 px con su recuento (fase, en la tienda, revisión y
  * «Más»: destacados, vendidos, reservados, sin fotos, sin peso, peso estimado, solo en mano), filas compactas con la foto
  * pequeña y su etiqueta de color (A la venta, Borrador, Por revisar, Oculto, Reservado, Vendido (pedido VZ-…)) y, al tocar
  * una, el detalle por bloques (Venta, Ficha, Envío y VeoAura) con las acciones abajo. El formulario va por bloques.
@@ -101,7 +101,6 @@ import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -184,7 +183,9 @@ import {
   textoEstadoPanel,
   elegirFotosVideoWeb,
   precioSeguro,
+  reducirImagenWeb,
 } from "../../lib/admin/productos.utilidades";
+import ImagenInteligente from "../../components/ImagenInteligente";
 
 // Texto de partida del campo "Descripción" al crear un producto nuevo — la
 // mayoría de artículos llevan siempre este mismo bloque, así que en vez de
@@ -521,9 +522,13 @@ const ProductListItem = React.memo(function ProductListItem({
   uploadStatus?: { title: string; done: number; total: number; error: string | null };
 }) {
   const estado = estadoProducto(p);
+  // La portada no se ha podido cargar: se enseña el icono (nunca un cuadro vacío).
+  const [fotoFalla, setFotoFalla] = useState(false);
   const primaryMedia = archivoPrincipal(p.media);
   const primaryKind = primaryMedia ? getRowKind(primaryMedia) : null;
   const primaryUrl = primaryMedia ? getRowPublicUrl(primaryMedia) : null;
+  // Si cambia la portada (al editar), se vuelve a intentar.
+  useEffect(() => setFotoFalla(false), [primaryUrl]);
   const imageCount = p.media.filter((m) => getRowKind(m) === "image").length;
   const hasVideo = p.media.some((m) => getRowKind(m) === "video");
   const isUploading = !!uploadStatus && !uploadStatus.error;
@@ -565,10 +570,19 @@ const ProductListItem = React.memo(function ProductListItem({
           accessibilityLabel={`${p.title}, ${estado.texto}, ${formatearEurosPanel(Number(p.price_eur ?? 0))}. ${abierta ? "Plegar" : "Ver el detalle"}`}
           style={({ pressed }) => ({ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8, opacity: pressed ? 0.85 : 1 })}
         >
-          {/* Foto pequeña (la portada), el icono del vídeo o, sin fotos, el mando. */}
+          {/* Foto pequeña (la portada), el icono del vídeo o, sin fotos, el mando. Pasa por el optimizador (unos KB en vez
+              de la foto original de varios MB), carga solo al acercarse a la pantalla y, si no se puede cargar, vuelve
+              al icono en vez de dejar un cuadro vacío (revisión del 2026-11-26: una portada salía en blanco en el iPhone). */}
           <Miniatura icono={primaryKind === "video" ? "videocam-outline" : "game-controller-outline"}>
-            {primaryKind === "image" && primaryUrl ? (
-              <Image source={{ uri: primaryUrl }} resizeMode="cover" accessibilityLabel={`Foto de ${p.title}`} style={{ width: "100%", height: "100%" }} />
+            {primaryKind === "image" && primaryUrl && !fotoFalla ? (
+              <ImagenInteligente
+                uri={primaryUrl}
+                ancho={56}
+                contentFit="cover"
+                alt={`Foto de ${p.title}`}
+                onFallo={() => setFotoFalla(true)}
+                style={{ width: "100%", height: "100%" }}
+              />
             ) : undefined}
           </Miniatura>
           <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
@@ -913,10 +927,21 @@ export default function AdminProducts() {
 
   const activeCategories = useMemo(() => categories.filter((c) => !!c.is_active), [categories]);
 
-  const filteredItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
+  // El buscador filtra con un pequeño retraso cuando hace falta (useDeferredValue): escribir no va a trompicones aunque
+  // haya muchos productos (revisión del 2026-11-26).
+  const busquedaDiferida = React.useDeferredValue(search);
 
-    return items.filter((p) => {
+  // Cada producto con su nombre de categoría, calculado una vez por lista (no en cada letra del buscador): así las filas
+  // son los MISMOS objetos al filtrar y ProductListItem (React.memo) no vuelve a pintarlas todas.
+  const conCategoria: ProductListItemData[] = useMemo(() => {
+    const nombres = new Map(categories.map((c) => [c.id, c.name]));
+    return items.map((p) => ({ ...p, catName: p.category_id ? nombres.get(p.category_id) ?? "Categoría" : "Sin categoría" }));
+  }, [items, categories]);
+
+  const filteredItems = useMemo(() => {
+    const q = busquedaDiferida.trim().toLowerCase();
+
+    return conCategoria.filter((p) => {
       const matchesSearch =
         !q ||
         String(p.title ?? "").toLowerCase().includes(q) ||
@@ -936,22 +961,10 @@ export default function AdminProducts() {
 
       return matchesSearch && matchesStatus && matchesVisibility && matchesRevisado && cumpleExtra(p, extraFilter);
     });
-  }, [items, search, statusFilter, visibilityFilter, revisadoFilter, extraFilter]);
+  }, [conCategoria, busquedaDiferida, statusFilter, visibilityFilter, revisadoFilter, extraFilter]);
 
-  // Se calcula aquí (con el nombre de categoría ya resuelto) para que
-  // ProductListItem no necesite la lista completa de "categories" como
-  // prop — así solo vuelve a calcularse cuando cambian los productos
-  // filtrados o las categorías, nunca por el formulario de edición.
-  const listData: ProductListItemData[] = useMemo(
-    () =>
-      filteredItems.map((p) => ({
-        ...p,
-        catName: p.category_id
-          ? categories.find((c) => c.id === p.category_id)?.name ?? "Categoría"
-          : "Sin categoría",
-      })),
-    [filteredItems, categories]
-  );
+  // Ya llevan el nombre de categoría resuelto (conCategoria): ProductListItem no necesita la lista de "categories".
+  const listData: ProductListItemData[] = filteredItems;
 
   const stats = useMemo(() => {
     const total = items.length;
@@ -1088,6 +1101,17 @@ export default function AdminProducts() {
       let mediaRows: FilaArchivoProductoPanel[] = [];
       const productIds = productsData.map((p) => p.id);
 
+      // Carga más rápida (revisión del 2026-11-26): lo que no depende de nada más (pesos, avisos a VeoAura y la fila de
+      // muestra con las columnas que existen) sale a la vez que las fotos, en vez de una consulta detrás de otra.
+      const pesosP = (async () => {
+        let r: { data: unknown; error: unknown } = await supabase.from("products").select("id,peso_kg,solo_entrega_mano");
+        const conSoloManoR = !r.error;
+        if (r.error) r = await supabase.from("products").select("id,peso_kg");
+        return { r, conSoloManoR };
+      })();
+      const avisosP = supabase.from("escaparate_salida_productos").select("producto_id,estado").limit(1000);
+      const muestraP = supabase.from("products").select("*").limit(1);
+
       try {
         mediaRows = await fetchProductMediaRowsSafe(productIds);
       } catch (e: any) {
@@ -1120,9 +1144,7 @@ export default function AdminProducts() {
 
       // Peso para el envío por kilos (migración 20261107120000): consulta aparte; sin la columna, la lista sale igual.
       // Y «solo entrega en mano» (migración 20261107140000; sin ella, solo el peso).
-      let pesosRes: { data: unknown; error: unknown } = await supabase.from("products").select("id,peso_kg,solo_entrega_mano");
-      const conSoloMano = !pesosRes.error;
-      if (pesosRes.error) pesosRes = await supabase.from("products").select("id,peso_kg");
+      const [{ r: pesosRes, conSoloManoR: conSoloMano }, avisosRes, muestra] = await Promise.all([pesosP, avisosP, muestraP]);
       const pesos = new Map<string, number | null>();
       const soloMano = new Set<string>();
       if (!pesosRes.error && Array.isArray(pesosRes.data)) {
@@ -1138,7 +1160,6 @@ export default function AdminProducts() {
 
       // Aviso a VeoAura de los productos creados a mano (migración 20261113130000; sin ella, no se muestra nada).
       const avisosVeoaura = new Map<string, "pendiente" | "enviado">();
-      const avisosRes = await supabase.from("escaparate_salida_productos").select("producto_id,estado").limit(1000);
       if (!avisosRes.error && Array.isArray(avisosRes.data)) {
         for (const a of avisosRes.data as { producto_id: string; estado: string }[]) {
           if (a.estado === "descartado") continue;
@@ -1150,10 +1171,20 @@ export default function AdminProducts() {
       // un 400 en la consola antes de la migración) y solo entonces se piden de todos.
       const confianza = new Map<string, { revisado: boolean; garantia_meses: number | null }>();
       let conRevisado = false;
-      const muestra = await supabase.from("products").select("*").limit(1);
       const filaMuestra = !muestra.error && Array.isArray(muestra.data) ? (muestra.data[0] as Record<string, unknown> | undefined) : undefined;
+      // Con las columnas que existen, el resto de consultas también a la vez (cada una solo si su columna existe).
+      const nada = Promise.resolve({ data: null, error: null } as { data: unknown; error: unknown });
+      const conPedidoVendido = !!filaMuestra && "vendido_pedido_id" in filaMuestra;
+      const [estRes, resRes, confRes, venRes, modoRes] = await Promise.all([
+        conPeso && filaMuestra && "peso_estimado" in filaMuestra ? supabase.from("products").select("id,peso_estimado").eq("peso_estimado", true) : nada,
+        filaMuestra && "reservado_hasta" in filaMuestra ? supabase.from("products").select("id,reservado_hasta").not("reservado_hasta", "is", null) : nada,
+        filaMuestra && "revisado" in filaMuestra && "garantia_meses" in filaMuestra ? supabase.from("products").select("id,revisado,garantia_meses") : nada,
+        filaMuestra && "vendido_en" in filaMuestra
+          ? supabase.from("products").select(conPedidoVendido ? "id,vendido_en,vendido_pedido_id" : "id,vendido_en").not("vendido_en", "is", null)
+          : nada,
+        filaMuestra && "modo" in filaMuestra ? supabase.from("products").select("id,modo").eq("modo", "alquiler") : nada,
+      ]);
       if (conPeso && filaMuestra && "peso_estimado" in filaMuestra) {
-        const estRes = await supabase.from("products").select("id,peso_estimado").eq("peso_estimado", true);
         if (!estRes.error && Array.isArray(estRes.data)) {
           conEstimado = true;
           for (const r of estRes.data as { id: string; peso_estimado?: unknown }[]) if (r.peso_estimado === true) estimados.add(String(r.id));
@@ -1163,7 +1194,6 @@ export default function AdminProducts() {
       // ha pasado. Consulta aparte; sin la columna, no se enseña nada.
       const reservados = new Map<string, string>();
       if (filaMuestra && "reservado_hasta" in filaMuestra) {
-        const resRes = await supabase.from("products").select("id,reservado_hasta").not("reservado_hasta", "is", null);
         if (!resRes.error && Array.isArray(resRes.data)) {
           for (const r of resRes.data as { id: string; reservado_hasta: string | null }[]) {
             if (r.reservado_hasta && Date.parse(r.reservado_hasta) > Date.now()) reservados.set(String(r.id), r.reservado_hasta);
@@ -1171,7 +1201,6 @@ export default function AdminProducts() {
         }
       }
       if (filaMuestra && "revisado" in filaMuestra && "garantia_meses" in filaMuestra) {
-        const confRes = await supabase.from("products").select("id,revisado,garantia_meses");
         if (!confRes.error && Array.isArray(confRes.data)) {
           conRevisado = true;
           for (const r of confRes.data as { id: string; revisado: unknown; garantia_meses: unknown }[]) {
@@ -1185,8 +1214,6 @@ export default function AdminProducts() {
       // solo «Vendido»). Consulta aparte y solo si las columnas existen (se mira en la fila de muestra).
       const vendidos = new Map<string, { en: string; referencia: string | null }>();
       if (filaMuestra && "vendido_en" in filaMuestra) {
-        const conPedido = "vendido_pedido_id" in filaMuestra;
-        const venRes = await supabase.from("products").select(conPedido ? "id,vendido_en,vendido_pedido_id" : "id,vendido_en").not("vendido_en", "is", null);
         if (!venRes.error && Array.isArray(venRes.data)) {
           const filas = (venRes.data as unknown as { id: string; vendido_en: string | null; vendido_pedido_id?: string | null }[]).filter((r) => !!r.vendido_en);
           const idsPedidos = [...new Set(filas.map((r) => r.vendido_pedido_id).filter((x): x is string => !!x))];
@@ -1203,7 +1230,6 @@ export default function AdminProducts() {
       const deAlquiler = new Set<string>();
       let conModo = false;
       if (filaMuestra && "modo" in filaMuestra) {
-        const modoRes = await supabase.from("products").select("id,modo").eq("modo", "alquiler");
         if (!modoRes.error && Array.isArray(modoRes.data)) {
           conModo = true;
           for (const r of modoRes.data as { id: string; modo?: unknown }[]) if (r.modo === "alquiler") deAlquiler.add(String(r.id));
@@ -1469,7 +1495,13 @@ export default function AdminProducts() {
     onProgress(0, total);
 
     for (let i = 0; i < media.length; i++) {
-      const item = media[i];
+      // Las fotos se reducen antes de subir (como mucho 1600 px, JPEG): una portada pesa cientos de KB y no varios MB, la
+      // miniatura del panel carga rápido en el iPhone y se gasta menos salida de Supabase (revisión del 2026-11-26). Los
+      // vídeos se suben tal cual.
+      const original = media[i];
+      const reducido = original.kind === "image" ? await reducirImagenWeb(original.file, 1600, 0.85) : original.file;
+      const item: ArchivoElegidoLocal =
+        reducido === original.file ? original : { ...original, file: reducido, name: reducido.name, mimeType: reducido.type || "image/jpeg", size: reducido.size };
       const storagePath = rutaDeArchivo(productId, item, startIndex + i);
 
       // Se reintenta un par de veces cada subida antes de rendirse: al
@@ -1478,7 +1510,8 @@ export default function AdminProducts() {
       // repetir todo desde cero.
       const uploadRes = await withRetries(() =>
         supabase.storage.from(CUBO_ARCHIVOS_PRODUCTO).upload(storagePath, item.file, {
-          cacheControl: "3600",
+          // Un año, como las que llegan de VeoAura (cada subida tiene su nombre único: nunca cambia el contenido).
+          cacheControl: "31536000",
           upsert: false,
           contentType: item.mimeType || undefined,
         })
@@ -2046,7 +2079,7 @@ export default function AdminProducts() {
                 { key: "publicados", valor: stats.published, etiqueta: "Publicados", icono: "checkmark-circle-outline", activa: statusFilter === "PUBLISHED", accion: () => setStatusFilter((f) => (f === "PUBLISHED" ? "ALL" : "PUBLISHED")) },
                 { key: "visibles", valor: stats.visible, etiqueta: "Visibles", icono: "eye-outline", activa: visibilityFilter === "VISIBLE", accion: () => setVisibilityFilter((f) => (f === "VISIBLE" ? "ALL" : "VISIBLE")) },
                 { key: "ocultos", valor: stats.hidden, etiqueta: "Ocultos", icono: "eye-off-outline", activa: visibilityFilter === "HIDDEN", accion: () => setVisibilityFilter((f) => (f === "HIDDEN" ? "ALL" : "HIDDEN")) },
-                { key: "destacados", valor: stats.featured, etiqueta: "Destacados portada", icono: "star-outline", activa: extraFilter === "DESTACADOS", accion: () => setExtraFilter((f) => (f === "DESTACADOS" ? "ALL" : "DESTACADOS")) },
+                { key: "destacados", valor: stats.featured, etiqueta: "Destacados", icono: "star-outline", activa: extraFilter === "DESTACADOS", accion: () => setExtraFilter((f) => (f === "DESTACADOS" ? "ALL" : "DESTACADOS")) },
                 { key: "vendidos", valor: stats.vendidos, etiqueta: "Vendidos", icono: "bag-check-outline", activa: extraFilter === "VENDIDOS", accion: () => setExtraFilter((f) => (f === "VENDIDOS" ? "ALL" : "VENDIDOS")) },
               ] as { key: string; valor: number; etiqueta: string; icono: NombreIconoPanel; activa: boolean; accion: () => void }[]
             ).map((c) => (
