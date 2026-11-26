@@ -6764,7 +6764,26 @@ async function seccionBI() {
   }
 
   // BI8) Historial (dueño, 2026-11-26): cada conversación se desliza a la izquierda con el dedo y enseña «Archivar»; la
-  // ventana lleva su barra de desplazamiento a la derecha cuando la lista no cabe.
+  // ventana lleva su barra de desplazamiento a la IZQUIERDA (como la de las páginas) cuando la lista no cabe.
+  const medirHistorial = (p) =>
+    p.evaluate(() => {
+      const caja = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const b = caja("blue-ia-historial-barra");
+      const l = caja("blue-ia-historial-lista");
+      const f = document.querySelector('[data-fila-historial="1"]')?.getBoundingClientRect();
+      const h = caja("blue-ia-historial");
+      return b && l && f && h
+        ? {
+            ancho: Math.round(b.width),
+            alto: Math.round(b.height),
+            izquierda: Math.round(b.left - h.left),
+            antesDeLasFilas: b.right <= f.left,
+            pegada: Math.round(window.innerHeight - h.bottom),
+            centrada: Math.abs(h.left + h.width / 2 - window.innerWidth / 2) <= 2,
+            anchoHoja: Math.round(h.width),
+          }
+        : null;
+    });
   {
     const muchas = Array.from({ length: 9 }, (_, i) => ({
       id: `c0000000-0000-4000-8000-0000000001${String(i).padStart(2, "0")}`,
@@ -6779,12 +6798,9 @@ async function seccionBI() {
     const fila = p.locator('[data-fila-historial="1"]').first();
     await fila.waitFor({ timeout: 15000 }).catch(() => {});
     await p.waitForTimeout(500);
-    const barra = await p.evaluate(() => {
-      const b = document.getElementById("blue-ia-historial-barra")?.getBoundingClientRect();
-      const l = document.getElementById("blue-ia-historial-lista")?.getBoundingClientRect();
-      return b && l ? { ancho: Math.round(b.width), derecha: Math.round(l.right - b.right), alto: Math.round(b.height) } : null;
-    });
-    ok(!!barra && barra.ancho === 5 && barra.alto > 100, `BI: el Historial lleva su barra de desplazamiento a la derecha (${JSON.stringify(barra)})`);
+    const barra = await medirHistorial(p);
+    ok(!!barra && barra.ancho === 5 && barra.alto > 100 && barra.antesDeLasFilas && barra.izquierda <= 20, `BI (390): el Historial lleva su barra de desplazamiento a la izquierda (${JSON.stringify(barra)})`);
+    await capturar(p, "BI8-historial-390");
     // Hoja abajo, para el pulgar (dueño, 2026-11-26): pegada al borde de abajo, con «Nueva conversación» y «Cerrar» de
     // 48 px en la mitad de abajo y filas de 44 px o más.
     const hoja = await p.evaluate(() => {
@@ -6831,6 +6847,40 @@ async function seccionBI() {
     ok(archivada?.id === muchas[0].id, `BI: «Archivar» archiva esa conversación (${JSON.stringify(archivada)})`);
     ok(p.errores.length === 0, `BI: Historial sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
+
+    // En el ordenador y en un móvil estrecho: la misma hoja abajo y centrada, con la barra a la izquierda.
+    for (const [nombre, vista] of [
+      ["360", { viewport: { width: 360, height: 780 } }],
+      ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+    ]) {
+      const estadoV = { filas: perfil, guardados: [], blueHistorial: { conversaciones: muchas.map((c) => ({ ...c })), mensajes: [] } };
+      const ctxV = await contexto(navegador, CLIENTE, "user", estadoV, vista);
+      const pv = await pagina(ctxV, "/blue-ia");
+      await pv.getByRole("button", { name: "Historial" }).click({ timeout: 30000 });
+      await pv.locator('[data-fila-historial="1"]').first().waitFor({ timeout: 15000 }).catch(() => {});
+      await pv.waitForTimeout(700);
+      const m = await medirHistorial(pv);
+      ok(
+        !!m && m.ancho === 5 && m.antesDeLasFilas && Math.abs(m.pegada) <= 2 && m.centrada && m.anchoHoja <= 520,
+        `BI (${nombre}): hoja abajo y centrada, con la barra a la izquierda (${JSON.stringify(m)})`
+      );
+      await capturar(pv, `BI8-historial-${nombre}`);
+      if (nombre === "1280") {
+        // Con ratón no se desliza: cada fila lleva su botón de archivar (44 px) y la ayuda lo dice.
+        const botones = await pv.locator('[data-archivar-raton="1"]').count();
+        const ayuda = /con su botón de la derecha/.test(await pv.evaluate(() => document.getElementById("blue-ia-historial")?.innerText ?? ""));
+        await pv.locator('[data-archivar-raton="1"]').first().click().catch(() => {});
+        await pv.waitForTimeout(800);
+        ok(
+          botones >= 6 && ayuda && estadoV.blueHistorial.archivadas?.[0]?.id === muchas[0].id,
+          `BI (1280): con ratón, cada fila lleva su botón de archivar y funciona (${botones} botones, ayuda ${ayuda}, ${JSON.stringify(estadoV.blueHistorial.archivadas?.[0])})`
+        );
+      } else {
+        ok((await pv.locator('[data-archivar-raton="1"]').count()) === 0, `BI (${nombre}): en el móvil no sale el botón de archivar (se desliza)`);
+      }
+      ok(pv.errores.length === 0, `BI (${nombre}): Historial sin errores de JavaScript (${pv.errores.length}${pv.errores[0] ? ": " + pv.errores[0] : ""})`);
+      await ctxV.close();
+    }
   }
 }
 

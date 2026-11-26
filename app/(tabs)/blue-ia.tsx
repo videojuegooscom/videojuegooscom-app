@@ -1699,9 +1699,18 @@ function BlueIAHistorialModal({
 }
 
 // Lista del Historial (dueño, 2026-11-26): cada conversación se desliza a la izquierda, como en el iPhone, para enseñar
-// «Archivar» (solo una abierta a la vez), y la ventana lleva su propia barra de desplazamiento a la derecha cuando la
+// «Archivar» (solo una abierta a la vez), y la ventana lleva su propia barra de desplazamiento a la izquierda cuando la
 // lista no cabe.
 const ANCHO_ARCHIVAR = 96;
+// Con ratón (ordenador) no se puede deslizar: cada fila enseña su botón de archivar.
+function conRaton(): boolean {
+  if (Platform.OS !== "web" || typeof window === "undefined") return false;
+  try {
+    return !!window.matchMedia?.("(hover: hover) and (pointer: fine)").matches;
+  } catch {
+    return false;
+  }
+}
 function ListaHistorial({
   conversaciones,
   abiertaId,
@@ -1718,12 +1727,15 @@ function ListaHistorial({
   const desplazado = useRef(new Animated.Value(0)).current;
   const sobra = medidas.contenido - medidas.alto;
   const altoPulgar = sobra > 0 ? Math.max(32, (medidas.alto * medidas.alto) / medidas.contenido) : 0;
+  const [raton] = useState(conRaton);
 
   return (
     <View style={{ flexShrink: 1, maxHeight: 460 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 6, marginBottom: 4 }}>
-        <Ionicons name="hand-left-outline" size={14} color="rgba(11,33,56,0.62)" />
-        <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, flex: 1 }}>Desliza una conversación a la izquierda para archivarla</Text>
+        <Ionicons name={raton ? "archive-outline" : "hand-left-outline"} size={14} color="rgba(11,33,56,0.62)" />
+        <Text style={{ color: "rgba(11,33,56,0.72)", fontSize: 13, flex: 1 }}>
+          {raton ? "Archiva una conversación con su botón de la derecha" : "Desliza una conversación a la izquierda para archivarla"}
+        </Text>
       </View>
       <View style={{ flexShrink: 1 }}>
         <ScrollView
@@ -1739,7 +1751,7 @@ function ListaHistorial({
             setMedidas((m) => (m.contenido === contenido ? m : { ...m, contenido }));
           }}
           onScroll={(e) => desplazado.setValue(e.nativeEvent.contentOffset.y)}
-          style={{ paddingRight: sobra > 0 ? 12 : 0 }}
+          style={{ paddingLeft: sobra > 0 ? 12 : 0 }}
         >
           {conversaciones.map((c, i) => (
             <FilaHistorial
@@ -1748,6 +1760,7 @@ function ListaHistorial({
               primera={i === 0}
               abierta={c.id === abiertaId}
               deslizada={deslizada === c.id}
+              raton={raton}
               onDeslizar={(si) => setDeslizada(si ? c.id : null)}
               onAbrir={() => onAbrir(c)}
               onArchivar={() => {
@@ -1757,13 +1770,14 @@ function ListaHistorial({
             />
           ))}
         </ScrollView>
-        {/* Barra de desplazamiento propia (también en el iPhone, donde la del sistema casi no se ve). */}
+        {/* Barra de desplazamiento propia, a la IZQUIERDA como la de progreso de las páginas (dueño, 2026-11-26); también
+            en el iPhone, donde la del sistema casi no se ve. */}
         {sobra > 0 ? (
           <View
             nativeID="blue-ia-historial-barra"
             pointerEvents="none"
             {...({ "aria-hidden": true } as object)}
-            style={{ position: "absolute", right: 0, top: 4, bottom: 4, width: 5, borderRadius: 3, backgroundColor: "rgba(11,33,56,0.10)" }}
+            style={{ position: "absolute", left: 0, top: 4, bottom: 4, width: 5, borderRadius: 3, backgroundColor: "rgba(11,33,56,0.10)" }}
           >
             <Animated.View
               style={{
@@ -1794,6 +1808,7 @@ function FilaHistorial({
   primera,
   abierta,
   deslizada,
+  raton,
   onDeslizar,
   onAbrir,
   onArchivar,
@@ -1802,6 +1817,7 @@ function FilaHistorial({
   primera: boolean;
   abierta: boolean;
   deslizada: boolean;
+  raton: boolean;
   onDeslizar: (si: boolean) => void;
   onAbrir: () => void;
   onArchivar: () => void;
@@ -1938,7 +1954,27 @@ function FilaHistorial({
               {fechaMadrid(c.updated_at)}
             </Text>
           </View>
-          <Ionicons name="chevron-forward" size={18} color="rgba(11,33,56,0.4)" />
+          {raton ? (
+            // En el ordenador: botón de archivar a la vista (con ratón no se desliza).
+            <Pressable
+              onPress={onArchivar}
+              accessibilityRole="button"
+              accessibilityLabel={`Archivar: ${c.titulo}`}
+              {...({ dataSet: { archivarRaton: "1" } } as object)}
+              style={({ pressed, hovered }: any) => ({
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: hovered || pressed ? COLORS.accentSoft : "transparent",
+              })}
+            >
+              <Ionicons name="archive-outline" size={20} color="#0A78B4" />
+            </Pressable>
+          ) : (
+            <Ionicons name="chevron-forward" size={18} color="rgba(11,33,56,0.4)" />
+          )}
         </Pressable>
       </Animated.View>
     </View>
