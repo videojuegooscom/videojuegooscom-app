@@ -4236,6 +4236,24 @@ async function seccionRE() {
   await p.getByText("¿Puedo vender o cambiar mi consola?", { exact: true }).click();
   await p.waitForTimeout(500);
   ok(/te la tasamos en menos de 30 minutos, las 24 horas/.test(await p.evaluate(() => document.body.innerText)), "RE: la respuesta de «¿Puedo vender…?» dice la tasación en menos de 30 minutos");
+  // Encuadre (dueño, 2026-11-26): abierta, se ve entera en la pantalla; abrir otra cierra la anterior; tocar fuera la cierra.
+  await p.waitForTimeout(900);
+  const visible = (i) =>
+    p.evaluate((n) => {
+      const r = document.getElementById(`inicio-faq-${n}`)?.getBoundingClientRect();
+      return r ? { arriba: Math.round(r.top), abajo: Math.round(r.bottom), alto: window.innerHeight } : null;
+    }, i);
+  // Abierta = se ve su respuesta (la fila de la pregunta sola mide unos 57 px).
+  const abierta = (i) => p.evaluate((n) => (document.getElementById(`inicio-faq-${n}`)?.getBoundingClientRect().height ?? 0) > 90, i);
+  const v3 = await visible(3);
+  ok(!!v3 && v3.arriba >= 0 && v3.abajo <= v3.alto, `RE: la pregunta abierta se encuadra entera en la pantalla (${JSON.stringify(v3)})`);
+  await p.getByText("¿Puedo pagar a plazos?", { exact: true }).click();
+  await p.waitForTimeout(900);
+  const v5 = await visible(5);
+  ok(!(await abierta(3)) && (await abierta(5)) && !!v5 && v5.arriba >= 0 && v5.abajo <= v5.alto, `RE: abrir otra cierra la anterior y se encuadra (${JSON.stringify(v5)})`);
+  await p.locator("#inicio-faq-titulo").click();
+  await p.waitForTimeout(500);
+  ok(!(await abierta(5)), "RE: tocar fuera de las preguntas cierra la abierta");
   await boton.click();
   const ideas = p.locator("#resena-sugerencias [role='button']");
   await ideas.first().waitFor({ timeout: 20000 }).catch(() => {});
