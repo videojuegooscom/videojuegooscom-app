@@ -1,7 +1,7 @@
 /**
  * Archivo: api/blue-ia.ts
  * Función: función de servidor en /api/blue-ia (Vercel).
- * Para qué sirve: responde a las preguntas del asistente Blue IA con OpenAI (gpt-4o-mini) añadiendo contexto real de la tienda (catálogo, «Lo que Blue sabe», horario); aplica comprobación de origen y cupos de uso por persona y globales.
+ * Para qué sirve: responde a las preguntas del asistente Blue IA con OpenAI (modelo mixto: gpt-4o-mini y, para las preguntas difíciles, el de OPENAI_BLUE_MODEL) añadiendo contexto real de la tienda (catálogo, «Lo que Blue sabe», horario); aplica comprobación de origen y cupos de uso por persona y globales.
  * Conectado con: Supabase (clave de servidor; catálogo, blue_conocimiento y cupos), OpenAI.
  * Utilizado por: app/(tabs)/blue-ia.tsx y components/AsistenteBlue.tsx (guía y asistente de Blue).
  * Dependencias: @supabase/supabase-js.
@@ -210,6 +210,49 @@ const FORMATO_RESPUESTA = {
     },
   },
 } as const;
+
+// Modelo mixto: gpt-4o-mini contesta lo sencillo; las preguntas difíciles (elegir, comparar, tasar, averías, mensajes
+// largos o conversaciones largas) van al modelo avanzado de OPENAI_BLUE_MODEL (en Vercel). Si no está puesto, tiene
+// un nombre raro o falla, contesta gpt-4o-mini como siempre: el cliente nunca se queda sin respuesta.
+const MODELO_BASE = "gpt-4o-mini";
+const RE_NOMBRE_MODELO = /^[a-z0-9][a-z0-9._:-]{1,60}$/i;
+const RE_PREGUNTA_DIFICIL =
+  /(elegir|recomiend|compar|diferenci|mejor opci|cu[aá]l (me|es mejor)|tasa|cu[aá]nto (me )?(dar|pag|vale|cuesta)|vender|reparar|reparaci|aver[ií]|falla|no (enciende|carga|funciona|arranca)|presupuesto|garant[ií]a|devoluci)/i;
+
+function modeloAvanzado(): string | null {
+  const m = (process.env.OPENAI_BLUE_MODEL ?? "").trim();
+  return m && m !== MODELO_BASE && RE_NOMBRE_MODELO.test(m) ? m : null;
+}
+
+function esPreguntaDificil(mensaje: string, turnosHistorial: number): boolean {
+  return mensaje.length > 160 || turnosHistorial >= 6 || RE_PREGUNTA_DIFICIL.test(mensaje);
+}
+
+// Llama a OpenAI con un modelo. Los modelos nuevos no admiten temperature ni max_tokens (usan max_completion_tokens).
+async function pedirRespuesta(openaiKey: string, modelo: string, mensajes: unknown[]): Promise<Response> {
+  const base = modelo === MODELO_BASE;
+  const control = new AbortController();
+  const corte = setTimeout(() => control.abort(), base ? 30000 : 25000);
+  try {
+    return await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model: modelo,
+        messages: mensajes,
+        ...(base ? { temperature: 0.4, max_tokens: 480 } : { max_completion_tokens: 2000 }),
+        // Respuesta + botones de la tienda en un JSON con forma fija (ver FORMATO_RESPUESTA).
+        response_format: FORMATO_RESPUESTA,
+      }),
+      signal: control.signal,
+    });
+  } finally {
+    clearTimeout(corte);
+  }
+}
 
 // Texto que puede ir en un botón (artículo o búsqueda): letras, números y signos sencillos, corto. Nada que parezca
 // un enlace o código.
@@ -1061,33 +1104,40 @@ export default async function handler(req: any, res: any) {
       { role: "user", content: cleanMessage },
     ];
 
-    const completion = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: openaiMessages,
-        temperature: 0.4,
-        max_tokens: 480,
-        // Respuesta + botones de la tienda en un JSON con forma fija (ver FORMATO_RESPUESTA).
-        response_format: FORMATO_RESPUESTA,
-      }),
-    });
-
-    if (!completion.ok) {
-      const errText = await completion.text().catch(() => "");
-      console.error("Blue IA: error de OpenAI:", completion.status, errText);
-      res.status(502).json({
-        error: "Blue IA no ha podido responder ahora mismo. Inténtalo de nuevo en unos segundos.",
-      });
-      return;
+    // Modelo mixto: primero el avanzado si la pregunta lo merece; si falla o no contesta, gpt-4o-mini.
+    const avanzado = modeloAvanzado();
+    let modelo: "avanzado" | "base" = "base";
+    let contenido = "";
+    if (avanzado && esPreguntaDificil(cleanMessage, historyTurns.length)) {
+      try {
+        const r = await pedirRespuesta(openaiKey, avanzado, openaiMessages);
+        if (r.ok) {
+          const d = (await r.json()) as any;
+          contenido = String(d?.choices?.[0]?.message?.content ?? "");
+          if (contenido) modelo = "avanzado";
+        } else {
+          console.warn("Blue IA: el modelo avanzado no ha respondido, contesta gpt-4o-mini:", r.status, await r.text().catch(() => ""));
+        }
+      } catch (e: any) {
+        console.warn("Blue IA: el modelo avanzado ha fallado, contesta gpt-4o-mini:", e?.name ?? e);
+      }
     }
 
-    const data = (await completion.json()) as any;
-    const salida = leerSalida(String(data?.choices?.[0]?.message?.content ?? ""));
+    if (!contenido) {
+      const completion = await pedirRespuesta(openaiKey, MODELO_BASE, openaiMessages);
+      if (!completion.ok) {
+        const errText = await completion.text().catch(() => "");
+        console.error("Blue IA: error de OpenAI:", completion.status, errText);
+        res.status(502).json({
+          error: "Blue IA no ha podido responder ahora mismo. Inténtalo de nuevo en unos segundos.",
+        });
+        return;
+      }
+      const data = (await completion.json()) as any;
+      contenido = String(data?.choices?.[0]?.message?.content ?? "");
+    }
+
+    const salida = leerSalida(contenido);
     const rawReply: string = salida.texto || "No he podido generar una respuesta. ¿Puedes reformular tu pregunta?";
     const accionChips = salida.texto ? salida.acciones : [];
 
@@ -1105,6 +1155,8 @@ export default async function handler(req: any, res: any) {
 
     res.status(200).json({
       reply,
+      // Qué modelo ha contestado (para la analítica del panel; nunca el nombre del modelo).
+      modelo,
       ...(socialChips.length ? { socialChips } : {}),
       ...(productChips.length ? { productChips } : {}),
       ...(accionChips.length ? { accionChips } : {}),

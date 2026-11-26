@@ -1046,6 +1046,10 @@ export default function BlueIAScreen() {
               .map((c: any) => ({ id: c.id, title: c.title, price: Number(c.price ?? 0) }))
           : undefined;
 
+        // Modelo mixto: cuántas respuestas da cada modelo (Administración → Analítica).
+        const modeloRespuesta = data.modelo === "avanzado" ? "avanzado" : "base";
+        void medirEvento("blue_ia_respuesta", `Blue IA: respuesta · modelo ${modeloRespuesta}`, { metadata: { modelo: modeloRespuesta } });
+
         // Botones de la tienda que encajan con la respuesta (vender, cambiar, reparar, buscar…).
         const accionChips = leerAccionChips(data.accionChips);
         if (accionChips) {
