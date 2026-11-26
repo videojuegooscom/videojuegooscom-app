@@ -4211,8 +4211,8 @@ async function seccionRE() {
   await boton.scrollIntoViewIfNeeded({ timeout: 30000 }).catch(() => {});
   const inicio = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
   ok(
-    /Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes\./.test(inicio) && !/lo que opina la gente/.test(inicio),
-    "RE: en Inicio, «Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes.»"
+    /Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes\./.test(inicio) && !/lo que opina la gente/.test(inicio) && !/Opiniones reales de clientes que ya han comprado/.test(inicio),
+    "RE: en Inicio, «Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes.», sin el subtítulo de antes"
   );
   await boton.click();
   const ideas = p.locator("#resena-sugerencias [role='button']");

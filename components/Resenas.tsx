@@ -337,17 +337,8 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
         >
           Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes.
         </Text>
-
-        <Text
-          style={{
-            color: COLORS.muted,
-            lineHeight: 20,
-            fontSize: isMobile ? 14 : 15,
-            textAlign: isMobile ? "center" : "left",
-          }}
-        >
-          Opiniones reales de clientes que ya han comprado o vendido con nosotros.
-        </Text>
+        {/* Sin subtítulo (dueño, 2026-11-26): «Opiniones reales de clientes que ya han comprado o vendido con nosotros»
+            repetía el título. */}
       </View>
 
       <View
