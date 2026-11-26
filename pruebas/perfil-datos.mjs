@@ -3425,6 +3425,44 @@ async function seccionX() {
   // Bienvenida + 2 respuestas = 3 mensajes de Blue, cada uno con la mascota (imagen) y no el icono de antes.
   ok(m.avatares === 3 && m.conMascota && m.sinEstrellitas && m.tamano.every((w) => w === 36), `X: cada respuesta de Blue lleva la mascota de Blue (${m.avatares} mensajes, ${m.tamano.join(", ")} px)`);
   await capturar(p, "X1-blue-ia");
+
+  // Botones de artículos (2026-11-26): primero los que nombra la respuesta y, bajo «También tenemos estas opciones
+  // similares», los parecidos; cada uno con su miniatura (o el icono si no hay foto) y de al menos 44 px.
+  estado.blueIa = () => ({
+    reply: "Tenemos la Consola Nintendo Switch 2 Completa por 415,00 €.",
+    productChips: [
+      { id: "p-sw2", title: "Consola Nintendo Switch 2 Completa", price: 415 },
+      { id: "p-ol1", title: "Consola Nintendo Switch Oled", price: 167, similar: true },
+      { id: "p-ol2", title: "Consola Nintendo Switch Oled", price: 215, similar: true },
+    ],
+  });
+  await preguntar("¿Qué consola me recomiendas, PS5 o Switch 2?", 3);
+  await p.locator("#blue-ia-articulos").last().scrollIntoViewIfNeeded().catch(() => {});
+  const art = await p.evaluate(() => {
+    const caja = Array.from(document.querySelectorAll("#blue-ia-articulos")).at(-1);
+    if (!caja) return null;
+    const filas = Array.from(caja.querySelectorAll('[id^="blue-ia-articulo-"]'));
+    return {
+      orden: filas.map((f) => f.id.replace("blue-ia-articulo-", "")),
+      titulo: caja.querySelector("#blue-ia-similares-titulo")?.textContent ?? "",
+      tituloAntesDeSimilares: (() => {
+        const t = caja.querySelector("#blue-ia-similares-titulo");
+        const s = caja.querySelector('[id^="blue-ia-articulo-similar-"]');
+        return !!t && !!s && !!(t.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING);
+      })(),
+      altos: filas.map((f) => Math.round(f.getBoundingClientRect().height)),
+      miniaturas: filas.map((f) => Math.round(f.firstElementChild?.getBoundingClientRect().width ?? 0)),
+    };
+  });
+  ok(
+    !!art &&
+      art.orden.join() === "nombrado-0,similar-0,similar-1" &&
+      art.titulo === "También tenemos estas opciones similares" &&
+      art.tituloAntesDeSimilares,
+    `X: el artículo nombrado va primero y los parecidos bajo «También tenemos estas opciones similares» (${JSON.stringify(art && { orden: art.orden, titulo: art.titulo })})`
+  );
+  ok(!!art && art.altos.every((h) => h >= 44) && art.miniaturas.every((w) => w === 48), `X: cada artículo lleva su miniatura de 48 px y mide al menos 44 px (${JSON.stringify(art && { altos: art.altos, miniaturas: art.miniaturas })})`);
+  await capturar(p, "X2-blue-ia-articulos");
   ok(p.errores.length === 0, `X: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
   await ctx.close();
 }

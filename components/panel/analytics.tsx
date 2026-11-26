@@ -1709,6 +1709,9 @@ export default function AdminAnalytics() {
       // Modelo mixto (api/blue-ia.ts, 2026-11-26): qué modelo ha contestado.
       blueModeloAvanzado: findExact("Blue IA: respuesta · modelo avanzado"),
       blueModeloBase: findExact("Blue IA: respuesta · modelo base"),
+      // Botones de artículos de Blue IA (2026-11-26): el nombrado en la respuesta o uno de los «similares».
+      blueArticuloNombrado: findExact("Blue IA: artículo tocado · nombrado"),
+      blueArticuloSimilar: findExact("Blue IA: artículo tocado · similar"),
       // «Quiénes somos» (app/quienes-somos.tsx): quién la ve y cuántos llegan desde Inicio o desde entrar/crear cuenta.
       quienesVista: findExact("Quiénes somos: vista"),
       quienesInicio: findExact("Quiénes somos: desde Inicio"),
@@ -2403,7 +2406,8 @@ export default function AdminAnalytics() {
                     <Ionicons name="sparkles-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Blue IA → respuestas del modelo avanzado: {coreFunnel.blueModeloAvanzado} · de gpt-4o-mini:{" "}
-                      {coreFunnel.blueModeloBase} (sesiones)
+                      {coreFunnel.blueModeloBase} (sesiones) · artículos tocados: el nombrado {coreFunnel.blueArticuloNombrado} ·
+                      «opciones similares» {coreFunnel.blueArticuloSimilar}
                     </Text>
                   </View>
                   <View

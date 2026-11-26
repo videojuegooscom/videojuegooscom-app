@@ -663,21 +663,48 @@ async function loadProductContext(pregunta: string): Promise<{ texto: string; pr
   }
 }
 
-// Productos que la respuesta nombra (por su título, o por casi todas sus palabras): se
-// mandan aparte para que la app los pinte como botones que abren la ficha. Como mucho 3.
-function pickProductChips(replyText: string, productos: ProductoContexto[]) {
-  const respuesta = replyText.toLowerCase();
-  const elegidos: { id: string; title: string; price: number }[] = [];
-  for (const p of productos) {
-    const titulo = p.title.toLowerCase().trim();
-    if (!titulo) continue;
-    const palabras = titulo.split(/\s+/).filter((w) => w.length >= 3);
-    const presentes = palabras.filter((w) => respuesta.includes(w)).length;
-    const nombrado = respuesta.includes(titulo) || (palabras.length >= 2 && presentes / palabras.length >= 0.75);
-    if (nombrado) elegidos.push(p);
-    if (elegidos.length >= 3) break;
+// Sin mayúsculas ni tildes, para comparar títulos con la respuesta.
+function normalizarTexto(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+// Precios que escribe la respuesta («750,00€», «1.299 €»), en euros.
+function preciosNombrados(texto: string): number[] {
+  const precios: number[] = [];
+  for (const m of texto.matchAll(/(\d{1,3}(?:\.\d{3})*|\d+)(?:,(\d{1,2}))?\s*€/g)) {
+    precios.push(Number(m[1].replace(/\./g, "")) + Number(`0.${m[2] ?? "0"}`));
   }
-  return elegidos;
+  return precios;
+}
+
+// Artículos para los botones de la respuesta (la app los pinta con su miniatura y abren la ficha):
+// - exactos (como mucho 3): la respuesta nombra el título entero (todas sus palabras) y, si escribe precios, uno es
+//   el suyo; así «Switch 2 Completa por 415 €» no saca una «Switch Oled»;
+// - parecidos (como mucho 3, con similar: true): comparten la mayoría de palabras del título sin ser el nombrado, o
+//   tienen el mismo título con otro precio. La app los pone bajo «También tenemos estas opciones similares».
+function pickProductChips(replyText: string, productos: ProductoContexto[]) {
+  const respuesta = normalizarTexto(replyText);
+  const precios = preciosNombrados(replyText);
+  // Palabras enteras: así el «4» de «Playstation 4» no coincide con el «415» de un precio.
+  const palabrasRespuesta = new Set(respuesta.split(/[^a-z0-9ñ]+/).filter(Boolean));
+  const exactos:{ id: string; title: string; price: number }[] = [];
+  const parecidos: { id: string; title: string; price: number; similar: true }[] = [];
+  for (const p of productos) {
+    const titulo = normalizarTexto(p.title).trim();
+    if (!titulo) continue;
+    const palabras = titulo.split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 || /^\d+$/.test(w));
+    if (!palabras.length) continue;
+    const presentes = palabras.filter((w) => palabrasRespuesta.has(w)).length;
+    const nombrado = respuesta.includes(titulo) || presentes === palabras.length;
+    const precioCuadra = !precios.length || precios.some((x) => Math.abs(x - p.price) < 0.01);
+    if (nombrado && precioCuadra) {
+      if (exactos.length < 3) exactos.push(p);
+    } else if (nombrado || (palabras.length >= 2 && presentes / palabras.length >= 0.6)) {
+      if (parecidos.length < 3) parecidos.push({ ...p, similar: true });
+    }
+  }
+  // Sin un artículo nombrado no hay «opciones similares» de qué hablar.
+  return exactos.length ? [...exactos, ...parecidos] : [];
 }
 
 // "Noticias Flash" activas (app/admin/flash-news.tsx): avisos y promociones que la

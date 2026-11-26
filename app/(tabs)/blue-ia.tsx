@@ -126,6 +126,8 @@ import {
 } from "react-native";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { abrirChatEquipo } from "../../components/ConversacionProducto";
+import { portadasDeProductos } from "../../components/BarraBusqueda";
+import ImagenInteligente from "../../components/ImagenInteligente";
 import { medirEvento } from "../../lib/analiticaPropia";
 import { estadoAtencion, HORARIO_CORTO, type EstadoAtencion } from "../../lib/horarioAtencion";
 import { abrirDescarga, abrirEnlaceExterno } from "../../lib/abrirEnlaceExterno";
@@ -180,8 +182,8 @@ type HelpBlock = {
 type SocialChip = { platform: string; label: string; href: string };
 
 // Un artículo del catálogo que nombra la respuesta (api/blue-ia.ts → pickProductChips):
-// se pinta como botón que abre su ficha.
-type ProductChip = { id: string; title: string; price: number };
+// se pinta como botón con su miniatura que abre su ficha. similar: no es el nombrado sino uno parecido.
+type ProductChip = { id: string; title: string; price: number; similar?: boolean };
 
 // Un botón de la tienda que Blue IA ofrece en su respuesta (api/blue-ia.ts → accionChips; dueño, 2026-11-07): el
 // servidor solo manda el tipo (de una lista cerrada) y, si encaja, el artículo o la búsqueda que contó la persona;
@@ -1043,7 +1045,7 @@ export default function BlueIAScreen() {
         const productChips: ProductChip[] | undefined = Array.isArray(data.productChips)
           ? data.productChips
               .filter((c: any) => c && typeof c.id === "string" && typeof c.title === "string")
-              .map((c: any) => ({ id: c.id, title: c.title, price: Number(c.price ?? 0) }))
+              .map((c: any) => ({ id: c.id, title: c.title, price: Number(c.price ?? 0), similar: c.similar === true }))
           : undefined;
 
         // Modelo mixto: cuántas respuestas da cada modelo (Administración → Analítica).
@@ -1779,36 +1781,95 @@ function BlueIABubble({ message }: { message: BlueIAMessage }) {
   );
 }
 
-// Artículos que Blue IA recomienda en la respuesta: título y precio; al tocarlos se abre
-// su ficha.
+// Artículos que Blue IA nombra en la respuesta y, debajo, los parecidos («También tenemos estas opciones similares»):
+// miniatura, título y precio; al tocarlos se abre su ficha. La miniatura es la portada pequeña (como en el buscador).
 function BlueIAProductChips({ chips }: { chips: ProductChip[] }) {
-  return (
-    <View style={{ gap: 8 }}>
-      {chips.map((chip) => (
-        <Pressable
-          key={chip.id}
-          onPress={() => router.push(`/producto/${chip.id}` as never)}
-          accessibilityRole="link"
-          accessibilityLabel={`Ver ${chip.title}`}
-          style={({ pressed }) => ({
-            flexDirection: "row",
+  const [portadas, setPortadas] = useState<Map<string, string>>(() => new Map());
+  const ids = chips.map((c) => c.id).join(",");
+  useEffect(() => {
+    let vivo = true;
+    portadasDeProductos(ids.split(","))
+      .then((m) => {
+        if (vivo) setPortadas(m);
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [ids]);
+
+  const nombrados = chips.filter((c) => !c.similar);
+  const similares = chips.filter((c) => c.similar);
+  const fila = (chip: ProductChip, i: number) => {
+    const portada = portadas.get(chip.id);
+    return (
+      <Pressable
+        key={chip.id}
+        nativeID={`blue-ia-articulo-${chip.similar ? "similar" : "nombrado"}-${i}`}
+        onPress={() => {
+          void medirEvento("blue_ia_articulo", `Blue IA: artículo tocado · ${chip.similar ? "similar" : "nombrado"}`, {
+            metadata: { producto: chip.id },
+          });
+          router.push(`/producto/${chip.id}` as never);
+        }}
+        accessibilityRole="link"
+        accessibilityLabel={`Ver ${chip.title}, ${fmtEUR(chip.price)}`}
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          minHeight: 64,
+          paddingVertical: 8,
+          paddingLeft: 8,
+          paddingRight: 12,
+          borderRadius: 14,
+          backgroundColor: "#FFFFFF",
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          opacity: pressed ? 0.82 : 1,
+        })}
+      >
+        <View
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 10,
+            overflow: "hidden",
+            flexShrink: 0,
+            backgroundColor: "#F4F9FD",
             alignItems: "center",
-            gap: 8,
-            paddingVertical: 9,
-            paddingHorizontal: 12,
-            borderRadius: 14,
-            backgroundColor: "#FFFFFF",
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            opacity: pressed ? 0.82 : 1,
-          })}
+            justifyContent: "center",
+          }}
         >
-          <Ionicons name="pricetag-outline" size={15} color={COLORS.accent} />
-          <Text style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>{chip.title}</Text>
-          <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 12.5 }}>{fmtEUR(chip.price)}</Text>
-          <Ionicons name="chevron-forward" size={14} color={COLORS.accent} />
-        </Pressable>
-      ))}
+          {portada ? (
+            <ImagenInteligente uri={portada} alt={chip.title} ancho={96} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+          ) : (
+            <Ionicons name="pricetag-outline" size={18} color={COLORS.accent} />
+          )}
+        </View>
+        {/* Nombre entero (con el precio debajo) para distinguir «Switch 2» de «Switch Oled» en el móvil. */}
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <Text numberOfLines={3} style={{ color: COLORS.text, fontWeight: "800", fontSize: 14, lineHeight: 18 }}>
+            {chip.title}
+          </Text>
+          <Text style={{ color: "#0A78B4", fontWeight: "900", fontSize: 14 }}>{fmtEUR(chip.price)}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={14} color={COLORS.accent} />
+      </Pressable>
+    );
+  };
+
+  return (
+    <View nativeID="blue-ia-articulos" style={{ gap: 8 }}>
+      {nombrados.map(fila)}
+      {similares.length ? (
+        <>
+          <Text nativeID="blue-ia-similares-titulo" style={{ color: "rgba(11,33,56,0.72)", fontWeight: "800", fontSize: 13, marginTop: 4 }}>
+            También tenemos estas opciones similares
+          </Text>
+          {similares.map(fila)}
+        </>
+      ) : null}
     </View>
   );
 }
