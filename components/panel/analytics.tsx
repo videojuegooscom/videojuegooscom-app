@@ -2535,7 +2535,7 @@ export default function AdminAnalytics() {
                     <Ionicons name="lock-closed-outline" size={15} color={COLORS.accentDark} />
                     <Text nativeID="analitica-consentimiento" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Privacidad → aceptan la analítica desde la política: {coreFunnel.privacidadAceptan} sesiones (estos datos solo cuentan a
-                      quien pulsa «Aceptar»; nada de quien rechaza o no contesta)
+                      quien pulsa «Sí, quiero ayudar»; nada de quien pulsa «No, gracias» o no contesta)
                     </Text>
                   </View>
                   <View

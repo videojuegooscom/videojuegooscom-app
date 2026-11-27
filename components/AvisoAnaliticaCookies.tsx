@@ -171,7 +171,9 @@ export default function AvisoAnaliticaCookies() {
           ...softShadow(),
         }}
       >
-        <View style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
+        {/* Mismos textos que el recuadro del final de Privacidad (dueño, 2026-11-27: «Ayúdanos a mejorar tu experiencia»):
+            qué se apunta, para qué, que es opcional y cómo cambiarlo. Todo centrado. */}
+        <View style={{ alignItems: "center", gap: 6 }}>
           <View
             style={{
               width: 34,
@@ -184,31 +186,30 @@ export default function AvisoAnaliticaCookies() {
           >
             <Ionicons name="shield-checkmark-outline" size={17} color={COLORS.accentDark} />
           </View>
-
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14.5, lineHeight: 19 }}>
-              Su privacidad es importante para nosotros
+          <Text nativeID="aviso-cookies-titulo" style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 20, textAlign: "center" }}>
+            Ayúdanos a mejorar tu experiencia
+          </Text>
+          <Text style={{ color: COLORS.muted, lineHeight: 19, fontSize: 13.5, textAlign: "center" }}>
+            Si nos dejas, apuntamos qué páginas visitas y qué tocas en la tienda, solo para mejorar tu experiencia. No lo
+            vendemos ni lo cedemos a nadie. Es opcional y puedes cambiarlo cuando quieras en nuestra{" "}
+            <Text
+              style={{ color: COLORS.accentDark, fontWeight: "800" }}
+              onPress={() => router.push("/politicas/privacidad" as never)}
+            >
+              Política de privacidad
             </Text>
-            <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18, fontSize: 13 }}>
-              Utilizamos tecnología de analítica propia, sin ceder datos a terceros, para conocer
-              cómo se navega por la tienda y mejorar de forma continua nuestro servicio. Puede
-              modificar su decisión en cualquier momento desde nuestra{" "}
-              <Text
-                style={{ color: COLORS.accentDark, fontWeight: "800" }}
-                onPress={() => router.push("/politicas/privacidad" as never)}
-              >
-                Política de Privacidad
-              </Text>
-              .
-            </Text>
-          </View>
+            .
+          </Text>
         </View>
 
         <View style={{ flexDirection: "row", gap: 10 }}>
           <Pressable
+            nativeID="aviso-cookies-no"
             onPress={() => handleDecision("declined")}
+            accessibilityRole="button"
             style={({ pressed }) => ({
               flex: 1,
+              minHeight: 46,
               borderRadius: 14,
               borderWidth: 1.5,
               borderColor: COLORS.border,
@@ -216,15 +217,19 @@ export default function AvisoAnaliticaCookies() {
               paddingVertical: 10,
               opacity: pressed ? 0.88 : 1,
               alignItems: "center",
+              justifyContent: "center",
             })}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>Rechazar</Text>
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, textAlign: "center" }}>No, gracias</Text>
           </Pressable>
 
           <Pressable
+            nativeID="aviso-cookies-si"
             onPress={() => handleDecision("accepted")}
+            accessibilityRole="button"
             style={({ pressed }) => ({
               flex: 1,
+              minHeight: 46,
               borderRadius: 14,
               borderWidth: 1,
               borderColor: COLORS.accentDark,
@@ -232,9 +237,10 @@ export default function AvisoAnaliticaCookies() {
               paddingVertical: 10,
               opacity: pressed ? 0.9 : 1,
               alignItems: "center",
+              justifyContent: "center",
             })}
           >
-            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13.5 }}>Aceptar</Text>
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14, textAlign: "center" }}>Sí, quiero ayudar</Text>
           </Pressable>
         </View>
       </View>
