@@ -4821,13 +4821,27 @@ async function seccionPOL() {
     // El índice de noticias apunta «Noticias: índice visto» (con analítica): aquí no debe salir.
     const p = await pagina(ctx, "/noticias");
     await p.waitForTimeout(2500);
+    // El aviso de la entrada, con los mismos textos que Privacidad (dueño, 2026-11-27: «Ayúdanos a mejorar tu experiencia»).
+    const aviso = await p.evaluate(() => {
+      const t = document.getElementById("aviso-cookies-titulo");
+      const caja = t?.parentElement?.parentElement;
+      const botones = ["aviso-cookies-si", "aviso-cookies-no"].map((id) => document.getElementById(id));
+      return {
+        titulo: t?.textContent ?? "",
+        botones: botones.map((b) => (b?.textContent ?? "").trim()),
+        altos: botones.map((b) => Math.round(b?.getBoundingClientRect().height ?? 0)),
+        centrado: caja ? Array.from(caja.querySelectorAll('[dir="auto"]')).filter((x) => /[a-z]{3}/i.test(x.textContent ?? "") && !x.closest('[role="button"]') && x.parentElement?.closest('[dir="auto"]') === null && getComputedStyle(x).textAlign !== "center").length : -1,
+      };
+    });
+    ok(aviso.titulo === "Ayúdanos a mejorar tu experiencia" && aviso.botones.join(" | ") === "Sí, quiero ayudar | No, gracias" && aviso.altos.every((h) => h >= 44) && aviso.centrado === 0, `POL: el aviso de la entrada dice «Ayúdanos a mejorar tu experiencia» con «Sí, quiero ayudar» y «No, gracias», centrado y de 44 px (${JSON.stringify(aviso)})`);
+    await capturar(p, "POL-390-aviso-entrada");
     await p.goto(`${BASE}/politicas/privacidad`, { waitUntil: "load" });
     await p.locator("#privacidad-estado").waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(800);
     const antes = await p.evaluate(() => ({
       estado: document.getElementById("privacidad-estado")?.textContent ?? "",
       sesion: localStorage.getItem("videojuegoos.analytics.session_id"),
-      texto: /hasta que pulsas «Aceptar»/.test(document.body.innerText) && !/mientras no contestes/.test(document.body.innerText),
+      texto: /hasta que pulsas «Sí, quiero ayudar»/.test(document.body.innerText) && !/mientras no contestes/.test(document.body.innerText),
     }));
     ok((estado.eventosEnviados ?? []).length === 0 && !antes.sesion, `POL: sin contestar al aviso no se envía nada ni se guarda la visita en el dispositivo (${(estado.eventosEnviados ?? []).length} eventos)`);
     ok(/Todavía no has elegido/.test(antes.estado) && antes.texto, `POL: Privacidad dice lo que hace la tienda y que aún no se ha contestado («${antes.estado}»)`);
@@ -4835,7 +4849,7 @@ async function seccionPOL() {
     ok(medidas.every((h) => h >= 44), `POL: «Aceptar la analítica» y «Rechazar la analítica» de 44 px o más (${medidas.join(", ")})`);
     // El aviso de cookies no sale en Privacidad (taparía estos botones).
     await p.waitForTimeout(1200);
-    ok((await p.getByText("Su privacidad es importante para nosotros").count()) === 0, "POL: en Privacidad no sale el aviso de cookies encima de los botones");
+    ok((await p.locator("#aviso-cookies-titulo").count()) === 0, "POL: en Privacidad no sale el aviso de cookies encima de los botones");
     await p.locator("#privacidad-preferencia").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, "POL-390-preferencia");
     await p.locator("#privacidad-aceptar").click();
