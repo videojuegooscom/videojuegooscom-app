@@ -121,6 +121,10 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   "/politicas/privacidad": { titulo: "Política de privacidad" },
   "/politicas/terminos": { titulo: "Términos y condiciones" },
   "/politicas/normas-foro": { titulo: "Normas del Foro", descripcion: "Cómo participar en el Foro y en los comentarios de las noticias." },
+  // Revisión de políticas (2026-11-27).
+  "/politicas/garantia": { titulo: "Garantía", descripcion: "3 años en productos nuevos y 12 meses en los de segunda mano: qué cubre y cómo pedirla." },
+  "/politicas/reparacion-envio": { titulo: "Reparación por envío", descripcion: "Mándanos tu consola, móvil o portátil por Correos desde toda la península y te lo devolvemos reparado." },
+  "/politicas/aviso-legal": { titulo: "Aviso legal" },
 };
 
 /**

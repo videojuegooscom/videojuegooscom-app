@@ -4796,6 +4796,71 @@ async function seccionNE() {
   }
 }
 
+// ===== POL) Revisión de políticas (dueño, 2026-11-27: «sí, haz las políticas»; 12 meses de garantía en segunda mano) ==
+// Aviso legal y Garantía nuevas; Devoluciones con excepciones, reembolso y el formulario de desistimiento; Privacidad
+// con las transferencias internacionales; y el pie «Políticas» con las 8. Sin base de datos de prueba sale el respaldo,
+// que es el mismo texto que pone la migración 20261127120000_politicas_legales.sql.
+async function seccionPOL() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const casos = [
+    { ruta: "/politicas/aviso-legal", titulo: "Aviso legal", debe: [/Y4751659B/, /C\. Miguel Servet, 3, 50410 Cuarte de Huerva/, /VideojuegosZaragoza\.com@gmail\.com/, /627 748 741/, /Propiedad intelectual/] },
+    { ruta: "/politicas/garantia", titulo: "Garantía", debe: [/Productos nuevos: 3 años/, /segunda mano: 12 meses/, /nunca inferior a 1 año/, /al menos 3 meses/, /no te cuesta nada, tampoco el envío/] },
+    { ruta: "/politicas/devoluciones", titulo: "Política de devoluciones", debe: [/Excepciones/, /desprecintado/, /incluido el envío estándar/, /12 meses los de segunda mano/, /Formulario de desistimiento/, /desisto de mi contrato de venta/] },
+    { ruta: "/politicas/privacidad", titulo: "Política de privacidad", debe: [/Transferencias internacionales/, /cláusulas contractuales tipo/] },
+    { ruta: "/politicas/reparacion-envio", titulo: "Reparación por envío", debe: [/Como mínimo, la garantía de una reparación es de 3 meses/] },
+  ];
+  for (const [nombre, vista] of [
+    ["360", { viewport: { width: 360, height: 780 } }],
+    ["390", {}],
+    ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ]) {
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: perfil, guardados: [] }, vista);
+    for (const c of casos) {
+      const p = await pagina(ctx, c.ruta);
+      await p.getByText(c.titulo, { exact: true }).first().waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const m = await p.evaluate(() => ({
+        texto: document.body.innerText,
+        h1: Array.from(document.querySelectorAll("h1")).map((h) => (h.textContent ?? "").trim()),
+        descentrados: Array.from(document.querySelectorAll('[dir="auto"]'))
+          .filter((x) => /[a-z]{3}/i.test(x.textContent ?? "") && x.getBoundingClientRect().width > 0 && !x.closest('[role="button"], a, [role="link"]') && getComputedStyle(x).textAlign !== "center")
+          .map((x) => (x.textContent ?? "").slice(0, 30))
+          .slice(0, 3),
+        ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= window.innerWidth + 1,
+      }));
+      const faltan = c.debe.filter((re) => !re.test(m.texto)).map(String);
+      ok(m.h1.includes(c.titulo) && !faltan.length, `POL (${nombre}): ${c.ruta} con su título y su texto (${faltan.join(" · ") || "todo"})`);
+      ok(m.ancho && !m.descentrados.length, `POL (${nombre}): ${c.ruta} centrada y sin desbordes (${JSON.stringify(m.descentrados)})`);
+      if (nombre === "390" || c.ruta.endsWith("garantia")) await capturar(p, `POL-${nombre}-${c.ruta.split("/").pop()}`);
+      if (c.ruta.endsWith("devoluciones")) {
+        // Hasta el final de lo que se desplaza (el formulario es lo último).
+        await p.evaluate(() => {
+          for (const el of [document.scrollingElement, ...document.querySelectorAll("*")]) if (el && el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY)) el.scrollTop = el.scrollHeight;
+        });
+        await p.waitForTimeout(500);
+        await capturar(p, `POL-${nombre}-formulario`);
+      }
+      ok(p.errores.length === 0, `POL (${nombre}): ${c.ruta} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await p.close();
+    }
+    // El pie: «Políticas» con las 8 (las 4 de siempre, Garantía, Reparación por envío, Normas del Foro y Aviso legal).
+    // (Las páginas de políticas no llevan pie: se mira en Perfil.)
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#pie-politicas").waitFor({ state: "attached", timeout: 40000 }).catch(() => {});
+    await p.locator("#pie-politicas").scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator("#pie-politicas").getByText("Políticas", { exact: true }).first().click().catch(() => {});
+    await p.waitForTimeout(900);
+    const pie = await p.evaluate(() => (document.getElementById("pie-politicas")?.innerText ?? "").replace(/\s+/g, " "));
+    ok(["Envíos", "Devoluciones", "Privacidad", "Términos y condiciones", "Garantía", "Reparación por envío", "Normas del Foro", "Aviso legal"].every((t) => pie.includes(t)), `POL (${nombre}): el pie «Políticas» trae las 8 (${pie.slice(0, 160)})`);
+    await capturar(p, `POL-${nombre}-pie`);
+    await p.locator("#pie-politicas").getByText("Aviso legal", { exact: true }).first().scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator("#pie-politicas").getByText("Aviso legal", { exact: true }).first().click().catch(() => {});
+    await p.waitForURL(/aviso-legal/, { timeout: 15000 }).catch(() => {});
+    ok(/\/politicas\/aviso-legal/.test(p.url()), `POL (${nombre}): «Aviso legal» del pie abre su página`);
+    await ctx.close();
+  }
+}
+
 async function seccionRE() {
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
   const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, resenas: [], publicarResenas: true };
@@ -27125,6 +27190,7 @@ try {
   if (SOLO === "RE") await seccionRE();
   if (SOLO === "OF") await seccionOF();
   if (SOLO === "NE") await seccionNE();
+  if (SOLO === "POL") await seccionPOL();
   if (SOLO === "EN") await seccionEN();
   if (SOLO === "NO") await seccionNO();
   if (SOLO === "BU") await seccionBU();
