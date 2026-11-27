@@ -4622,6 +4622,9 @@ async function seccionNE() {
         return {
           abajo: r ? Math.round(window.innerHeight - r.bottom) : -1,
           dentro: !!r && r.left >= 0 && r.right <= window.innerWidth,
+          izquierda: r ? Math.round(r.left) : -1,
+          derecha: r ? Math.round(window.innerWidth - r.right) : -1,
+          fondo: b ? getComputedStyle(b).backgroundColor : "",
           redondeo: b ? parseFloat(getComputedStyle(b).borderTopLeftRadius) : 0,
           // El nombre (la última línea; la primera es el icono).
           textos: botones.map((x) => (x?.innerText ?? "").split("\n").map((s) => s.trim()).filter(Boolean).pop() ?? ""),
@@ -4636,6 +4639,10 @@ async function seccionNE() {
     const tras = await barra();
     ok(arriba.abajo >= 8 && arriba.abajo <= 40 && arriba.abajo === tras.abajo && arriba.dentro, `NE (${nombre}): la barra queda fija abajo al bajar la página (${arriba.abajo} → ${tras.abajo} px del borde)`);
     ok(arriba.redondeo >= 16, `NE (${nombre}): la barra es un bloque de esquinas redondeadas (${arriba.redondeo} px)`);
+    // Márgenes como el contenido (dueño, 2026-11-27): 16 px abajo y, en el móvil, 16 a cada lado; en el ordenador va
+    // centrada (máx. 560 px). Fondo en el azul claro secundario de la tienda (#EAF6FD).
+    const lados = nombre === "1280" ? arriba.izquierda >= 24 && Math.abs(arriba.izquierda - arriba.derecha) <= 2 : arriba.izquierda === 16 && arriba.derecha === 16;
+    ok(arriba.abajo >= 16 && lados && arriba.fondo === "rgb(234, 246, 253)", `NE (${nombre}): la barra respeta los márgenes (abajo ${arriba.abajo}, izquierda ${arriba.izquierda}, derecha ${arriba.derecha}) y va en azul claro (${arriba.fondo})`);
     ok(arriba.textos.join(" | ") === "Volver | Me gusta · 3 | Comentar | Compartir", `NE (${nombre}): volver, me gusta (con el total), comentar y compartir (${arriba.textos.join(" | ")})`);
     ok(
       arriba.altos.every((h) => h >= 44) && !arriba.descentrados.length && !tras.tapan.length,

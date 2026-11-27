@@ -659,7 +659,9 @@ export default function NoticiaScreen() {
       {n ? (
         <View
           pointerEvents="box-none"
-          style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: isMobile ? 12 : 24, paddingBottom: Math.max(12, insets.bottom + 8), alignItems: "center" }}
+          // Mismos márgenes que el contenido de la página (dueño, 2026-11-27: «que respeten los márgenes inferiores y de
+          // los lados»): 16 px a los lados en el móvil (24 en el ordenador) y 16 abajo, más la zona segura del iPhone.
+          style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: pagePadding, paddingBottom: Math.max(16, insets.bottom + 12), alignItems: "center" }}
         >
           {copiado ? (
             <View nativeID="noticia-copiado" style={{ marginBottom: 8, borderRadius: 999, backgroundColor: COLORS.text, paddingHorizontal: 14, paddingVertical: 8 }}>
