@@ -49,6 +49,10 @@ const PAGINAS_FIJAS: { ruta: string; prioridad: string; cambio: string }[] = [
   { ruta: "/politicas/privacidad", prioridad: "0.3", cambio: "yearly" },
   { ruta: "/politicas/terminos", prioridad: "0.3", cambio: "yearly" },
   { ruta: "/politicas/normas-foro", prioridad: "0.3", cambio: "yearly" },
+  // Revisión de políticas (2026-11-27).
+  { ruta: "/politicas/garantia", prioridad: "0.4", cambio: "yearly" },
+  { ruta: "/politicas/reparacion-envio", prioridad: "0.4", cambio: "yearly" },
+  { ruta: "/politicas/aviso-legal", prioridad: "0.3", cambio: "yearly" },
 ];
 
 function escapar(texto: string): string {

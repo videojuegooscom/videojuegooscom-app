@@ -73,6 +73,92 @@ const columnStyle = { width: "100%", maxWidth: 820, alignSelf: "center" } as con
 type PolicySection = { heading: string; body: string };
 type Policy = { title: string; intro: string; sections: PolicySection[] };
 
+// --- Revisión de políticas (dueño, 2026-11-27: «sí, haz las políticas»; garantía de 12 meses en segunda mano) --------
+// Los mismos textos que pone la migración 20261127120000_politicas_legales.sql. Conviene que los revise un gestor o un
+// abogado: esto no sustituye asesoría legal.
+const REEMBOLSO =
+  "Te devolvemos todo lo que pagaste, incluido el envío estándar del pedido, en un plazo máximo de 14 días naturales desde que nos dices que desistes; podemos esperar a recibir el producto, o a que nos demuestres que lo has enviado, antes de devolverte el dinero. Te lo devolvemos por el mismo medio con que pagaste: tarjeta, Bizum o Klarna (a través de Stripe). Si lo pagaste en mano, te lo devolvemos por Bizum o en efectivo, como prefieras.";
+const GARANTIA_EN_DEVOLUCIONES =
+  "Todo lo que vendemos tiene garantía: 3 años los productos nuevos y 12 meses los de segunda mano. Qué cubre y cómo pedirla lo tienes en la política de garantía. Es independiente de los 14 días para devolver.";
+const FORMULARIO_DESISTIMIENTO =
+  "Si quieres desistir por escrito, copia este texto, rellénalo y envíalo a VideojuegosZaragoza.com@gmail.com (o por el chat de la tienda):\n\n" +
+  "A la atención de Daniel Gutiérrez (Videojuegoszaragoza.com), C. Miguel Servet, 3, 50410 Cuarte de Huerva, Zaragoza. VideojuegosZaragoza.com@gmail.com.\n" +
+  "Por la presente le comunico que desisto de mi contrato de venta del siguiente bien: …\n" +
+  "Número de pedido: …\n" +
+  "Pedido el: … / Recibido el: …\n" +
+  "Nombre: …\n" +
+  "Dirección: …\n" +
+  "Firma (solo si lo envías en papel): …\n" +
+  "Fecha: …";
+const TRANSFERENCIAS =
+  "Algunos de los proveedores que hacen funcionar la tienda (OpenAI, Vercel, Supabase, Resend y Stripe) pueden tratar datos fuera del Espacio Económico Europeo, por ejemplo en Estados Unidos. En esos casos, la transferencia se ampara en el Marco de Privacidad de Datos UE-EE. UU., si el proveedor está adherido, o en las cláusulas contractuales tipo aprobadas por la Comisión Europea.";
+const AVISO_LEGAL: Policy = {
+  title: "Aviso legal",
+  intro:
+    "Quién está detrás de Videojuegoszaragoza.com y las condiciones de uso de la web, según la Ley 34/2002 de servicios de la sociedad de la información y de comercio electrónico.",
+  sections: [
+    {
+      heading: "Titular de la web",
+      body: "Videojuegoszaragoza.com es una web de Daniel Gutiérrez, con NIF Y4751659B y domicilio en C. Miguel Servet, 3, 50410 Cuarte de Huerva, Zaragoza. Somos una tienda online, sin tienda física: vendemos, compramos y reparamos consolas y electrónica.",
+    },
+    {
+      heading: "Contacto",
+      body: "Correo: VideojuegosZaragoza.com@gmail.com. WhatsApp: 627 748 741 (solo mensajes; no atendemos llamadas). También puedes escribirnos desde el chat de la tienda o desde Blue IA.",
+    },
+    {
+      heading: "Condiciones de uso",
+      body: "Al usar esta web te comprometes a hacerlo de buena fe, sin dañarla ni usarla para fines ilegales. Comprar, vendernos un aparato o contratar un servicio se rige además por los Términos y condiciones y por las políticas de envíos, devoluciones, garantía y privacidad.",
+    },
+    {
+      heading: "Propiedad intelectual",
+      body: "Los textos, el diseño, el logotipo, las mascotas y las fotos de nuestros productos son de Videojuegoszaragoza.com o los usamos con permiso: no puedes copiarlos ni reutilizarlos sin nuestra autorización. Las noticias son resúmenes propios de artículos de otros medios, que citamos y enlazamos. Las marcas y los nombres de consolas, juegos y fabricantes pertenecen a sus dueños.",
+    },
+    {
+      heading: "Enlaces a otras webs",
+      body: "Algunas páginas enlazan a webs de otros (los medios de las noticias, las redes sociales o la página de pago). No somos responsables de su contenido ni de sus condiciones.",
+    },
+    {
+      heading: "Responsabilidad",
+      body: "Cuidamos que la información de la web sea correcta y esté al día, pero puede contener algún error puntual: si ves alguno, avísanos y lo corregimos.",
+    },
+    { heading: "Ley aplicable", body: "Este aviso legal se rige por la legislación española." },
+  ],
+};
+const GARANTIA: Policy = {
+  title: "Garantía",
+  intro: "Todo lo que vendemos tiene garantía. Te explicamos cuánto dura, qué cubre y cómo pedirla.",
+  sections: [
+    {
+      heading: "Cuánto dura",
+      body: "Productos nuevos: 3 años desde que los recibes, como marca la ley. Productos de segunda mano: 12 meses desde que los recibes (la ley permite pactar para los productos de segunda mano un plazo menor que el de los nuevos, nunca inferior a 1 año). Si la ficha del producto indica una garantía mayor, se aplica esa.",
+    },
+    {
+      heading: "Qué cubre",
+      body: "Cualquier fallo o defecto de funcionamiento que el producto ya tuviera al entregártelo, o que no se corresponda con lo que describimos en su ficha. Antes de ponerse a la venta, cada producto pasa una revisión de funcionamiento.",
+    },
+    {
+      heading: "Qué no cubre",
+      body: "Los daños por golpes, caídas, líquidos, mal uso, manipulación o reparaciones hechas por otros, ni el desgaste normal por el uso. Tampoco lo que ya se indicaba en la ficha del producto (por ejemplo, una marca estética).",
+    },
+    {
+      heading: "Cómo pedirla",
+      body: "Escríbenos desde Perfil → Mis pedidos o por el chat de la tienda, con el número de pedido y lo que le pasa. Te diremos cómo enviárnoslo o entregárnoslo. Si el fallo está cubierto, no te cuesta nada, tampoco el envío.",
+    },
+    {
+      heading: "Cómo lo solucionamos",
+      body: "Lo reparamos o lo cambiamos por otro igual. Como muchos artículos son unidades únicas de segunda mano, si no se puede reparar ni hay otro equivalente, te hacemos una rebaja del precio o te devolvemos el dinero, como prevé la ley.",
+    },
+    {
+      heading: "Garantía de las reparaciones",
+      body: "Cuando reparamos tu aparato, la reparación tiene una garantía de al menos 3 meses, o la que figure en tu presupuesto o en Mis seguimientos si es mayor.",
+    },
+    {
+      heading: "Garantía y devolución",
+      body: "La garantía es distinta del derecho de desistimiento: durante 14 días puedes devolver tu compra aunque funcione bien, como explica la política de devoluciones.",
+    },
+  ],
+};
+
 // Mismo contenido que tenía esta pantalla antes del panel de administración:
 // se usa solo si Supabase falla o la política aún no existe en la base de
 // datos, para que la página nunca aparezca vacía o rota.
@@ -114,15 +200,22 @@ const POLITICAS_DE_RESERVA: Record<string, Policy> = {
       },
     ],
   },
+  // Revisión de políticas (dueño, 2026-11-27): el mismo texto que pone la migración 20261127120000_politicas_legales.sql
+  // (excepciones, reembolso con sus medios de pago, garantía con plazos y el formulario de desistimiento).
   devoluciones: {
     title: "Política de devoluciones",
     intro:
-      "Queremos que compres con confianza. Además de la garantía de tienda que incluye todo lo que vendemos, tienes derecho legal a devolver tu compra si cambias de opinión.",
+      "Queremos que compres con confianza. Además de la garantía que incluye todo lo que vendemos, tienes derecho legal a devolver tu compra si cambias de opinión.",
     sections: [
       {
         heading: "Derecho de desistimiento (14 días)",
         body:
-          "Como consumidor, dispones de 14 días naturales desde que recibes el producto para desistir de la compra sin necesidad de justificar el motivo, conforme a la normativa española y europea de protección de consumidores. Para ejercerlo, contáctanos por WhatsApp o desde tu Perfil indicando el pedido a devolver.",
+          "Como consumidor, dispones de 14 días naturales desde que recibes el producto para desistir de la compra sin necesidad de justificar el motivo, conforme a la normativa española y europea de protección de consumidores. Para ejercerlo, escríbenos por el chat de la tienda o desde Mis pedidos indicando el pedido a devolver. También puedes usar el formulario de desistimiento que tienes al final de esta página.",
+      },
+      {
+        heading: "Excepciones",
+        body:
+          "No se puede desistir de videojuegos, películas o programas que venían precintados si los has desprecintado después de recibirlos, ni de productos hechos a tu medida.",
       },
       {
         heading: "Estado del producto a devolver",
@@ -136,16 +229,20 @@ const POLITICAS_DE_RESERVA: Record<string, Policy> = {
       },
       {
         heading: "Reembolso",
-        body:
-          "Una vez recibido y comprobado el producto, procesamos el reembolso por el mismo método de pago utilizado en la compra en un plazo máximo de 14 días naturales.",
+        body: REEMBOLSO,
       },
       {
         heading: "Garantía de tienda (distinta de la devolución)",
-        body:
-          "Todo lo que vendemos incluye garantía de tienda: cada producto pasa una revisión de funcionamiento antes de ponerse a la venta, y si algo falla dentro del periodo de garantía, te lo solucionamos sin líos. Esto aplica independientemente del plazo de desistimiento de 14 días.",
+        body: GARANTIA_EN_DEVOLUCIONES,
+      },
+      {
+        heading: "Formulario de desistimiento",
+        body: FORMULARIO_DESISTIMIENTO,
       },
     ],
   },
+  "aviso-legal": AVISO_LEGAL,
+  garantia: GARANTIA,
   privacidad: {
     title: "Política de privacidad",
     intro:
@@ -181,6 +278,8 @@ const POLITICAS_DE_RESERVA: Record<string, Policy> = {
         body:
           "Conservamos tus datos mientras mantengas una cuenta activa y, tras cerrarla, durante el plazo legalmente exigido para cumplir obligaciones fiscales y contables.",
       },
+      // Revisión de políticas (2026-11-27): el mismo texto que añade la migración 20261127120000_politicas_legales.sql.
+      { heading: "Transferencias internacionales", body: TRANSFERENCIAS },
       {
         heading: "Tus derechos",
         body:
@@ -287,7 +386,7 @@ const POLITICAS_DE_RESERVA: Record<string, Policy> = {
         body:
           "La reparación se hace en el plazo que te indicamos en tu seguimiento, contado desde que el aparato llega a nuestro taller, si no hay que pedir piezas. Si hace falta una pieza, te avisamos en Mis seguimientos con la fecha aproximada de llegada.",
       },
-      { heading: "Garantía", body: "La reparación tiene la garantía que figura en tu presupuesto o en tu factura." },
+      { heading: "Garantía", body: "La reparación tiene la garantía que figura en tu presupuesto o en tu factura. Como mínimo, la garantía de una reparación es de 3 meses." },
       {
         heading: "La vuelta",
         body: "El envío de vuelta a tu casa va incluido en el precio de la reparación. Solo pagas aparte la etiqueta para mandárnoslo.",

@@ -442,6 +442,12 @@ export default function PieDePagina({
               <FooterLink label="Devoluciones" icon="return-down-back-outline" onPress={() => pushRoute("/politicas/devoluciones" as Href)} />
               <FooterLink label="Privacidad" icon="lock-closed-outline" onPress={() => pushRoute("/politicas/privacidad" as Href)} />
               <FooterLink label="Términos y condiciones" icon="reader-outline" onPress={() => pushRoute("/politicas/terminos" as Href)} />
+              {/* Revisión de políticas (dueño, 2026-11-27): garantía con sus plazos, aviso legal (LSSI) y las dos que ya
+                  existían pero no salían en el pie. */}
+              <FooterLink label="Garantía" icon="shield-checkmark-outline" onPress={() => pushRoute("/politicas/garantia" as Href)} />
+              <FooterLink label="Reparación por envío" icon="construct-outline" onPress={() => pushRoute("/politicas/reparacion-envio" as Href)} />
+              <FooterLink label="Normas del Foro" icon="chatbubbles-outline" onPress={() => pushRoute("/politicas/normas-foro" as Href)} />
+              <FooterLink label="Aviso legal" icon="business-outline" onPress={() => pushRoute("/politicas/aviso-legal" as Href)} />
             </FooterAccordionSection>
 
             <FooterAccordionSection id="pie-blog" title="Blog" icon="book-outline" open={abierto === "blog"} onToggle={() => alternar("blog")}>
