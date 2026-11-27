@@ -175,6 +175,23 @@ export async function guardarConsentimientoAnalitica(value: "accepted" | "declin
   }
 }
 
+// «Preferencias de cookies» del pie (dueño, 2026-11-27): vuelve a abrir el aviso para cambiar o retirar el
+// consentimiento en cualquier momento (RGPD: retirarlo tiene que ser tan fácil como darlo).
+const oyentesPreferencias = new Set<() => void>();
+
+/** El aviso (components/AvisoAnaliticaCookies.tsx) se apunta aquí; devuelve la función para borrarse. */
+export function escucharPreferenciasAnalitica(fn: () => void): () => void {
+  oyentesPreferencias.add(fn);
+  return () => {
+    oyentesPreferencias.delete(fn);
+  };
+}
+
+/** Lo llama el enlace «Preferencias de cookies» del pie: abre el aviso aunque ya se hubiera contestado. */
+export function abrirPreferenciasAnalitica(): void {
+  oyentesPreferencias.forEach((fn) => fn());
+}
+
 // Caché en memoria de "¿este user_id es admin?", para no consultar la tabla
 // profiles en cada evento: solo hace falta una vez por sesión y por usuario
 // (los visitantes anónimos, la inmensa mayoría, ni siquiera la tocan).

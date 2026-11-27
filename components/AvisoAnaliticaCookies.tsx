@@ -46,7 +46,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { router, usePathname } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { leerConsentimientoAnalitica, guardarConsentimientoAnalitica } from "../lib/analiticaPropia";
+import {
+  leerConsentimientoAnalitica,
+  guardarConsentimientoAnalitica,
+  escucharPreferenciasAnalitica,
+  medirEvento,
+  type ConsentimientoAnalitica,
+} from "../lib/analiticaPropia";
 import { useMargenInferiorBarraPestanas } from "../lib/barraPestanas";
 
 const COLORS = {
@@ -83,7 +89,24 @@ export default function AvisoAnaliticaCookies() {
 
   const [visible, setVisible] = useState(false);
   const [checked, setChecked] = useState(false);
+  // Abierto desde «Preferencias de cookies» del pie (2026-11-27): sale aunque ya hubiera contestado, también en
+  // Privacidad, y enseña lo que tiene elegido ahora mismo.
+  const [reabierto, setReabierto] = useState(false);
+  const [actual, setActual] = useState<ConsentimientoAnalitica>(null);
   const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(
+    () =>
+      escucharPreferenciasAnalitica(() => {
+        void leerConsentimientoAnalitica().then((c) => {
+          setActual(c);
+          setChecked(true);
+          setReabierto(true);
+          setVisible(true);
+        });
+      }),
+    []
+  );
 
   useEffect(() => {
     let alive = true;
@@ -116,7 +139,7 @@ export default function AvisoAnaliticaCookies() {
   // Si decide desde Privacidad («Aceptar la analítica» / «Rechazar la analítica», 2026-11-27), el aviso ya no vuelve a
   // salir al cambiar de pantalla.
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || reabierto) return;
     let vivo = true;
     void leerConsentimientoAnalitica().then((c) => {
       if (vivo && c !== null) setVisible(false);
@@ -124,7 +147,7 @@ export default function AvisoAnaliticaCookies() {
     return () => {
       vivo = false;
     };
-  }, [pathname, visible]);
+  }, [pathname, visible, reabierto]);
 
   const isAdminRoute = pathname?.startsWith("/admin");
   // En Privacidad no sale: la página tiene sus propios botones para decidir y el aviso los taparía.
@@ -133,14 +156,21 @@ export default function AvisoAnaliticaCookies() {
   const tabBarInset = useMargenInferiorBarraPestanas();
 
   const handleDecision = async (value: "accepted" | "declined") => {
+    const desdePie = reabierto;
     setVisible(false);
+    setReabierto(false);
     await guardarConsentimientoAnalitica(value);
+    // Solo se cuenta si acepta: con «No, gracias» medirEvento no envía nada (Administración → Analítica).
+    if (desdePie && value === "accepted") {
+      void medirEvento("preferencias_cookies", "Pie: analítica aceptada desde las preferencias", { path: pathname ?? undefined });
+    }
   };
 
   // No se pinta nada en /admin (ese aviso es para clientes, no para Jefe
   // gestionando su tienda), antes de saber si hace falta preguntar, o una
   // vez que el visitante ya contestó (o todavía no ha pasado el retraso).
-  if (isAdminRoute || enPrivacidad || !checked || !visible) return null;
+  // En Privacidad solo sale si se abre a propósito desde el pie.
+  if (isAdminRoute || (enPrivacidad && !reabierto) || !checked || !visible) return null;
 
   return (
     <Animated.View
@@ -200,6 +230,15 @@ export default function AvisoAnaliticaCookies() {
             </Text>
             .
           </Text>
+          {reabierto ? (
+            <Text nativeID="aviso-cookies-actual" style={{ color: COLORS.text, fontWeight: "800", lineHeight: 19, fontSize: 13.5, textAlign: "center" }}>
+              {actual === "accepted"
+                ? "Ahora mismo nos estás ayudando. ¡Gracias!"
+                : actual === "declined"
+                  ? "Ahora mismo no compartes tu uso de la tienda."
+                  : "Todavía no has elegido: mientras tanto no apuntamos nada."}
+            </Text>
+          ) : null}
         </View>
 
         <View style={{ flexDirection: "row", gap: 10 }}>

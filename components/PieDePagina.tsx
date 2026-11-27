@@ -49,6 +49,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Modal, PanResponder, Platform, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
+import { abrirPreferenciasAnalitica, medirEvento } from "../lib/analiticaPropia";
 import EnlacesRedesSociales from "./EnlacesRedesSociales";
 import MarcaAnimada from "./marca/MarcaAnimada";
 import { VentanaMejoras } from "./VentanaValoracion";
@@ -449,6 +450,18 @@ export default function PieDePagina({
               <FooterLink label="Reparación por envío" icon="construct-outline" onPress={() => pushRoute("/politicas/reparacion-envio" as Href)} />
               <FooterLink label="Normas del Foro" icon="chatbubbles-outline" onPress={() => pushRoute("/politicas/normas-foro" as Href)} />
               <FooterLink label="Aviso legal" icon="business-outline" onPress={() => pushRoute("/politicas/aviso-legal" as Href)} />
+              {/* Dueño, 2026-11-27: enlace discreto para cambiar o retirar el consentimiento de la analítica en cualquier
+                  momento; vuelve a abrir el aviso «Ayúdanos a mejorar tu experiencia» (components/AvisoAnaliticaCookies). */}
+              <FooterLink
+                label="Preferencias de cookies"
+                icon="options-outline"
+                nativeID="pie-preferencias-cookies"
+                onPress={() => {
+                  abrirPreferenciasAnalitica();
+                  // Solo se envía si ya la aceptó (Administración → Analítica); de quien la rechazó no sale nada.
+                  void medirEvento("preferencias_cookies", "Pie: preferencias de cookies abiertas");
+                }}
+              />
             </FooterAccordionSection>
 
             <FooterAccordionSection id="pie-blog" title="Blog" icon="book-outline" open={abierto === "blog"} onToggle={() => alternar("blog")}>
