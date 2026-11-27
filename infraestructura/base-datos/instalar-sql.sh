@@ -23,7 +23,9 @@ LOG=/var/log/vz-sql
 LIB_ESTADO=/var/lib/vz-sql
 CLIENTE=/usr/local/bin/vz-sql
 GRUPO=videojuegoszaragoza
-USUARIO_PRUEBAS="${SUDO_USER:-videojuegoszaragoza}"
+# Las pruebas y las comprobaciones de git van SIEMPRE como el usuario del proyecto (dueño del repositorio),
+# no como quien ejecuta sudo: aquí el administrador es otro usuario (veoaura) que no puede leer esta carpeta.
+USUARIO_PRUEBAS=videojuegoszaragoza
 
 rojo()  { printf '\033[31m%s\033[0m\n' "$*"; }
 verde() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -31,7 +33,7 @@ paso()  { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 abortar() { rojo "ABORTADO: $*"; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || { rojo "Ejecuta con sudo: sudo bash $0"; exit 1; }
-[ "$USUARIO_PRUEBAS" != "root" ] || USUARIO_PRUEBAS=videojuegoszaragoza
+id "$USUARIO_PRUEBAS" >/dev/null 2>&1 || { rojo "No existe el usuario $USUARIO_PRUEBAS"; exit 1; }
 
 if [ "${1:-}" = "--revertir" ]; then
   paso "Desactivando vz-sql (no se borra nada)"
@@ -51,10 +53,13 @@ for f in broker.py clasificador.py cliente.py diagnostico_d8.sql requisitos.txt 
 done
 command -v git >/dev/null || abortar "falta git"
 getent group "$GRUPO" >/dev/null || abortar "no existe el grupo $GRUPO"
-if [ -n "$(runuser -u "$USUARIO_PRUEBAS" -- git -C "$ORIGEN" status --porcelain -- . 2>/dev/null)" ]; then
-  abortar "hay cambios sin commit en $ORIGEN: instala solo una versión versionada"
-fi
-echo "Origen: $ORIGEN ($(runuser -u "$USUARIO_PRUEBAS" -- git -C "$ORIGEN" log -1 --format='%h %s' 2>/dev/null || echo '?'))"
+# Falla cerrado: si git no puede leer el repositorio, se aborta (antes un error contaba como «sin cambios»).
+CAMBIOS="$(runuser -u "$USUARIO_PRUEBAS" -- git -C "$ORIGEN" status --porcelain -- .)" \
+  || abortar "git no puede leer $ORIGEN como $USUARIO_PRUEBAS"
+[ -z "$CAMBIOS" ] || abortar "hay cambios sin commit en $ORIGEN: instala solo una versión versionada"
+VERSION="$(runuser -u "$USUARIO_PRUEBAS" -- git -C "$ORIGEN" log -1 --format='%h %s')" \
+  || abortar "git no puede leer el último commit de $ORIGEN"
+echo "Origen: $ORIGEN ($VERSION)"
 
 paso "2/8 Usuario dedicado vz-sql"
 if ! id vz-sql >/dev/null 2>&1; then

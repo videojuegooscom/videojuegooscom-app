@@ -141,6 +141,10 @@ comprobar(subprocess.run(["bash", "-n", os.path.join(AQUI, "instalar-sql.sh")]).
           "instalar-sql.sh con errores de sintaxis")
 comprobar(instalar.index("6/8 Pruebas") < instalar.index("systemctl enable --now vz-sql.socket"),
           "las pruebas deben ir antes de activar el socket")
+comprobar("USUARIO_PRUEBAS=videojuegoszaragoza" in instalar and "SUDO_USER" not in instalar,
+          "las pruebas van como el usuario del proyecto, no como quien ejecuta sudo (veoaura no lee el repositorio)")
+comprobar("2>/dev/null)\" ]" not in instalar and "|| abortar \"git no puede leer" in instalar,
+          "la comprobación de cambios sin commit falla cerrado si git no puede leer el repositorio")
 comprobar("rm -rf /" not in instalar and "userdel" not in instalar and "systemctl restart" not in instalar,
           "el instalador no borra usuarios ni reinicia servicios")
 
