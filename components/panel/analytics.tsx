@@ -1760,7 +1760,9 @@ export default function AdminAnalytics() {
       noticiasRecientesTocadas: findExact("Noticias en estantes: recientes que podrían interesarte · tocada"),
       // Barra fija de abajo en la página de cada noticia (app/noticias/[id].tsx, 2026-11-27).
       noticiaBarraMeGusta: findExact("Noticias: barra · me gusta"),
-      noticiaBarraComentar: findExact("Noticias: comentar en el Foro"),
+      // Hasta el 2026-11-27 «Comentar» llevaba al Foro; desde entonces abre la hoja de comentarios (se suman las dos).
+      noticiaBarraComentar: findExact("Noticias: comentar en el Foro") + findExact("Noticias: barra · comentar"),
+      noticiaComentariosEnviados: findExact("Noticias: comentario enviado desde la noticia"),
       noticiaBarraCompartir: findExact("Noticias: barra · compartir"),
       noticiaBarraVolver: findExact("Noticias: barra · volver"),
       // Privacidad → «Aceptar la analítica» (2026-11-27). Quien la rechaza no se cuenta (no se registra nada).
@@ -1813,7 +1815,7 @@ export default function AdminAnalytics() {
       google: buscadores.find((b) => b.clave === "Google")?.n ?? 0,
       desdeBuscadores: buscadores.reduce((s, b) => s + b.n, 0),
       indice: exacto("Noticias: índice visto"),
-      comentar: exacto("Noticias: comentar en el Foro"),
+      comentar: exacto("Noticias: comentar en el Foro") + exacto("Noticias: barra · comentar"),
     };
   }, [funnel]);
 
@@ -2530,7 +2532,8 @@ export default function AdminAnalytics() {
                     <Ionicons name="heart-outline" size={15} color={COLORS.accentDark} />
                     <Text nativeID="analitica-noticia-barra" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Página de noticia, barra de abajo → me gusta: {coreFunnel.noticiaBarraMeGusta} · comentar: {coreFunnel.noticiaBarraComentar} ·
-                      compartir: {coreFunnel.noticiaBarraCompartir} · volver: {coreFunnel.noticiaBarraVolver} sesiones
+                      compartir: {coreFunnel.noticiaBarraCompartir} · volver: {coreFunnel.noticiaBarraVolver} sesiones · comentarios
+                      escritos desde la noticia: {coreFunnel.noticiaComentariosEnviados}
                     </Text>
                   </View>
                   {/* Analítica con consentimiento (2026-11-27): solo cuenta quien la acepta; quien la rechaza no sale. */}
@@ -3208,8 +3211,8 @@ export default function AdminAnalytics() {
                   <Ionicons name="newspaper-outline" size={16} color={COLORS.accentDark} />
                   <View style={{ flex: 1, gap: 3 }}>
                     <Text nativeID="analitica-noticias-vistas" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>
-                      Páginas de noticias vistas: {noticiasOrganicas.vistas} · índice de noticias: {noticiasOrganicas.indice} · «Comentar en el
-                      Foro»: {noticiasOrganicas.comentar}
+                      Páginas de noticias vistas: {noticiasOrganicas.vistas} · índice de noticias: {noticiasOrganicas.indice} · «Comentar»:{" "}
+                      {noticiasOrganicas.comentar}
                     </Text>
                     {noticiasOrganicas.categorias.length ? (
                       <Text nativeID="analitica-noticias-categorias" style={{ color: COLORS.text, fontSize: TAMANOS.minimo }}>

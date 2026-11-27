@@ -110,7 +110,7 @@ export function EnlaceNormasForo({ desde }: { desde: "foro" | "comentarios" }) {
       })}
     >
       <Ionicons name="document-text-outline" size={17} color={COLORS.accent} />
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5, textDecorationLine: "underline" }}>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5, textDecorationLine: "underline", textAlign: "center" }}>
         Leer las normas del Foro
       </Text>
     </Pressable>
