@@ -2,7 +2,7 @@
  * Archivo: app/politicas/[slug].tsx
  * Función: pantalla de una política legal o comercial, en la dirección /politicas/<slug> (envios, devoluciones, privacidad, terminos, normas-foro, reparacion-envio…).
  * Para qué sirve: el cliente lee las condiciones de la tienda; el texto sale de la base de datos y, si falla, de un respaldo del propio archivo.
- * Conectado con: lib/supabase.ts (tabla policy_pages, editada desde app/admin/policies.tsx), components/CabeceraMarca.tsx, components/TirarParaActualizar.tsx; lib/analiticaPropia.ts (en Privacidad, «Aceptar la analítica» / «Rechazar la analítica»).
+ * Conectado con: lib/supabase.ts (tabla policy_pages, editada desde app/admin/policies.tsx), components/CabeceraMarca.tsx, components/TirarParaActualizar.tsx; lib/analiticaPropia.ts (en Privacidad, el recuadro «Ayúdanos a mejorar la tienda»: «Sí, quiero ayudar» / «No, gracias»).
  * Utilizado por: Expo Router (dirección /politicas/<slug>); la enlazan components/PieDePagina.tsx, AvisoAnaliticaCookies.tsx, PerfilPublico.tsx, BarraBusqueda.tsx, AsistenteBlue.tsx, ContratarServicioModal.tsx, app/checkout.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx y app/(tabs)/chat-global.tsx.
  * Dependencias: react, react-native, expo-router.
  * Estado: ACTIVO
@@ -95,7 +95,7 @@ const FORMULARIO_DESISTIMIENTO =
 // Analítica con consentimiento (dueño, 2026-11-27: «sí, cambia la analítica»): lo que la tienda hace de verdad
 // (lib/analiticaPropia.ts no envía ni guarda nada hasta «Aceptar») y cómo cambiar la decisión (botones de esta página).
 const COOKIES_Y_ANALITICA =
-  "Usamos una herramienta de analítica propia, sin servicios de terceros como Google Analytics, para registrar de forma agregada cómo se navega por la tienda: qué secciones y categorías se visitan, qué productos se consultan y hasta dónde se llega en cada visita. Esta información nos ayuda a mejorar el catálogo y la experiencia de compra; nunca se vende ni se comparte con terceros. Al entrar en la tienda te lo preguntamos con un aviso: no registramos ni guardamos nada de tu visita hasta que pulsas «Aceptar» (si aceptas, también se registra lo que hiciste en esa misma visita antes de aceptar). Si pulsas «Rechazar» o no contestas, no se registra nada. Puedes cambiar tu decisión cuando quieras con los botones «Aceptar la analítica» y «Rechazar la analítica» del final de esta página. Si tienes una cuenta y la sesión iniciada, tu recorrido queda asociado a tu perfil solo para este análisis interno. También contamos, de forma agregada, si llegas a la tienda desde nuestras redes sociales (Instagram o TikTok) y si creas una cuenta en esa visita, para saber qué red nos funciona mejor. Para que la tienda funcione mejor, tu navegador guarda en tu propio dispositivo tu decisión sobre la analítica, los productos que eliges para comparar y los que has visto recientemente; no se envían a nadie y puedes quitarlos desde la propia tienda («Quitar», «Borrar historial») o borrando los datos del sitio.";
+  "Usamos una herramienta de analítica propia, sin servicios de terceros como Google Analytics, para registrar de forma agregada cómo se navega por la tienda: qué secciones y categorías se visitan, qué productos se consultan y hasta dónde se llega en cada visita. Esta información nos ayuda a mejorar el catálogo y la experiencia de compra; nunca se vende ni se comparte con terceros. Al entrar en la tienda te lo preguntamos con un aviso: no registramos ni guardamos nada de tu visita hasta que pulsas «Aceptar» (si aceptas, también se registra lo que hiciste en esa misma visita antes de aceptar). Si pulsas «Rechazar» o no contestas, no se registra nada. Puedes cambiar tu decisión cuando quieras en el recuadro «Ayúdanos a mejorar la tienda» del final de esta página («Sí, quiero ayudar» o «No, gracias»). Si tienes una cuenta y la sesión iniciada, tu recorrido queda asociado a tu perfil solo para este análisis interno. También contamos, de forma agregada, si llegas a la tienda desde nuestras redes sociales (Instagram o TikTok) y si creas una cuenta en esa visita, para saber qué red nos funciona mejor. Para que la tienda funcione mejor, tu navegador guarda en tu propio dispositivo tu decisión sobre la analítica, los productos que eliges para comparar y los que has visto recientemente; no se envían a nadie y puedes quitarlos desde la propia tienda («Quitar», «Borrar historial») o borrando los datos del sitio.";
 const TRANSFERENCIAS =
   "Algunos de los proveedores que hacen funcionar la tienda (OpenAI, Vercel, Supabase, Resend y Stripe) pueden tratar datos fuera del Espacio Económico Europeo, por ejemplo en Estados Unidos. En esos casos, la transferencia se ampara en el Marco de Privacidad de Datos UE-EE. UU., si el proveedor está adherido, o en las cláusulas contractuales tipo aprobadas por la Comisión Europea.";
 const AVISO_LEGAL: Policy = {
@@ -473,12 +473,14 @@ function PreferenciaAnalitica() {
     // Solo se mide si acepta (con «Rechazar» no sale nada).
     if (v === "accepted") void medirEvento("analitica_preferencia", "Privacidad: analítica aceptada desde la política", { path: "/politicas/privacidad" });
   };
+  // Textos cercanos (dueño, 2026-11-27: «ayúdanos a mejorar la experiencia… pero que sea legal»): dicen qué se apunta,
+  // para qué, que es opcional y que se puede cambiar; sin prometer anonimato (con sesión, va unido a la cuenta).
   const texto =
     estado === "accepted"
-      ? "Ahora mismo tienes la analítica aceptada."
+      ? "Ahora mismo nos estás ayudando. ¡Gracias!"
       : estado === "declined"
-        ? "Ahora mismo tienes la analítica rechazada: no se registra nada de tus visitas."
-        : "Todavía no has contestado: no se registra nada de tus visitas.";
+        ? "Ahora mismo no compartes tu uso de la tienda: no apuntamos nada de tus visitas."
+        : "Todavía no has elegido: mientras tanto no apuntamos nada de tus visitas.";
   const boton = (v: "accepted" | "declined", etiqueta: string, principal: boolean) => (
     <Pressable
       nativeID={v === "accepted" ? "privacidad-aceptar" : "privacidad-rechazar"}
@@ -503,14 +505,18 @@ function PreferenciaAnalitica() {
   return (
     <View nativeID="privacidad-preferencia" style={{ alignItems: "center", gap: 10, borderRadius: 18, backgroundColor: "#F6FAFD", padding: 18, marginTop: 4 }}>
       <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-        Tu decisión sobre la analítica
+        Ayúdanos a mejorar la tienda
       </Text>
-      <Text nativeID="privacidad-estado" style={{ color: COLORS.muted, lineHeight: 21, fontSize: 14.5, textAlign: "center" }}>
+      <Text style={{ color: COLORS.muted, lineHeight: 21, fontSize: 14.5, textAlign: "center" }}>
+        Si nos dejas, apuntamos qué páginas visitas y qué tocas en la tienda, solo para mejorarla. No lo vendemos ni lo cedemos
+        a nadie. Es opcional y puedes cambiarlo cuando quieras.
+      </Text>
+      <Text nativeID="privacidad-estado" style={{ color: COLORS.text, fontWeight: "800", lineHeight: 21, fontSize: 14.5, textAlign: "center" }}>
         {estado === undefined ? "Cargando…" : texto}
       </Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
-        {boton("accepted", "Aceptar la analítica", true)}
-        {boton("declined", "Rechazar la analítica", false)}
+        {boton("accepted", "Sí, quiero ayudar", true)}
+        {boton("declined", "No, gracias", false)}
       </View>
       {hecho ? (
         <Text nativeID="privacidad-guardado" style={{ color: COLORS.text, fontWeight: "800", fontSize: 13.5, textAlign: "center" }}>

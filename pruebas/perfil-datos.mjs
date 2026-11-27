@@ -4830,7 +4830,7 @@ async function seccionPOL() {
       texto: /hasta que pulsas «Aceptar»/.test(document.body.innerText) && !/mientras no contestes/.test(document.body.innerText),
     }));
     ok((estado.eventosEnviados ?? []).length === 0 && !antes.sesion, `POL: sin contestar al aviso no se envía nada ni se guarda la visita en el dispositivo (${(estado.eventosEnviados ?? []).length} eventos)`);
-    ok(/Todavía no has contestado/.test(antes.estado) && antes.texto, `POL: Privacidad dice lo que hace la tienda y que aún no se ha contestado («${antes.estado}»)`);
+    ok(/Todavía no has elegido/.test(antes.estado) && antes.texto, `POL: Privacidad dice lo que hace la tienda y que aún no se ha contestado («${antes.estado}»)`);
     const medidas = await p.evaluate(() => ["privacidad-aceptar", "privacidad-rechazar"].map((id) => Math.round(document.getElementById(id)?.getBoundingClientRect().height ?? 0)));
     ok(medidas.every((h) => h >= 44), `POL: «Aceptar la analítica» y «Rechazar la analítica» de 44 px o más (${medidas.join(", ")})`);
     // El aviso de cookies no sale en Privacidad (taparía estos botones).
@@ -4841,12 +4841,12 @@ async function seccionPOL() {
     await p.locator("#privacidad-aceptar").click();
     for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "analitica_preferencia"); i++) await p.waitForTimeout(250);
     const tras = await p.evaluate(() => ({ estado: document.getElementById("privacidad-estado")?.textContent ?? "", guardado: localStorage.getItem("videojuegoos.analytics.consent") }));
-    ok(/aceptada/.test(tras.estado) && tras.guardado === "accepted" && (estado.eventosEnviados ?? []).some((e) => e.step_label === "Privacidad: analítica aceptada desde la política"), `POL: «Aceptar la analítica» la activa y se cuenta («${tras.estado}», ${tras.guardado})`);
+    ok(/nos estás ayudando/.test(tras.estado) && tras.guardado === "accepted" && (estado.eventosEnviados ?? []).some((e) => e.step_label === "Privacidad: analítica aceptada desde la política"), `POL: «Aceptar la analítica» la activa y se cuenta («${tras.estado}», ${tras.guardado})`);
     const enviados = (estado.eventosEnviados ?? []).length;
     await p.locator("#privacidad-rechazar").click();
     await p.waitForTimeout(600);
     const fin = await p.evaluate(() => ({ estado: document.getElementById("privacidad-estado")?.textContent ?? "", guardado: localStorage.getItem("videojuegoos.analytics.consent") }));
-    ok(/rechazada/.test(fin.estado) && fin.guardado === "declined" && (estado.eventosEnviados ?? []).length === enviados, `POL: «Rechazar la analítica» la apaga y no se envía nada más («${fin.estado}», ${fin.guardado})`);
+    ok(/no compartes tu uso/.test(fin.estado) && fin.guardado === "declined" && (estado.eventosEnviados ?? []).length === enviados, `POL: «Rechazar la analítica» la apaga y no se envía nada más («${fin.estado}», ${fin.guardado})`);
     ok(p.errores.length === 0, `POL: Privacidad sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
     // Administración → Analítica.
