@@ -121,6 +121,15 @@ comprobar("grant select, insert on supabase_migrations.schema_migrations to vz_a
 comprobar(not re.search(r"\bon schema (auth|storage|extensions|vault)\b[^;]*to vz_agente", sin_comentarios, re.I),
           "nada en auth, storage, extensions ni vault")
 
+# 3b. Dependencias fijadas: nombre==versión, wheel de esa versión para Python 3.12 Linux x86_64 y sha256 completo.
+import descargar_dependencias as dd  # noqa: E402
+fijadas = dd.leer_requisitos()
+comprobar({n for n, *_ in fijadas} == {"pglast", "psycopg", "psycopg-binary", "typing_extensions"},
+          f"dependencias fijadas: {[n for n, *_ in fijadas]}")
+for nombre, version, archivo, sha in fijadas:
+    comprobar(archivo.startswith(f"{nombre.replace('-', '_')}-{version}-") and dd.RUEDA_VALIDA.search(archivo)
+              and re.fullmatch(r"[0-9a-f]{64}", sha), f"línea de requisitos mal formada: {nombre}=={version}")
+
 # 4. Plantilla de la conexión sin valores secretos.
 for linea in leer("conexion.env.plantilla").splitlines():
     if linea.startswith(("VZ_SQL_HOST=", "VZ_SQL_USUARIO=", "VZ_SQL_CONTRASENA=")):
