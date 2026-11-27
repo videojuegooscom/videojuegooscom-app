@@ -761,8 +761,8 @@ INTENTO_CONTROLADOR_RE = re.compile(
     r"(vz-publicar\b|python[0-9.]*\s+(-\S+\s+)*\S*(?<![\w-])controlador\.py\b)")
 
 # ============================================================== cliente vz-sql =====
-# Vía de Claude hacia el Supabase real, para leer y para cambiar (dueño, 2026-11-27: como VeoAura; el MCP
-# de Supabase se apagará en una PR aparte cuando vz-sql esté comprobado). Forma exacta, sin expansiones ni
+# Única vía de Claude hacia el SQL del Supabase real, para leer y para cambiar (dueño, 2026-11-27: como VeoAura;
+# del MCP solo quedan registros, avisos y metadatos, ver revisar_supabase_mcp). Forma exacta, sin expansiones ni
 # compuestos; el intermediario (infraestructura/base-datos/broker.py) repite todas las comprobaciones.
 CLIENTE_SQL = "/usr/local/bin/vz-sql"
 MARCA_ACCION_MANUAL_RE = re.compile(r"--\s*VZ\s*:\s*ACCION_MANUAL", re.I)
@@ -1900,6 +1900,9 @@ SUPABASE_LECTURA = {
 }
 SUPABASE_NUNCA = {"delete_branch", "reset_branch", "merge_branch", "rebase_branch", "pause_project"}
 SUPABASE_SQL = {"execute_sql": {"query"}, "apply_migration": {"name", "query"}}
+# Herramientas que también ejecutan SQL o tocan secretos por otra vía (cuadernos, secretos de funciones).
+SUPABASE_SQL_INDIRECTO = {"run_notebook", "create_notebook", "delete_notebook", "get_notebook", "list_notebooks",
+                          "create_edge_function_secret"}
 
 VERCEL_LECTURA = {
     "aggregate_events", "aggregate_pageviews", "artifact_query", "count_events", "count_pageviews",
@@ -2024,6 +2027,11 @@ def revisar_supabase_mcp(herramienta, entrada):
         return
     if herramienta in SUPABASE_NUNCA:
         deny("supabase-produccion", f"Prohibido {herramienta} en Supabase.")
+    # Dueño, 2026-11-27 («término medio»): todo el SQL va por vz-sql (rol vz_agente, tres vigilantes, RLS y
+    # permisos tabla a tabla). El MCP entra como postgres: su SQL se cierra y solo quedan logs, avisos y metadatos.
+    if herramienta in SUPABASE_SQL or herramienta in SUPABASE_SQL_INDIRECTO:
+        deny("supabase-vz-sql", f"{herramienta} está cerrado: el SQL va por /usr/local/bin/vz-sql (consultar, plan, "
+                                "aplicar).")
     if herramienta in SUPABASE_SQL:
         esperados = SUPABASE_SQL[herramienta]
         if not esperados.issubset(entrada.keys()):

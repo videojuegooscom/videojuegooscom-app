@@ -16,8 +16,7 @@ select titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien
 from public.aprendizajes where activa order by prioridad, categoria, updated_at desc
 ```
 
-(con `/usr/local/bin/vz-sql consultar --sql '…'`; hasta que el dueño instale vz-sql, por MCP de Supabase en
-solo lectura). Prioridad 1 = imprescindible, 2 = importante, 3 = preferencia.
+(con `/usr/local/bin/vz-sql consultar --sql '…'`). Prioridad 1 = imprescindible, 2 = importante, 3 = preferencia.
 Si una lección choca con lo que pide el usuario ahora, avísale antes de seguir. Cuando el usuario
 te corrija algo, te pida aprender algo o tú detectes algo que debes aprender, **apúntalo tú** en la
 tabla (no se lo pidas al usuario): añade un insert idempotente (`where not exists` por título) en una
@@ -28,7 +27,7 @@ has apuntado y que queda pendiente de aplicar.
 
 ## Hábitos obligatorios
 
-- **Formato de respuesta (dueño, 2026-10-20): SOLO 4 apartados, con estos títulos en mayúsculas y en viñetas de una línea: RESUMEN, RECOMENDACIONES, TRABAJO PENDIENTE, MODELO RECOMENDADO.** Los pasos y autorizaciones que necesita el dueño y los comandos de Termius van en TRABAJO PENDIENTE; la lección apuntada (pendiente de aplicar) y los permisos especiales usados, en una línea del RESUMEN.
+- **Formato de respuesta (dueño, 2026-10-20): SOLO 4 apartados, con estos títulos en mayúsculas y en viñetas de una línea: RESUMEN, RECOMENDACIONES, TRABAJO PENDIENTE, MODELO RECOMENDADO.** Los pasos y autorizaciones que necesita el dueño y los comandos de Termius van en TRABAJO PENDIENTE; **cada comando y cada opción a elegir va en su propio bloque de código (pastilla con botón de copiar), sin nada más dentro (dueño, 2026-11-27)**; la lección apuntada (pendiente de aplicar) y los permisos especiales usados, en una línea del RESUMEN.
 - **Toda novedad de la tienda tiene su parte en Administración (dueño, 2026-10-30, OBLIGATORIO).** Cada cambio que toque a los clientes (datos que rellenan, pantallas o pasos obligatorios nuevos, funciones, avisos) se refleja en la MISMA PR en su apartado de Administración (p. ej. Usuarios y la ficha del cliente para el perfil): verlo, contarlo, filtrarlo y medir su uso con la analítica propia. Siempre dentro de lo legal: solo datos que cubre la política de privacidad, edad en vez de fecha de nacimiento, agregados cuando basten y nada de quien rechazó la analítica. Si no hay apartado, va al más afín. Se prueba igual que la tienda.
 - **Un comando simple por llamada.** Nada de `cd … &&`, tuberías `|`, `;`, heredocs (`python3 -`, `cat >>`) ni `sed -i`. Si hacen falta varios pasos, varias llamadas.
 - **Editar archivos solo con las herramientas Edit y Write**, nunca desde Bash.
@@ -40,7 +39,7 @@ has apuntado y que queda pendiente de aplicar.
 - **Toda rama pasa `tsc --noEmit` antes del push**, aunque solo toque `api/` o un texto.
 - **Textos largos de PR** con `--body-file` (un archivo del repo), para que el comando quepa en una línea. El cuerpo hay que dejarlo bien al crear la PR: `gh pr edit` falla (Projects classic) y el guardián bloquea `gh api` con PATCH; las correcciones posteriores van como comentario (`gh pr comment`).
 - **Secretos:** nunca leer ni mostrar `.env*`, claves ni tokens, ni nombrar archivos `.env` en comandos.
-- **Base de datos (dueño, 2026-11-27: vz-sql como VeoAura; el MCP de Supabase se apaga solo cuando vz-sql esté comprobado):** se lee con `/usr/local/bin/vz-sql consultar --sql '…'` (o `estado`, `diagnostico-d8`). Los cambios van como SQL aditivo en `supabase/migrations/<fecha>_<nombre>.sql` dentro de una rama; tras publicarla y con la autorización expresa del dueño para esa migración, `git fetch origin main`, `/usr/local/bin/vz-sql plan --archivo …` y `/usr/local/bin/vz-sql aplicar --archivo …` (el intermediario exige que sea igual a origin/main y la registra en schema_migrations). Nunca `DELETE`, `DROP` ni `TRUNCATE`; lo que vz-sql marca como ACCIÓN MANUAL (permisos delicados como grant, security definer, anon o using (true); ALTER/políticas/índices en tablas de la tienda; y cambios en pedidos o datos de clientes, que vz-sql solo lee) lo aplica el usuario en el SQL Editor. Ver `infraestructura/base-datos/INSTALAR.md`. Hasta que el dueño lo instale, la lectura sigue por MCP (`execute_sql`).
+- **Base de datos (dueño, 2026-11-27: vz-sql como VeoAura, activo y comprobado; «término medio»: del MCP de Supabase solo quedan registros, avisos y metadatos — `query_logs`, `get_advisors`, `list_tables`, `search_docs` —; su SQL, `execute_sql` y `apply_migration`, está cerrado):** se lee con `/usr/local/bin/vz-sql consultar --sql '…'` (o `estado`, `diagnostico-d8`). Los cambios van como SQL aditivo en `supabase/migrations/<fecha>_<nombre>.sql` dentro de una rama; tras publicarla y con la autorización expresa del dueño para esa migración, `git fetch origin main`, `/usr/local/bin/vz-sql plan --archivo …` y `/usr/local/bin/vz-sql aplicar --archivo …` (el intermediario exige que sea igual a origin/main y la registra en schema_migrations). Nunca `DELETE`, `DROP` ni `TRUNCATE`; lo que vz-sql marca como ACCIÓN MANUAL (permisos delicados como grant, security definer, anon o using (true); ALTER/políticas/índices en tablas de la tienda; y cambios en pedidos o datos de clientes, que vz-sql solo lee) lo aplica el usuario en el SQL Editor. Ver `infraestructura/base-datos/INSTALAR.md`.
 - Si algo se bloquea, no se rodea: se explica qué hace falta y se da al usuario el comando para Termius (como `veoaura`, con `python3`, nunca `jq`).
 
 ## Asesor de modelos (en cada respuesta)

@@ -83,8 +83,11 @@ if os.path.isfile(_anterior):
         for r in json.load(f)["permissions"]["deny"]:
             if "claude_ai_" not in r and r not in NOMBRES_RETIRADAS:
                 comprobar(f"deny anterior conservada: {r}", r in P["deny"])
-comprobar("Supabase sin read_only solo con la migración protegida por el guardián",
-          "mcp__supabase__apply_migration" in NOMBRES_RETIRADAS)
+# Dueño, 2026-11-27 («término medio»): el SQL del MCP (que entra como postgres) se cierra; va todo por vz-sql.
+for herramienta in ("execute_sql", "apply_migration", "run_notebook", "create_notebook", "create_edge_function_secret"):
+    comprobar(f"MCP de Supabase sin SQL: {herramienta} en deny", f"mcp__supabase__{herramienta}" in P["deny"])
+comprobar("el MCP de Supabase sigue para logs, avisos y metadatos", "mcp__supabase" in P["allow"]
+          and "supabase" in [s.get("serverName") for s in POL.get("allowedMcpServers", [])])
 comprobar("el controlador solo como copia de root",
           "Bash(/usr/local/bin/vz-publicar publicar *)" in P["allow"]
           and not any("publicacion/controlador.py" in r for r in P["allow"]))
