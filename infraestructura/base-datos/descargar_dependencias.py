@@ -61,6 +61,7 @@ def consultar(pedidos):
     y escribe la línea lista para requisitos.txt. Si la versión no existe, enseña las últimas que sí existen."""
     temporal = tempfile.mkdtemp(prefix="vz-sql-consulta-")
     correcto = True
+    lineas = []
     try:
         for pedido in pedidos:
             nombre, _, version = pedido.partition("==")
@@ -94,8 +95,18 @@ def consultar(pedidos):
                          f"descargado {calculado}. No uses esta versión.")
             print(f"Python requerido por {pedido}: {meta['info'].get('requires_python') or 'sin límite'}")
             print(f"LINEA {nombre}=={version} {rueda['filename']} {calculado}")
+            lineas.append(f"{nombre}=={version} {rueda['filename']} {calculado}")
     finally:
         shutil.rmtree(temporal, ignore_errors=True)
+    # Copia exacta para Claude (sin transcribir hashes a mano): .expo/ del proyecto, que git ignora.
+    salida = os.path.join(os.path.dirname(os.path.dirname(AQUI)), ".expo", "vzsql-requisitos-consultados.txt")
+    try:
+        os.makedirs(os.path.dirname(salida), exist_ok=True)
+        with open(salida, "w", encoding="utf-8") as f:
+            f.write("\n".join(lineas + ["todo comprobado" if correcto else "HAY PAQUETES QUE CAMBIAR"]) + "\n")
+        print(f"resultado guardado en {salida}")
+    except OSError as e:
+        print(f"no se pudo guardar el resultado ({type(e).__name__}); copia las líneas LINEA a mano")
     print("todo comprobado" if correcto else "HAY PAQUETES QUE CAMBIAR")
     sys.exit(0 if correcto else 1)
 
