@@ -1727,6 +1727,18 @@ export default function AdminAnalytics() {
       // Cierre de Inicio (2026-11-26): la franja antes del pie, «Vender ahora» y «Ver catálogo».
       cierreVender: findExact("Cierre de Inicio: Vender ahora"),
       cierreCatalogo: findExact("Cierre de Inicio: Ver catálogo"),
+      // Oferta de la semana (Inicio, 2026-11-26): qué se toca en la tarjeta (como en la ficha de producto).
+      ofertaComprar: findExact("Oferta de la semana: comprar ya"),
+      ofertaCesta: findExact("Oferta de la semana: añadir a la cesta"),
+      ofertaFotos: findExact("Oferta de la semana: ver fotos en grande"),
+      ofertaCompartir: findExact("Oferta de la semana: compartir"),
+      ofertaMeGusta: findExact("Oferta de la semana: me gusta"),
+      ofertaFicha: findExact("Oferta de la semana: ver ficha"),
+      // Carruseles de noticias en Inicio, Perfil y Cesta (2026-11-26): cuántos los ven y cuántos entran a una noticia.
+      noticiasInteresVistas: findExact("Noticias en estantes: podrían interesarte · vistas"),
+      noticiasInteresTocadas: findExact("Noticias en estantes: podrían interesarte · tocada"),
+      noticiasUltimasVistas: findExact("Noticias en estantes: últimas · vistas"),
+      noticiasUltimasTocadas: findExact("Noticias en estantes: últimas · tocada"),
       // Blue IA fuera del horario del equipo (app/(tabs)/blue-ia.tsx): quién pulsa «Hablar con el equipo» y qué hace.
       fueraHorarioAviso: findExact("Blue IA: fuera de horario, aviso"),
       fueraHorarioBlue: findExact("Blue IA: fuera de horario, sigue con Blue"),
@@ -2465,6 +2477,24 @@ export default function AdminAnalytics() {
                     <Text nativeID="analitica-inicio-cierre" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Cierre de Inicio («¿Tienes una consola o un móvil que ya no usas?») → «Vender ahora»: {coreFunnel.cierreVender} · «Ver catálogo»:{" "}
                       {coreFunnel.cierreCatalogo} sesiones
+                    </Text>
+                  </View>
+                  {/* Oferta de la semana de Inicio (2026-11-26): lo que se toca en la tarjeta. */}
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="pricetag-outline" size={15} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-oferta-semana" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Oferta de la semana → «Comprar ya»: {coreFunnel.ofertaComprar} · «Añadir a la cesta»: {coreFunnel.ofertaCesta} · fotos en
+                      grande: {coreFunnel.ofertaFotos} · compartir: {coreFunnel.ofertaCompartir} · me gusta: {coreFunnel.ofertaMeGusta} · «Ver
+                      ficha completa»: {coreFunnel.ofertaFicha} sesiones
+                    </Text>
+                  </View>
+                  {/* Carruseles de noticias en Inicio, Perfil y Cesta (2026-11-26). */}
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="newspaper-outline" size={15} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-noticias-estantes" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Noticias en Inicio, Perfil y Cesta → «Podrían interesarte»: {coreFunnel.noticiasInteresVistas} las ven ·{" "}
+                      {coreFunnel.noticiasInteresTocadas} entran · «Últimas noticias»: {coreFunnel.noticiasUltimasVistas} las ven ·{" "}
+                      {coreFunnel.noticiasUltimasTocadas} entran (sesiones)
                     </Text>
                   </View>
                   <View

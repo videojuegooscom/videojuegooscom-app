@@ -96,6 +96,7 @@ import {
   Pressable,
   SafeAreaView,
   ScrollView,
+  Share,
   StatusBar,
   Text,
   View,
@@ -106,8 +107,9 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { BarraBusquedaFlotante } from "../../components/BarraBusqueda";
-import CarruselProductosCategoria, { VistosRecientemente } from "../../components/CarruselProductosCategoria";
+import CarruselProductosCategoria, { NoticiasEstantes, VistosRecientemente } from "../../components/CarruselProductosCategoria";
 import {
+  FotoEntera,
   OPACIDAD_PORTADA_DEFECTO,
   PROPORCION_RECUADRO_INICIO,
   NombreCategoria,
@@ -120,7 +122,6 @@ import { useRecarga } from "../../components/TirarParaActualizar";
 import Resenas from "../../components/Resenas";
 import PieDePagina, { FilaConfianza, VentanaInformacion, type DatoConfianza } from "../../components/PieDePagina";
 import { AparecerAlVer, useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
-import ImagenInteligente from "../../components/ImagenInteligente";
 import { RedJuntoAlLogo, ResenasCanales, useRedesJuntoAlLogo, useResenasCanales } from "../../components/EnlacesRedesSociales";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
@@ -129,6 +130,12 @@ import { sinEmojis } from "../../lib/admin/productos.utilidades";
 import { medirCargaPantalla, medirEvento, medirEventoEspaciado } from "../../lib/analiticaPropia";
 import { useMargenInferiorBarraPestanas } from "../../lib/barraPestanas";
 import { formatearEuros } from "../../lib/envio";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import VisorFotos, { type EventoVisor } from "../../components/VisorFotos";
+import { InsigniasConfianza, PreguntarArticulo } from "../../components/ficha/ExtrasFicha";
+import { BUY_NOW_MARK_KEY, getLikedProductIds, loadCart, saveCart, saveLikedProductIds, type CartItem } from "../../components/ficha/DatosFicha";
+import { productosReservadosPorOtros, reservarProducto } from "../../lib/reservas";
+import { fijarMeGusta } from "../../lib/interaccion";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -203,7 +210,40 @@ type ProductoDestacado = {
   images: string[];
   categoryName: string | null;
   hasVideo: boolean;
+  // Lo mismo que enseña la ficha (dueño, 2026-11-26: «mejorar la Oferta de la semana con lo de la página de producto»):
+  // solo con lo que el dueño ha marcado en el producto (sin la columna, como si no estuviera marcado).
+  revisado: boolean;
+  garantiaMeses: number | null;
+  soloEntregaMano: boolean;
 };
+
+// Estado en vivo de la oferta: si alguien la reserva o se vende, la tarjeta lo dice al momento (se mira cada minuto y
+// al volver a la pantalla).
+type EstadoOferta = "disponible" | "reservado" | "vendido";
+
+// Lee las columnas extra del producto (las que existan) y su estado. «*» de UNA fila: sin un 400 antes de una migración.
+async function leerExtrasOferta(productId: string): Promise<{ revisado: boolean; garantiaMeses: number | null; soloEntregaMano: boolean; estado: EstadoOferta } | null> {
+  const { data, error } = await supabase.from("products").select("*").eq("id", productId).maybeSingle();
+  if (error || !data) return null;
+  const f = data as Record<string, unknown>;
+  const g = Number(f.garantia_meses);
+  const vendido = f.is_active === false || (f.status !== undefined && f.status !== "PUBLISHED") || !!f.vendido_en;
+  const senal = typeof f.reservado_hasta === "string" && Date.parse(f.reservado_hasta) > Date.now();
+  let reservado = senal;
+  if (!vendido && !reservado) {
+    try {
+      reservado = (await productosReservadosPorOtros([productId])).has(productId);
+    } catch {
+      reservado = false;
+    }
+  }
+  return {
+    revisado: f.revisado === true,
+    garantiaMeses: f.garantia_meses != null && g >= 1 && g <= 36 ? g : null,
+    soloEntregaMano: f.solo_entrega_mano === true,
+    estado: vendido ? "vendido" : reservado ? "reservado" : "disponible",
+  };
+}
 
 type CategoriaInicio = {
   title: string;
@@ -329,12 +369,6 @@ function asProductRow(value: unknown): ProductRow | null {
   };
 }
 
-function clampText(value: string, max = 400) {
-  const text = (value ?? "").trim();
-  if (!text) return "";
-  if (text.length <= max) return text;
-  return `${text.slice(0, max - 1).trimEnd()}…`;
-}
 
 function softShadow() {
   return Platform.select({
@@ -819,6 +853,7 @@ function Pill({
           color: "rgba(11,33,56,0.78)",
           fontWeight: "800",
           fontSize: TAMANOS.minimo,
+          textAlign: "center",
         }}
       >
         {text}
@@ -957,6 +992,7 @@ function BotonSecundario({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
       style={({ pressed }) => ({
         borderRadius: 18,
         borderWidth: 1.5,
@@ -974,6 +1010,7 @@ function BotonSecundario({
             color: COLORS.accentDark,
             fontWeight: "900",
             fontSize: isMobile ? 15 : 16,
+            textAlign: "center",
           }}
         >
           {title}
@@ -1089,11 +1126,14 @@ function CarruselOfertaDestacada({
   alt,
   mediaHeight,
   hasVideo,
+  onAbrirFoto,
 }: {
   images: string[];
   alt: string;
   mediaHeight: number;
   hasVideo: boolean;
+  /** Como en la ficha: tocar la foto la abre en grande (visor con zoom), en esa misma foto. */
+  onAbrirFoto?: (index: number) => void;
 }) {
   const [containerWidth, setContainerWidth] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -1141,7 +1181,6 @@ function CarruselOfertaDestacada({
     );
   }
 
-  const remaining = images.length - 1 - activeIndex;
   const hasMultiple = images.length > 1;
 
   return (
@@ -1166,17 +1205,25 @@ function CarruselOfertaDestacada({
           scrollEventThrottle={16}
         >
           {images.map((uri, index) => (
-            <ImagenInteligente
+            // La foto entera con su fondo difuminado (sin las franjas grises de los lados) y, al tocarla, en grande.
+            <Pressable
               key={`${uri}-${index}`}
-              uri={uri}
-              alt={images.length > 1 ? `${alt} (foto ${index + 1} de ${images.length})` : alt}
-              ancho={Math.max(320, containerWidth || 420)}
-              // Carga rápida: la primera foto de la oferta es la primera de Inicio (ya y con prioridad); las demás del
-              // carrusel esperan a que se deslice hasta ellas.
-              priority={index === 0 ? "high" : "normal"}
-              contentFit="contain"
+              nativeID={index === 0 ? "oferta-foto" : undefined}
+              onPress={onAbrirFoto ? () => onAbrirFoto(index) : undefined}
+              accessibilityRole="button"
+              accessibilityLabel={`Ver en grande: ${alt}${images.length > 1 ? ` (foto ${index + 1} de ${images.length})` : ""}`}
               style={{ width: containerWidth, height: mediaHeight }}
-            />
+            >
+              <FotoEntera
+                uri={uri}
+                alt={images.length > 1 ? `${alt} (foto ${index + 1} de ${images.length})` : alt}
+                ancho={Math.max(320, containerWidth || 420)}
+                // Carga rápida: la primera foto de la oferta es la primera de Inicio (ya y con prioridad); las demás del
+                // carrusel esperan a que se deslice hasta ellas.
+                prioridad={index === 0 ? "high" : "normal"}
+                style={{ width: containerWidth, height: mediaHeight }}
+              />
+            </Pressable>
           ))}
         </ScrollView>
       ) : null}
@@ -1254,34 +1301,35 @@ function CarruselOfertaDestacada({
         </View>
       ) : null}
 
-      {remaining > 0 ? (
-        <View style={{ position: "absolute", right: 12, bottom: hasMultiple ? 26 : 12 }}>
-          <Text
-            // Azul marino: las fotos van enteras sobre fondo claro y en blanco no se leía.
-            style={{ color: "#0B2138", fontWeight: "900", fontSize: TAMANOS.minimo }}
-          >
-            +{remaining} fotos
-          </Text>
-        </View>
-      ) : null}
-
-      {hasVideo ? (
-        <View
-          style={{
-            position: "absolute",
-            left: 12,
-            top: 12,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 4,
-            backgroundColor: "rgba(11,33,56,0.55)",
-            borderRadius: 999,
-            paddingHorizontal: 8,
-            paddingVertical: 4,
-          }}
-        >
-          <Ionicons name="videocam" size={12} color="#FFFFFF" />
-          <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: TAMANOS.minimo }}>Vídeo</Text>
+      {/* Arriba a la izquierda, como en la ficha: en qué foto estás («1 / 10») y, si tiene, el vídeo. */}
+      {hasMultiple || hasVideo ? (
+        <View pointerEvents="none" style={{ position: "absolute", left: 12, top: 12, flexDirection: "row", gap: 6 }}>
+          {hasMultiple ? (
+            <View
+              nativeID="oferta-contador"
+              style={{ backgroundColor: "rgba(11,33,56,0.62)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.minimo }}>
+                {activeIndex + 1} / {images.length}
+              </Text>
+            </View>
+          ) : null}
+          {hasVideo ? (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+                backgroundColor: "rgba(11,33,56,0.55)",
+                borderRadius: 999,
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+              }}
+            >
+              <Ionicons name="videocam" size={12} color="#FFFFFF" />
+              <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: TAMANOS.minimo }}>Vídeo</Text>
+            </View>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -1294,21 +1342,15 @@ function TarjetaOfertaDestacada({
   isWide,
   isMobile,
   onPressCategories,
-  onPressChat,
-  chatBusy,
 }: {
   item: ProductoDestacado | null;
   isDesktopish: boolean;
   isWide?: boolean;
   isMobile: boolean;
   onPressCategories: () => void;
-  // Abre el chat interno del producto destacado (mismo flujo que el botón
-  // "Chat" de la ficha de producto): pide login si hace falta y crea/reusa
-  // la conversación en app/chat/[chatId].tsx.
-  onPressChat: () => void;
-  chatBusy?: boolean;
 }) {
   const mediaHeight = isWide ? 320 : isDesktopish ? 280 : isMobile ? 210 : 240;
+  const oferta = useOfertaEnVivo(item);
 
   if (!item) {
     // Sin envoltorio de tarjeta: textos y botones directamente, centrados.
@@ -1346,8 +1388,14 @@ function TarjetaOfertaDestacada({
     );
   }
 
+  const descripcion = sinEmojis(item.description)
+    ? sinEmojis(item.description)
+    : "Producto revisado y seleccionado para destacar esta semana por su excelente relación calidad-precio.";
+  const textoPequeno = { color: "rgba(11,33,56,0.78)", fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" } as const;
+
   return (
     <View
+      nativeID="oferta-semana"
       style={{
         borderRadius: 22,
         backgroundColor: COLORS.card,
@@ -1361,6 +1409,7 @@ function TarjetaOfertaDestacada({
             alt={item.title}
             mediaHeight={mediaHeight}
             hasVideo={item.hasVideo}
+            onAbrirFoto={oferta.abrirFoto}
           />
         </View>
 
@@ -1373,6 +1422,23 @@ function TarjetaOfertaDestacada({
             alignItems: "center",
           }}
         >
+          {/* Estado en vivo: si alguien la reserva o se vende, se dice al momento. */}
+          {oferta.estado !== "disponible" ? (
+            <View
+              nativeID="oferta-estado"
+              style={{
+                borderRadius: 999,
+                paddingHorizontal: 12,
+                paddingVertical: 5,
+                backgroundColor: oferta.estado === "vendido" ? "#E0E7FF" : "#CCFBF1",
+              }}
+            >
+              <Text style={{ color: oferta.estado === "vendido" ? "#3730A3" : "#0F766E", fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                {oferta.estado === "vendido" ? "Vendido" : "Reservado ahora mismo"}
+              </Text>
+            </View>
+          ) : null}
+
           <View style={{ alignItems: "center" }}>
             <Text
               style={{
@@ -1399,60 +1465,277 @@ function TarjetaOfertaDestacada({
             </Text>
           </View>
 
-          <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-            {/* (sin emojis, como en la ficha: dueño, 2026-11-04) */}
-            {sinEmojis(item.description)
-              ? clampText(sinEmojis(item.description), 180)
-              : "Producto revisado y seleccionado para destacar esta semana por su excelente relación calidad-precio."}
-          </Text>
+          {/* Me gusta y Compartir, como en la ficha: pequeños, bajo el precio. */}
+          <View style={{ flexDirection: "row", justifyContent: "center", gap: 8 }}>
+            <Pressable
+              nativeID="oferta-me-gusta"
+              onPress={oferta.alternarMeGusta}
+              accessibilityRole="button"
+              accessibilityLabel={oferta.meGusta ? "Quitar de me gusta" : "Me gusta"}
+              accessibilityState={{ selected: oferta.meGusta }}
+              style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 14, borderRadius: 22, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: pressed ? COLORS.tile : "transparent" })}
+            >
+              <Ionicons name={oferta.meGusta ? "heart" : "heart-outline"} size={20} color={oferta.meGusta ? "#E11D48" : COLORS.text} />
+              <Text style={textoPequeno}>Me gusta</Text>
+            </Pressable>
+            <Pressable
+              nativeID="oferta-compartir"
+              onPress={oferta.compartir}
+              accessibilityRole="button"
+              accessibilityLabel="Compartir"
+              style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 14, borderRadius: 22, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: pressed ? COLORS.tile : "transparent" })}
+            >
+              <Ionicons name="share-social-outline" size={20} color={COLORS.text} />
+              <Text style={textoPequeno}>{oferta.copiado ? "Enlace copiado" : "Compartir"}</Text>
+            </Pressable>
+          </View>
 
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 14,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Ionicons name="checkmark-circle-outline" size={isMobile ? 14 : 15} color={COLORS.accentDark} />
-              <Text
-                style={{
-                  color: "rgba(11,33,56,0.78)",
-                  fontWeight: "800",
-                  fontSize: TAMANOS.minimo,
-                }}
+          {/* Descripción en 2 líneas con «Leer más» (antes se cortaba a mitad de palabra: «Limpieza rea…»). */}
+          <View style={{ alignItems: "center", gap: 2 }}>
+            <Text nativeID="oferta-descripcion" numberOfLines={oferta.leerMas ? undefined : 2} style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+              {descripcion}
+            </Text>
+            {descripcion.length > 90 ? (
+              <Pressable
+                nativeID="oferta-leer-mas"
+                onPress={() => oferta.setLeerMas((v) => !v)}
+                accessibilityRole="button"
+                style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}
               >
-                Revisado
-              </Text>
+                <Text style={{ color: "#0A78B4", fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                  {oferta.leerMas ? "Leer menos" : "Leer más"}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          {/* Sellos reales (los que el dueño marca en el producto, como en la ficha) y la entrega. */}
+          <InsigniasConfianza revisado={item.revisado} garantiaMeses={item.garantiaMeses} />
+          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 14 }}>
+            <View nativeID="oferta-entrega" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Ionicons name={item.soloEntregaMano ? "hand-left-outline" : "flash-outline"} size={isMobile ? 14 : 15} color={COLORS.accentDark} />
+              <Text style={textoPequeno}>{item.soloEntregaMano ? "Solo entrega en mano (Zaragoza)" : "Entrega en el día en Zaragoza"}</Text>
             </View>
             {item.categoryName ? <Pill icon="cube-outline" text={item.categoryName} isMobile={isMobile} /> : null}
           </View>
 
-          <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12, alignSelf: "stretch" }}>
-            <View style={{ flex: 1 }}>
-              <PrimaryButton
-                title="Ver producto"
-                onPress={() => pushRoute(`/producto/${item.id}` as Href)}
-                isMobile={isMobile}
-              />
+          {/* Botones como en la ficha: «Comprar ya», «Añadir a la cesta» y «Preguntar por este artículo». */}
+          {oferta.estado === "vendido" ? (
+            <View style={{ alignSelf: "stretch", gap: 10 }}>
+              <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>Este artículo se acaba de vender. Mira lo que tenemos parecido:</Text>
+              <PrimaryButton title="Ver catálogo" onPress={onPressCategories} isMobile={isMobile} />
             </View>
+          ) : (
+            <View style={{ alignSelf: "stretch", gap: 10 }}>
+              {oferta.estado === "reservado" ? (
+                <Text nativeID="oferta-reservado-nota" style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
+                  Otro cliente lo tiene reservado unos minutos. Si no lo compra, vuelve a estar disponible.
+                </Text>
+              ) : null}
+              <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 10 }}>
+                <View style={{ flex: 1, opacity: oferta.estado === "reservado" ? 0.5 : 1 }} pointerEvents={oferta.estado === "reservado" ? "none" : "auto"}>
+                  <PrimaryButton title={oferta.ocupado === "buyNow" ? "Un momento…" : "Comprar ya"} onPress={() => oferta.comprar("buyNow")} isMobile={isMobile} />
+                </View>
+                <View style={{ flex: 1, opacity: oferta.estado === "reservado" ? 0.5 : 1 }} pointerEvents={oferta.estado === "reservado" ? "none" : "auto"}>
+                  <BotonSecundario
+                    title={oferta.ocupado === "cart" ? "Añadiendo…" : "Añadir a la cesta"}
+                    icon="bag-add-outline"
+                    onPress={() => oferta.comprar("cart")}
+                    isMobile={isMobile}
+                  />
+                </View>
+              </View>
+              <PreguntarArticulo productId={item.id} abrirAlEntrar={false} />
+            </View>
+          )}
 
-            <View style={{ flex: 1 }}>
-              <BotonSecundario
-                title="Consultar por Chat"
-                subtitle={chatBusy ? "Abriendo…" : undefined}
-                icon="chatbubble-ellipses-outline"
-                onPress={onPressChat}
-                isMobile={isMobile}
-              />
-            </View>
-          </View>
+          <Pressable
+            nativeID="oferta-ver-ficha"
+            onPress={() => {
+              oferta.medir("ver ficha");
+              pushRoute(`/producto/${item.id}` as Href);
+            }}
+            accessibilityRole="link"
+            style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}
+          >
+            <Text style={{ color: "#0A78B4", fontWeight: "900", fontSize: 15, textAlign: "center" }}>Ver ficha completa ›</Text>
+          </Pressable>
         </View>
       </View>
+
+      <VisorFotos
+        visible={oferta.visor !== null}
+        images={item.images.map((url, i) => ({ id: `${item.id}-${i}`, url }))}
+        initialIndex={oferta.visor ?? 0}
+        onClose={() => oferta.setVisor(null)}
+        onEvento={(e: EventoVisor) => {
+          if (e === "zoom") oferta.medir("zoom en la foto");
+        }}
+      />
     </View>
   );
+}
+
+// Lo que hace la tarjeta de la oferta (mismo comportamiento que la ficha de producto): estado en vivo, me gusta,
+// compartir, comprar ya / añadir a la cesta con la reserva de 15 minutos, el visor de fotos y la analítica propia
+// («Oferta de la semana: …», Administración → Analítica).
+function useOfertaEnVivo(item: ProductoDestacado | null) {
+  const id = item?.id ?? null;
+  const [estado, setEstado] = useState<EstadoOferta>("disponible");
+  const [meGusta, setMeGusta] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const [leerMas, setLeerMas] = useState(false);
+  const [visor, setVisor] = useState<number | null>(null);
+  const [ocupado, setOcupado] = useState<null | "cart" | "buyNow">(null);
+
+  const medir = useCallback(
+    (accion: string) => {
+      if (id) void medirEvento("oferta_semana", `Oferta de la semana: ${accion}`, { path: "/", metadata: { productId: id } });
+    },
+    [id]
+  );
+
+  // Estado en vivo: al entrar, cada minuto y al volver a la pestaña.
+  useEffect(() => {
+    if (!id) return;
+    let vivo = true;
+    const mirar = () =>
+      leerExtrasOferta(id)
+        .then((x) => {
+          if (vivo && x) setEstado(x.estado);
+        })
+        .catch(() => {});
+    mirar();
+    const reloj = setInterval(mirar, 60_000);
+    const alVolver = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") mirar();
+    };
+    if (Platform.OS === "web" && typeof document !== "undefined") document.addEventListener("visibilitychange", alVolver);
+    return () => {
+      vivo = false;
+      clearInterval(reloj);
+      if (Platform.OS === "web" && typeof document !== "undefined") document.removeEventListener("visibilitychange", alVolver);
+    };
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    let vivo = true;
+    getLikedProductIds()
+      .then((ids) => {
+        if (vivo) setMeGusta(ids.has(id));
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [id]);
+
+  const alternarMeGusta = useCallback(async () => {
+    if (!id) return;
+    const siguiente = !meGusta;
+    setMeGusta(siguiente);
+    medir(siguiente ? "me gusta" : "quitar me gusta");
+    try {
+      const total = await fijarMeGusta(id, siguiente);
+      if (total === null) throw new Error("no se pudo");
+      const ids = await getLikedProductIds();
+      if (siguiente) ids.add(id);
+      else ids.delete(id);
+      await saveLikedProductIds(ids);
+    } catch {
+      setMeGusta(!siguiente);
+    }
+  }, [id, meGusta, medir]);
+
+  const compartir = useCallback(async () => {
+    if (!item) return;
+    medir("compartir");
+    const url =
+      Platform.OS === "web" && typeof window !== "undefined" ? `${window.location.origin}/producto/${item.id}` : `https://videojuegoszaragoza.com/producto/${item.id}`;
+    const texto = `${item.title} · ${formatearEuros(item.priceEUR)}`;
+    if (Platform.OS !== "web") {
+      try {
+        await Share.share({ title: item.title, message: `${texto} · ${url}`, url });
+      } catch {
+        // cancelado
+      }
+      return;
+    }
+    const nav: any = typeof navigator !== "undefined" ? navigator : null;
+    if (nav?.share) {
+      try {
+        await nav.share({ title: item.title, text: texto, url });
+      } catch {
+        // cancelado
+      }
+      return;
+    }
+    if (nav?.clipboard?.writeText) {
+      try {
+        await nav.clipboard.writeText(url);
+        setCopiado(true);
+        setTimeout(() => setCopiado(false), 2500);
+      } catch {
+        // sin portapapeles
+      }
+    }
+  }, [item, medir]);
+
+  // «Comprar ya» y «Añadir a la cesta» igual que en la ficha: reserva de 15 minutos; «Comprar ya» pide sesión y va al
+  // pago solo con este artículo; «Añadir a la cesta» funciona como invitado y lleva a la Cesta.
+  const comprar = useCallback(
+    async (modo: "cart" | "buyNow") => {
+      if (!item || ocupado) return;
+      setOcupado(modo);
+      medir(modo === "buyNow" ? "comprar ya" : "añadir a la cesta");
+      try {
+        if (modo === "buyNow") {
+          const { data } = await supabase.auth.getSession();
+          const userId = data.session?.user?.id;
+          if (!userId) {
+            await AsyncStorage.setItem("videojuegoszaragoza:volver_tras_acceso", JSON.stringify({ ruta: `/producto/${item.id}`, hasta: Date.now() + 30 * 60 * 1000 })).catch(() => {});
+            pushRoute(`/perfil?acceso=entrar&aviso=${encodeURIComponent("Inicia sesión o crea tu cuenta para comprar. Al terminar volverás a este artículo.")}` as Href);
+            return;
+          }
+          await AsyncStorage.setItem(BUY_NOW_MARK_KEY, JSON.stringify({ productId: item.id, userId }));
+        }
+        const reserva = await reservarProducto(item.id);
+        if (!reserva.ok) {
+          setEstado("reservado");
+          if (modo === "buyNow") await AsyncStorage.removeItem(BUY_NOW_MARK_KEY);
+          return;
+        }
+        const actual = await loadCart();
+        const yaEsta = actual.some((it) => it.id === item.id);
+        const siguiente: CartItem[] = yaEsta
+          ? actual.map((it) => (it.id === item.id ? { ...it, qty: 1, reservedUntil: reserva.hasta } : it))
+          : [
+              { id: item.id, title: item.title, subtitle: item.categoryName, priceEUR: item.priceEUR, qty: 1, imageUrl: item.images[0] ?? null, reservedUntil: reserva.hasta },
+              ...actual,
+            ];
+        await saveCart(siguiente);
+        medirEvento(modo === "buyNow" ? "buy_now" : "add_to_cart", modo === "buyNow" ? "Comprar ya" : "Añadir a la cesta", {
+          path: "/",
+          metadata: { productId: item.id, price: item.priceEUR, desde: "oferta_semana" },
+        });
+        pushRoute((modo === "buyNow" ? `/checkout?comprar=${encodeURIComponent(item.id)}` : "/cesta") as Href);
+      } finally {
+        setOcupado(null);
+      }
+    },
+    [item, ocupado, medir]
+  );
+
+  const abrirFoto = useCallback(
+    (index: number) => {
+      setVisor(index);
+      medir("ver fotos en grande");
+    },
+    [medir]
+  );
+
+  return { estado, meGusta, copiado, leerMas, setLeerMas, visor, setVisor, ocupado, medir, alternarMeGusta, compartir, comprar, abrirFoto };
 }
 
 // Mientras llega la oferta (carga rápida, mejora 7 del 2026-11-14): un esqueleto discreto con las proporciones de la
@@ -1497,7 +1780,6 @@ export default function PantallaInicio() {
   const desktopTabBarHeight = MEDIDAS_BUSCADOR.desktopTabBarHeight + tabBarInset;
   const [featured, setFeatured] = useState<ProductoDestacado | null>(null);
   const [featuredLoading, setFeaturedLoading] = useState(true);
-  const [featuredChatBusy, setFeaturedChatBusy] = useState(false);
 
   // Empieza donde empieza el buscador flotante (arriba, posicionInicial de FloatingBarramagic): antes empezaba en
   // «bottom» y, al avisar el buscador, todo Inicio bajaba 70 px de golpe (salto de diseño; carga rápida, 2026-11-14).
@@ -1754,34 +2036,6 @@ export default function PantallaInicio() {
     scrollRef.current.scrollTo({ y: target, animated: true });
   }, [categoriesY]);
 
-  // Mismo flujo que el botón "Chat" de la ficha de producto
-  // (handleChatPress en app/producto/[id].tsx): exige sesión iniciada y usa
-  // get_or_create_product_chat para crear o reutilizar la conversación de
-  // (este producto destacado, este cliente) antes de llevar a
-  // app/chat/[chatId].tsx.
-  const handleFeaturedChatPress = useCallback(async () => {
-    if (!featured || featuredChatBusy) return;
-
-    setFeaturedChatBusy(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session?.user) {
-        pushRoute("/perfil" as Href);
-        return;
-      }
-
-      const { data: chatId, error } = await supabase.rpc("get_or_create_product_chat", {
-        p_product_id: featured.id,
-      });
-      if (error) throw error;
-
-      router.push({ pathname: "/chat/[chatId]", params: { chatId: String(chatId) } } as never);
-    } catch (e) {
-      console.error("Error abriendo el chat del producto destacado:", e);
-    } finally {
-      setFeaturedChatBusy(false);
-    }
-  }, [featured, featuredChatBusy]);
 
   // «Desliza para actualizar»: vuelve a pedir la oferta destacada (sin volver a enseñar la carga).
   const recarga = useRecarga();
@@ -1800,7 +2054,7 @@ export default function PantallaInicio() {
           return;
         }
 
-        const mediaRows = await leerArchivosProductoDestacado(data.id);
+        const [mediaRows, extras] = await Promise.all([leerArchivosProductoDestacado(data.id), leerExtrasOferta(data.id).catch(() => null)]);
         if (!alive) return;
 
         // mediaRows ya viene ordenado (portada primero, luego por sort_order)
@@ -1831,6 +2085,9 @@ export default function PantallaInicio() {
           images,
           categoryName: data.category?.name ?? null,
           hasVideo: mediaRows.some((m) => normalizeMediaKind(m.kind) === "video"),
+          revisado: extras?.revisado ?? false,
+          garantiaMeses: extras?.garantiaMeses ?? null,
+          soloEntregaMano: extras?.soloEntregaMano ?? false,
         });
       } catch {
         if (!alive) return;
@@ -1991,8 +2248,6 @@ export default function PantallaInicio() {
                 isWide={isWide}
                 isMobile={isMobile}
                 onPressCategories={scrollToCategories}
-                onPressChat={handleFeaturedChatPress}
-                chatBusy={featuredChatBusy}
               />
             )}
           </AparecerAlVer>
@@ -2002,6 +2257,9 @@ export default function PantallaInicio() {
           {/* Recién llegado: lo último que ha entrado (también lo que llega de VeoAura).
               Si no hay nada, no se pinta, ni su separador. */}
           <CarruselProductosCategoria modo="novedades" titulo="Recién llegado" pie={<Separador isMobile={isMobile} />} />
+
+          {/* «Noticias que podrían interesarte» y «Últimas noticias» (dueño, 2026-11-26), cada una con su separador. */}
+          <NoticiasEstantes pantalla="inicio" separador={<Separador isMobile={isMobile} />} />
 
           {/* Vistos recientemente (mejora 9): solo con 3 o más vistos a la venta en este dispositivo y si no son justo los
               de «Recién llegado». Debajo de la oferta y de la primera sección: no empuja la primera pantalla. */}

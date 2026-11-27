@@ -968,6 +968,12 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     }
     // Historial de Blue IA (sección BI): conversaciones y mensajes guardados ficticios; la lista tarda `retraso` ms (como
     // una red lenta) para ver qué hace la pantalla mientras tanto. Se apunta lo que se guardaría.
+    // Oferta de la semana de Inicio (sección OF): el producto destacado (una fila o un objeto, según lo pida) y sus fotos.
+    if (estado.ofertaSemana && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
+      const objeto = /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "");
+      return json(objeto ? estado.ofertaSemana.producto : [estado.ofertaSemana.producto]);
+    }
+    if (estado.ofertaSemana && url.pathname.endsWith("/rest/v1/product_media") && metodo === "GET") return json(estado.ofertaSemana.media);
     // Catálogo para comprobar los artículos de los botones guardados de Blue IA (sección BI10): solo los que siguen a la venta.
     if (estado.blueCatalogo && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
       const ids = (url.searchParams.get("id") ?? "").replace(/^in\.\(|\)$/g, "").split(",").map((s) => s.replace(/"/g, ""));
@@ -4357,6 +4363,264 @@ async function seccionNO() {
 }
 
 // ===== RE) Reseñas: el texto nuevo de Inicio y «Dejar una reseña» con 10 ideas, un recuadro que crece y emojis =====
+// ===== OF) «Oferta de la semana» de Inicio con lo de la ficha de producto (dueño, 2026-11-26: «adelante con todo»): fotos
+// enteras con «1 / N» y visor al tocar; «Comprar ya», «Añadir a la cesta» y «Preguntar por este artículo»; descripción en
+// 2 líneas con «Leer más»; sellos reales (revisado, garantía, entrega); estado en vivo (vendido); me gusta y compartir de
+// 44 px; todo centrado; la analítica propia y su línea en Administración → Analítica. A 360, 390 y 1280.
+async function seccionOF() {
+  const ID = "0f000000-0000-4000-8000-000000000001";
+  const foto = (n) => `https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/of/${n}.jpg`;
+  const producto = (extra = {}) => ({
+    id: ID, title: "Consola Nintendo Switch Oled Con Catálogo De videojuegos a descargar", price_eur: 325, status: "PUBLISHED", is_active: true,
+    description: "Consola Nintendo Switch Oled Con El Catálogo De Videojuegos De Nintendo a Descargar. Estado Funcional: 10 / 10. ¡Probado y testeado antes de entregarlo o enviarlo! Limpieza realizada para un estado impecable.",
+    images: [], is_featured_home: true, revisado: true, garantia_meses: 12, solo_entrega_mano: false, vendido_en: null, reservado_hasta: null,
+    category: { name: "Nintendo Switch" }, created_at: "2026-11-20T10:00:00Z", updated_at: "2026-11-26T10:00:00Z", ...extra,
+  });
+  const media = [1, 2, 3].map((n) => ({ id: `0f000000-0000-4000-8000-00000000010${n}`, product_id: ID, kind: "image", public_url: foto(n), file_name: `${n}.jpg`, sort_order: n - 1, is_cover: n === 1 }));
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  for (const [nombre, vista] of [
+    ["360", { viewport: { width: 360, height: 780 } }],
+    ["390", {}],
+    ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ]) {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, ofertaSemana: { producto: producto(), media } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    // Sin sesión: «Comprar ya» pide entrar (como en la ficha).
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await pagina(ctx, "/");
+    await p.locator("#oferta-semana").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#oferta-semana").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(1200);
+    const t = (await p.locator("#oferta-semana").innerText().catch(() => "")).replace(/\s+/g, " ");
+    const m = await p.evaluate(() => {
+      const caja = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const tarjeta = caja("oferta-semana");
+      const desc = document.getElementById("oferta-descripcion");
+      const botones = ["oferta-me-gusta", "oferta-compartir", "oferta-leer-mas", "oferta-ver-ficha"].map((id) => Math.round(caja(id)?.height ?? 0));
+      // El texto suelto (los botones ya centran su etiqueta) con letras.
+      const textos = Array.from(document.querySelectorAll('#oferta-semana [dir="auto"]')).filter(
+        (x) => /[a-z0-9]/i.test(x.textContent ?? "") && x.getBoundingClientRect().width > 0 && !x.closest('[id^="oferta-contador"], [role="button"], [role="link"], button, a')
+      );
+      return {
+        contador: document.getElementById("oferta-contador")?.textContent ?? "",
+        dosLineas: desc ? Math.round(desc.getBoundingClientRect().height) <= 44 : false,
+        botones,
+        centrado: textos.filter((x) => getComputedStyle(x).textAlign !== "center").map((x) => x.textContent).slice(0, 3),
+        dentro: !!tarjeta && tarjeta.left >= -1 && tarjeta.right <= window.innerWidth + 1,
+        ancho: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      };
+    });
+    ok(m.contador.trim() === "1 / 3" && !/\+\d+ fotos/.test(t), `OF (${nombre}): las fotos dicen «1 / 3» en vez de «+N fotos» (${m.contador})`);
+    ok(/Comprar ya/.test(t) && /Añadir a la cesta/.test(t) && /Preguntar por este artículo/.test(t) && /Ver ficha completa/.test(t) && !/Consultar por Chat/.test(t), `OF (${nombre}): los botones de la ficha (Comprar ya, Añadir a la cesta, Preguntar) y «Ver ficha completa ›»`);
+    ok(/Revisado por nuestro equipo/.test(t) && /Garantía de 12 meses/.test(t) && /Entrega en el día en Zaragoza/.test(t), `OF (${nombre}): los sellos reales (revisado, garantía y entrega)`);
+    ok(m.dosLineas && /Leer más/.test(t), `OF (${nombre}): la descripción en 2 líneas con «Leer más»`);
+    ok(m.botones.every((h) => h >= 44), `OF (${nombre}): me gusta, compartir, leer más y ver ficha de 44 px o más (${m.botones.join(", ")})`);
+    ok(m.centrado.length === 0, `OF (${nombre}): todo el texto centrado (${JSON.stringify(m.centrado)})`);
+    ok(m.dentro && m.ancho, `OF (${nombre}): la tarjeta cabe y la página no se ensancha`);
+    await capturar(p, `OF-${nombre}-oferta`);
+    // «Leer más» despliega la descripción entera.
+    await p.locator("#oferta-leer-mas").click();
+    await p.waitForTimeout(300);
+    ok(/Leer menos/.test(await p.locator("#oferta-semana").innerText()), `OF (${nombre}): «Leer más» despliega el texto`);
+    // Tocar la foto la abre en grande (el visor de la ficha).
+    await p.locator("#oferta-foto").click();
+    await p.waitForTimeout(800);
+    const visor = await p.evaluate(() => /1 \/ 3/.test(document.body.innerText) && !!document.querySelector('[aria-label*="Cerrar"]'));
+    ok(visor, `OF (${nombre}): tocar la foto abre el visor a pantalla completa`);
+    await p.keyboard.press("Escape");
+    await p.waitForTimeout(500);
+    // «Comprar ya» sin sesión lleva a entrar (y luego vuelve a la ficha).
+    await p.getByText("Comprar ya", { exact: true }).first().click();
+    await p.waitForURL(/\/perfil/, { timeout: 15000 }).catch(() => {});
+    ok(/\/perfil\?acceso=entrar/.test(p.url()), `OF (${nombre}): «Comprar ya» sin sesión pide entrar (${new URL(p.url()).pathname}${new URL(p.url()).search.slice(0, 20)})`);
+    for (let i = 0; i < 20 && (estado.eventosEnviados ?? []).filter((e) => e.event_name === "oferta_semana").length < 2; i++) await p.waitForTimeout(250);
+    const ev = (estado.eventosEnviados ?? []).filter((e) => e.event_name === "oferta_semana").map((e) => e.step_label.replace("Oferta de la semana: ", ""));
+    ok(ev.includes("ver fotos en grande") && ev.includes("comprar ya"), `OF (${nombre}): la analítica cuenta lo que se toca (${ev.join(" | ")})`);
+    ok(p.errores.length === 0, `OF (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // Vendido: la tarjeta lo dice y no deja comprar (estado en vivo).
+  {
+    const estado = { filas: perfil, guardados: [], ofertaSemana: { producto: producto({ vendido_en: "2026-11-26T20:00:00Z" }), media } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#oferta-estado").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#oferta-semana").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/Vendido/.test(t) && /se acaba de vender/.test(t) && !/Comprar ya/.test(t) && /Ver catálogo/.test(t), `OF: vendido, la tarjeta lo dice y ofrece el catálogo en vez de comprar (${t.slice(0, 140)})`);
+    ok(p.errores.length === 0, `OF: vendido sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // Administración → Analítica.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Oferta de la semana: comprar ya", sessions: 3 },
+        { step_label: "Oferta de la semana: añadir a la cesta", sessions: 2 },
+        { step_label: "Oferta de la semana: ver fotos en grande", sessions: 5 },
+        { step_label: "Oferta de la semana: compartir", sessions: 1 },
+        { step_label: "Oferta de la semana: me gusta", sessions: 4 },
+        { step_label: "Oferta de la semana: ver ficha", sessions: 6 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const a = await pagina(ctx, "/admin/analytics");
+    await a.locator("#analitica-oferta-semana").waitFor({ timeout: 40000 }).catch(() => {});
+    const linea = (await a.locator("#analitica-oferta-semana").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/«Comprar ya»: 3 · «Añadir a la cesta»: 2 · fotos en grande: 5 · compartir: 1 · me gusta: 4 · «Ver ficha completa»: 6/.test(linea), `OF: Administración → Analítica cuenta lo que se toca en la oferta (${linea})`);
+    ok(a.errores.length === 0, `OF: Analítica sin errores de JavaScript (${a.errores.length})`);
+    await ctx.close();
+  }
+
+  // Foro (dueño, 2026-11-26, con captura): por defecto las pestañas salen Foro, Noticias Gaming, Chat, Nuestras Novedades
+  // y Torneos; quien las haya movido conserva su orden.
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: perfil, guardados: [] });
+    const p = await pagina(ctx, "/chat-global");
+    const boton = p.locator('[aria-label^="Cambiar de pestaña del Foro"]');
+    await boton.waitFor({ timeout: 40000 }).catch(() => {});
+    await boton.click().catch(() => {});
+    await p.waitForTimeout(700);
+    const orden = await p.evaluate(() => {
+      const nombres = ["Foro", "Noticias Gaming", "Chat", "Nuestras Novedades", "Torneos"];
+      return Array.from(document.querySelectorAll('[dir="auto"]'))
+        .map((b) => ({ t: (b.textContent ?? "").trim(), y: b.getBoundingClientRect().top, x: b.getBoundingClientRect().right }))
+        // Las del desplegable van a la derecha, una debajo de otra.
+        .filter((b) => nombres.includes(b.t) && b.y > 0 && b.x > window.innerWidth * 0.6)
+        .sort((a, b) => a.y - b.y)
+        .map((b) => b.t)
+        // El botón de arriba repite el nombre de la pestaña abierta: cada nombre cuenta una vez.
+        .filter((t, i, todos) => todos.indexOf(t) === i);
+    });
+    ok(orden.join(" · ") === "Foro · Noticias Gaming · Chat · Nuestras Novedades · Torneos", `OF: el Foro trae las pestañas en el orden por defecto (${orden.join(" · ")})`);
+    ok(p.errores.length === 0, `OF: Foro sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
+// «Noticias que podrían interesarte» y «Últimas noticias» (dueño, 2026-11-26): en Inicio bajo «Recién llegado» y en Perfil
+// y Cesta bajo «También te puede interesar»; sin repetir noticias entre los dos; tocar una abre su página y se mide.
+async function seccionNE() {
+  const noticias = Array.from({ length: 16 }, (_, i) => ({
+    id: `0e000000-0000-4000-8000-0000000000${String(i + 10)}`,
+    titulo: `Noticia de prueba número ${i + 1} sobre consolas y videojuegos`,
+    categoria: i % 2 ? "Consolas" : "Videojuegos",
+    afecta_a: "Jugadores",
+    imagen_url: null,
+    imagenes: [],
+    imagenes_verificadas: false,
+    interes: (i * 7) % 10,
+    publicada_en: new Date(Date.now() - i * 3600000).toISOString(),
+    created_at: new Date(Date.now() - i * 3600000).toISOString(),
+  }));
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  for (const [nombre, vista] of [
+    ["360", { viewport: { width: 360, height: 780 } }],
+    ["390", {}],
+    ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ]) {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, noticias };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await pagina(ctx, "/");
+    await p.locator("#inicio-noticias-ultimas").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#inicio-noticias-interes").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(800);
+    const m = await p.evaluate(() => {
+      const ids = (id) => Array.from(document.querySelectorAll(`[id^="${id}-"]`)).map((x) => x.id.slice(id.length + 1));
+      const caja = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const interes = ids("inicio-noticias-interes");
+      const ultimas = ids("inicio-noticias-ultimas");
+      const textos = Array.from(document.querySelectorAll('[id^="inicio-noticias-"] [dir="auto"]')).filter((x) => /[a-z]/i.test(x.textContent ?? ""));
+      const reciente = caja("inicio-noticias-ultimas");
+      const vistos = document.body.innerText.indexOf("Recién llegado");
+      return {
+        titulos: document.body.innerText.includes("Noticias que podrían interesarte") && document.body.innerText.includes("Últimas noticias"),
+        interes,
+        ultimas,
+        repetidas: interes.filter((id) => ultimas.includes(id)).length,
+        enlace: document.querySelector('[id^="inicio-noticias-ultimas-"]')?.closest("a")?.getAttribute("href") ?? document.querySelector('[id^="inicio-noticias-ultimas-"]')?.getAttribute("href") ?? "",
+        centrado: textos.filter((x) => getComputedStyle(x).textAlign !== "center").map((x) => x.textContent).slice(0, 3),
+        letra: Math.min(...textos.map((x) => parseFloat(getComputedStyle(x).fontSize))),
+        // Sin productos de prueba «Recién llegado» no sale: entonces solo cuenta el orden entre los dos.
+        orden: document.body.innerText.indexOf("Noticias que podrían interesarte") > vistos && document.body.innerText.indexOf("Últimas noticias") > document.body.innerText.indexOf("Noticias que podrían interesarte"),
+        dentro: !!reciente && reciente.left >= -1 && reciente.right <= window.innerWidth + 1,
+        ancho: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      };
+    });
+    ok(m.titulos, `NE (${nombre}): Inicio trae «Noticias que podrían interesarte» y «Últimas noticias»`);
+    ok(m.orden, `NE (${nombre}): van debajo de «Recién llegado», primero las que podrían interesar`);
+    ok(m.ultimas.length === 10 && m.ultimas[0] === noticias[0].id, `NE (${nombre}): «Últimas noticias» con las 10 más nuevas, la última primero (${m.ultimas.length})`);
+    ok(m.interes.length === 6 && m.repetidas === 0, `NE (${nombre}): «Podrían interesarte» con las demás, sin repetir ninguna (${m.interes.length}, repetidas ${m.repetidas})`);
+    ok(m.interes[0] === noticias[14].id, `NE (${nombre}): sin historial, primero la de más interés (${m.interes[0]?.slice(-2)})`);
+    ok(m.enlace === `/noticias/${noticias[0].id}`, `NE (${nombre}): cada tarjeta es un enlace a su noticia (${m.enlace})`);
+    ok(m.centrado.length === 0 && m.letra >= 12, `NE (${nombre}): texto centrado y de 12 px o más (${JSON.stringify(m.centrado)}, ${m.letra})`);
+    ok(m.dentro && m.ancho, `NE (${nombre}): el carrusel cabe y la página no se ensancha`);
+    await p.locator("#inicio-noticias-ultimas").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `NE-${nombre}-inicio`);
+    // Los errores, antes de salir de Inicio (la página de la noticia no tiene datos de prueba).
+    ok(p.errores.length === 0, `NE (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await p.locator(`#inicio-noticias-ultimas-${noticias[0].id}`).click();
+    await p.waitForURL(/\/noticias\//, { timeout: 15000 }).catch(() => {});
+    ok(p.url().includes(`/noticias/${noticias[0].id}`), `NE (${nombre}): tocar una noticia abre su página`);
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "noticia_estante_tocada"); i++) await p.waitForTimeout(250);
+    const ev = (estado.eventosEnviados ?? []).filter((e) => e.event_name?.startsWith("noticia")).map((e) => e.step_label);
+    ok(ev.includes("Noticias en estantes: últimas · tocada") && ev.includes("Noticias en estantes: podrían interesarte · vistas"), `NE (${nombre}): la analítica cuenta las vistas y los toques (${ev.join(" | ")})`);
+    await ctx.close();
+  }
+
+  // Perfil y Cesta: debajo de «También te puede interesar».
+  for (const [ruta, id] of [["/perfil", "perfil"], ["/cesta", "cesta"]]) {
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: perfil, guardados: [], noticias });
+    const p = await pagina(ctx, ruta);
+    await p.locator(`#${id}-noticias-ultimas`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator(`#${id}-noticias-interes`).scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(600);
+    const m = await p.evaluate((id) => {
+      const t = document.body.innerText;
+      const tambien = t.indexOf("También te puede interesar");
+      return {
+        las2: !!document.getElementById(`${id}-noticias-interes`) && !!document.getElementById(`${id}-noticias-ultimas`),
+        debajo: tambien < 0 || t.indexOf("Noticias que podrían interesarte") > tambien,
+        ancho: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      };
+    }, id);
+    ok(m.las2 && m.debajo && m.ancho, `NE: ${ruta} trae los dos carruseles de noticias debajo de «También te puede interesar»`);
+    await capturar(p, `NE-390-${id}`);
+    ok(p.errores.length === 0, `NE: ${ruta} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // Administración → Analítica.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Noticias en estantes: podrían interesarte · vistas", sessions: 8 },
+        { step_label: "Noticias en estantes: podrían interesarte · tocada", sessions: 3 },
+        { step_label: "Noticias en estantes: últimas · vistas", sessions: 7 },
+        { step_label: "Noticias en estantes: últimas · tocada", sessions: 2 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const a = await pagina(ctx, "/admin/analytics");
+    await a.locator("#analitica-noticias-estantes").waitFor({ timeout: 40000 }).catch(() => {});
+    const linea = (await a.locator("#analitica-noticias-estantes").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/«Podrían interesarte»: 8 las ven · 3 entran · «Últimas noticias»: 7 las ven · 2 entran/.test(linea), `NE: Administración → Analítica cuenta los carruseles de noticias (${linea})`);
+    ok(a.errores.length === 0, `NE: Analítica sin errores de JavaScript (${a.errores.length})`);
+    await ctx.close();
+  }
+}
+
 async function seccionRE() {
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
   const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, resenas: [], publicarResenas: true };
@@ -26604,6 +26868,8 @@ try {
   if (SOLO === "Y") await seccionY();
   if (SOLO === "Z") await seccionZ();
   if (SOLO === "RE") await seccionRE();
+  if (SOLO === "OF") await seccionOF();
+  if (SOLO === "NE") await seccionNE();
   if (SOLO === "EN") await seccionEN();
   if (SOLO === "NO") await seccionNO();
   if (SOLO === "BU") await seccionBU();

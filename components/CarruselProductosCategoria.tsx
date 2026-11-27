@@ -77,6 +77,9 @@
  * a la venta, «Quitar» por producto y «Borrar historial»). Se mide como vistos_mostrado, visto_tocado, visto_quitado y
  * vistos_borrados (solo ids y cuántos) en Administración → Analítica → «Vistos recientemente (30 días)».
  *
+ * «Noticias que podrían interesarte» y «Últimas noticias» (dueño, 2026-11-26; NoticiasEstantes, abajo del todo): en Inicio
+ * bajo «Recién llegado» y en Perfil y Cesta bajo «También te puede interesar» (tabla noticias_gaming, solo lectura).
+ *
  * Tamaños (2026-11-12, grupo 3): nombres a 13 px como mínimo, precios pequeños (menos de 17 px) en el azul de texto
  * #0A78B4 (constants/temaTienda.ts) y flechas con 44 px de zona táctil.
  *
@@ -96,7 +99,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Href } from "expo-router";
-import { router, usePathname } from "expo-router";
+import { Link, router, usePathname } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { NativeScrollEvent, NativeSyntheticEvent, ViewStyle } from "react-native";
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
@@ -1680,10 +1683,282 @@ export function VistosRecientemente({ pie }: { pie?: React.ReactNode }) {
   );
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// «Noticias que podrían interesarte» y «Últimas noticias» (dueño, 2026-11-26, con captura): en Inicio bajo «Recién
+// llegado» y en Perfil y Cesta bajo «También te puede interesar». Una sola consulta (las 60 últimas publicadas, sin
+// textos largos) guardada 5 minutos en memoria para las tres pantallas. «Últimas»: las 10 más nuevas. «Podrían
+// interesarte»: de las demás (sin repetir), primero las que nombran la consola de lo que el cliente ha mirado en este
+// dispositivo (Vistos recientemente y, en la cesta, lo que lleva), luego por «interes» (lo pone la IA al publicarla) y
+// por fecha; todo se calcula en el dispositivo, sin guardar nada. Cada tarjeta es un enlace de verdad a /noticias/<id>.
+// Analítica propia: noticias_estante_mostrado y noticia_estante_tocada (estante, pantalla, id, posición, si iba
+// personalizada), en Administración → Analítica → «Noticias en Inicio, Perfil y Cesta (30 días)».
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type PantallaNoticias = "inicio" | "perfil" | "cesta";
+type EstanteNoticias = "interes" | "ultimas";
+type NoticiaEstante = { id: string; titulo: string; categoria: string; afectaA: string; interes: number; fecha: string | null; foto: string | null };
+
+// Nombres de la analítica (Administración → Analítica los busca tal cual).
+const ESTANTE_NOMBRE: Record<EstanteNoticias, string> = { interes: "podrían interesarte", ultimas: "últimas" };
+const NOTICIAS_ULTIMAS = 10;
+const NOTICIAS_INTERES = 10;
+const NOTICIA_ANCHO = 220;
+const NOTICIA_FOTO_ALTO = 124;
+let noticiasCache: { en: number; filas: Promise<NoticiaEstante[]> } | null = null;
+
+// Mismo criterio que leerFotosNoticia (app/noticias/[id].tsx): solo fotos comprobadas por el servidor y en https.
+function fotoNoticia(r: Record<string, unknown>): string | null {
+  if (r.imagenes_verificadas !== true) return null;
+  for (const u of [r.imagen_url, ...(Array.isArray(r.imagenes) ? r.imagenes : [])]) {
+    if (typeof u === "string" && /^https:\/\//i.test(u)) return u;
+  }
+  return null;
+}
+
+async function consultarNoticiasEstante(): Promise<NoticiaEstante[]> {
+  const base = "id,titulo,categoria,afecta_a,imagen_url,publicada_en,created_at";
+  const consulta = (columnas: string) =>
+    supabase.from("noticias_gaming").select(columnas).eq("publicada", true).order("publicada_en", { ascending: false, nullsFirst: false }).limit(60);
+  let { data, error } = await consulta(`${base},imagenes,imagenes_verificadas,interes`);
+  // Sin las columnas opcionales (migración pendiente), con lo básico.
+  if (error) ({ data, error } = await consulta(base));
+  if (error) throw error;
+  return ((data ?? []) as unknown as Record<string, unknown>[])
+    .map((r) => ({
+      id: String(r.id),
+      titulo: String(r.titulo ?? "").trim(),
+      categoria: String(r.categoria ?? "").trim() || "Gaming",
+      afectaA: String(r.afecta_a ?? "").trim(),
+      interes: Number(r.interes ?? 0) || 0,
+      fecha: (r.publicada_en as string | null) ?? (r.created_at as string | null) ?? null,
+      foto: fotoNoticia(r),
+    }))
+    .filter((n) => n.titulo);
+}
+
+function leerNoticiasEstante(forzar: boolean): Promise<NoticiaEstante[]> {
+  if (!forzar && noticiasCache && Date.now() - noticiasCache.en < SHELF_CACHE_TTL_MS) return noticiasCache.filas;
+  const filas = consultarNoticiasEstante().catch((e) => {
+    // Es un añadido: si falla, no se pinta (aviso, no error) y se reintenta en la siguiente pantalla.
+    console.warn("No se han podido cargar las noticias de los estantes:", e);
+    noticiasCache = null;
+    return [] as NoticiaEstante[];
+  });
+  noticiasCache = { en: Date.now(), filas };
+  return filas;
+}
+
+// «Hoy», «Ayer» o «26 nov».
+function fechaCorta(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const dia = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const dias = Math.round((dia(new Date()) - dia(d)) / 86400000);
+  if (dias === 0) return "Hoy";
+  if (dias === 1) return "Ayer";
+  return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" }).replace(".", "");
+}
+
+/** Reparte las noticias: las últimas y, de las demás, las que podrían interesar (con lo mirado en el dispositivo). */
+export function repartirNoticias(noticias: NoticiaEstante[], familias: Set<FamiliaConsola>) {
+  const ultimas = noticias.slice(0, NOTICIAS_ULTIMAS);
+  const coincide = (n: NoticiaEstante) => [...familiasDeTexto(`${n.titulo} ${n.afectaA}`)].some((f) => familias.has(f));
+  const interes = noticias
+    .slice(NOTICIAS_ULTIMAS)
+    .map((n, orden) => ({ n, orden, suya: familias.size > 0 && coincide(n) }))
+    .sort((a, b) => Number(b.suya) - Number(a.suya) || b.n.interes - a.n.interes || a.orden - b.orden)
+    .slice(0, NOTICIAS_INTERES);
+  return { ultimas, interes: interes.map((x) => x.n), personal: interes.some((x) => x.suya) };
+}
+
+export function NoticiasEstantes({ pantalla, idsBase, separador }: { pantalla: PantallaNoticias; idsBase?: string[]; separador?: React.ReactNode }) {
+  const { lista, leido } = useVistos();
+  const [noticias, setNoticias] = useState<NoticiaEstante[] | null>(null);
+  const [familias, setFamilias] = useState<Set<FamiliaConsola>>(() => new Set());
+  const recarga = useRecarga({ parte: true });
+  const clave = [...lista.map((v) => v.id), ...(idsBase ?? [])].join(",");
+
+  useEffect(() => {
+    let vivo = true;
+    void leerNoticiasEstante(recarga > 0).then((filas) => vivo && setNoticias(filas));
+    return () => {
+      vivo = false;
+    };
+  }, [recarga]);
+
+  // Las consolas de lo mirado (y de la cesta), con el índice ligero de la búsqueda que ya está en memoria.
+  useEffect(() => {
+    if (!leido) return;
+    let vivo = true;
+    const ids = clave ? clave.split(",") : [];
+    if (!ids.length) {
+      setFamilias(new Set());
+      return;
+    }
+    void cargarIndiceBusqueda(false).then((indice) => {
+      if (!vivo || !indice) return;
+      const porId = new Map(indice.productos.map((p) => [p.id, p]));
+      const f = new Set<FamiliaConsola>();
+      for (const id of ids) {
+        const p = porId.get(id);
+        if (p) familiasDeProducto(p).forEach((x) => f.add(x));
+      }
+      setFamilias(f);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [clave, leido]);
+
+  const reparto = useMemo(() => (noticias ? repartirNoticias(noticias, familias) : null), [noticias, familias]);
+  if (!reparto) return null;
+  return (
+    <>
+      <CarruselNoticias
+        estante="interes"
+        pantalla={pantalla}
+        titulo="Noticias que podrían interesarte"
+        noticias={reparto.interes}
+        personal={reparto.personal}
+        pie={separador}
+      />
+      <CarruselNoticias estante="ultimas" pantalla={pantalla} titulo="Últimas noticias" noticias={reparto.ultimas} personal={false} pie={separador} />
+    </>
+  );
+}
+
+function CarruselNoticias({
+  estante,
+  pantalla,
+  titulo,
+  noticias,
+  personal,
+  pie,
+}: {
+  estante: EstanteNoticias;
+  pantalla: PantallaNoticias;
+  titulo: string;
+  noticias: NoticiaEstante[];
+  personal: boolean;
+  pie?: React.ReactNode;
+}) {
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollX = useRef(0);
+  const anchoVisible = useRef(0);
+  const anchoTotal = useRef(0);
+  const [izquierda, setIzquierda] = useState(false);
+  const [derecha, setDerecha] = useState(false);
+  const medido = useRef(false);
+  const paso = NOTICIA_ANCHO + CARD_GAP;
+  const nombreId = `${pantalla}-noticias-${estante}`;
+
+  const flechas = useCallback(() => {
+    setIzquierda(scrollX.current > 4);
+    setDerecha(scrollX.current < anchoTotal.current - anchoVisible.current - 4);
+  }, []);
+
+  useEffect(() => {
+    if (!noticias.length || medido.current) return;
+    medido.current = true;
+    void medirEvento("noticias_estante_mostrado", `Noticias en estantes: ${ESTANTE_NOMBRE[estante]} · vistas`, {
+      metadata: { estante, pantalla, n: noticias.length, personal },
+    });
+  }, [noticias.length, estante, pantalla, personal]);
+
+  const mover = useCallback(
+    (dir: 1 | -1) => {
+      const visibles = Math.max(1, Math.floor(anchoVisible.current / paso));
+      const maxX = Math.max(0, anchoTotal.current - anchoVisible.current);
+      scrollRef.current?.scrollTo({ x: Math.min(maxX, Math.max(0, scrollX.current + visibles * paso * dir)), animated: true });
+    },
+    [paso]
+  );
+
+  if (!noticias.length) return null;
+  return (
+    <View nativeID={nombreId} style={{ gap: 10 }}>
+      <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontSize: 17, fontWeight: "900", textAlign: "center" }}>
+        {titulo}
+      </Text>
+      <View style={{ position: "relative" }}>
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          snapToInterval={paso}
+          decelerationRate="fast"
+          scrollEventThrottle={16}
+          onScroll={(e) => {
+            const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+            scrollX.current = contentOffset.x;
+            anchoVisible.current = layoutMeasurement.width;
+            anchoTotal.current = contentSize.width;
+            flechas();
+          }}
+          onLayout={(e) => {
+            anchoVisible.current = e.nativeEvent.layout.width;
+            flechas();
+          }}
+          onContentSizeChange={(w) => {
+            anchoTotal.current = w;
+            flechas();
+          }}
+          contentContainerStyle={{ gap: CARD_GAP, paddingRight: 4 }}
+        >
+          {noticias.map((n, i) => (
+            <Link key={n.id} href={`/noticias/${n.id}` as Href} asChild>
+              <Pressable
+                nativeID={`${nombreId}-${n.id}`}
+                accessibilityRole="link"
+                accessibilityLabel={n.titulo}
+                onPress={() => {
+                  void medirEvento("noticia_estante_tocada", `Noticias en estantes: ${ESTANTE_NOMBRE[estante]} · tocada`, {
+                    metadata: { estante, pantalla, id: n.id, posicion: i + 1, personal },
+                  });
+                }}
+                // Dentro de <Link asChild> el estilo tiene que ser un objeto (con una función, Link lo pierde).
+                style={{ width: NOTICIA_ANCHO, borderRadius: 16, backgroundColor: COLORS.tile, padding: 10, alignItems: "center" }}
+              >
+                <View
+                  style={{
+                    width: "100%",
+                    height: NOTICIA_FOTO_ALTO,
+                    borderRadius: 12,
+                    overflow: "hidden",
+                    backgroundColor: "#FFFFFF",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {n.foto ? (
+                    <ImagenInteligente uri={n.foto} alt={n.titulo} ancho={220} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+                  ) : (
+                    <Ionicons name="newspaper-outline" size={30} color={COLORS.muted} />
+                  )}
+                </View>
+                <Text style={{ color: colorTextoAzul(12), fontSize: 12, fontWeight: "900", letterSpacing: 0.6, textTransform: "uppercase", marginTop: 8, textAlign: "center" }}>
+                  {[n.categoria, fechaCorta(n.fecha)].filter(Boolean).join(" · ")}
+                </Text>
+                <Text numberOfLines={3} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo + 1, lineHeight: 19, marginTop: 4, textAlign: "center" }}>
+                  {n.titulo}
+                </Text>
+              </Pressable>
+            </Link>
+          ))}
+        </ScrollView>
+        {izquierda ? <CarouselArrow direction="left" onPress={() => mover(-1)} top={NOTICIA_FOTO_ALTO / 2 - 12} /> : null}
+        {derecha ? <CarouselArrow direction="right" onPress={() => mover(1)} top={NOTICIA_FOTO_ALTO / 2 - 12} /> : null}
+      </View>
+      {pie}
+    </View>
+  );
+}
+
 // Flecha ‹ › flotante a un lado del carrusel — mismo estilo (círculo oscuro
 // semitransparente) que las del carrusel de fotos de la Oferta de la Semana.
 // Solo aparece cuando de verdad hay más tarjetas hacia ese lado.
-function CarouselArrow({ direction, onPress }: { direction: "left" | "right"; onPress: () => void }) {
+function CarouselArrow({ direction, onPress, top = 37 }: { direction: "left" | "right"; onPress: () => void; top?: number }) {
   return (
     <Pressable
       onPress={onPress}
@@ -1693,7 +1968,7 @@ function CarouselArrow({ direction, onPress }: { direction: "left" | "right"; on
       style={{
         position: "absolute",
         [direction]: -6,
-        top: 37,
+        top,
         width: 44,
         height: 44,
         alignItems: "center",
