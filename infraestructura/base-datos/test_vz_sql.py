@@ -73,8 +73,12 @@ sin_comentarios = "\n".join(linea.split("--", 1)[0] for linea in rol.splitlines(
 comprobar(re.search(r"^--\s*VZ\s*:\s*ACCION_MANUAL", rol, re.M), "el SQL del rol debe llevar la marca VZ: ACCION_MANUAL")
 comprobar("password '__CONTRASENA_DEL_AGENTE__'" in rol and len(re.findall(r"password\s+'", rol)) == 1,
           "el SQL del rol solo debe llevar el marcador de contraseña")
-comprobar(rol.count("nosuperuser nocreatedb nocreaterole noreplication nobypassrls noinherit connection limit 3") == 2,
+comprobar("nosuperuser nocreatedb nocreaterole noreplication nobypassrls noinherit connection limit 3" in rol
+          and "alter role vz_agente nobypassrls noinherit connection limit 3;" in rol,
           "atributos del rol al crearlo y al repetir (NOBYPASSRLS, como VeoAura)")
+# En Supabase «postgres» no es superusuario: ALTER ROLE no puede llevar SUPERUSER ni REPLICATION (ni en negativo).
+comprobar(not re.search(r"alter role [^;]*\b(no)?(superuser|replication)\b", sin_comentarios, re.I),
+          "ALTER ROLE sin SUPERUSER ni REPLICATION (fallaría en Supabase, donde postgres no es superusuario)")
 comprobar(not re.search(r"(?<![a-z])bypassrls", sin_comentarios, re.I), "el rol nunca recibe BYPASSRLS")
 comprobar(not re.search(r"on all (tables|sequences)", sin_comentarios, re.I),
           "permisos tabla a tabla: nada de «on all tables» ni «on all sequences»")
@@ -148,6 +152,17 @@ comprobar("2>/dev/null)\" ]" not in instalar and "|| abortar \"git no puede leer
 comprobar('chattr -a "$LOG/auditoria.jsonl"' in instalar
           and instalar.index("stat -c '%U:%G %a'") < instalar.index('chown vz-sql:vz-sql "$LOG/auditoria.jsonl"'),
           "repetible: no intenta cambiar el dueño de la auditoría con el solo-añadir puesto")
+comprobar(re.search(r"^cd /$", instalar, re.M) and instalar.index("cd /\n") < instalar.index("runuser"),
+          "trabaja desde / (sudo deja la carpeta de veoaura, que el usuario del proyecto no puede abrir)")
+# Lectura de migraciones para vz-sql: ACL solo para ese usuario, solo supabase/ y .git, con ACL por defecto.
+comprobar('setfacl -R -m u:vz-sql:rX "$carpeta"' in instalar and 'setfacl -R -d -m u:vz-sql:rX "$carpeta"' in instalar
+          and 'for carpeta in "$RAIZ_REPO/supabase" "$RAIZ_REPO/.git"; do' in instalar,
+          "ACL de lectura solo en supabase/ y .git, con herencia para lo que se cree después")
+comprobar('setfacl -m u:vz-sql:x "$d"' in instalar and not re.search(r'setfacl[^\n]*-R[^\n]*"\$RAIZ_REPO"\s*$', instalar, re.M),
+          "en el resto de la ruta solo atravesar; nunca ACL recursiva sobre todo el repositorio")
+comprobar(not re.search(r"setfacl[^\n]*(g:|group:|o:|other:|m:)", instalar), "las ACL no tocan grupo, otros ni máscara")
+comprobar(instalar.index("comprobado como vz-sql") < instalar.index("systemctl enable --now vz-sql.socket"),
+          "lee de verdad como vz-sql (migración y git) antes de activar el socket")
 comprobar("rm -rf /" not in instalar and "userdel" not in instalar and "systemctl restart" not in instalar,
           "el instalador no borra usuarios ni reinicia servicios")
 

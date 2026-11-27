@@ -77,8 +77,11 @@ TMP = tempfile.mkdtemp(prefix="vz-sql-pg-")
 DATOS, SOCK = os.path.join(TMP, "datos"), os.path.join(TMP, "sock")
 os.makedirs(SOCK)
 CONTRASENA = "prueba-" + os.urandom(12).hex()
-subprocess.run([os.path.join(BIN, "initdb"), "-D", DATOS, "-U", "postgres", "--auth=trust", "-E", "UTF8", "--locale=C"],
-               check=True, capture_output=True)
+# Como en Supabase: el superusuario es OTRO (aquí «superadmin», allí supabase_admin) y «postgres» NO es superusuario
+# (CREATEROLE, CREATEDB y BYPASSRLS, dueño de la base de datos). Así el SQL del rol se prueba con los mismos límites
+# que tendrá en el SQL Editor (p. ej. ALTER ROLE … NOSUPERUSER fallaría).
+subprocess.run([os.path.join(BIN, "initdb"), "-D", DATOS, "-U", "superadmin", "--auth=trust", "-E", "UTF8",
+                "--locale=C"], check=True, capture_output=True)
 subprocess.run([os.path.join(BIN, "pg_ctl"), "-D", DATOS, "-l", os.path.join(TMP, "pg.log"), "-w", "start",
                 "-o", f"-k {SOCK} -c listen_addresses=''"], check=True, capture_output=True)
 
@@ -96,15 +99,23 @@ def rechaza(conexion, sql):
 
 
 try:
+    with conectar("superadmin") as su:
+        su.autocommit = True
+        su.execute("create role postgres login nosuperuser createrole createdb bypassrls")
+        su.execute("alter database postgres owner to postgres")  # dueño de la BD → miembro de pg_database_owner
+        for rol in ("anon", "authenticated", "service_role"):
+            su.execute(f"create role {rol} nologin")
+            su.execute(f"grant {rol} to postgres")
+        for esquema in ("auth", "storage", "extensions"):  # de otros roles internos: vz_agente no debe entrar
+            su.execute(f"create schema {esquema}")
+        su.execute("create table auth.users (id int)")
+        su.execute("create schema supabase_migrations authorization postgres")
+        es_super = su.execute("select rolsuper from pg_roles where rolname = 'postgres'").fetchone()[0]
+        comprobar(es_super is False, "en la prueba, postgres NO es superusuario (como en Supabase)")
     with conectar() as con:
         con.autocommit = True
-        for rol in ("anon", "authenticated", "service_role"):
-            con.execute(f"create role {rol} nologin")
-        for esquema in ("auth", "storage", "extensions", "supabase_migrations"):
-            con.execute(f"create schema {esquema}")
         con.execute("create table supabase_migrations.schema_migrations (version text primary key, statements text[], "
                     "name text, created_by text, idempotency_key text, rollback text[])")
-        con.execute("create table auth.users (id int)")
         con.execute("create table public.profiles (id int primary key, plan text)")
         con.execute("insert into public.profiles values (7, 'basico')")
         con.execute("alter table public.profiles enable row level security")
@@ -125,7 +136,25 @@ try:
                     "as $$ update public.profiles set plan = 'pro' where id = p returning id $$")
         sql_rol = open(os.path.join(AQUI, "ACCION_MANUAL__rol_vz_agente_2026-11-27.sql"),
                        encoding="utf-8").read().replace("__CONTRASENA_DEL_AGENTE__", CONTRASENA)
-        con.execute(sql_rol)
+        # 1) Como en el SQL Editor de Supabase: lo ejecuta «postgres», que NO es superusuario. Debe ir entero sin
+        #    errores (todo va en una sola transacción: un error deshace todo).
+        try:
+            con.execute(sql_rol)
+            comprobar(True, "el SQL del rol funciona como postgres sin superusuario")
+        except psycopg.Error as e:
+            comprobar(False, f"el SQL del rol falla como postgres sin superusuario (como en Supabase): {e}")
+            raise
+        # En PostgreSQL sin la extensión supautils de Supabase, un no superusuario no puede crear event triggers: el
+        # archivo lo avisa y sigue (en Supabase, postgres es miembro de supabase_privileged_role y sí puede).
+        n = con.execute("select count(*) from pg_event_trigger where evtname like 'vz\\_%'").fetchone()[0]
+        comprobar(n == 0, f"sin supautils los vigilantes no se crean pero el archivo no falla (hay {n})")
+    # 2) Los vigilantes los crea aquí el superusuario (en Supabase lo permite supautils a postgres), repitiendo el
+    #    mismo archivo: también demuestra que es repetible.
+    with conectar("superadmin") as su:
+        su.autocommit = True
+        su.execute(sql_rol)
+    with conectar() as con:
+        con.autocommit = True
         barreras = con.execute("select count(*) from pg_event_trigger where evtname like 'vz\\_%'").fetchone()[0]
         comprobar(barreras == 3, f"deberían existir los 3 vigilantes de la segunda barrera (hay {barreras})")
         atributos = con.execute("select rolsuper, rolcreaterole, rolcreatedb, rolinherit, rolbypassrls, rolconnlimit "

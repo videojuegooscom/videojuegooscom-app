@@ -74,7 +74,15 @@ El instalador:
 - ejecuta las pruebas, y si alguna falla se detiene sin activar nada;
 - activa solo `vz-sql.socket`.
 
-No reinicia ningún otro servicio: tampoco Claude Remote Control. La prueba de integración necesita un PostgreSQL local; si no lo hay, se marca como **OMITIDA**.
+No reinicia ningún otro servicio: tampoco Claude Remote Control.
+
+**Lectura de las migraciones.** Aquí la carpeta personal es `0700` y todo nace privado (`umask 0077`). Por eso el instalador da ACL **solo al usuario `vz-sql`**:
+- atravesar (sin listar) las carpetas que llevan al repositorio;
+- leer `supabase/` y `.git/`, con ACL por defecto para que también pueda leer lo que se cree después.
+
+Antes de activar nada, comprueba **como `vz-sql`** que lee una migración y que git funciona. Con `.git` ve lo versionado (lo mismo que hay en GitHub). El resto del repositorio y los secretos sin versionar le siguen cerrados.
+
+**`postgres` no es superusuario en Supabase.** La prueba de integración ejecuta el SQL del rol con un `postgres` igual que el de Supabase: sin superusuario, dueño de la base de datos, con CREATEROLE, CREATEDB, BYPASSRLS y herencia de permisos. La prueba de integración necesita un PostgreSQL local; si no lo hay, se marca como **OMITIDA**.
 
 ## Activación contra el Supabase real
 
