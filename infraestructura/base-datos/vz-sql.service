@@ -1,0 +1,53 @@
+# == VIDEOJUEGOSZARAGOZA ======================================================
+# Archivo:        infraestructura/base-datos/vz-sql.service
+#                 (se instala en /etc/systemd/system/vz-sql.service; copia adaptada de VeoAura)
+# Función:        Servicio del broker vz-sql. Corre como el usuario dedicado vz-sql (que puede leer
+#                 /etc/videojuegoszaragoza-sql/conexion.env; videojuegoszaragoza no) con el sistema de
+#                 archivos en solo lectura salvo sus logs y sus copias de estructura.
+# Para qué sirve: Aislar la credencial de Supabase y el único proceso que la usa.
+# Conectado con:  vz-sql.socket, broker.py, /etc/videojuegoszaragoza-sql/conexion.env,
+#                 /var/log/vz-sql, /var/lib/vz-sql.
+# Utilizado por:  systemd (lo activa el socket).
+# Dependencias:   systemd, python3, /opt/vz-sql (instalar-sql.sh).
+# =============================================================================
+[Unit]
+Description=VideojuegosZaragoza - broker vz-sql (acceso controlado a Supabase)
+Requires=vz-sql.socket
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vz-sql
+Group=vz-sql
+SupplementaryGroups=videojuegoszaragoza
+Environment=VZ_SQL_LIB=/opt/vz-sql/lib
+Environment=VZ_SQL_CONFIG=/etc/videojuegoszaragoza-sql/conexion.env
+Environment=VZ_SQL_AUDITORIA=/var/log/vz-sql/auditoria.jsonl
+Environment=VZ_SQL_ESTRUCTURA=/var/lib/vz-sql/estructura
+Environment=VZ_SQL_REPOS=/home/videojuegoszaragoza/apps/videojuegooscom-app:/home/videojuegoszaragoza/apps/videojuegooscom-wt
+ExecStart=/usr/bin/python3 -I /opt/vz-sql/broker.py
+Restart=on-failure
+RestartSec=5
+UMask=0027
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/log/vz-sql /var/lib/vz-sql
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native

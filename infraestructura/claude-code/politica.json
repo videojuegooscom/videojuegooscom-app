@@ -3,7 +3,6 @@
   "allowManagedHooksOnly": true,
   "allowManagedMcpServersOnly": true,
   "allowedMcpServers": [
-    {"serverName": "supabase"},
     {"serverName": "vercel"},
     {"serverName": "stripe"}
   ],
@@ -37,6 +36,7 @@
       "Bash(git push -u origin main)",
       "Bash(git push * *:main)",
       "Bash(git push * --no-verify*)",
+      "Bash(git push * :*)",
       "Bash(git reset --hard *)",
       "Bash(git reset --hard)",
       "Bash(git clean *)",
@@ -159,6 +159,7 @@
       "Edit(//opt/**)",
       "Edit(//home/veoaura/**)",
       "Edit(//home/tradeandoia/**)",
+      "mcp__supabase",
       "mcp__supabase__deploy_edge_function",
       "mcp__supabase__create_branch",
       "mcp__supabase__delete_branch",
@@ -298,7 +299,9 @@
       "Bash(/usr/local/bin/vz-publicar revisar *)",
       "Bash(/usr/local/bin/vz-publicar publicar *)",
       "Bash(/usr/local/bin/vz-sql estado)",
-      "Bash(/usr/local/bin/vz-sql estado *)",
+      "Bash(/usr/local/bin/vz-sql estado --json)",
+      "Bash(/usr/local/bin/vz-sql diagnostico-d8)",
+      "Bash(/usr/local/bin/vz-sql diagnostico-d8 --json)",
       "Bash(/usr/local/bin/vz-sql consultar *)",
       "Bash(/usr/local/bin/vz-sql plan *)",
       "Bash(/usr/local/bin/vz-sql aplicar *)",
@@ -366,7 +369,6 @@
       "Bash(systemctl status *)",
       "Bash(systemctl is-active *)",
       "Bash(systemctl show *)",
-      "mcp__supabase",
       "mcp__vercel",
       "mcp__stripe"
     ]

@@ -16,12 +16,13 @@ select titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien
 from public.aprendizajes where activa order by prioridad, categoria, updated_at desc
 ```
 
-(por MCP de Supabase, solo lectura). Prioridad 1 = imprescindible, 2 = importante, 3 = preferencia.
+(con `/usr/local/bin/vz-sql consultar --sql '…'`; hasta que el dueño instale vz-sql, por MCP de Supabase en
+solo lectura). Prioridad 1 = imprescindible, 2 = importante, 3 = preferencia.
 Si una lección choca con lo que pide el usuario ahora, avísale antes de seguir. Cuando el usuario
 te corrija algo, te pida aprender algo o tú detectes algo que debes aprender, **apúntalo tú** en la
 tabla (no se lo pidas al usuario): añade un insert idempotente (`where not exists` por título) en una
 migración `supabase/migrations/<fecha>_aprendizajes_<tema>.sql`, ábrela con su PR y déjala pendiente:
-aplicarla con `apply_migration` (execute_sql no puede escribir) exige la autorización expresa del
+aplicarla (con `vz-sql aplicar`) exige la autorización expresa del
 dueño (regla permanente de «Hábitos obligatorios»). En el RESUMEN de la respuesta di qué lección
 has apuntado y que queda pendiente de aplicar.
 
@@ -39,7 +40,7 @@ has apuntado y que queda pendiente de aplicar.
 - **Toda rama pasa `tsc --noEmit` antes del push**, aunque solo toque `api/` o un texto.
 - **Textos largos de PR** con `--body-file` (un archivo del repo), para que el comando quepa en una línea. El cuerpo hay que dejarlo bien al crear la PR: `gh pr edit` falla (Projects classic) y el guardián bloquea `gh api` con PATCH; las correcciones posteriores van como comentario (`gh pr comment`).
 - **Secretos:** nunca leer ni mostrar `.env*`, claves ni tokens, ni nombrar archivos `.env` en comandos.
-- **Base de datos:** consultas de lectura por MCP (`execute_sql`). Los cambios van como SQL aditivo en `supabase/migrations/<fecha>_<nombre>.sql` dentro de una rama; tras publicarla y con la autorización expresa del dueño para esa migración, `git fetch origin main` y `apply_migration` con `name=<nombre>` y el contenido EXACTO del archivo (el guardián lo compara con origin/main). Nunca `DELETE`, `DROP` ni `TRUNCATE`; los cambios de permisos delicados (grant, security definer, anon, using (true)) los aplica el usuario.
+- **Base de datos (dueño, 2026-11-27: vz-sql como VeoAura, MCP de Supabase apagado):** se lee con `/usr/local/bin/vz-sql consultar --sql '…'` (o `estado`, `diagnostico-d8`). Los cambios van como SQL aditivo en `supabase/migrations/<fecha>_<nombre>.sql` dentro de una rama; tras publicarla y con la autorización expresa del dueño para esa migración, `git fetch origin main`, `/usr/local/bin/vz-sql plan --archivo …` y `/usr/local/bin/vz-sql aplicar --archivo …` (el intermediario exige que sea igual a origin/main y la registra en schema_migrations). Nunca `DELETE`, `DROP` ni `TRUNCATE`; lo que vz-sql marca como ACCIÓN MANUAL (permisos delicados como grant, security definer, anon o using (true), y ALTER/políticas/índices en tablas de la tienda) lo aplica el usuario en el SQL Editor. Ver `infraestructura/base-datos/INSTALAR.md`. Hasta que el dueño lo instale, la lectura sigue por MCP (`execute_sql`).
 - Si algo se bloquea, no se rodea: se explica qué hace falta y se da al usuario el comando para Termius (como `veoaura`, con `python3`, nunca `jq`).
 
 ## Asesor de modelos (en cada respuesta)

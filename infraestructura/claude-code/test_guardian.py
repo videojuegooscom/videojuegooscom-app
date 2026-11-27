@@ -161,6 +161,8 @@ DENY_BASH = [
     "/usr/local/bin/vz-sql estado | cat",
     "/usr/local/bin/vz-sql borrar", "/usr/local/bin/vz-sql", "/usr/local/bin/vz-sql estado --sql 'select 1'",
     "/usr/local/bin/vz-sql estado --archivo supabase/migrations/x.sql", "/usr/local/bin/vz-sql estado --forzar",
+    "/usr/local/bin/vz-sql diagnostico-d8 --sql 'select 1'", "/usr/local/bin/vz-sql diagnostico-d8 --forzar",
+    "/usr/local/bin/vz-sql diagnostico-d8 --archivo supabase/migrations/20261127130000_privacidad_consentimiento.sql",
     "/usr/local/bin/vz-sql aplicar --sql 'create table x (id int)'", "/usr/local/bin/vz-sql plan --sql 'select 1'",
     "/usr/local/bin/vz-sql aplicar", "/usr/local/bin/vz-sql consultar",
     "/usr/local/bin/vz-sql consultar --sql 'select 1' --archivo supabase/migrations/x.sql",
@@ -238,6 +240,23 @@ DENY_OTRAS = [
     mcp("mcp__supabase__apply_migration", name="centro_aprendizajes"),
     mcp("mcp__supabase__delete_branch", branch_id="x"), mcp("mcp__supabase__pause_project"),
     mcp("mcp__supabase__deploy_edge_function", name="x"),
+    # MCP de Supabase apagado (dueño, 2026-11-27): ni lectura ni migraciones de main; todo va por vz-sql.
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
+        query="create table if not exists public.aprendizajes (id uuid primary key)"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="grant all on public.t to anon"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
+        query="create policy p on t for select to anon using (true)"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
+        query="create function f() returns void language sql security definer as $$ select 1 $$"),
+    mcp("mcp__supabase__list_tables", schemas=["public"], verbose=False), mcp("mcp__supabase__get_advisors", type="security"),
+    mcp("mcp__supabase__execute_sql", query="select count(*) from products"),
+    mcp("mcp__supabase__execute_sql", query="select proname, prosrc from pg_proc"),
+    mcp("mcp__supabase__execute_sql", query="select (created_at at time zone 'Europe/Madrid')::date as dia, "
+        "count(*) filter (where event_name = 'page_view') as n from public.analytics_events group by 1"),
+    mcp("mcp__supabase__execute_sql", query="update products set price_eur = 1 where false"),
+    mcp("mcp__supabase__execute_sql", query="insert into flash_news(title) values ('x')"),
+    mcp("mcp__supabase__execute_sql", query="select mi_funcion_rara()"),
+    mcp("mcp__supabase__execute_sql", query="create policy x on products for select using (true)"),
     mcp("mcp__vercel__get_project_env", id="x"), mcp("mcp__vercel__request_promote", id="x"),
     mcp("mcp__vercel__create_project_env", key="x"), mcp("mcp__vercel__buy_domain", name="x.com"),
     mcp("mcp__vercel__update_project", id="x"), mcp("mcp__vercel__assign_alias", alias="x"),
@@ -281,16 +300,9 @@ LECTURA = [
     # Controlador de publicación instalado (copia de root): aprobado por el guardián.
     "/usr/local/bin/vz-publicar revisar 7", "/usr/local/bin/vz-publicar publicar 7",
 ]
-APROBADAS_OTRAS = [
-    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
-        query="create table if not exists public.aprendizajes (id uuid primary key)"),
-    # Permisos delicados ya revisados y fusionados en main (petición del dueño, 2026-10-13).
-    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="grant all on public.t to anon"),
-    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
-        query="create policy p on t for select to anon using (true)"),
-    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
-        query="create function f() returns void language sql security definer as $$ select 1 $$"),
-]
+# Desde 2026-11-27 (dueño): el MCP de Supabase está apagado como en VeoAura; lo que antes se aprobaba
+# (apply_migration de main, con permisos delicados incluidos) ahora se deniega (ver MCP_SUPABASE_APAGADO).
+APROBADAS_OTRAS = []
 
 # ----------------------------------------------------------------- PASA ----------
 PASA = [
@@ -318,6 +330,7 @@ PASA = [
     # Cliente vz-sql bien invocado (2026-11-27): el guardián no decide; lo hace la política (y el intermediario repite
     # todas las comprobaciones).
     "/usr/local/bin/vz-sql estado", "/usr/local/bin/vz-sql estado --json",
+    "/usr/local/bin/vz-sql diagnostico-d8", "/usr/local/bin/vz-sql diagnostico-d8 --json",
     "/usr/local/bin/vz-sql consultar --sql 'select id, title from products where is_active' --json",
     "/usr/local/bin/vz-sql plan --archivo supabase/migrations/20261127130000_privacidad_consentimiento.sql",
     "/usr/local/bin/vz-sql aplicar --archivo supabase/migrations/20261127130000_privacidad_consentimiento.sql",
@@ -325,12 +338,6 @@ PASA = [
     "git commit -m 'Prepara vz-sql y su intermediario'", "gh pr create --title x --body \"vz-sql aplicar falló\"",
 ]
 PASA_OTRAS = [
-    mcp("mcp__supabase__list_tables", schemas=["public"], verbose=False), mcp("mcp__supabase__get_advisors", type="security"),
-    mcp("mcp__supabase__execute_sql", query="select count(*) from products"),
-    mcp("mcp__supabase__execute_sql", query="select proname, prosrc from pg_proc"),
-    mcp("mcp__supabase__execute_sql", query="select pg_get_function_identity_arguments(oid) from pg_proc"),
-    mcp("mcp__supabase__execute_sql", query="select (created_at at time zone 'Europe/Madrid')::date as dia, "
-        "count(*) filter (where event_name = 'page_view') as n from public.analytics_events group by 1"),
     mcp("mcp__vercel__list_deployments", limit=5), mcp("mcp__vercel__get_deployment", idOrUrl="x"),
     mcp("mcp__vercel__get_runtime_logs", id="x"),
     # Web (2026-11-15): buscar y leer páginas de sitios de fiar pasan sin ventana.
@@ -385,10 +392,6 @@ CRITICA_BASH = [
     "gh api graphql -f query=x",
 ]
 CRITICA_OTRAS = [
-    mcp("mcp__supabase__execute_sql", query="update products set price_eur = 1 where false"),
-    mcp("mcp__supabase__execute_sql", query="insert into flash_news(title) values ('x')"),
-    mcp("mcp__supabase__execute_sql", query="select mi_funcion_rara()"),
-    mcp("mcp__supabase__execute_sql", query="create policy x on products for select using (true)"),
     mcp("mcp__vercel__create_project", name="x"), mcp("mcp__vercel__run_session_command", command="ls"),
     write("/tmp/fuera.txt"), write(os.path.join(H, "registros/vz-guardian.log")),
     edit(os.path.join(H, "registros/vz-guardian.log")), bash(f"echo x > {H}/registros/vz-guardian.log"),
