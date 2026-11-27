@@ -9167,7 +9167,7 @@ async function seccionBV() {
     const ctx = await contexto(navegador, CLIENTE, "user", { filas: perfil, guardados: [] });
     const p = await ctx.newPage();
     const html = await (await p.request.get(`${BASE}/`)).text();
-    ok(/id="bienvenida"/.test(html) && /Tu tienda de electrónica en Zaragoza/.test(html) && /Zaragoza/.test(html), "BV: el HTML estático ya es la bienvenida, con la marca y su frase");
+    ok(/id="bienvenida"/.test(html) && /Artículos de electrónica de segunda mano y servicio técnico/.test(html) && /Zaragoza/.test(html), "BV: el HTML estático ya es la bienvenida, con la marca y su frase");
     ok(/class="vzb-marco"/.test(html) && /id="bienvenida-relleno"/.test(html) && /@keyframes vzb-avance/.test(html), "BV: y ya trae el marco Siri y la barra con su animación CSS (se mueven desde el primer pintado)");
     await ctx.close();
   }
@@ -9386,10 +9386,22 @@ async function seccionBV() {
           return alto < parseFloat(getComputedStyle(m).fontSize) * 1.8;
         })(),
         letra: Math.round(parseFloat(getComputedStyle(document.getElementById("bienvenida-marca") ?? document.body).fontSize)),
+        // Título y subtítulo se distinguen (dueño, 2026-11-27): el subtítulo, bastante más pequeño y más fino.
+        subtitulo: (() => {
+          const t = document.getElementById("bienvenida-marca");
+          const s = document.getElementById("bienvenida-subtitulo");
+          if (!t || !s) return null;
+          const ct = getComputedStyle(t), cs = getComputedStyle(s);
+          return { tamano: parseFloat(cs.fontSize) / parseFloat(ct.fontSize), grosor: Number(cs.fontWeight), texto: s.textContent, dentro: s.getBoundingClientRect().right <= window.innerWidth };
+        })(),
       };
     });
     ok(r.marca && r.mascotas && r.ancho, `BV: cabe en ${vista.viewport.width} × ${vista.viewport.height} (${JSON.stringify(r)})`);
-    ok(r.unaLinea && r.letra >= 18, `BV: «VideojuegosZaragoza.com» en una sola línea a ${vista.viewport.width} px (letra de ${r.letra} px)`);
+    ok(r.unaLinea && r.letra >= 20, `BV: «VideojuegosZaragoza.com» en una sola línea a ${vista.viewport.width} px (letra de ${r.letra} px)`);
+    ok(
+      !!r.subtitulo && r.subtitulo.texto === "Artículos de electrónica de segunda mano y servicio técnico" && r.subtitulo.tamano <= 0.7 && r.subtitulo.grosor <= 500 && r.subtitulo.dentro,
+      `BV: el subtítulo dice «Artículos de electrónica de segunda mano y servicio técnico» y se distingue del título (${JSON.stringify(r.subtitulo)})`
+    );
     await capturar(p, `BV6-${vista.viewport.width}`);
     if (vista.viewport.width === 1280) await capturar(p, "BV6-ordenador");
     await ctx.close();

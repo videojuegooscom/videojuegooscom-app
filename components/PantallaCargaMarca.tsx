@@ -10,7 +10,7 @@
 /**
  * Notas:
  * Qué hace: pantalla de bienvenida de la tienda (dueño, 2026-11-04): «VideojuegosZaragoza.com», las dos mascotas
- * sonriendo, «Tu tienda de electrónica en Zaragoza» y una barra que se llena hasta los 3 s. Es también la pantalla de
+ * sonriendo, «Artículos de electrónica de segunda mano y servicio técnico» y una barra que se llena hasta los 3 s. Es también la pantalla de
  * carga y la versión que se genera de antemano (HTML estático) de todas las páginas, así que sale al instante.
  *
  * Fluida y con el efecto Siri (dueño, 2026-11-04: «que la barra de cargando sea fluida y aparezca el efecto Siri en los
@@ -51,7 +51,7 @@ export const BIENVENIDA_RELLENO_ID = "bienvenida-relleno";
 
 const WEB = Platform.OS === "web";
 // «VideojuegosZaragoza.com» en una línea: unos 14,5 «em» de ancho; se deja un margen de 28 px a cada lado.
-const TAMANO_MARCA_WEB = "clamp(18px, calc((100vw - 56px) / 14.5), 32px)";
+const TAMANO_MARCA_WEB = "clamp(20px, calc((100vw - 44px) / 14), 34px)";
 const AZUL = "#1EA7E8";
 const MARINO = "#0B2138";
 const GRIS = "rgba(11,33,56,0.62)";
@@ -205,7 +205,7 @@ export default function PantallaCargaMarca({ onEntrar }: PropsPantallaCargaMarca
           style={{
             marginTop: 22,
             color: MARINO,
-            fontSize: WEB ? (TAMANO_MARCA_WEB as unknown as number) : Math.min(32, Math.max(18, (anchoPantalla - 56) / 14.5)),
+            fontSize: WEB ? (TAMANO_MARCA_WEB as unknown as number) : Math.min(34, Math.max(20, (anchoPantalla - 44) / 14)),
             fontWeight: "900",
             letterSpacing: -0.5,
             textAlign: "center",
@@ -216,8 +216,13 @@ export default function PantallaCargaMarca({ onEntrar }: PropsPantallaCargaMarca
           <Text style={{ color: AZUL }}>Zaragoza</Text>
           <Text style={{ color: GRIS, fontWeight: "800" }}>.com</Text>
         </Text>
-        <Text style={{ marginTop: 6, color: GRIS, fontSize: 16, fontWeight: "600", textAlign: "center" }}>
-          Tu tienda de electrónica en Zaragoza
+        {/* Subtítulo (dueño, 2026-11-27): lo que hacemos, y claramente distinto del título: más pequeño, más fino, con
+            aire encima y en dos líneas cortas. */}
+        <Text
+          nativeID="bienvenida-subtitulo"
+          style={{ marginTop: 12, maxWidth: 290, alignSelf: "center", color: GRIS, fontSize: 14, lineHeight: 20, fontWeight: "500", textAlign: "center" }}
+        >
+          Artículos de electrónica de segunda mano y servicio técnico
         </Text>
 
         {WEB ? (
