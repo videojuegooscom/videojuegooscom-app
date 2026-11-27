@@ -1694,7 +1694,8 @@ export function VistosRecientemente({ pie }: { pie?: React.ReactNode }) {
 // personalizada), en Administración → Analítica (#analitica-noticias-estantes).
 // ---------------------------------------------------------------------------------------------------------------------
 
-export type PantallaNoticias = "inicio" | "perfil" | "cesta";
+// «ficha» y «servicio»: al final de las fichas de producto y de servicio (dueño, 2026-11-27).
+export type PantallaNoticias = "inicio" | "perfil" | "cesta" | "ficha" | "servicio";
 type EstanteNoticias = "recientes";
 type NoticiaEstante = { id: string; titulo: string; categoria: string; afectaA: string; fecha: string | null; foto: string | null };
 
