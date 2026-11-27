@@ -4718,6 +4718,8 @@ async function seccionNE() {
         { step_label: "Noticias: barra · compartir", sessions: 2 },
         { step_label: "Noticias: barra · volver", sessions: 6 },
       ],
+      // Dos de las 24 con foto (línea «Noticias con foto», 2026-11-27).
+      noticiasNW: noticias.map((n, i) => (i < 2 ? { ...n, imagen_url: `https://fotos.ejemplo.invalid/noticias/${i}.jpg` } : n)),
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const a = await pagina(ctx, "/admin/analytics");
@@ -4726,6 +4728,9 @@ async function seccionNE() {
     ok(/→ 8 las ven · 3 entran/.test(linea), `NE: Administración → Analítica cuenta la tira de noticias (${linea})`);
     const barra = (await a.locator("#analitica-noticia-barra").innerText().catch(() => "")).replace(/\s+/g, " ");
     ok(/me gusta: 5 · comentar: 4 · compartir: 2 · volver: 6/.test(barra), `NE: Administración → Analítica cuenta la barra de la noticia (${barra})`);
+    await a.locator("#analitica-noticias-fotos").scrollIntoViewIfNeeded().catch(() => {});
+    const fotos = (await a.locator("#analitica-noticias-fotos").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/Noticias con foto: 2 de las 24 últimas/.test(fotos), `NE: Administración → Analítica dice cuántas noticias tienen foto (${fotos})`);
     ok(a.errores.length === 0, `NE: Analítica sin errores de JavaScript (${a.errores.length})`);
     await ctx.close();
   }
