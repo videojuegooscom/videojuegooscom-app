@@ -17,6 +17,10 @@
 set -euo pipefail
 
 ORIGEN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RAIZ_REPO="$(dirname "$(dirname "$ORIGEN")")"
+# sudo deja la carpeta personal de quien lo ejecuta (el administrador), que el usuario del proyecto no puede abrir:
+# todo lo que sigue usa rutas absolutas, así que se trabaja desde «/».
+cd /
 OPT=/opt/vz-sql
 ETC=/etc/videojuegoszaragoza-sql
 LOG=/var/log/vz-sql
@@ -73,6 +77,27 @@ install -d -o root -g root -m 0755 "$OPT" "$OPT/lib"
 install -d -o root -g vz-sql -m 0750 "$ETC"
 install -d -o vz-sql -g vz-sql -m 0750 "$LOG" "$LIB_ESTADO" "$LIB_ESTADO/estructura"
 
+# Lectura de las migraciones para el broker. Aquí la carpeta personal es 0700 y la máscara 0077 (todo nace
+# privado), así que el grupo no basta: ACL SOLO para el usuario vz-sql y SOLO en lo que necesita:
+#   · atravesar (x, sin listar) las carpetas que llevan al repositorio;
+#   · leer supabase/ y .git/ (git ls-files, diff, log y show origin/main), con ACL por defecto para que lo
+#     que se cree después (migraciones nuevas, objetos y refs de git) también se pueda leer.
+# Con .git puede leer lo VERSIONADO (lo mismo que hay en GitHub); los archivos del repositorio fuera de supabase/
+# y los secretos sin versionar le siguen cerrados. No cambia permisos de nadie más. En las carpetas que solo
+# atraviesa, su entrada «x» sustituye a la del grupo: ni siquiera puede listarlas.
+command -v setfacl >/dev/null || abortar "falta setfacl (paquete acl)"
+d="$RAIZ_REPO"
+while [ "$d" != "/" ] && [ "$d" != "/home" ]; do
+  setfacl -m u:vz-sql:x "$d"
+  d="$(dirname "$d")"
+done
+for carpeta in "$RAIZ_REPO/supabase" "$RAIZ_REPO/.git"; do
+  [ -d "$carpeta" ] || abortar "falta $carpeta"
+  setfacl -R -m u:vz-sql:rX "$carpeta"
+  setfacl -R -d -m u:vz-sql:rX "$carpeta"
+done
+echo "vz-sql puede leer $RAIZ_REPO/supabase y $RAIZ_REPO/.git (ACL solo para vz-sql)"
+
 paso "4/8 Dependencias con hash verificado (pglast, psycopg)"
 NUEVA_LIB="$(mktemp -d /tmp/vz-sql-lib-XXXXXX)"
 trap 'rm -rf "$NUEVA_LIB"' EXIT
@@ -91,17 +116,44 @@ else
   chown root:vz-sql "$ETC/conexion.env"; chmod 0640 "$ETC/conexion.env"
   echo "$ETC/conexion.env ya existe: no se toca su contenido."
 fi
+# Repetible: si una instalación anterior ya la dejó bien (vz-sql:vz-sql 640 y solo-añadir), no se toca. Si no,
+# se le quita un momento el solo-añadir para poder corregir dueño y permisos (con +a ni root puede cambiarlos).
 touch "$LOG/auditoria.jsonl"
-chown vz-sql:vz-sql "$LOG/auditoria.jsonl"
-chmod 0640 "$LOG/auditoria.jsonl"
-chattr +a "$LOG/auditoria.jsonl" 2>/dev/null && echo "auditoría en modo solo-añadir (chattr +a)" \
-  || echo "AVISO: el sistema de archivos no admite chattr +a; la auditoría queda en 0640"
+if [ "$(stat -c '%U:%G %a' "$LOG/auditoria.jsonl")" = "vz-sql:vz-sql 640" ] \
+   && lsattr -d "$LOG/auditoria.jsonl" 2>/dev/null | cut -d' ' -f1 | grep -q a; then
+  echo "auditoría ya en modo solo-añadir (chattr +a): no se toca"
+else
+  chattr -a "$LOG/auditoria.jsonl" 2>/dev/null || true
+  chown vz-sql:vz-sql "$LOG/auditoria.jsonl"
+  chmod 0640 "$LOG/auditoria.jsonl"
+  chattr +a "$LOG/auditoria.jsonl" 2>/dev/null && echo "auditoría en modo solo-añadir (chattr +a)" \
+    || echo "AVISO: el sistema de archivos no admite chattr +a; la auditoría queda en 0640"
+fi
 
 paso "6/8 Pruebas (como $USUARIO_PRUEBAS, sin privilegios)"
 # test_vz_sql.py: comprobaciones propias y, con pglast, test_clasificador, test_broker y test_integracion_pg.
 runuser -u "$USUARIO_PRUEBAS" -- env -i PATH=/usr/bin:/bin HOME="/home/$USUARIO_PRUEBAS" \
   python3 "$ORIGEN/test_vz_sql.py" --lib "$OPT/lib" || abortar "fallan las pruebas de vz-sql"
 [ -d "$OPT/lib/pglast" ] || abortar "pglast no quedó instalado en $OPT/lib"
+# Comprobación real como vz-sql (lo que hará el broker al «aplicar»): leer una migración versionada y que git
+# la vea igual que en HEAD. Si algo falla aquí, no se activa nada.
+MIGRACION="$(runuser -u "$USUARIO_PRUEBAS" -- git -C "$RAIZ_REPO" ls-files 'supabase/migrations/*.sql' | tail -1)"
+[ -n "$MIGRACION" ] || abortar "no hay migraciones versionadas en $RAIZ_REPO"
+runuser -u vz-sql -- head -c 1 "$RAIZ_REPO/$MIGRACION" >/dev/null \
+  || abortar "vz-sql no puede leer $MIGRACION"
+runuser -u vz-sql -- env -i PATH=/usr/bin:/bin HOME=/nonexistent GIT_CONFIG_NOSYSTEM=1 \
+  git --no-optional-locks -c safe.directory='*' -C "$RAIZ_REPO" ls-files --error-unmatch -- "$MIGRACION" >/dev/null \
+  || abortar "vz-sql no puede usar git en $RAIZ_REPO"
+runuser -u vz-sql -- env -i PATH=/usr/bin:/bin HOME=/nonexistent GIT_CONFIG_NOSYSTEM=1 \
+  git --no-optional-locks -c safe.directory='*' -C "$RAIZ_REPO" diff --quiet HEAD -- "$MIGRACION" \
+  || abortar "vz-sql no puede comparar $MIGRACION con HEAD"
+runuser -u vz-sql -- env -i PATH=/usr/bin:/bin HOME=/nonexistent GIT_CONFIG_NOSYSTEM=1 \
+  git --no-optional-locks -c safe.directory='*' -C "$RAIZ_REPO" show "HEAD:$MIGRACION" >/dev/null \
+  || abortar "vz-sql no puede leer los objetos de git"
+if runuser -u vz-sql -- test -r "$RAIZ_REPO/package.json"; then
+  abortar "vz-sql puede leer archivos del repositorio fuera de supabase/ y no debe"
+fi
+echo "comprobado como vz-sql: lee $MIGRACION y usa git; fuera de supabase/ y .git no lee nada"
 
 paso "7/8 Unidades de systemd"
 install -o root -g root -m 0644 "$ORIGEN/vz-sql.socket" "$ORIGEN/vz-sql.service" /etc/systemd/system/

@@ -37,8 +37,10 @@ begin
       nosuperuser nocreatedb nocreaterole noreplication nobypassrls noinherit connection limit 3;
   end if;
 end $$;
--- Repetible: deja los atributos exactamente así aunque el rol ya existiera.
-alter role vz_agente nosuperuser nocreatedb nocreaterole noreplication nobypassrls noinherit connection limit 3;
+-- Repetible: si el rol ya existía, vuelve a dejar sin BYPASSRLS, sin herencia y con 3 conexiones. En Supabase
+-- «postgres» NO es superusuario: no puede escribir SUPERUSER/REPLICATION (ni para quitarlos) en ALTER ROLE;
+-- esos atributos ya los fija el CREATE ROLE de arriba y los comprueba el apartado 6.
+alter role vz_agente nobypassrls noinherit connection limit 3;
 
 alter role vz_agente set statement_timeout = '60s';
 alter role vz_agente set lock_timeout = '5s';
