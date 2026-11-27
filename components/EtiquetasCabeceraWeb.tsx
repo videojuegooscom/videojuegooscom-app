@@ -90,6 +90,19 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
     titulo: "Vende tu iPad o tablet · Zaragoza y toda España",
     descripcion: "¿Quieres vender tu iPad o tu tablet? Te la compramos: tasación en menos de 30 minutos y pago al momento por Bizum o en efectivo. Recogida en Zaragoza o envío gratis desde toda España.",
   },
+  // Televisión, cámara y dron (2026-11-27).
+  "/compramos/televisores": {
+    titulo: "Vende tu televisión o Smart TV · Zaragoza y toda España",
+    descripcion: "¿Quieres vender tu televisión? Te compramos tu Smart TV Samsung, LG, Sony y más, también averiada: tasación en menos de 30 minutos y pago al momento. Recogida en Zaragoza o envío gratis.",
+  },
+  "/compramos/camaras": {
+    titulo: "Vende tu cámara de fotos o GoPro · Zaragoza y toda España",
+    descripcion: "¿Quieres vender tu cámara? Te compramos tu réflex, sin espejo o GoPro de Canon, Nikon, Sony o Fujifilm: tasación en menos de 30 minutos y pago al momento. Recogida en Zaragoza o envío gratis.",
+  },
+  "/compramos/drones": {
+    titulo: "Vende tu dron DJI · Zaragoza y toda España",
+    descripcion: "¿Quieres vender tu dron? Te compramos tu DJI Mini, Air, Mavic o Avata, también averiado: tasación en menos de 30 minutos y pago al momento por Bizum o en efectivo. Recogida en Zaragoza o envío gratis.",
+  },
   // «Comparar 2-3 productos» (mejora 8, 2026-11-14): el enlace con ?ids= se comparte; la dirección oficial va sin ellos.
   "/comparar": { titulo: "Comparar productos", descripcion: "Compara hasta 3 consolas, móviles o accesorios: precio, estado, categoría y entrega estimada." },
   "/noticias": {

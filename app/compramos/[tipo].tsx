@@ -1,13 +1,13 @@
 /**
  * Archivo: app/compramos/[tipo].tsx
- * Función: páginas «Compramos tu…» en /compramos/consolas, /moviles, /portatiles, /pc y /tablets.
+ * Función: páginas «Compramos tu…» en /compramos/consolas, /moviles, /portatiles, /pc, /tablets, /televisores, /camaras y /drones.
  * Para qué sirve: salir en Google cuando alguien de Zaragoza busca vender su consola, móvil, portátil, PC o tablet
  *   (dueño, 2026-11-24: «páginas de categorías: Compramos tu consola, tu iPhone, tu portátil… profesionales»). Cada una
  *   explica cómo se lo compramos y lleva al formulario de venta de siempre (/vender), con el aparato ya escrito.
  * Conectado con: app/vender.tsx y components/VenderAhoraModal.tsx (el formulario; mide los envíos que llegan de aquí),
  *   components/CarruselProductosCategoria.tsx (productosDeCategorias: lo que hay a la venta de ese tipo, con su foto),
  *   tabla categories (las fotos reales de las consolas), components/EtiquetasCabeceraWeb.tsx (título y descripción para
- *   Google), api/sitemap.ts (las 5 direcciones), components/PieDePagina.tsx («Te lo compramos»), lib/analiticaPropia.ts
+ *   Google), api/sitemap.ts (las 8 direcciones), components/PieDePagina.tsx («Te lo compramos»), lib/analiticaPropia.ts
  *   (compramos_visto, compramos_cta) y components/panel/google.tsx (bloque «Páginas Compramos» en Administración).
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -22,7 +22,9 @@
  * - Sin precios de compra inventados ni dirección pública (la tienda es solo online).
  * - Las fotos son reales: las de Categorías (consolas) o las de los artículos a la venta de ese tipo. Sin foto, la
  *   cabecera va sin imagen (nada de dibujos).
- * - generateStaticParams: las 5 direcciones existen como páginas en la web publicada (sin una regla en vercel.json,
+ * - Televisión, cámara y dron (dueño, 2026-11-27): las marcas más conocidas, también averiados y desde toda España; la
+ *   televisión lleva una guía de embalaje OBLIGATORIA paso a paso (embalaje) para que no se dañe en el envío.
+ * - generateStaticParams: las 8 direcciones existen como páginas en la web publicada (sin una regla en vercel.json,
  *   /compramos/consolas daría 404). El contenido lo pinta el navegador, como en el resto de la tienda (Google lo ejecuta).
  */
 import React, { useEffect, useState } from "react";
@@ -52,7 +54,7 @@ const C = {
 
 type IconoNombre = React.ComponentProps<typeof Ionicons>["name"];
 type Modelo = { nombre: string; texto: string; articulo: string };
-export type TipoCompramos = "consolas" | "moviles" | "portatiles" | "pc" | "tablets";
+export type TipoCompramos = "consolas" | "moviles" | "portatiles" | "pc" | "tablets" | "televisores" | "camaras" | "drones";
 type Pagina = {
   /** Lo que sale en el menú y en «También compramos». */
   corto: string;
@@ -77,6 +79,8 @@ type Pagina = {
   modelos: Modelo[];
   revisamos: string[];
   preparar: string[];
+  /** Guía de embalaje OBLIGATORIA para enviarlo desde otra ciudad (televisiones, dueño 2026-11-27). */
+  embalaje?: string[];
 };
 
 // Las 7 zonas de entrega del mismo día (lib/envio.ts, ZONAS_MISMO_DIA): las mismas para recoger.
@@ -217,6 +221,99 @@ export const PAGINAS_COMPRAMOS: Record<TipoCompramos, Pagina> = {
     revisamos: ["La pantalla y el táctil", "La batería y la carga", "Las cámaras, los altavoces y los botones", "Que no esté bloqueada por iCloud ni por la cuenta de Google"],
     preparar: ["Haz una copia de tus datos", "Desactiva «Buscar mi iPad» o quita tu cuenta de Google (o te ayudamos)", "El cargador, el Apple Pencil o el teclado, si los tienes", "Si falla algo, cuéntanoslo: también compramos tablets averiadas"],
   },
+  // Televisión, cámara y dron (dueño, 2026-11-27): marcas más conocidas, también averiados y desde toda España; la
+  // televisión, con una guía de embalaje obligatoria paso a paso para que no se dañe en el envío.
+  televisores: {
+    corto: "Televisiones",
+    h1: "Compramos tu televisión en Zaragoza",
+    lema: "Smart TV de Samsung, LG, Sony, Philips, TCL, Hisense y otras marcas. Tasación en menos de 30 minutos, las 24 horas, y pago al momento.",
+    icono: "tv-outline",
+    articulo: "Televisión",
+    boton: "Vender mi televisión",
+    miAparato: "mi televisión",
+    lo: "la",
+    intro: {
+      titulo: "¿Quieres vender tu televisión?",
+      texto:
+        "Si buscas dónde vender tu televisión, te la compramos: Smart TV de cualquier tamaño de Samsung, LG, Sony, Philips, TCL, Hisense y otras marcas, también con algún fallo. Tasación en menos de 30 minutos, las 24 horas, y pago al momento. En Zaragoza pasamos a recogerla en menos de 1 hora y en los alrededores en menos de 1 hora y media; desde cualquier otra ciudad puedes vender tu televisión online, con envío gratis desde toda España y nuestra guía de embalaje paso a paso.",
+    },
+    categorias: ["electronica"],
+    filtro: /televis|smart ?tv|\btelevisor/i,
+    enVenta: "Televisiones a la venta ahora",
+    modelos: [
+      { nombre: "Samsung", articulo: "Televisión Samsung", texto: "Smart TV QLED, Neo QLED, OLED y Crystal UHD." },
+      { nombre: "LG", articulo: "Televisión LG", texto: "Smart TV OLED, QNED y NanoCell." },
+      { nombre: "Sony", articulo: "Televisión Sony", texto: "Smart TV Bravia con Google TV." },
+      { nombre: "Philips, TCL e Hisense", articulo: "Televisión", texto: "Smart TV Ambilight de Philips y los modelos QLED y Mini LED de TCL e Hisense." },
+      { nombre: "Otras marcas", articulo: "Televisión", texto: "Smart TV de otras marcas. Consúltanos." },
+    ],
+    revisamos: ["Que encienda y la imagen se vea sin rayas, manchas ni píxeles muertos", "La pantalla, sin golpes ni grietas", "El sonido, los puertos HDMI y USB, el wifi y el mando", "Que la Smart TV arranque y se pueda restablecer"],
+    preparar: ["Cierra tus cuentas (Netflix, YouTube, Google…) o restablece la televisión (o te ayudamos)", "El mando a distancia y el cable de corriente", "La peana o las patas, con sus tornillos", "La caja original, si la tienes; si falla algo, cuéntanoslo: también compramos televisiones averiadas"],
+    embalaje: [
+      "Usa la caja original con sus protecciones de espuma. Si no la tienes, una caja de cartón rígido de doble canal, algo más grande que la televisión.",
+      "Desenchufa todos los cables y quita la peana o las patas. Guárdalas con sus tornillos en una bolsa cerrada y pégala dentro de la caja.",
+      "Cubre la pantalla con plástico de burbujas y pon encima una plancha de cartón rígido del tamaño de la pantalla. No pongas nada que apriete el panel.",
+      "Protege las cuatro esquinas con cantoneras o con cartón doblado.",
+      "Mete la televisión de pie y rellena los huecos con plástico de burbujas o papel, hasta que no se mueva al agitar la caja.",
+      "Cierra la caja con cinta de embalar por todas las juntas y escribe «Frágil» y «Este lado arriba» con flechas en los cuatro lados.",
+      "Haz fotos de la televisión, del embalaje por dentro y de la caja cerrada antes de entregarla, y llévala siempre de pie, nunca tumbada.",
+    ],
+  },
+  camaras: {
+    corto: "Cámaras",
+    h1: "Compramos tu cámara de fotos en Zaragoza",
+    lema: "Cámaras réflex, sin espejo, compactas y de acción de Canon, Nikon, Sony, Fujifilm y GoPro. Tasación en menos de 30 minutos, las 24 horas, y pago al momento.",
+    icono: "camera-outline",
+    articulo: "Cámara",
+    boton: "Vender mi cámara",
+    miAparato: "mi cámara",
+    lo: "la",
+    intro: {
+      titulo: "¿Quieres vender tu cámara?",
+      texto:
+        "Si buscas dónde vender tu cámara de fotos, te la compramos: réflex, sin espejo, compactas y de acción de Canon, Nikon, Sony, Fujifilm y GoPro, con sus objetivos y accesorios, también con algún fallo. Tasación en menos de 30 minutos, las 24 horas, y pago al momento. En Zaragoza pasamos a recogerla en menos de 1 hora y en los alrededores en menos de 1 hora y media; desde cualquier otra ciudad puedes vender tu cámara online, con envío gratis desde toda España.",
+    },
+    categorias: ["electronica"],
+    filtro: /c[aá]mara (r[eé]flex|digital|de fotos|de acci[oó]n|compacta|sin espejo)|\bgopro\b|\bcanon eos\b|\bnikon\b|\bfujifilm\b|\bobjetivo\b/i,
+    enVenta: "Cámaras a la venta ahora",
+    modelos: [
+      { nombre: "Canon", articulo: "Cámara Canon", texto: "Réflex EOS y sin espejo EOS R, con sus objetivos." },
+      { nombre: "Nikon", articulo: "Cámara Nikon", texto: "Réflex y sin espejo de la serie Z, con sus objetivos." },
+      { nombre: "Sony", articulo: "Cámara Sony", texto: "Sin espejo Alpha y compactas de la serie RX y ZV." },
+      { nombre: "Fujifilm", articulo: "Cámara Fujifilm", texto: "Sin espejo de las series X y GFX, y las instantáneas Instax." },
+      { nombre: "GoPro y cámaras de acción", articulo: "GoPro", texto: "GoPro HERO y otras cámaras de acción, con sus accesorios." },
+      { nombre: "Objetivos y accesorios", articulo: "Objetivo", texto: "Objetivos, flashes y baterías originales. Consúltanos." },
+    ],
+    revisamos: ["Que encienda y haga fotos y vídeo nítidos", "El sensor, el visor y la pantalla, sin manchas ni rayas", "El enfoque, el obturador y su número de disparos", "Los objetivos (sin hongos ni rayas), la batería y la tarjeta"],
+    preparar: ["Borra la tarjeta de memoria o quítala, y haz una copia de tus fotos", "La batería y su cargador", "La tapa del objetivo y del cuerpo, y la correa", "La caja original, si la tienes; si falla algo, cuéntanoslo: también compramos cámaras averiadas"],
+  },
+  drones: {
+    corto: "Drones",
+    h1: "Compramos tu dron en Zaragoza",
+    lema: "Drones DJI con cámara (Mini, Air, Mavic y Avata) y de otras marcas. Tasación en menos de 30 minutos, las 24 horas, y pago al momento.",
+    icono: "airplane-outline",
+    articulo: "Dron",
+    boton: "Vender mi dron",
+    miAparato: "mi dron",
+    lo: "lo",
+    intro: {
+      titulo: "¿Quieres vender tu dron?",
+      texto:
+        "Si buscas dónde vender tu dron, te lo compramos: drones DJI con cámara (Mini, Air, Mavic y Avata) y de otras marcas, con su mando, sus baterías y sus accesorios, también con algún fallo. Tasación en menos de 30 minutos, las 24 horas, y pago al momento. En Zaragoza pasamos a recogerlo en menos de 1 hora y en los alrededores en menos de 1 hora y media; desde cualquier otra ciudad puedes vender tu dron online, con envío gratis desde toda España.",
+    },
+    categorias: ["electronica"],
+    filtro: /\bdron(e|es)?\b|\bdji (mini|air|mavic|avata|neo)\b/i,
+    enVenta: "Drones a la venta ahora",
+    modelos: [
+      { nombre: "DJI Mini", articulo: "Dron DJI Mini", texto: "Mini 2, Mini 3, Mini 4 Pro y modelos anteriores." },
+      { nombre: "DJI Air y Mavic", articulo: "Dron DJI", texto: "Air 2S, Air 3, Mavic 3 y otros modelos de la gama." },
+      { nombre: "DJI Avata y drones FPV", articulo: "Dron FPV", texto: "Avata, DJI FPV y sus gafas y mandos." },
+      { nombre: "Otras marcas", articulo: "Dron", texto: "Drones con cámara de otras marcas. Consúltanos." },
+      { nombre: "Baterías y accesorios", articulo: "Accesorio de dron", texto: "Baterías, cargadores, mandos y Fly More Combo." },
+    ],
+    revisamos: ["Que encienda y se conecte al mando y a la aplicación", "Que vuele estable y los motores y las hélices estén bien", "La cámara y el estabilizador (gimbal), sin golpes", "Las baterías (sus ciclos) y que no esté vinculado a otra cuenta"],
+    preparar: ["Desvincula el dron de tu cuenta de DJI o de su aplicación (o te ayudamos)", "El mando, las baterías y el cargador", "Las hélices de repuesto y el protector del gimbal", "La caja o la bolsa original, si la tienes; si falla algo, cuéntanoslo: también compramos drones averiados"],
+  },
 };
 const TIPOS = Object.keys(PAGINAS_COMPRAMOS) as TipoCompramos[];
 const QUE_COMPRAMOS: Record<TipoCompramos, string> = {
@@ -225,6 +322,9 @@ const QUE_COMPRAMOS: Record<TipoCompramos, string> = {
   portatiles: "Qué portátiles compramos",
   pc: "Qué PC y periféricos compramos",
   tablets: "Qué iPad y tablets compramos",
+  televisores: "Qué televisiones compramos",
+  camaras: "Qué cámaras compramos",
+  drones: "Qué drones compramos",
 };
 
 /** Las fotos propias de una página (site_settings.compramos_fotos[tipo]): solo direcciones https, como mucho 10. */
@@ -234,7 +334,7 @@ export function fotosDePagina(valor: unknown, tipo: string): string[] {
 }
 export const MAX_FOTOS_COMPRAMOS = 10;
 
-/** Las 5 direcciones se crean al publicar la web. */
+/** Las 8 direcciones se crean al publicar la web. */
 export async function generateStaticParams(): Promise<{ tipo: string }[]> {
   return TIPOS.map((tipo) => ({ tipo }));
 }
@@ -269,12 +369,22 @@ const PASOS_ESPANA = [
   { titulo: "Nos llega en 72 horas como máximo", texto: "Puedes seguir el envío en todo momento." },
   { titulo: "Lo comprobamos y te pagamos", texto: "Comprobamos que todo esté como indicaste en el formulario y te pagamos al momento por Bizum. Si no, te hacemos una nueva oferta y, si no la aceptas, te lo devolvemos gratis." },
 ];
+// Con guía de embalaje (televisiones): la etiqueta va con la guía, que es obligatoria.
+function pasosEspana(p: Pagina) {
+  if (!p.embalaje) return PASOS_ESPANA;
+  return PASOS_ESPANA.map((s, i) =>
+    i === 2 ? { titulo: s.titulo, texto: `Te enviamos una etiqueta prepagada. Embála${p.lo} siguiendo nuestra guía de embalaje paso a paso (es obligatoria) y entréga${p.lo}.` } : s
+  );
+}
 
 export function preguntas(p: Pagina): { q: string; a: string }[] {
   return [
     // Las dos primeras, con las palabras que busca la gente en Google (2026-11-25).
     { q: `¿Dónde vender ${p.miAparato} en Zaragoza?`, a: `Aquí: te ${p.lo} compramos y pasamos a recoger${p.lo} a tu dirección en menos de 1 hora (en los alrededores, en menos de 1 hora y media), o nos ${p.lo} acercas tú. Te ${p.lo} tasamos en menos de 30 minutos, las 24 horas, y te pagamos al momento por Bizum o en efectivo.` },
     { q: `¿Puedo vender ${p.miAparato} online desde otra ciudad?`, a: `Sí, desde cualquier punto de España. Te enviamos una etiqueta prepagada en menos de 2 horas, nos llega en 72 horas como máximo y, cuando ${p.lo} revisamos, te pagamos al momento por Bizum.` },
+    ...(p.embalaje
+      ? [{ q: `¿Cómo tengo que embalar ${p.miAparato.replace(/^mi /, "la ")} para enviarla?`, a: `Siguiendo nuestra guía de embalaje paso a paso, que es obligatoria: caja rígida, pantalla protegida con plástico de burbujas y una plancha de cartón, esquinas protegidas, siempre de pie y con fotos del embalaje antes de entregarla. Así llega sin daños.` }]
+      : []),
     { q: `¿Cuánto me dais por ${p.miAparato}?`, a: "Depende del modelo, de su estado y de lo que incluya (caja, cargador, accesorios). Rellena el formulario con sus fotos (cuantos más apartados completes, más precisa será la tasación) y te haremos una oferta en menos de 30 minutos, las 24 horas, sin compromiso." },
     { q: "¿Lo compráis aunque esté averiado?", a: "Sí. Indícanos qué le ocurre y te haremos una oferta igualmente: como también nos dedicamos a la reparación, sabemos valorarlo." },
     { q: "¿Cómo me pagáis?", a: "Al momento, en cuanto lo hemos revisado: por Bizum o en efectivo. Si nos lo envías desde otra ciudad, por Bizum. Firmamos un contrato de compraventa para que todo quede por escrito." },
@@ -353,7 +463,17 @@ export function VistaEstaticaCompramos({ tipo }: { tipo: TipoCompramos }) {
       ))}
       <Text {...nivel(2)}>Cómo funciona</Text>
       <Text>En Zaragoza y alrededores: {PASOS_ZARAGOZA.map((s) => `${s.titulo}. ${s.texto}`).join(" ")}</Text>
-      <Text>Desde el resto de España: {PASOS_ESPANA.map((s) => `${s.titulo}. ${s.texto}`).join(" ")}</Text>
+      <Text>Desde el resto de España: {pasosEspana(p).map((s) => `${s.titulo}. ${s.texto}`).join(" ")}</Text>
+      {p.embalaje ? (
+        <>
+          <Text {...nivel(2)}>Cómo embalar tu televisión para enviarla</Text>
+          {p.embalaje.map((paso, i) => (
+            <Text key={paso}>
+              {i + 1}. {paso}
+            </Text>
+          ))}
+        </>
+      ) : null}
       <Text {...nivel(2)}>Preguntas frecuentes</Text>
       {preguntas(p).map((f) => (
         <Text key={f.q}>
@@ -432,7 +552,7 @@ function TarjetaLista({ titulo, subtitulo, icono, filas, numerada, ancho, native
         <View key={f.titulo} style={{ alignItems: "center", gap: 6, maxWidth: 440 }}>
           {numerada ? (
             <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: C.accent, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.minimo }}>{i + 1}</Text>
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>{i + 1}</Text>
             </View>
           ) : (
             <Ionicons name="checkmark-circle" size={22} color={C.accent} />
@@ -662,9 +782,24 @@ export default function CompramosScreen() {
             <H2>Cómo funciona</H2>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
               <TarjetaLista nativeID="compramos-zaragoza" titulo="En Zaragoza y alrededores" subtitulo={ZONAS} icono="location-outline" filas={PASOS_ZARAGOZA} numerada ancho={ancho2} />
-              <TarjetaLista nativeID="compramos-espana" titulo="Desde el resto de España" subtitulo="Con envío gratis" icono="map-outline" filas={PASOS_ESPANA} numerada ancho={ancho2} />
+              <TarjetaLista nativeID="compramos-espana" titulo="Desde el resto de España" subtitulo="Con envío gratis" icono="map-outline" filas={pasosEspana(p)} numerada ancho={ancho2} />
             </View>
           </AparecerAlVer>
+
+          {/* Guía de embalaje obligatoria (televisiones, dueño 2026-11-27): paso a paso, para que llegue sin daños. */}
+          {p.embalaje ? (
+            <AparecerAlVer style={{ width: "100%" }}>
+              <TarjetaLista
+                nativeID="compramos-embalaje"
+                titulo="Cómo embalar tu televisión"
+                subtitulo="Obligatorio si nos la envías desde otra ciudad: así llega sin daños"
+                icono="cube-outline"
+                filas={p.embalaje.map((t) => ({ titulo: t }))}
+                numerada
+                ancho="100%"
+              />
+            </AparecerAlVer>
+          ) : null}
 
           <AparecerAlVer style={{ width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
             <TarjetaLista titulo="Qué revisamos" icono="shield-checkmark-outline" filas={p.revisamos.map((t) => ({ titulo: t }))} ancho={ancho2} />

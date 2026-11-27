@@ -19354,7 +19354,10 @@ async function seccionCMP() {
     const faq = await texto(p, "#compramos-preguntas");
     ok(/¿Cuánto me dais por mi consola\?/.test(faq) && !/por tu consola/.test(faq) && /Bizum o en efectivo/.test(faq) && /¿Dónde vender mi consola en Zaragoza\? Aquí: te la compramos/.test(faq) && /¿Puedo vender mi consola online desde otra ciudad\?/.test(faq), `CMP (${nombre}): las preguntas frecuentes, con «¿Dónde vender mi consola en Zaragoza?» y «online desde otra ciudad»`);
     const enlaces = await p.evaluate(() => Array.from(document.querySelectorAll("#compramos-otras a")).map((a) => a.getAttribute("href")).sort().join(","));
-    ok(enlaces === "/compramos/moviles,/compramos/pc,/compramos/portatiles,/compramos/tablets", `CMP (${nombre}): enlaces de verdad a las otras 4 (${enlaces})`);
+    ok(
+      enlaces === "/compramos/camaras,/compramos/drones,/compramos/moviles,/compramos/pc,/compramos/portatiles,/compramos/tablets,/compramos/televisores",
+      `CMP (${nombre}): enlaces de verdad a las otras 7 (${enlaces})`
+    );
     if (nombre === "1280") {
       const lado = await p.evaluate(() => {
         const t = document.getElementById("compramos-h1")?.getBoundingClientRect();
@@ -19439,6 +19442,61 @@ async function seccionCMP() {
       await capturar(q, `CMP-${t}-390`);
       ok(q.errores.length === 0, `CMP: /compramos/${t} sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
     }
+    await ctx.close();
+  }
+
+  // Televisión, cámara y dron (dueño, 2026-11-27): sus páginas, en el pie («Te lo compramos») y, la televisión, con la
+  // guía de embalaje obligatoria paso a paso.
+  const NUEVAS = [
+    { t: "televisores", h1: "Compramos tu televisión en Zaragoza", titulo: /^Vende tu televisión o Smart TV/, pie: "Tu televisión", marca: /Samsung/ },
+    { t: "camaras", h1: "Compramos tu cámara de fotos en Zaragoza", titulo: /^Vende tu cámara de fotos o GoPro/, pie: "Tu cámara", marca: /Canon/ },
+    { t: "drones", h1: "Compramos tu dron en Zaragoza", titulo: /^Vende tu dron DJI/, pie: "Tu dron", marca: /DJI Mini/ },
+  ];
+  for (const { nombre, vista } of VISTAS) {
+    const ctx = await contexto(navegador, CLIENTE, "user", estado(), vista);
+    for (const n of NUEVAS) {
+      const p = await pagina(ctx, `/compramos/${n.t}`);
+      await p.locator("#compramos-h1").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(900);
+      const m = await p.evaluate(() => ({
+        h1: Array.from(document.querySelectorAll("h1")).map((e) => (e.textContent ?? "").trim()),
+        titulo: document.title,
+        modelos: document.getElementById("compramos-modelos")?.innerText ?? "",
+        faq: document.getElementById("compramos-preguntas")?.innerText ?? "",
+        espana: (document.getElementById("compramos-espana")?.innerText ?? "").replace(/\s+/g, " "),
+        embalaje: Array.from(document.querySelectorAll("#compramos-embalaje [dir='auto']")).map((x) => ({ t: (x.textContent ?? "").trim(), a: getComputedStyle(x).textAlign })),
+        ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= window.innerWidth + 1,
+      }));
+      ok(m.h1.length === 1 && m.h1[0] === n.h1 && n.titulo.test(m.titulo) && n.marca.test(m.modelos) && /averiad/.test(m.faq + m.modelos + (await texto(p, "#compramos-intro"))), `CMP (${nombre}): /compramos/${n.t} con su H1, su título, sus marcas y «también averiados» (${m.h1.join(" | ")} · ${m.titulo.slice(0, 40)})`);
+      if (n.t === "televisores") {
+        // Los pasos se cuentan por su número (1 a 7).
+        const pasos = m.embalaje.filter((x) => /^\d$/.test(x.t));
+        // Los iconos (un carácter de la fuente de iconos, sin letras ni números) no cuentan para el centrado.
+        const descentrados = m.embalaje.filter((x) => /[a-z0-9]/i.test(x.t) && x.a !== "center").map((x) => x.t.slice(0, 30));
+        ok(pasos.length === 7 && /Obligatorio/.test(m.embalaje.map((x) => x.t).join(" ")) && !descentrados.length, `CMP (${nombre}): la televisión trae la guía de embalaje obligatoria, 7 pasos centrados (${pasos.length} · ${JSON.stringify(descentrados)})`);
+        ok(/guía de embalaje paso a paso \(es obligatoria\)/.test(m.espana) && /¿Cómo tengo que embalar la televisión para enviarla\?/.test(m.faq), `CMP (${nombre}): «Desde el resto de España» y las preguntas lo dicen`);
+      } else {
+        ok(m.embalaje.length === 0, `CMP (${nombre}): /compramos/${n.t} sin guía de embalaje (solo la televisión)`);
+      }
+      ok(m.ancho, `CMP (${nombre}): /compramos/${n.t} no se ensancha`);
+      if (nombre === "390" || n.t === "televisores") await capturar(p, `CMP-${n.t}-${nombre}`);
+      if (n.t === "televisores") {
+        await p.locator("#compramos-embalaje").scrollIntoViewIfNeeded().catch(() => {});
+        await p.waitForTimeout(600);
+        await capturar(p, `CMP-televisores-embalaje-${nombre}`);
+      }
+      ok(p.errores.length === 0, `CMP (${nombre}): /compramos/${n.t} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await p.close();
+    }
+    await ctx.close();
+  }
+  // El pie: «Te lo compramos» con las 8 páginas.
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", estado());
+    const p = await pagina(ctx, "/compramos/drones");
+    await p.locator("#pie-compramos").waitFor({ state: "attached", timeout: 40000 }).catch(() => {});
+    const pie = await p.evaluate(() => Array.from(document.querySelectorAll("#pie-compramos a")).map((a) => a.getAttribute("href")));
+    ok(pie.length === 8 && ["/compramos/televisores", "/compramos/camaras", "/compramos/drones"].every((h) => pie.includes(h)), `CMP: el pie «Te lo compramos» enlaza las 8 páginas (${pie.join(", ")})`);
     await ctx.close();
   }
 }
