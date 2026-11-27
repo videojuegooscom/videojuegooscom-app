@@ -190,7 +190,7 @@ const PREGUNTAS_INICIO: { pregunta: string; respuesta: string }[] = [
   {
     pregunta: "¿Reparáis y limpiáis consolas?",
     respuesta:
-      "Sí. En Servicios tienes reparación, limpieza y mantenimiento, cada uno con su precio y su ficha para contratarlo. Si no estás en Zaragoza, puedes enviárnosla desde la península (reparación por envío).",
+      "Sí. Nuestro servicio técnico repara, limpia y hace el mantenimiento de tu consola. En Servicios tienes cada servicio con su precio y puedes solicitarlo en unos pocos pasos. Si no estás en Zaragoza, envíanosla desde la península con nuestra reparación por envío y te la devolvemos lista.",
   },
   {
     pregunta: "¿Puedo pagar a plazos?",
