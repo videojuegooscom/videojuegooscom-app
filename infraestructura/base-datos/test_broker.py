@@ -11,7 +11,7 @@
 # Conectado con:  broker.py, cliente.py, clasificador.py (misma carpeta).
 # Utilizado por:  instalar-sql.sh; a mano: python3 infraestructura/hetzner/supabase/test_broker.py
 #                 (opcional --lib <carpeta con pglast>).
-# Dependencias:   python3, git, pglast 7.18.
+# Dependencias:   python3, git, pglast 7.23.
 # Estado:         ACTIVO
 # ============================================================================
 import json

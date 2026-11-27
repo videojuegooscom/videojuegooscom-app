@@ -126,4 +126,4 @@ También admite `--lib`, `--pg-bin` y `--pg-lib`.
 
 - **Políticas `using (true)` para `vz_agente`:** en sus 60 tablas ve todas las filas, como antes el MCP (que entraba como `postgres`). Para cualquier otro rol no cambian nada. `auth`, `storage`, `vault` y las 10 tablas privadas siguen cerradas.
 - **Triggers de la app:** el límite de 100 filas cuenta las filas de la sentencia, no las que cambien después los triggers de la app sobre otras tablas.
-- **pglast 7.18:** desde la sesión de Claude, PyPI devolvió 404 al pedir esa versión. Si la descarga falla, el instalador se detiene sin cambiar nada y hay que revisar `requisitos.txt`.
+- **pglast:** VeoAura usa la 7.18, que ya no está en PyPI. Aquí se fija la 7.23, de la misma serie y con el mismo parser de PostgreSQL 17; su hash se comprobó con `--consultar` el 2026-11-27. Si PyPI retira alguna versión fijada, el instalador se detiene sin cambiar nada; se busca otra con `--consultar`.

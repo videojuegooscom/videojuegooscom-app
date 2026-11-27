@@ -12,7 +12,7 @@
 # Conectado con:  clasificador.py y diagnostico_d8.sql (misma carpeta).
 # Utilizado por:  instalar-sql.sh; a mano: python3 infraestructura/hetzner/supabase/test_clasificador.py
 #                 (opcional --lib <carpeta con pglast> si aún no está instalado en /opt/vz-sql/lib).
-# Dependencias:   python3, pglast 7.18.
+# Dependencias:   python3, pglast 7.23.
 # Estado:         ACTIVO
 # ============================================================================
 import os

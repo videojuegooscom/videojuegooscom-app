@@ -1,5 +1,7 @@
 # == VIDEOJUEGOSZARAGOZA ======================================================
-# Archivo:        infraestructura/base-datos/requisitos.txt (copia de VeoAura, commit eb5f74fc)
+# Archivo:        infraestructura/base-datos/requisitos.txt (copia de VeoAura, commit eb5f74fc; 2026-11-27:
+#                 pglast 7.18 ya no está en PyPI → 7.23, misma serie y parser de PostgreSQL 17; hash
+#                 comprobado por el dueño con «--consultar» en el servidor)
 # Función:        Dependencias de vz-sql con versión y sha256 fijados (D9). Solo wheels para
 #                 CPython 3.12 en Linux x86_64 (el servidor Hetzner).
 # Para qué sirve: Que descargar_dependencias.py instale exactamente estos archivos y nada más.
@@ -9,7 +11,7 @@
 # Estado:         ACTIVO
 # Formato:        nombre==versión  archivo-wheel  sha256
 # =============================================================================
-pglast==7.18 pglast-7.18-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl ffd154bba7872675d4c922a9c84b8315bac7ecd53d578a0029ebf7d1dd6a2cfa
+pglast==7.23 pglast-7.23-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl a7735e42b055f96b5e00cfe37548e47e957b7d1f9946c4a34f4a815ca4e22edc
 psycopg==3.3.5 psycopg-3.3.5-py3-none-any.whl ce5aa5cdb4f9379f00f487590e5890bfa7df9a164648c969ffa628505e21af4e
 psycopg-binary==3.3.5 psycopg_binary-3.3.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl 682a17a57415c3ca1731eec018ed031f012ffcb81ba74806eb219cb396065672
 typing_extensions==4.16.0 typing_extensions-4.16.0-py3-none-any.whl 481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

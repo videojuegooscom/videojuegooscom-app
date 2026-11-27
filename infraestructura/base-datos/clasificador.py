@@ -17,7 +17,7 @@
 # Conectado con:  broker.py (lo usa antes de ejecutar nada; CatalogoPG responde a sus preguntas),
 #                 test_clasificador.py.
 # Utilizado por:  vz-sql-broker (servicio systemd) y sus pruebas.
-# Dependencias:   python3, pglast 7.18 (parser de PostgreSQL 17; ver requisitos.txt).
+# Dependencias:   python3, pglast 7.23 (parser de PostgreSQL 17; ver requisitos.txt).
 # Estado:         ACTIVO
 # ============================================================================
 """Reglas (CLAUDE.md §9 y decisiones D1–D6 de F1.2):
