@@ -1734,11 +1734,14 @@ export default function AdminAnalytics() {
       ofertaCompartir: findExact("Oferta de la semana: compartir"),
       ofertaMeGusta: findExact("Oferta de la semana: me gusta"),
       ofertaFicha: findExact("Oferta de la semana: ver ficha"),
-      // Carruseles de noticias en Inicio, Perfil y Cesta (2026-11-26): cuántos los ven y cuántos entran a una noticia.
-      noticiasInteresVistas: findExact("Noticias en estantes: podrían interesarte · vistas"),
-      noticiasInteresTocadas: findExact("Noticias en estantes: podrían interesarte · tocada"),
-      noticiasUltimasVistas: findExact("Noticias en estantes: últimas · vistas"),
-      noticiasUltimasTocadas: findExact("Noticias en estantes: últimas · tocada"),
+      // Tira de noticias en Inicio, Perfil y Cesta (2026-11-27): cuántos la ven y cuántos entran a una noticia.
+      noticiasRecientesVistas: findExact("Noticias en estantes: recientes que podrían interesarte · vistas"),
+      noticiasRecientesTocadas: findExact("Noticias en estantes: recientes que podrían interesarte · tocada"),
+      // Barra fija de abajo en la página de cada noticia (app/noticias/[id].tsx, 2026-11-27).
+      noticiaBarraMeGusta: findExact("Noticias: barra · me gusta"),
+      noticiaBarraComentar: findExact("Noticias: comentar en el Foro"),
+      noticiaBarraCompartir: findExact("Noticias: barra · compartir"),
+      noticiaBarraVolver: findExact("Noticias: barra · volver"),
       // Blue IA fuera del horario del equipo (app/(tabs)/blue-ia.tsx): quién pulsa «Hablar con el equipo» y qué hace.
       fueraHorarioAviso: findExact("Blue IA: fuera de horario, aviso"),
       fueraHorarioBlue: findExact("Blue IA: fuera de horario, sigue con Blue"),
@@ -2488,13 +2491,20 @@ export default function AdminAnalytics() {
                       ficha completa»: {coreFunnel.ofertaFicha} sesiones
                     </Text>
                   </View>
-                  {/* Carruseles de noticias en Inicio, Perfil y Cesta (2026-11-26). */}
+                  {/* Tira de noticias en Inicio, Perfil y Cesta (2026-11-27: una sola, «Recientes noticias…»). */}
                   <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
                     <Ionicons name="newspaper-outline" size={15} color={COLORS.accentDark} />
                     <Text nativeID="analitica-noticias-estantes" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
-                      Noticias en Inicio, Perfil y Cesta → «Podrían interesarte»: {coreFunnel.noticiasInteresVistas} las ven ·{" "}
-                      {coreFunnel.noticiasInteresTocadas} entran · «Últimas noticias»: {coreFunnel.noticiasUltimasVistas} las ven ·{" "}
-                      {coreFunnel.noticiasUltimasTocadas} entran (sesiones)
+                      Noticias en Inicio, Perfil y Cesta («Recientes noticias que creemos que podrían interesarte») → {coreFunnel.noticiasRecientesVistas}{" "}
+                      las ven · {coreFunnel.noticiasRecientesTocadas} entran (sesiones)
+                    </Text>
+                  </View>
+                  {/* Barra fija de la página de cada noticia (2026-11-27): volver, me gusta, comentar y compartir. */}
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="heart-outline" size={15} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-noticia-barra" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Página de noticia, barra de abajo → me gusta: {coreFunnel.noticiaBarraMeGusta} · comentar: {coreFunnel.noticiaBarraComentar} ·
+                      compartir: {coreFunnel.noticiaBarraCompartir} · volver: {coreFunnel.noticiaBarraVolver} sesiones
                     </Text>
                   </View>
                   <View

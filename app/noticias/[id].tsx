@@ -14,8 +14,12 @@
  * fecha, el título como encabezado principal (h1), la foto principal (solo si el servidor comprobó las fotos:
  * imagenes_verificadas), el resumen, «Contexto» (columna contexto, si existe y tiene texto), «Puntos clave», «Datos»,
  * «Por qué importa», «A quién afecta» y «Fuente: <medio>» con enlace al original (fuera de la tienda, nofollow). Al
- * final, enlaces de verdad (<a href>) a «Más noticias», al Catálogo y a Servicios, y «Comentar en el Foro», que abre la
- * noticia en el Foro (/chat-global?tab=news&noticia=<id>, donde viven los comentarios y los «me gusta»).
+ * final, «Compra con confianza» y el pie de página. Abajo, fija y siempre a la vista (dueño, 2026-11-27), una barra
+ * blanca de esquinas redondeadas con «Volver», «Me gusta» (con el total; sin cuenta lleva a entrar y vuelve aquí; tabla
+ * noticias_likes, la misma del Foro), «Comentar» (abre la noticia en el Foro, /chat-global?tab=news&noticia=<id>, donde
+ * viven los comentarios) y «Compartir» (compartirFuera de components/foro/NoticiasForo.tsx). Analítica propia:
+ * «Noticias: barra · me gusta/compartir/volver» y «Noticias: comentar en el Foro» (Administración → Analítica,
+ * #analitica-noticia-barra).
  *
  * Columnas opcionales: «contexto» la añade otra migración; si aún no existe (42703/PGRST204) la consulta se repite sin
  * ella, y lo mismo con las fotos. Sin noticia (no existe, no está publicada o el enlace está mal): mensaje y «Ver noticias».
@@ -37,7 +41,10 @@
  * - api/sitemap.ts → cada noticia de los últimos 90 días; vercel.json → rewrite /noticias/:id.
  * - lib/analiticaPropia.ts → medirEvento y medirNoticiaDesdeBuscador; app/admin/analytics.tsx → su tarjeta.
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { compartirFuera } from "../../components/foro/NoticiasForo";
 import { Linking, Platform, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
 import { Link, router, useLocalSearchParams, type Href } from "expo-router";
 import { useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
@@ -291,6 +298,41 @@ function EnlacePildora({ href, texto, icono, id }: { href: string; texto: string
   );
 }
 
+// Un botón de la barra fija de abajo: icono y nombre debajo, centrados, 52 px de alto.
+function BotonBarra({
+  id,
+  icono,
+  texto,
+  etiqueta,
+  onPress,
+  color,
+  activo,
+}: {
+  id: string;
+  icono: React.ComponentProps<typeof Ionicons>["name"];
+  texto: string;
+  etiqueta: string;
+  onPress: () => void;
+  color?: string;
+  activo?: boolean;
+}) {
+  return (
+    <Pressable
+      nativeID={id}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={etiqueta}
+      accessibilityState={activo === undefined ? undefined : { selected: activo }}
+      style={({ pressed }) => ({ flex: 1, minHeight: 52, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 2, backgroundColor: pressed ? COLORS.accent2 : "transparent" })}
+    >
+      <Ionicons name={icono} size={21} color={color ?? COLORS.text} />
+      <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
+        {texto}
+      </Text>
+    </Pressable>
+  );
+}
+
 export default function NoticiaScreen() {
   const { width } = useWindowDimensions();
   const ancho = width > 0 ? width : 1024;
@@ -342,6 +384,70 @@ export default function NoticiaScreen() {
     if (!n) return;
     medirEvento("noticia_comentar", "Noticias: comentar en el Foro", { path: `/noticias/${n.id}` });
     router.push(`/chat-global?tab=news&noticia=${encodeURIComponent(n.id)}` as Href);
+  }
+
+  // Barra fija de abajo (dueño, 2026-11-27): volver, me gusta, comentar y compartir, siempre a mano.
+  const insets = useSafeAreaInsets();
+  const [meGusta, setMeGusta] = useState(false);
+  const [totalMeGusta, setTotalMeGusta] = useState<number | null>(null);
+  const [copiado, setCopiado] = useState(false);
+  const guardandoMeGusta = useRef(false);
+  const medirBarra = (accion: string) => n && medirEvento("noticia_barra", `Noticias: barra · ${accion}`, { path: `/noticias/${n.id}` });
+
+  // El total (noticias_gaming.me_gusta) y si este cliente ya le dio (noticias_likes, igual que en el Foro).
+  useEffect(() => {
+    if (!n) return;
+    let vivo = true;
+    (async () => {
+      const { data: fila } = await supabase.from("noticias_gaming").select("me_gusta").eq("id", n.id).maybeSingle();
+      const total = (fila as { me_gusta?: unknown } | null)?.me_gusta;
+      if (vivo && total != null && Number.isFinite(Number(total))) setTotalMeGusta(Math.max(0, Number(total)));
+      const { data: s } = await supabase.auth.getSession();
+      const uid = s.session?.user?.id;
+      if (!uid) return;
+      const { data } = await supabase.from("noticias_likes").select("noticia_id").eq("user_id", uid).eq("noticia_id", n.id);
+      if (vivo) setMeGusta(!!data?.length);
+    })().catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [n]);
+
+  async function alternarMeGusta() {
+    if (!n || guardandoMeGusta.current) return;
+    medirBarra("me gusta");
+    const { data: s } = await supabase.auth.getSession();
+    const uid = s.session?.user?.id;
+    if (!uid) {
+      // Sin cuenta: a entrar o crear una (gratis) y, al terminar, de vuelta a esta noticia.
+      await AsyncStorage.setItem("videojuegoszaragoza:volver_tras_acceso", JSON.stringify({ ruta: `/noticias/${n.id}`, hasta: Date.now() + 30 * 60 * 1000 })).catch(() => {});
+      router.push(`/perfil?acceso=entrar&aviso=${encodeURIComponent("Inicia sesión o crea tu cuenta gratis para dar «Me gusta». Al terminar volverás a esta noticia.")}` as Href);
+      return;
+    }
+    guardandoMeGusta.current = true;
+    const siguiente = !meGusta;
+    setMeGusta(siguiente);
+    setTotalMeGusta((t) => (t == null ? t : Math.max(0, t + (siguiente ? 1 : -1))));
+    const { error } = siguiente
+      ? await supabase.from("noticias_likes").insert({ noticia_id: n.id })
+      : await supabase.from("noticias_likes").delete().eq("noticia_id", n.id).eq("user_id", uid);
+    guardandoMeGusta.current = false;
+    // 23505: ya le había dado (p. ej. desde otro dispositivo), así que ya estaba contado.
+    if (error && !(siguiente && error.code === "23505")) {
+      setMeGusta(!siguiente);
+      setTotalMeGusta((t) => (t == null ? t : Math.max(0, t + (siguiente ? -1 : 1))));
+    } else if (error) {
+      setTotalMeGusta((t) => (t == null ? t : Math.max(0, t - 1)));
+    }
+  }
+
+  async function compartir() {
+    if (!n) return;
+    medirBarra("compartir");
+    if ((await compartirFuera(n)) === "copiado") {
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2500);
+    }
   }
 
   // El original se abre fuera de la tienda: en la web es un enlace normal (nueva pestaña, nofollow).
@@ -399,7 +505,8 @@ export default function NoticiaScreen() {
         <ScrollView
           {...progresoScroll.propsScroll}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: pagePadding, paddingTop: 18, paddingBottom: 96, alignItems: "center" }}
+          // Hueco abajo para que la barra fija no tape el final del pie.
+          contentContainerStyle={{ paddingHorizontal: pagePadding, paddingTop: 18, paddingBottom: 110 + insets.bottom, alignItems: "center" }}
         >
           <View style={{ width: "100%", maxWidth: 760, gap: 16 }}>
             <View style={{ alignItems: "center", gap: 8 }}>
@@ -487,29 +594,7 @@ export default function NoticiaScreen() {
               </View>
             ) : null}
 
-            <Pressable
-              nativeID="noticia-comentar"
-              onPress={comentar}
-              accessibilityRole="button"
-              accessibilityLabel="Comentar en el Foro"
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.9 : 1,
-                alignSelf: "center",
-                width: "100%",
-                maxWidth: 360,
-                minHeight: 52,
-                borderRadius: 999,
-                backgroundColor: COLORS.accent,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                marginTop: 4,
-              })}
-            >
-              <Ionicons name="chatbubbles-outline" size={18} color="#FFFFFF" />
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Comentar en el Foro</Text>
-            </Pressable>
+            {/* «Comentar en el Foro» va ahora en la barra fija de abajo (dueño, 2026-11-27). */}
 
             {/* En vez de «Más noticias», «Catálogo» y «Servicios» (dueño, 2026-11-26): «Compra con confianza» y el pie de
                 página completo, como en Inicio (los tres enlaces siguen en el pie, como enlaces de verdad). */}
@@ -525,6 +610,51 @@ export default function NoticiaScreen() {
           </View>
         </ScrollView>
       )}
+      {/* Barra fija de abajo (dueño, 2026-11-27): un bloque blanco de esquinas redondeadas, siempre a la vista, con
+          volver, me gusta (y el total), comentar en el Foro y compartir; cada botón de 44 px o más y con su nombre. */}
+      {n ? (
+        <View
+          pointerEvents="box-none"
+          style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: isMobile ? 12 : 24, paddingBottom: Math.max(12, insets.bottom + 8), alignItems: "center" }}
+        >
+          {copiado ? (
+            <View nativeID="noticia-copiado" style={{ marginBottom: 8, borderRadius: 999, backgroundColor: COLORS.text, paddingHorizontal: 14, paddingVertical: 8 }}>
+              <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 13, textAlign: "center" }}>Enlace copiado</Text>
+            </View>
+          ) : null}
+          <View
+            nativeID="noticia-barra"
+            style={{
+              width: "100%",
+              maxWidth: 560,
+              flexDirection: "row",
+              backgroundColor: "#FFFFFF",
+              borderRadius: 22,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              paddingVertical: 4,
+              paddingHorizontal: 4,
+              boxShadow: "0px 6px 24px rgba(11,33,56,0.14)",
+            }}
+          >
+            <BotonBarra id="noticia-volver" icono="arrow-back" texto="Volver" etiqueta="Volver" onPress={() => {
+              medirBarra("volver");
+              volver();
+            }} />
+            <BotonBarra
+              id="noticia-me-gusta"
+              icono={meGusta ? "heart" : "heart-outline"}
+              color={meGusta ? "#E5484D" : undefined}
+              texto={totalMeGusta ? `Me gusta · ${totalMeGusta}` : "Me gusta"}
+              etiqueta={meGusta ? "Quitar me gusta" : "Me gusta"}
+              activo={meGusta}
+              onPress={alternarMeGusta}
+            />
+            <BotonBarra id="noticia-comentar" icono="chatbubble-outline" texto="Comentar" etiqueta="Comentar en el Foro" onPress={comentar} />
+            <BotonBarra id="noticia-compartir" icono="share-outline" texto="Compartir" etiqueta="Compartir la noticia" onPress={compartir} />
+          </View>
+        </View>
+      ) : null}
       {/* Barra fina de progreso a la izquierda (páginas largas, 2026-11-25). Solo sale si la noticia es larga. */}
       {progresoScroll.barra}
       <VentanaInformacion item={infoConfianza} onClose={() => setInfoConfianza(null)} onCambiar={setInfoConfianza} />
