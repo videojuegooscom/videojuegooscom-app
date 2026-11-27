@@ -4678,6 +4678,66 @@ async function seccionNE() {
     await ctx.close();
   }
 
+  // Fichas de producto y de servicio (dueño, 2026-11-27): al final, la tira de noticias, «Compra con confianza» y, tras
+  // «Volver atrás», el pie de página; en ese orden, sin desbordes ni errores.
+  {
+    const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000c7";
+    const SERV = "5e000000-0000-4000-8000-0000000000c8";
+    const FOTO = (n) => `https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/prueba/ne${n}.jpg`;
+    const estadoFicha = () => ({
+      filas: perfil,
+      guardados: [],
+      noticiasNW: noticias,
+      producto: {
+        id: PRODUCTO, title: "Consola Xbox Series X", description: "Consola revisada.", price_eur: 349.99, status: "PUBLISHED", is_active: true,
+        category_id: null, images: [], updated_at: "2026-11-20T10:00:00Z", created_at: "2026-11-20T10:00:00Z", condition: "USED",
+        like_count: 1, reference: null, caracteristicas: null, mantenimiento: null, category: null,
+      },
+      fotosProducto: [{ id: "m1", product_id: PRODUCTO, kind: "image", public_url: FOTO(1), file_name: "1.jpg", sort_order: 0, is_cover: true, duration_seconds: null }],
+      servicio: { id: SERV, title: "Mantenimiento Consola PlayStation 5", description: "Limpieza y cambio de pasta térmica.", price_eur: 45, like_count: 2 },
+      fotosServicio: [{ id: "s1", service_id: SERV, kind: "image", public_url: FOTO(2), file_name: "s.jpg", sort_order: 0, is_cover: true }],
+    });
+    for (const [nombre, vista] of [
+      ["360", { viewport: { width: 360, height: 780 } }],
+      ["390", {}],
+      ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+    ]) {
+      for (const [etiqueta, ruta, id] of [
+        ["producto", `/producto/${PRODUCTO}`, "ficha"],
+        ["servicio", `/servicio/${SERV}`, "servicio"],
+      ]) {
+        const ctx = await contexto(navegador, CLIENTE, "user", estadoFicha(), vista);
+        const p = await pagina(ctx, ruta);
+        await p.locator(`#${id}-noticias-recientes`).waitFor({ state: "attached", timeout: 40000 }).catch(() => {});
+        await p.locator(`#${id}-confianza`).scrollIntoViewIfNeeded().catch(() => {});
+        await p.waitForTimeout(800);
+        const m = await p.evaluate(([id, TIRA]) => {
+          const arriba = (sel) => document.querySelector(sel)?.getBoundingClientRect().top ?? -1;
+          const volver = Array.from(document.querySelectorAll('[aria-label="Volver atrás"]')).pop();
+          const conf = document.getElementById(`${id}-confianza`);
+          return {
+            tira: !!document.getElementById(`${id}-noticias-recientes`) && document.body.innerText.includes(TIRA),
+            confianza: ["Garantía", "Envíos en España", "Productos revisados", "Pago rápido"].every((t) => (conf?.innerText ?? "").includes(t)),
+            centrado: conf ? Array.from(conf.querySelectorAll('[dir="auto"]')).filter((x) => /[a-z]/i.test(x.textContent ?? "") && !x.closest('[role="button"]') && getComputedStyle(x).textAlign !== "center").length : -1,
+            orden: [arriba(`#${id}-noticias-recientes`), arriba(`#${id}-confianza`), volver?.getBoundingClientRect().top ?? -1, arriba("#pie-nav")],
+            ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= window.innerWidth + 1,
+          };
+        }, [id, TIRA]);
+        const enOrden = m.orden.every((y) => y !== -1) && m.orden.every((y, i) => i === 0 || y > m.orden[i - 1]);
+        ok(m.tira && m.confianza && m.centrado === 0, `NE (${nombre}): la ficha de ${etiqueta} trae la tira de noticias y «Compra con confianza» centrado (${JSON.stringify({ tira: m.tira, confianza: m.confianza, centrado: m.centrado })})`);
+        ok(enOrden, `NE (${nombre}): en la ficha de ${etiqueta}: noticias, sellos, «Volver atrás» y el pie, en ese orden (${m.orden.map(Math.round).join(" < ")})`);
+        ok(m.ancho, `NE (${nombre}): la ficha de ${etiqueta} no se ensancha`);
+        await capturar(p, `NE-${nombre}-ficha-${etiqueta}`);
+        // Tocar un sello abre su explicación.
+        await p.locator(`#${id}-confianza`).getByText("Garantía").first().click().catch(() => {});
+        await p.waitForTimeout(500);
+        ok((await p.getByText("Entendido").count()) + (await p.locator('[aria-label="Cerrar"]').count()) > 0, `NE (${nombre}): en la ficha de ${etiqueta}, tocar «Garantía» abre su explicación`);
+        ok(p.errores.length === 0, `NE (${nombre}): la ficha de ${etiqueta} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+        await ctx.close();
+      }
+    }
+  }
+
   // Perfil y Cesta: debajo de «También te puede interesar».
   for (const [ruta, id] of [["/perfil", "perfil"], ["/cesta", "cesta"]]) {
     const ctx = await contexto(navegador, CLIENTE, "user", { filas: perfil, guardados: [], noticiasNW: noticias });

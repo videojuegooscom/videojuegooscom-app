@@ -2516,7 +2516,7 @@ export default function AdminAnalytics() {
                   <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
                     <Ionicons name="newspaper-outline" size={15} color={COLORS.accentDark} />
                     <Text nativeID="analitica-noticias-estantes" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
-                      Noticias en Inicio, Perfil y Cesta («Recientes noticias que creemos que podrían interesarte») → {coreFunnel.noticiasRecientesVistas}{" "}
+                      Noticias en Inicio, Perfil, Cesta y fichas («Recientes noticias que creemos que podrían interesarte») → {coreFunnel.noticiasRecientesVistas}{" "}
                       las ven · {coreFunnel.noticiasRecientesTocadas} entran (sesiones)
                     </Text>
                   </View>

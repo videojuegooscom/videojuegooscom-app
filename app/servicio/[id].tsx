@@ -2,7 +2,7 @@
  * Archivo: app/servicio/[id].tsx
  * Función: ficha de un servicio (reparación, limpieza, mantenimiento), en la dirección /servicio/<id>.
  * Para qué sirve: el cliente ve fotos, precio, opciones, reseñas y «me gusta» del servicio, pregunta por él o pasa a contratarlo.
- * Conectado con: lib/supabase.ts (tablas services, service_media, store_reviews), lib/interaccion.ts (me gusta y visitas; api/interaccion.ts), lib/analiticaPropia.ts, constants/temaTienda.ts, lib/admin/productos.componentes.tsx, components/ContratarServicioModal.tsx, VisorFotos.tsx, ImagenInteligente.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*, app/producto/[id].tsx (FichaProducto).
+ * Conectado con: lib/supabase.ts (tablas services, service_media, store_reviews), lib/interaccion.ts (me gusta y visitas; api/interaccion.ts), lib/analiticaPropia.ts, constants/temaTienda.ts, lib/admin/productos.componentes.tsx, components/ContratarServicioModal.tsx, VisorFotos.tsx, ImagenInteligente.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*, app/producto/[id].tsx (FichaProducto); al final, como en producto, la tira de noticias (components/CarruselProductosCategoria.tsx → NoticiasEstantes), «Compra con confianza» y el pie (components/PieDePagina.tsx).
  * Utilizado por: Expo Router (dirección /servicio/<id>); la enlazan app/servicios.tsx, app/contratar/[id].tsx, components/ContratarServicioModal.tsx; exporta fetchService, fotoDeOpcion y faltaColumna que usan app/contratar/[id].tsx y app/noticias/*.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons.
  * Estado: ACTIVO
@@ -83,6 +83,8 @@ import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import { useRecarga } from "../../components/TirarParaActualizar";
+import { NoticiasEstantes } from "../../components/CarruselProductosCategoria";
+import PieDePagina, { FilaConfianza, VentanaInformacion, type DatoConfianza } from "../../components/PieDePagina";
 import { FichaProducto, type Caracteristica } from "../producto/[id]";
 
 const COLORS = {
@@ -214,6 +216,8 @@ export default function ServicioScreen() {
   const isTablet = widthSafe >= 700 && widthSafe < 1080;
   const isWide = widthSafe >= 1080;
   const pagePadding = isMobile ? 12 : 16;
+  // «Compra con confianza» (2026-11-27, como en la ficha de producto): la ventana del sello que se toca.
+  const [infoConfianza, setInfoConfianza] = useState<DatoConfianza | null>(null);
 
   const params = useLocalSearchParams<{ id?: string }>();
   const serviceId = typeof params.id === "string" ? params.id : "";
@@ -877,6 +881,18 @@ export default function ServicioScreen() {
               </View>
             </View>
 
+            {/* Como en la ficha de producto (2026-11-27): noticias que podrían interesar, «Compra con confianza» y, tras
+                «Volver atrás», el pie de página. */}
+            <View style={{ width: "100%", paddingTop: isMobile ? 10 : 18 }}>
+              <NoticiasEstantes pantalla="servicio" />
+            </View>
+            <View nativeID="servicio-confianza" style={{ alignItems: "center", gap: 10, paddingTop: isMobile ? 18 : 24 }}>
+              <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontWeight: "900", fontSize: 19, textAlign: "center" }}>
+                Compra con confianza
+              </Text>
+              <FilaConfianza isMobile={isMobile} onPressItem={setInfoConfianza} />
+            </View>
+
             {/* Último botón, como en producto: vuelve a donde estaba (o a Servicios). */}
             <View style={{ alignItems: "center", paddingTop: 8, paddingBottom: 8 }}>
               <Pressable
@@ -903,9 +919,13 @@ export default function ServicioScreen() {
                 <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 16 }}>Volver atrás</Text>
               </Pressable>
             </View>
+            <View style={{ width: "100%", marginTop: isMobile ? 16 : 24 }}>
+              <PieDePagina sidePadding={pagePadding} contentMaxWidth={760} />
+            </View>
           </View>
         </ScrollView>
       ) : null}
+      <VentanaInformacion item={infoConfianza} onClose={() => setInfoConfianza(null)} onCambiar={setInfoConfianza} />
 
       <VisorFotos
         visible={lightboxOpen}

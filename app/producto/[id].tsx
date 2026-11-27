@@ -2,7 +2,7 @@
  * Archivo: app/producto/[id].tsx
  * Función: ficha de un producto, en la dirección /producto/<id> (admite ?chat=1 y ?guia=1).
  * Para qué sirve: el cliente ve fotos, precio, estado, entrega estimada y garantía, y puede añadir a la cesta, comprar ya, preguntar, compartir, dar «me gusta», avisarse de bajadas de precio, comparar o reservar con señal.
- * Conectado con: components/ficha/* (DatosFicha, FichaProducto y ExtrasFicha, separados en la tanda 6), lib/supabase.ts (tablas products, product_media, categories, profiles), lib/interaccion.ts, lib/reservas.ts, lib/envio.ts, lib/analiticaPropia.ts, constants/temaTienda.ts, lib/admin/productos.utilidades.ts, components/VisorFotos.tsx, ImagenInteligente.tsx, CarruselProductosCategoria.tsx, ConversacionProducto.tsx, PerfilPublico.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*; api/pago.ts (reserva con señal).
+ * Conectado con: components/ficha/* (DatosFicha, FichaProducto y ExtrasFicha, separados en la tanda 6), lib/supabase.ts (tablas products, product_media, categories, profiles), lib/interaccion.ts, lib/reservas.ts, lib/envio.ts, lib/analiticaPropia.ts, constants/temaTienda.ts, lib/admin/productos.utilidades.ts, components/VisorFotos.tsx, ImagenInteligente.tsx, CarruselProductosCategoria.tsx, ConversacionProducto.tsx, PerfilPublico.tsx, CabeceraMarca.tsx, TirarParaActualizar.tsx, components/marca/*; api/pago.ts (reserva con señal); al final, la tira de noticias (NoticiasEstantes), «Compra con confianza» y el pie (components/PieDePagina.tsx).
  * Utilizado por: Expo Router (dirección /producto/<id>); la enlazan app/catalogo.tsx, app/comparar.tsx, app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/blue-ia.tsx, app/admin/escaparate.tsx y components/CarruselProductosCategoria.tsx, AsistenteBlue.tsx, BarraBusqueda.tsx, ConversacionProducto.tsx; exporta FichaProducto, usada por app/servicio/[id].tsx.
  * Dependencias: react, react-native, expo-router, @expo/vector-icons, @react-native-async-storage/async-storage.
  * Estado: ACTIVO
@@ -179,7 +179,8 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
-import { BotonComparar, CompletaTuCompra, ProductosParecidos, registrarVisto, useAlturaBarraComparar } from "../../components/CarruselProductosCategoria";
+import { BotonComparar, CompletaTuCompra, NoticiasEstantes, ProductosParecidos, registrarVisto, useAlturaBarraComparar } from "../../components/CarruselProductosCategoria";
+import PieDePagina, { FilaConfianza, VentanaInformacion, type DatoConfianza } from "../../components/PieDePagina";
 import { BUY_NOW_MARK_KEY, BuyNowMark, COLORS, CartItem, Product, ProductMediaRow, asProductCondition, detectAdmin, fetchProductRow, getLikedProductIds, labelCondition, loadCart, loadProductMediaRows, mapDbStatusToUi, normalizeProductMediaRows, pickInitialHeroImage, pushRoute, replaceRoute, saveCart, saveLikedProductIds, smartBack } from "../../components/ficha/DatosFicha";
 import { FichaProducto } from "../../components/ficha/FichaProducto";
 import { AparecerAlVer } from "../../components/DesplazamientoSuave";
@@ -195,6 +196,8 @@ export default function ProductoScreen() {
   const isWide = widthSafe >= 1080;
   const pagePadding = isMobile ? 12 : 16;
   const alturaBarraComparar = useAlturaBarraComparar();
+  // «Compra con confianza» (2026-11-27): la ventana con el detalle del sello que se toca.
+  const [infoConfianza, setInfoConfianza] = useState<DatoConfianza | null>(null);
 
   // ?guia=1: la guía de Blue (components/AsistenteBlue.tsx) enseña esta ficha; esa demostración no cuenta como visita.
   // ?chat=1: vuelve de crear la cuenta o entrar desde «Preguntar por este artículo» y abre el chat (PreguntarArticulo).
@@ -1404,6 +1407,18 @@ export default function ProductoScreen() {
             <ProductosParecidos producto={{ id: p.id, categoriaId: p.category?.id ?? null, precio: p.priceEUR }} isMobile={isMobile} />
           </View>
 
+          {/* Dueño, 2026-11-27: noticias que podrían interesar (primero las de la consola de este artículo), «Compra con
+              confianza» y, tras «Volver atrás», el pie de página, como en Inicio y en las noticias. */}
+          <View style={{ width: "100%", paddingTop: isMobile ? 10 : 18 }}>
+            <NoticiasEstantes pantalla="ficha" idsBase={[p.id]} />
+          </View>
+          <View nativeID="ficha-confianza" style={{ alignItems: "center", gap: 10, paddingTop: isMobile ? 18 : 24 }}>
+            <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontWeight: "900", fontSize: 19, textAlign: "center" }}>
+              Compra con confianza
+            </Text>
+            <FilaConfianza isMobile={isMobile} onPressItem={setInfoConfianza} />
+          </View>
+
           {/* Último botón: limpio y claro, vuelve a donde estaba (o al catálogo). */}
           <View style={{ alignItems: "center", paddingTop: 8, paddingBottom: 8 }}>
             <Pressable
@@ -1429,11 +1444,15 @@ export default function ProductoScreen() {
               <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 16 }}>Volver atrás</Text>
             </Pressable>
           </View>
+          <View style={{ width: "100%", marginTop: isMobile ? 16 : 24 }}>
+            <PieDePagina sidePadding={pagePadding} contentMaxWidth={760} />
+          </View>
           {/* Hueco de la barra de «Comparar» (si se ve): el final de la ficha no queda debajo de ella. */}
           {alturaBarraComparar ? <View style={{ height: alturaBarraComparar }} /> : null}
           </View>
         </ScrollView>
       )}
+      <VentanaInformacion item={infoConfianza} onClose={() => setInfoConfianza(null)} onCambiar={setInfoConfianza} />
 
       <VisorFotos
         visible={lightboxOpen}
