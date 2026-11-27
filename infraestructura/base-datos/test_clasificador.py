@@ -277,7 +277,7 @@ CASOS = [
                 "where version = '20261127130000'", P),
     ("lectura", "select p.sections::text like '%Sí, quiero ayudar%' as texto_nuevo from public.policy_pages p "
                 "where p.slug = 'privacidad'", P),
-    ("lectura", "select (created_at at time zone 'Europe/Madrid')::date as dia, count(*) filter "
+    ("lectura", "select timezone('Europe/Madrid', created_at)::date as dia, count(*) filter "
                 "(where event_name = 'page_view') as n from public.analytics_events group by 1 order by 1 desc", P),
     ("lectura", "select column_name, data_type from information_schema.columns where table_schema = 'public' "
                 "and table_name = 'products' order by ordinal_position", P),
@@ -295,7 +295,15 @@ CASOS = [
     ("aplicar", "select * from supabase_migrations.schema_migrations", M),
     # Lo que el MCP permitía y VeoAura no: sigue bloqueado.
     ("lectura", "select * from pg_stat_activity", M),
-    ("lectura", "select * from auth.users", M),
+    # auth.users: igual que en VeoAura, el clasificador no lo filtra; lo impide la base de datos (el rol no tiene
+    # USAGE en auth; lo comprueba test_integracion_pg.py).
+    ("lectura", "select * from auth.users", P),
+    # «AT TIME ZONE»: pglast no reproduce su texto exacto, así que se bloquea (falla cerrado, como en VeoAura).
+    # Para la analítica por día se usa la forma equivalente timezone('Europe/Madrid', created_at).
+    ("lectura", "select (created_at at time zone 'Europe/Madrid')::date as dia from public.analytics_events", M),
+    ("lectura", "select count(*) filter (where event_name = 'page_view') as n from public.analytics_events", P),
+    ("lectura", "select created_at::date as dia, count(*) from public.analytics_events group by 1 order by 1 desc", P),
+    ("lectura", "select timezone('Europe/Madrid', created_at)::date as dia from public.analytics_events", P),
     ("lectura", "select * from vault.secrets", M),
     # ================================================================ SQL dinámico
     ("aplicar", "create function f_dyn() returns void language plpgsql as $$ begin execute 'drop table x'; end $$", M),
@@ -334,7 +342,9 @@ CASOS = [
     ("aplicar", "create table t_mal (id int default pg_terminate_backend(1))", M),
     ("lectura", "select * from vault.decrypted_secrets", M),
     ("lectura", "select jobname, command from cron.job", M),
-    ("lectura", "select * from supabase_migrations.schema_migrations", M),
+    # Diferencia de VideojuegosZaragoza: leer el registro de migraciones (antes list_migrations del MCP) sí.
+    ("lectura", "select * from supabase_migrations.schema_migrations", P),
+    ("lectura", "select * from supabase_migrations.otra_tabla", M),
     ("aplicar", "create view v_mal as select pg_read_file('/etc/passwd')", M),
     # ================================== RPC y funciones existentes de la aplicación (F1.2)
     # RPC existente que escribe (p. ej. registra una venta): ni en lectura ni en aplicar, ni anidada

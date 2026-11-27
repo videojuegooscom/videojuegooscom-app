@@ -182,7 +182,7 @@ def servicio(reglas=None, conectar=None, conexiones=None):
 # ================================================================= pruebas ====
 
 # 1. aplicar un archivo versionado y aditivo: se ejecuta, se confirma y deja copia de estructura.
-ruta = escribir("supabase/migrations/2026112700001_aditivo.sql",
+ruta = escribir("supabase/migrations/20261127000001_aditivo.sql",
                 f"create table vz_ops_nueva (id int);\ninsert into vz_ops_prueba (id, nota) values (1, '{VALOR}');\n")
 s, cons = servicio()
 r = s.procesar({"orden": "aplicar", "archivo": ruta}, uid=1000, pid=1)
@@ -197,11 +197,11 @@ if r.get("copia_estructura"):
 comprobar(r.get("commit") and len(r["commit"]) == 40, "aplicar debería registrar el commit del archivo (D6)")
 
 # 2. D6: un archivo sin versionar o con cambios sin commit no se aplica (ni siquiera se conecta).
-ruta_nv = escribir("supabase/migrations/2026112700002_sin_versionar.sql", "create table vz_ops_x (id int);", commit=False)
+ruta_nv = escribir("supabase/migrations/20261127000002_sin_versionar.sql", "create table vz_ops_x (id int);", commit=False)
 s, cons = servicio()
 r = s.procesar({"orden": "aplicar", "archivo": ruta_nv})
 comprobar(r["estado"] == "rechazada" and "versionado" in r["motivo"] and not cons, f"sin versionar: {r}")
-ruta_mod = escribir("supabase/migrations/2026112700003_modificado.sql", "create table vz_ops_y (id int);")
+ruta_mod = escribir("supabase/migrations/20261127000003_modificado.sql", "create table vz_ops_y (id int);")
 with open(ruta_mod, "a", encoding="utf-8") as f:
     f.write("\ncreate table vz_ops_z (id int);\n")
 r = s.procesar({"orden": "aplicar", "archivo": ruta_mod})
@@ -209,7 +209,7 @@ comprobar(r["estado"] == "rechazada" and "sin commit" in r["motivo"] and not con
 
 # 3. ACCION_MANUAL: ni por nombre ni por marca, en ninguna orden.
 ruta_am = escribir("documentacion/acciones-manuales/ACCION_MANUAL__BORRAR_X__2026-10-09.sql", "select 1;")
-ruta_marca = escribir("supabase/migrations/2026112700004_marca.sql", "-- VZ: ACCION_MANUAL\ndrop table vz_ops_prueba;\n")
+ruta_marca = escribir("supabase/migrations/20261127000004_marca.sql", "-- VZ: ACCION_MANUAL\ndrop table vz_ops_prueba;\n")
 for orden in ("aplicar", "plan", "consultar"):
     for rr in (ruta_am, ruta_marca):
         s, cons = servicio()
@@ -221,7 +221,7 @@ r = s.procesar({"orden": "consultar", "sql": "-- VZ: ACCION_MANUAL\nselect 1"})
 comprobar(r["estado"] == "requiere_accion_manual" and not cons, "consultar --sql con la marca no debe ejecutarse")
 
 # 4. Destructivo: no se ejecuta nada, se propone el archivo ACCION_MANUAL.
-ruta_d = escribir("supabase/migrations/2026112700005_destructivo.sql", "create table vz_ops_w (id int);\ndrop table vz_ops_prueba;\n")
+ruta_d = escribir("supabase/migrations/20261127000005_destructivo.sql", "create table vz_ops_w (id int);\ndrop table vz_ops_prueba;\n")
 s, cons = servicio()
 r = s.procesar({"orden": "aplicar", "archivo": ruta_d})
 comprobar(r["estado"] == "requiere_accion_manual", f"destructivo debería requerir acción manual: {r}")
@@ -234,7 +234,7 @@ comprobar(all("VZ: ACCION_MANUAL" in a["contenido"] for a in r.get("acciones_man
           "el borrador de acción manual debe llevar la marca")
 
 # 5. D2: UPDATE de más de 100 filas se deshace; de 50, se confirma.
-ruta_u = escribir("supabase/migrations/2026112700006_update.sql", "update vz_ops_prueba set nota = 'x' where id > 0;\n")
+ruta_u = escribir("supabase/migrations/20261127000006_update.sql", "update vz_ops_prueba set nota = 'x' where id > 0;\n")
 s, cons = servicio(reglas=[(r"^\s*update", {"rowcount": 150})])
 r = s.procesar({"orden": "aplicar", "archivo": ruta_u})
 comprobar(r["estado"] == "requiere_accion_manual" and "150" in r.get("motivo", ""), f"UPDATE de 150 filas: {r}")
@@ -244,11 +244,11 @@ r = s.procesar({"orden": "aplicar", "archivo": ruta_u})
 comprobar(r["estado"] == "ok" and cons[-1].commits == 1, f"UPDATE de 50 filas debería confirmarse: {r}")
 
 # 6. plan no vale para aplicar: aplicar relee, recalcula el sha256 y vuelve a analizar.
-ruta_p = escribir("supabase/migrations/2026112700007_plan.sql", "create table vz_ops_plan (id int);\n")
+ruta_p = escribir("supabase/migrations/20261127000007_plan.sql", "create table vz_ops_plan (id int);\n")
 s, cons = servicio()
 r_plan = s.procesar({"orden": "plan", "archivo": ruta_p})
 comprobar(r_plan["estado"] == "ok" and not any(c.commits for c in cons), "plan no debe confirmar nada")
-escribir("supabase/migrations/2026112700007_plan.sql", "drop table vz_ops_prueba;\n")
+escribir("supabase/migrations/20261127000007_plan.sql", "drop table vz_ops_prueba;\n")
 r = s.procesar({"orden": "aplicar", "archivo": ruta_p})
 comprobar(r["estado"] == "requiere_accion_manual", "aplicar debe analizar el contenido nuevo, no el del plan")
 ultima = json.loads(open(AUD, encoding="utf-8").read().splitlines()[-1])
@@ -258,7 +258,7 @@ comprobar(ultima.get("sha256") and ultima["sha256"] != r_plan["sha256"], "aplica
 ruta_fuera = escribir("x.sql", "select 1;", commit=False, base=FUERA)
 os.symlink(ruta_fuera, os.path.join(REPO, "enlace.sql"))
 for ruta_mala, texto in [(ruta_fuera, "fuera del repositorio"), (os.path.join(REPO, "enlace.sql"), "fuera del repositorio"),
-                         (escribir("notas.txt", "select 1;"), ".sql"), ("supabase/migrations/2026112700001_aditivo.sql", "absoluta")]:
+                         (escribir("notas.txt", "select 1;"), ".sql"), ("supabase/migrations/20261127000001_aditivo.sql", "absoluta")]:
     s, cons = servicio()
     r = s.procesar({"orden": "plan", "archivo": ruta_mala})
     comprobar(r["estado"] == "rechazada" and texto in r["motivo"] and not cons, f"ruta {ruta_mala}: {r}")
@@ -281,7 +281,7 @@ comprobar(r["estado"] == "ok" and cons[-1].read_only, f"diagnostico-d8 debería 
 
 # 10. Errores saneados: ni contraseña, ni host, ni usuario, ni DSN.
 mensaje = f"fallo password={SECRETO} en {HOST} usando postgres://{USUARIO}:{SECRETO}@{HOST}:5432/postgres"
-ruta_e = escribir("supabase/migrations/2026112700008_error.sql", f"insert into vz_ops_prueba (id, nota) values (2, '{VALOR}');\n")
+ruta_e = escribir("supabase/migrations/20261127000008_error.sql", f"insert into vz_ops_prueba (id, nota) values (2, '{VALOR}');\n")
 s, cons = servicio(reglas=[(r"^\s*insert", ErrorPG(mensaje))])
 r = s.procesar({"orden": "aplicar", "archivo": ruta_e})
 texto = json.dumps(r)
@@ -305,7 +305,7 @@ for p in ({"orden": "ejecutar", "sql": "drop table x"}, ["estado"], {"orden": "a
     comprobar(r["estado"] == "rechazada" and not cons, f"petición {p!r} debería rechazarse: {r}")
 
 # 12. CREATE INDEX CONCURRENTLY va solo y fuera de transacción.
-ruta_c = escribir("supabase/migrations/2026112700009_concurrente.sql", "create index concurrently if not exists i on vz_ops_prueba (id);\n")
+ruta_c = escribir("supabase/migrations/20261127000009_concurrente.sql", "create index concurrently if not exists i on vz_ops_prueba (id);\n")
 s, cons = servicio()
 r = s.procesar({"orden": "aplicar", "archivo": ruta_c})
 comprobar(r["estado"] == "ok" and cons[-1].autocommit, f"CREATE INDEX CONCURRENTLY: {r}")
@@ -318,13 +318,13 @@ for sql in ("select public.registrar_venta(1)", "select registrar_venta(1)", "se
     comprobar(r["estado"] == "requiere_accion_manual" and not any(c.commits for c in cons)
               and not any("registrar_venta" in x or "rpc_definer" in x for c in cons for x in c.ejecutadas),
               f"consultar {sql!r} no debe ejecutar la RPC: {r}")
-ruta_rpc = escribir("supabase/migrations/2026112700010_rpc.sql", "insert into vz_ops_prueba (id) select public.registrar_venta(1);\n")
+ruta_rpc = escribir("supabase/migrations/20261127000010_rpc.sql", "insert into vz_ops_prueba (id) select public.registrar_venta(1);\n")
 s, cons = servicio()
 r = s.procesar({"orden": "aplicar", "archivo": ruta_rpc})
 comprobar(r["estado"] == "requiere_accion_manual" and not any(c.commits for c in cons)
           and not any("registrar_venta" in x for c in cons for x in c.ejecutadas),
           f"aplicar con una RPC existente no debe ejecutar nada: {r}")
-ruta_def = escribir("supabase/migrations/2026112700011_definer.sql",
+ruta_def = escribir("supabase/migrations/20261127000011_definer.sql",
                     "create function vz_ops_f() returns int language sql security definer as $$ select 1 $$;\n")
 s, cons = servicio()
 r = s.procesar({"orden": "aplicar", "archivo": ruta_def})
