@@ -4805,6 +4805,8 @@ async function seccionNE() {
 // que es el mismo texto que pone la migración 20261127120000_politicas_legales.sql.
 async function seccionPOL() {
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  // El mismo objeto (no una copia): la prueba lee en él los eventos que manda la tienda.
+  const preferencias = () => preferenciasCookies((estado) => contexto(navegador, CLIENTE, "user", Object.assign(estado, { filas: perfil })), capturar);
   // Analítica con consentimiento (dueño, 2026-11-27: «sí, cambia la analítica»): sin contestar al aviso no sale nada ni se
   // guarda nada en el dispositivo; Privacidad lo dice y tiene «Aceptar la analítica» / «Rechazar la analítica».
   const consentimiento = async () => {
@@ -4864,12 +4866,22 @@ async function seccionPOL() {
     ok(p.errores.length === 0, `POL: Privacidad sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
     // Administración → Analítica.
-    const est = { guardados: [], embudo: [{ step_label: "Inicio", sessions: 10 }, { step_label: "Privacidad: analítica aceptada desde la política", sessions: 2 }] };
+    const est = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Privacidad: analítica aceptada desde la política", sessions: 2 },
+        { step_label: "Pie: preferencias de cookies abiertas", sessions: 3 },
+        { step_label: "Pie: analítica aceptada desde las preferencias", sessions: 1 },
+      ],
+    };
     const ctx2 = await contexto(navegador, ADMIN, "admin", est);
     const a = await pagina(ctx2, "/admin/analytics");
     await a.locator("#analitica-consentimiento").waitFor({ timeout: 40000 }).catch(() => {});
     const linea = (await a.locator("#analitica-consentimiento").innerText().catch(() => "")).replace(/\s+/g, " ");
     ok(/aceptan la analítica desde la política: 2 sesiones/.test(linea), `POL: Administración → Analítica lo cuenta (${linea})`);
+    const lineaPie = (await a.locator("#analitica-preferencias-cookies").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/lo abren 3 · aceptan desde ahí 1 sesiones/.test(lineaPie), `POL: Analítica cuenta «Preferencias de cookies» del pie (${lineaPie})`);
     await ctx2.close();
   };
   const casos = [
@@ -4913,7 +4925,8 @@ async function seccionPOL() {
       ok(p.errores.length === 0, `POL (${nombre}): ${c.ruta} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
       await p.close();
     }
-    // El pie: «Políticas» con las 8 (las 4 de siempre, Garantía, Reparación por envío, Normas del Foro y Aviso legal).
+    // El pie: «Políticas» con las 8 (las 4 de siempre, Garantía, Reparación por envío, Normas del Foro y Aviso legal)
+    // y, desde el 2026-11-27, «Preferencias de cookies» (abre el aviso para cambiar o retirar el consentimiento).
     // (Las páginas de políticas no llevan pie: se mira en Perfil.)
     const p = await pagina(ctx, "/perfil");
     await p.locator("#pie-politicas").waitFor({ state: "attached", timeout: 40000 }).catch(() => {});
@@ -4921,7 +4934,7 @@ async function seccionPOL() {
     await p.locator("#pie-politicas").getByText("Políticas", { exact: true }).first().click().catch(() => {});
     await p.waitForTimeout(900);
     const pie = await p.evaluate(() => (document.getElementById("pie-politicas")?.innerText ?? "").replace(/\s+/g, " "));
-    ok(["Envíos", "Devoluciones", "Privacidad", "Términos y condiciones", "Garantía", "Reparación por envío", "Normas del Foro", "Aviso legal"].every((t) => pie.includes(t)), `POL (${nombre}): el pie «Políticas» trae las 8 (${pie.slice(0, 160)})`);
+    ok(["Envíos", "Devoluciones", "Privacidad", "Términos y condiciones", "Garantía", "Reparación por envío", "Normas del Foro", "Aviso legal", "Preferencias de cookies"].every((t) => pie.includes(t)), `POL (${nombre}): el pie «Políticas» trae las 9, con «Preferencias de cookies» (${pie.slice(0, 180)})`);
     // Icono y nombre centrados en cada pastilla (dueño, 2026-11-27, con captura).
     const descentradas = await p.evaluate(() =>
       Array.from(document.querySelectorAll('#pie-politicas [role="button"]:not([aria-expanded]), #pie-politicas a'))
@@ -4942,7 +4955,49 @@ async function seccionPOL() {
     await p.waitForURL(/aviso-legal/, { timeout: 15000 }).catch(() => {});
     ok(/\/politicas\/aviso-legal/.test(p.url()), `POL (${nombre}): «Aviso legal» del pie abre su página`);
     await ctx.close();
+    if (nombre === "390") await preferencias();
   }
+}
+
+// «Preferencias de cookies» del pie (dueño, 2026-11-27): quien ya aceptó puede volver a abrir el aviso, ve lo que tiene
+// elegido y lo retira con «No, gracias»; desde ese momento no se envía nada más. Solo se cuenta mientras hay consentimiento.
+async function preferenciasCookies(contextoDe, ver) {
+  const estado = { filas: [], guardados: [], aceptaAnalitica: true, noticiasNW: [] };
+  const ctx = await contextoDe(estado);
+  const p = await pagina(ctx, "/perfil");
+  await p.locator("#pie-politicas").waitFor({ state: "attached", timeout: 40000 }).catch(() => {});
+  await p.locator("#pie-politicas").scrollIntoViewIfNeeded().catch(() => {});
+  await p.locator("#pie-politicas").getByText("Políticas", { exact: true }).first().click().catch(() => {});
+  await p.waitForTimeout(900);
+  ok(!(await p.locator("#aviso-cookies-titulo").count()), "POL: con la analítica ya aceptada, el aviso no sale solo");
+  await p.locator("#pie-preferencias-cookies").scrollIntoViewIfNeeded().catch(() => {});
+  await p.locator("#pie-preferencias-cookies").click().catch(() => {});
+  await p.locator("#aviso-cookies-titulo").waitFor({ timeout: 8000 }).catch(() => {});
+  const abierto = await p.evaluate(() => ({
+    titulo: document.getElementById("aviso-cookies-titulo")?.textContent ?? "",
+    actual: document.getElementById("aviso-cookies-actual")?.textContent ?? "",
+    centrado: getComputedStyle(document.getElementById("aviso-cookies-actual") ?? document.body).textAlign,
+  }));
+  ok(abierto.titulo === "Ayúdanos a mejorar tu experiencia" && /Ahora mismo nos estás ayudando/.test(abierto.actual) && abierto.centrado === "center", `POL: «Preferencias de cookies» vuelve a abrir el aviso y dice lo elegido, centrado (${JSON.stringify(abierto)})`);
+  await p.waitForTimeout(600); // la animación de entrada dura 260 ms
+  await ver(p, "POL-preferencias-cookies");
+  for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "preferencias_cookies"); i++) await p.waitForTimeout(250);
+  ok((estado.eventosEnviados ?? []).some((e) => e.event_name === "preferencias_cookies" && e.step_label === "Pie: preferencias de cookies abiertas"), "POL: abrir las preferencias se cuenta en Analítica (con la analítica aceptada)");
+  await p.locator("#aviso-cookies-no").click().catch(() => {});
+  await p.waitForTimeout(800);
+  const guardado = await p.evaluate(() => localStorage.getItem("videojuegoos.analytics.consent"));
+  const antes = (estado.eventosEnviados ?? []).length;
+  ok(guardado === "declined" && !(await p.locator("#aviso-cookies-titulo").count()), `POL: «No, gracias» desde las preferencias retira el consentimiento y cierra el aviso (${guardado})`);
+  // Sin recargar (la prueba vuelve a poner «accepted» en cada carga): volver a abrir las preferencias ya no se envía y
+  // el aviso dice que no comparte nada.
+  await p.locator("#pie-preferencias-cookies").click().catch(() => {});
+  await p.locator("#aviso-cookies-actual").waitFor({ timeout: 8000 }).catch(() => {});
+  const ahora = await p.locator("#aviso-cookies-actual").innerText().catch(() => "");
+  await p.waitForTimeout(1500);
+  ok(/no compartes tu uso de la tienda/.test(ahora) && (estado.eventosEnviados ?? []).length === antes, `POL: tras retirarlo no se envía nada más y el aviso lo dice (${(estado.eventosEnviados ?? []).length - antes} eventos, «${ahora}»)`);
+  await p.locator("#aviso-cookies-no").click().catch(() => {});
+  ok(p.errores.length === 0, `POL: preferencias de cookies sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+  await ctx.close();
 }
 
 async function seccionRE() {

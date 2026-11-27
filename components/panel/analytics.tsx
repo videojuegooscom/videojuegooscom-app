@@ -1765,6 +1765,9 @@ export default function AdminAnalytics() {
       noticiaBarraVolver: findExact("Noticias: barra · volver"),
       // Privacidad → «Aceptar la analítica» (2026-11-27). Quien la rechaza no se cuenta (no se registra nada).
       privacidadAceptan: findExact("Privacidad: analítica aceptada desde la política"),
+      // Pie → «Preferencias de cookies» (2026-11-27): quién lo abre y quién acepta desde ahí (solo con consentimiento).
+      piePreferenciasAbiertas: findExact("Pie: preferencias de cookies abiertas"),
+      piePreferenciasAceptan: findExact("Pie: analítica aceptada desde las preferencias"),
       // Blue IA fuera del horario del equipo (app/(tabs)/blue-ia.tsx): quién pulsa «Hablar con el equipo» y qué hace.
       fueraHorarioAviso: findExact("Blue IA: fuera de horario, aviso"),
       fueraHorarioBlue: findExact("Blue IA: fuera de horario, sigue con Blue"),
@@ -2536,6 +2539,14 @@ export default function AdminAnalytics() {
                     <Text nativeID="analitica-consentimiento" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Privacidad → aceptan la analítica desde la política: {coreFunnel.privacidadAceptan} sesiones (estos datos solo cuentan a
                       quien pulsa «Sí, quiero ayudar»; nada de quien pulsa «No, gracias» o no contesta)
+                    </Text>
+                  </View>
+                  {/* Pie → «Preferencias de cookies» (2026-11-27): abrir el aviso para cambiar o retirar el consentimiento. */}
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="options-outline" size={15} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-preferencias-cookies" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Pie → «Preferencias de cookies»: lo abren {coreFunnel.piePreferenciasAbiertas} · aceptan desde ahí{" "}
+                      {coreFunnel.piePreferenciasAceptan} sesiones (solo cuenta a quien tiene la analítica aceptada; quien la retira no sale)
                     </Text>
                   </View>
                   <View
