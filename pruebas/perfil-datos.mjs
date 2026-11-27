@@ -4802,6 +4802,59 @@ async function seccionNE() {
 // que es el mismo texto que pone la migración 20261127120000_politicas_legales.sql.
 async function seccionPOL() {
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  // Analítica con consentimiento (dueño, 2026-11-27: «sí, cambia la analítica»): sin contestar al aviso no sale nada ni se
+  // guarda nada en el dispositivo; Privacidad lo dice y tiene «Aceptar la analítica» / «Rechazar la analítica».
+  const consentimiento = async () => {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: false, noticiasNW: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    // Visitante que aún no ha contestado: sin decisión guardada.
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.analytics.consent");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    // El índice de noticias apunta «Noticias: índice visto» (con analítica): aquí no debe salir.
+    const p = await pagina(ctx, "/noticias");
+    await p.waitForTimeout(2500);
+    await p.goto(`${BASE}/politicas/privacidad`, { waitUntil: "load" });
+    await p.locator("#privacidad-estado").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const antes = await p.evaluate(() => ({
+      estado: document.getElementById("privacidad-estado")?.textContent ?? "",
+      sesion: localStorage.getItem("videojuegoos.analytics.session_id"),
+      texto: /hasta que pulsas «Aceptar»/.test(document.body.innerText) && !/mientras no contestes/.test(document.body.innerText),
+    }));
+    ok((estado.eventosEnviados ?? []).length === 0 && !antes.sesion, `POL: sin contestar al aviso no se envía nada ni se guarda la visita en el dispositivo (${(estado.eventosEnviados ?? []).length} eventos)`);
+    ok(/Todavía no has contestado/.test(antes.estado) && antes.texto, `POL: Privacidad dice lo que hace la tienda y que aún no se ha contestado («${antes.estado}»)`);
+    const medidas = await p.evaluate(() => ["privacidad-aceptar", "privacidad-rechazar"].map((id) => Math.round(document.getElementById(id)?.getBoundingClientRect().height ?? 0)));
+    ok(medidas.every((h) => h >= 44), `POL: «Aceptar la analítica» y «Rechazar la analítica» de 44 px o más (${medidas.join(", ")})`);
+    // El aviso de cookies no sale en Privacidad (taparía estos botones).
+    await p.waitForTimeout(1200);
+    ok((await p.getByText("Su privacidad es importante para nosotros").count()) === 0, "POL: en Privacidad no sale el aviso de cookies encima de los botones");
+    await p.locator("#privacidad-preferencia").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "POL-390-preferencia");
+    await p.locator("#privacidad-aceptar").click();
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "analitica_preferencia"); i++) await p.waitForTimeout(250);
+    const tras = await p.evaluate(() => ({ estado: document.getElementById("privacidad-estado")?.textContent ?? "", guardado: localStorage.getItem("videojuegoos.analytics.consent") }));
+    ok(/aceptada/.test(tras.estado) && tras.guardado === "accepted" && (estado.eventosEnviados ?? []).some((e) => e.step_label === "Privacidad: analítica aceptada desde la política"), `POL: «Aceptar la analítica» la activa y se cuenta («${tras.estado}», ${tras.guardado})`);
+    const enviados = (estado.eventosEnviados ?? []).length;
+    await p.locator("#privacidad-rechazar").click();
+    await p.waitForTimeout(600);
+    const fin = await p.evaluate(() => ({ estado: document.getElementById("privacidad-estado")?.textContent ?? "", guardado: localStorage.getItem("videojuegoos.analytics.consent") }));
+    ok(/rechazada/.test(fin.estado) && fin.guardado === "declined" && (estado.eventosEnviados ?? []).length === enviados, `POL: «Rechazar la analítica» la apaga y no se envía nada más («${fin.estado}», ${fin.guardado})`);
+    ok(p.errores.length === 0, `POL: Privacidad sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+    // Administración → Analítica.
+    const est = { guardados: [], embudo: [{ step_label: "Inicio", sessions: 10 }, { step_label: "Privacidad: analítica aceptada desde la política", sessions: 2 }] };
+    const ctx2 = await contexto(navegador, ADMIN, "admin", est);
+    const a = await pagina(ctx2, "/admin/analytics");
+    await a.locator("#analitica-consentimiento").waitFor({ timeout: 40000 }).catch(() => {});
+    const linea = (await a.locator("#analitica-consentimiento").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/aceptan la analítica desde la política: 2 sesiones/.test(linea), `POL: Administración → Analítica lo cuenta (${linea})`);
+    await ctx2.close();
+  };
   const casos = [
     { ruta: "/politicas/aviso-legal", titulo: "Aviso legal", debe: [/Y4751659B/, /C\. Miguel Servet, 3, 50410 Cuarte de Huerva/, /VideojuegosZaragoza\.com@gmail\.com/, /627 748 741/, /Propiedad intelectual/] },
     { ruta: "/politicas/garantia", titulo: "Garantía", debe: [/Productos nuevos: 3 años/, /segunda mano: 12 meses/, /nunca inferior a 1 año/, /al menos 3 meses/, /no te cuesta nada, tampoco el envío/] },
@@ -4854,6 +4907,7 @@ async function seccionPOL() {
     ok(["Envíos", "Devoluciones", "Privacidad", "Términos y condiciones", "Garantía", "Reparación por envío", "Normas del Foro", "Aviso legal"].every((t) => pie.includes(t)), `POL (${nombre}): el pie «Políticas» trae las 8 (${pie.slice(0, 160)})`);
     await capturar(p, `POL-${nombre}-pie`);
     await p.locator("#pie-politicas").getByText("Aviso legal", { exact: true }).first().scrollIntoViewIfNeeded().catch(() => {});
+    if (nombre === "390") await consentimiento();
     await p.locator("#pie-politicas").getByText("Aviso legal", { exact: true }).first().click().catch(() => {});
     await p.waitForURL(/aviso-legal/, { timeout: 15000 }).catch(() => {});
     ok(/\/politicas\/aviso-legal/.test(p.url()), `POL (${nombre}): «Aviso legal» del pie abre su página`);
