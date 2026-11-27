@@ -4908,6 +4908,19 @@ async function seccionPOL() {
     await p.waitForTimeout(900);
     const pie = await p.evaluate(() => (document.getElementById("pie-politicas")?.innerText ?? "").replace(/\s+/g, " "));
     ok(["Envíos", "Devoluciones", "Privacidad", "Términos y condiciones", "Garantía", "Reparación por envío", "Normas del Foro", "Aviso legal"].every((t) => pie.includes(t)), `POL (${nombre}): el pie «Políticas» trae las 8 (${pie.slice(0, 160)})`);
+    // Icono y nombre centrados en cada pastilla (dueño, 2026-11-27, con captura).
+    const descentradas = await p.evaluate(() =>
+      Array.from(document.querySelectorAll('#pie-politicas [role="button"]:not([aria-expanded]), #pie-politicas a'))
+        .map((b) => {
+          const r = b.getBoundingClientRect();
+          const hijos = Array.from(b.children).map((c) => c.getBoundingClientRect()).filter((c) => c.width > 0);
+          if (!hijos.length || r.width === 0) return null;
+          const centro = (Math.min(...hijos.map((c) => c.left)) + Math.max(...hijos.map((c) => c.right))) / 2;
+          return Math.abs(centro - (r.left + r.width / 2)) > 3 ? (b.textContent ?? "").trim() : null;
+        })
+        .filter(Boolean)
+    );
+    ok(!descentradas.length, `POL (${nombre}): en las pastillas del pie, icono y nombre centrados (${descentradas.join(", ") || "todas"})`);
     await capturar(p, `POL-${nombre}-pie`);
     await p.locator("#pie-politicas").getByText("Aviso legal", { exact: true }).first().scrollIntoViewIfNeeded().catch(() => {});
     if (nombre === "390") await consentimiento();
