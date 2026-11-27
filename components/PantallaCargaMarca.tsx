@@ -40,7 +40,7 @@
  * - components/EfectoPensando.tsx → paleta y máscara del marco Siri.
  */
 import React, { useEffect, useLayoutEffect, type ReactNode } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
 import MarcaAnimada from "./marca/MarcaAnimada";
 import { COLORES_SIRI, MASCARA_MARCO_SIRI, PALETA_SIRI } from "./EfectoPensando";
 
@@ -50,6 +50,8 @@ export const BIENVENIDA_MS = 3000;
 export const BIENVENIDA_RELLENO_ID = "bienvenida-relleno";
 
 const WEB = Platform.OS === "web";
+// «VideojuegosZaragoza.com» en una línea: unos 14,5 «em» de ancho; se deja un margen de 28 px a cada lado.
+const TAMANO_MARCA_WEB = "clamp(18px, calc((100vw - 56px) / 14.5), 32px)";
 const AZUL = "#1EA7E8";
 const MARINO = "#0B2138";
 const GRIS = "rgba(11,33,56,0.62)";
@@ -131,6 +133,7 @@ type PropsPantallaCargaMarca = {
 };
 
 export default function PantallaCargaMarca({ onEntrar }: PropsPantallaCargaMarca) {
+  const anchoPantalla = useWindowDimensions().width || 390;
   // Las animaciones empezaron al pintarse el HTML estático. Si el navegador volviera a crear estos elementos (al
   // arrancar la tienda o más tarde), empezarían de cero (un salto atrás): se les pone el mismo comienzo que tenía la
   // barra, antes de que se pinte nada. Se mira en cada pintado (es barato y solo toca algo si van desfasadas).
@@ -193,13 +196,23 @@ export default function PantallaCargaMarca({ onEntrar }: PropsPantallaCargaMarca
       </View>
 
       <Capa clase="vzb-textos">
-        {/* En dos líneas: «VideojuegosZaragoza.com» es una sola palabra y en un móvil pequeño no cabría en una. */}
+        {/* En UNA línea (dueño, 2026-11-27): la letra se ajusta al ancho de la pantalla (hasta 32 px) para que
+            «VideojuegosZaragoza.com» quepa entera también en un móvil pequeño. En la web con CSS (ya bien desde el
+            primer pintado, sin esperar a medir la pantalla); en la app, con el ancho de la ventana. */}
         {/* Sin papel de título (2026-11-24, Search Console): era un segundo H1 en cada página; el H1 es el de la página. */}
         <Text
           nativeID="bienvenida-marca"
-          style={{ marginTop: 22, color: MARINO, fontSize: 32, lineHeight: 36, fontWeight: "900", letterSpacing: -0.5, textAlign: "center" }}
+          style={{
+            marginTop: 22,
+            color: MARINO,
+            fontSize: WEB ? (TAMANO_MARCA_WEB as unknown as number) : Math.min(32, Math.max(18, (anchoPantalla - 56) / 14.5)),
+            fontWeight: "900",
+            letterSpacing: -0.5,
+            textAlign: "center",
+            ...(WEB ? ({ whiteSpace: "nowrap" } as object) : null),
+          }}
         >
-          Videojuegos{"\n"}
+          Videojuegos
           <Text style={{ color: AZUL }}>Zaragoza</Text>
           <Text style={{ color: GRIS, fontWeight: "800" }}>.com</Text>
         </Text>

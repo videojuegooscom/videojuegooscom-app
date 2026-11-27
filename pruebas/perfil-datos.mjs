@@ -9378,9 +9378,19 @@ async function seccionBV() {
         marca: dentro(caja(document.getElementById("bienvenida-marca"))),
         mascotas: Array.from(document.querySelectorAll("#bienvenida img")).every((i) => dentro(caja(i))),
         ancho: document.documentElement.scrollWidth <= window.innerWidth + 1,
+        // En una sola línea (dueño, 2026-11-27): la altura de la marca es la de una línea.
+        unaLinea: (() => {
+          const m = document.getElementById("bienvenida-marca");
+          if (!m) return false;
+          const alto = m.getBoundingClientRect().height;
+          return alto < parseFloat(getComputedStyle(m).fontSize) * 1.8;
+        })(),
+        letra: Math.round(parseFloat(getComputedStyle(document.getElementById("bienvenida-marca") ?? document.body).fontSize)),
       };
     });
     ok(r.marca && r.mascotas && r.ancho, `BV: cabe en ${vista.viewport.width} × ${vista.viewport.height} (${JSON.stringify(r)})`);
+    ok(r.unaLinea && r.letra >= 18, `BV: «VideojuegosZaragoza.com» en una sola línea a ${vista.viewport.width} px (letra de ${r.letra} px)`);
+    await capturar(p, `BV6-${vista.viewport.width}`);
     if (vista.viewport.width === 1280) await capturar(p, "BV6-ordenador");
     await ctx.close();
   }
