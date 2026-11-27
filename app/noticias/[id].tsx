@@ -46,7 +46,7 @@ import React, { useEffect, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { compartirFuera, HojaComentariosNoticia } from "../../components/foro/NoticiasForo";
-import { Linking, Platform, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
+import { Animated, Easing, Linking, Platform, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
 import { Link, router, useLocalSearchParams, type Href } from "expo-router";
 import { useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
 import { Ionicons } from "@expo/vector-icons";
@@ -308,6 +308,7 @@ function BotonBarra({
   onPress,
   color,
   activo,
+  escala,
 }: {
   id: string;
   icono: React.ComponentProps<typeof Ionicons>["name"];
@@ -316,6 +317,8 @@ function BotonBarra({
   onPress: () => void;
   color?: string;
   activo?: boolean;
+  /** Tamaño animado del icono (el salto del corazón al dar «Me gusta»). */
+  escala?: Animated.Value;
 }) {
   return (
     <Pressable
@@ -326,7 +329,9 @@ function BotonBarra({
       accessibilityState={activo === undefined ? undefined : { selected: activo }}
       style={({ pressed }) => ({ flex: 1, minHeight: 52, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 2, backgroundColor: pressed ? COLORS.accentBorder : "transparent" })}
     >
-      <Ionicons name={icono} size={21} color={color ?? COLORS.text} />
+      <Animated.View nativeID={`${id}-icono`} style={escala ? { transform: [{ scale: escala }] } : undefined}>
+        <Ionicons name={icono} size={21} color={color ?? COLORS.text} />
+      </Animated.View>
       <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
         {texto}
       </Text>
@@ -439,6 +444,18 @@ export default function NoticiaScreen() {
     };
   }, [n]);
 
+  // Salto del corazón al dar «Me gusta», como en Instagram (dueño, 2026-11-27): crece, se encoge un poco y vuelve.
+  const escalaCorazon = useRef(new Animated.Value(1)).current;
+  function saltarCorazon() {
+    escalaCorazon.stopAnimation();
+    escalaCorazon.setValue(1);
+    Animated.sequence([
+      Animated.timing(escalaCorazon, { toValue: 1.45, duration: 140, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== "web" }),
+      Animated.timing(escalaCorazon, { toValue: 0.88, duration: 110, easing: Easing.inOut(Easing.quad), useNativeDriver: Platform.OS !== "web" }),
+      Animated.spring(escalaCorazon, { toValue: 1, friction: 4, tension: 160, useNativeDriver: Platform.OS !== "web" }),
+    ]).start();
+  }
+
   async function alternarMeGusta() {
     if (!n || guardandoMeGusta.current) return;
     medirBarra("me gusta");
@@ -453,6 +470,7 @@ export default function NoticiaScreen() {
     guardandoMeGusta.current = true;
     const siguiente = !meGusta;
     setMeGusta(siguiente);
+    if (siguiente) saltarCorazon();
     setTotalMeGusta((t) => (t == null ? t : Math.max(0, t + (siguiente ? 1 : -1))));
     const { error } = siguiente
       ? await supabase.from("noticias_likes").insert({ noticia_id: n.id })
@@ -675,6 +693,7 @@ export default function NoticiaScreen() {
               texto={totalMeGusta ? `Me gusta · ${totalMeGusta}` : "Me gusta"}
               etiqueta={meGusta ? "Quitar me gusta" : "Me gusta"}
               activo={meGusta}
+              escala={escalaCorazon}
               onPress={alternarMeGusta}
             />
             <BotonBarra

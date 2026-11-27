@@ -4642,8 +4642,27 @@ async function seccionNE() {
       `NE (${nombre}): botones de 44 px o más, centrados y sin nada encima (${arriba.altos.join(", ")} · ${JSON.stringify(arriba.descentrados)} · ${tras.tapan.join(" / ")})`
     );
     await capturar(p, `NE-${nombre}-noticia`);
+    // Salto del corazón como en Instagram (dueño, 2026-11-27): se mide el tamaño del icono durante ~0,6 s.
+    await p.evaluate(() => {
+      window.__escalasCorazon = [];
+      const icono = document.getElementById("noticia-me-gusta-icono");
+      const medir = () => {
+        const t = icono ? getComputedStyle(icono).transform : "none";
+        const m = /matrix\(([^,]+)/.exec(t);
+        window.__escalasCorazon.push(m ? Number(m[1]) : 1);
+        if (window.__escalasCorazon.length < 40) requestAnimationFrame(medir);
+      };
+      requestAnimationFrame(medir);
+    });
     await p.locator("#noticia-me-gusta").click();
-    await p.waitForTimeout(600);
+    await p.waitForTimeout(900);
+    const escalas = await p.evaluate(() => window.__escalasCorazon ?? []);
+    const finalCorazon = await p.evaluate(() => {
+      const t = getComputedStyle(document.getElementById("noticia-me-gusta-icono")).transform;
+      const m = /matrix\(([^,]+)/.exec(t);
+      return m ? Number(m[1]) : 1;
+    });
+    ok(Math.max(...escalas) >= 1.3 && Math.min(...escalas) <= 0.95 && Math.abs(finalCorazon - 1) < 0.02, `NE (${nombre}): al dar «Me gusta» el corazón salta (crece, se encoge y vuelve) como en Instagram (máx ${Math.max(...escalas).toFixed(2)} · mín ${Math.min(...escalas).toFixed(2)} · final ${finalCorazon.toFixed(2)})`);
     const tras1 = await barra();
     ok(tras1.textos[1] === "Me gusta · 4" && estado.likesNoticias.length === 1, `NE (${nombre}): «Me gusta» se guarda y suma uno (${tras1.textos[1]})`);
     await p.locator("#noticia-me-gusta").click();
