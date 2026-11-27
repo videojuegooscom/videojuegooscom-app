@@ -32,11 +32,10 @@ comprobar("allowManagedPermissionRulesOnly", POL.get("allowManagedPermissionRule
 comprobar("allowManagedHooksOnly", POL.get("allowManagedHooksOnly") is True)
 comprobar("allowManagedMcpServersOnly", POL.get("allowManagedMcpServersOnly") is True)
 # Stripe (2026-11-06): solo lectura, lo garantiza el guardián (revisar_stripe_mcp; casos en test_guardian.py).
-# Supabase (dueño, 2026-11-27): MCP apagado como en VeoAura; la única vía es vz-sql (infraestructura/base-datos).
-comprobar("solo MCP vercel y stripe",
-          sorted(s.get("serverName") for s in POL.get("allowedMcpServers", [])) == ["stripe", "vercel"])
-comprobar("MCP de Supabase prohibido entero", "mcp__supabase" in P["deny"]
-          and not any(r.startswith("mcp__supabase") for r in P["allow"]))
+# Supabase (dueño, 2026-11-27): el MCP se apagará como en VeoAura en una PR aparte, SOLO cuando vz-sql
+# esté comprobado en producción («No desactives el MCP hasta verificar que vz-sql funciona correctamente»).
+comprobar("solo MCP supabase, vercel y stripe",
+          sorted(s.get("serverName") for s in POL.get("allowedMcpServers", [])) == ["stripe", "supabase", "vercel"])
 comprobar("vz-sql con sus cinco órdenes y nada más",
           sorted(r for r in P["allow"] if "vz-sql" in r) == sorted([
               "Bash(/usr/local/bin/vz-sql estado)", "Bash(/usr/local/bin/vz-sql estado --json)",

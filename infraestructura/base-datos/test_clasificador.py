@@ -41,8 +41,14 @@ class CatalogoSimulado:
     operadores_aplicacion = {"&&"}
     triggers = {("public", "tabla_agente", "trigger_existente")}
 
+    # Permisos tabla a tabla: profiles es de contenido (escribe); pedidos solo de lectura.
+    escritura = {("public", "profiles")}
+
     def existe_relacion(self, e, n):
-        return (e, n) in self.relaciones
+        return (e, n) in self.relaciones or (e, n) == ("public", "pedidos")
+
+    def puede(self, e, n, privilegio):
+        return (e, n) in self.escritura
 
     def es_del_agente(self, e, n):
         return (e, n) in self.del_agente
@@ -64,7 +70,7 @@ class CatalogoSimulado:
 
 
 class CatalogoAntiguo:
-    """Catálogo que no sabe responder sobre funciones: el clasificador debe fallar cerrado."""
+    """Catálogo que no sabe responder sobre funciones ni permisos: el clasificador debe fallar cerrado."""
 
     def existe_relacion(self, e, n):
         return False
@@ -259,6 +265,38 @@ CASOS = [
     ("aplicar", "update storage.objects set name = 'x' where id = 'x'", M),
     ("lectura", "update profiles set plan = 'pro' where id = 'x'", M),
     ("lectura", "insert into profiles (id) values ('x')", M),
+    # Tablas solo de lectura (pedidos y datos de clientes): nunca se escriben con vz-sql.
+    ("aplicar", "update pedidos set estado = 'x' where id = 'x'", M),
+    ("aplicar", "insert into pedidos (id) values ('x')", M),
+    ("lectura", "select count(*) from pedidos where estado = 'pagado'", P),
+    # ===== Consultas habituales que antes iban por el MCP (execute_sql y list_migrations)
+    ("lectura", "select titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien from public.aprendizajes "
+                "where activa order by prioridad, categoria, updated_at desc", P),
+    ("lectura", "select version, name from supabase_migrations.schema_migrations order by version desc limit 20", P),
+    ("lectura", "select count(*) as registrada from supabase_migrations.schema_migrations "
+                "where version = '20261127130000'", P),
+    ("lectura", "select p.sections::text like '%Sí, quiero ayudar%' as texto_nuevo from public.policy_pages p "
+                "where p.slug = 'privacidad'", P),
+    ("lectura", "select (created_at at time zone 'Europe/Madrid')::date as dia, count(*) filter "
+                "(where event_name = 'page_view') as n from public.analytics_events group by 1 order by 1 desc", P),
+    ("lectura", "select column_name, data_type from information_schema.columns where table_schema = 'public' "
+                "and table_name = 'products' order by ordinal_position", P),
+    ("lectura", "select c.relname, c.relrowsecurity, pg_get_userbyid(c.relowner) from pg_class c join pg_namespace n "
+                "on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind in ('r', 'p') order by 1", P),
+    ("lectura", "select tablename, policyname, roles, cmd, qual from pg_policies where schemaname = 'public'", P),
+    ("lectura", "select id, title, price_eur, is_active from public.products where is_active order by created_at desc "
+                "limit 20", P),
+    ("lectura", "select estado, count(*), sum(total_eur) from public.pedidos where created_at > now() - "
+                "interval '7 days' group by estado", P),
+    ("lectura", "select slug, jsonb_array_length(sections) from public.policy_pages order by slug", P),
+    ("lectura", "select evtname, evtevent, evtenabled from pg_event_trigger order by 1", P),
+    # El registro de migraciones solo se lee: nunca se escribe desde un archivo.
+    ("aplicar", "insert into supabase_migrations.schema_migrations (version) values ('1')", M),
+    ("aplicar", "select * from supabase_migrations.schema_migrations", M),
+    # Lo que el MCP permitía y VeoAura no: sigue bloqueado.
+    ("lectura", "select * from pg_stat_activity", M),
+    ("lectura", "select * from auth.users", M),
+    ("lectura", "select * from vault.secrets", M),
     # ================================================================ SQL dinámico
     ("aplicar", "create function f_dyn() returns void language plpgsql as $$ begin execute 'drop table x'; end $$", M),
     ("aplicar", "create function f_dyn2() returns void language plpgsql as $$ declare r record; begin "

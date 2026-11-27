@@ -45,9 +45,9 @@ def enviar(peticion, ruta_socket=SOCKET, tiempo=300):
 def _mostrar(r):
     estado = r.get("estado", "?")
     print(f"estado: {estado}")
-    for clave in ("motivo", "postgres", "usuario", "segunda_barrera", "tablas_negocio_borrables", "broker",
-                  "pglast", "sha256", "commit", "registrada", "copia_estructura", "aviso"):
-        if clave == "tablas_negocio_borrables" and clave in r:
+    for clave in ("motivo", "postgres", "usuario", "segunda_barrera", "tablas_negocio_borrables", "salta_rls",
+                  "broker", "pglast", "sha256", "commit", "registrada", "copia_estructura", "aviso"):
+        if clave in ("tablas_negocio_borrables", "salta_rls") and clave in r:
             print(f"{clave}: {r[clave]}")
             continue
         if r.get(clave):

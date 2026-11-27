@@ -383,6 +383,10 @@ def _revisar_funciones(nodo, ctx):
     for n in recorrer(nodo):
         if isinstance(n, ast.RangeVar):
             esquema = (n.schemaname or "").lower()
+            # Consulta habitual (antes con list_migrations del MCP): leer el registro de migraciones, solo en consultar.
+            if ctx.modo == "lectura" and esquema == "supabase_migrations" \
+                    and (n.relname or "").lower() == "schema_migrations":
+                continue
             if esquema in ESQUEMAS_TABLAS_PROHIBIDOS:
                 raise AccionManual(f"referencia a {n.schemaname}.{n.relname}: esquema interno sensible", "sensible")
             if esquema in ("", "pg_catalog") and (n.relname or "").lower() in RELACIONES_SISTEMA_PROHIBIDAS:
@@ -433,16 +437,19 @@ def _revisar_dml_anidado(st, ctx, modo):
             _regla_datos(n, ctx)
 
 
-def _tabla_de_la_tienda(rv, ctx):
-    """Tabla existente de public que no es del sistema (dueño, 2026-11-27: INSERT/UPDATE limitados)."""
-    esquema, nombre = _rv(rv)
+def _tabla_de_la_tienda(st, ctx):
+    """Tabla existente de public que no es del sistema y en la que el rol tiene ese permiso (dueño, 2026-11-27:
+    INSERT/UPDATE limitados y solo en las tablas de contenido; los permisos y las políticas RLS van tabla a
+    tabla en ACCION_MANUAL__rol_vz_agente_2026-11-27.sql)."""
+    esquema, nombre = _rv(st.relation)
+    privilegio = "INSERT" if isinstance(st, ast.InsertStmt) else "UPDATE"
     return esquema == "public" and not _tabla_del_sistema(esquema, nombre, ctx) \
-        and ctx.pregunta("existe_relacion", esquema, nombre)
+        and ctx.pregunta("existe_relacion", esquema, nombre) and ctx.pregunta("puede", esquema, nombre, privilegio)
 
 
 def _regla_datos(st, ctx, tienda=False):
     """tienda=True solo para la sentencia principal de «aplicar»: el broker mide sus filas."""
-    if tienda and isinstance(st, (ast.InsertStmt, ast.UpdateStmt)) and _tabla_de_la_tienda(st.relation, ctx):
+    if tienda and isinstance(st, (ast.InsertStmt, ast.UpdateStmt)) and _tabla_de_la_tienda(st, ctx):
         objeto = _qn(*_rv(st.relation))
         if isinstance(st, ast.InsertStmt):
             conflicto = st.onConflictClause
@@ -453,7 +460,7 @@ def _regla_datos(st, ctx, tienda=False):
     elif isinstance(st, ast.InsertStmt):
         return _exigir_tabla_del_sistema(st.relation, ctx, "INSERT")
     if isinstance(st, ast.UpdateStmt):
-        objeto = _qn(*_rv(st.relation)) if tienda and _tabla_de_la_tienda(st.relation, ctx) \
+        objeto = _qn(*_rv(st.relation)) if tienda and _tabla_de_la_tienda(st, ctx) \
             else _exigir_tabla_del_sistema(st.relation, ctx, "UPDATE")
         if st.whereClause is None:
             raise AccionManual(f"UPDATE sin WHERE sobre {objeto} (D2)", "destructiva")
@@ -671,8 +678,10 @@ def _clasificar(st, ctx, texto):
     if isinstance(st, (ast.InsertStmt, ast.UpdateStmt)):
         objeto = _regla_datos(st, ctx, tienda=True)
         _revisar_dml_anidado(st, ctx, ctx.modo)
-        return ("INSERT" if isinstance(st, ast.InsertStmt) else "UPDATE"), objeto, "datos", False, \
-            isinstance(st, ast.UpdateStmt)
+        # Límite de filas (lo mide el broker dentro de la transacción y, si se supera, deshace TODO el archivo):
+        # todo UPDATE, y también los INSERT en tablas de la tienda (dueño, 2026-11-27: «100 filas por operación»).
+        limitada = isinstance(st, ast.UpdateStmt) or _tabla_de_la_tienda(st, ctx)
+        return ("INSERT" if isinstance(st, ast.InsertStmt) else "UPDATE"), objeto, "datos", False, limitada
 
     # --------------------------------------------------------------- estructura
     if isinstance(st, ast.CreateStmt):

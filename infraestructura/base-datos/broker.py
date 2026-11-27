@@ -129,6 +129,13 @@ class CatalogoPG:
     def existe_relacion(self, esquema, nombre):
         return self._uno("select to_regclass(format('%%I.%%I', %s::text, %s::text)) is not null", (esquema, nombre))
 
+    def puede(self, esquema, nombre, privilegio):
+        """El rol tiene ese privilegio (INSERT o UPDATE) en la tabla: los permisos van tabla a tabla."""
+        if privilegio not in ("INSERT", "UPDATE"):
+            return False
+        return self._uno("select coalesce(has_table_privilege(to_regclass(format('%%I.%%I', %s::text, %s::text)), "
+                         "%s), false)", (esquema, nombre, privilegio))
+
     def es_del_agente(self, esquema, nombre):
         return self._uno(
             "select exists (select 1 from pg_catalog.pg_class c join pg_catalog.pg_namespace n "
@@ -316,14 +323,18 @@ class Servicio:
             version, usuario, barreras = cur.fetchone()
             cur.execute(CONSULTA_BORRADO_NEGOCIO)
             borrado_negocio = int((cur.fetchone() or (0,))[0] or 0)
+            cur.execute("select rolbypassrls from pg_catalog.pg_roles where rolname = current_user")
+            salta_rls = bool((cur.fetchone() or (False,))[0])
         finally:
             self._cerrar(conn)
         respuesta = {"estado": "ok", "postgres": version, "usuario": usuario, "broker": VERSION,
                      "pglast": cl.pglast.__version__,
                      "segunda_barrera": (f"disponible ({barreras} de 3 vigilantes activos)" if barreras
                                          else "segunda barrera PostgreSQL no disponible"),
-                     "tablas_negocio_borrables": borrado_negocio}
-        if borrado_negocio:
+                     "tablas_negocio_borrables": borrado_negocio, "salta_rls": salta_rls}
+        if salta_rls:
+            respuesta["aviso"] = "el rol tiene BYPASSRLS y no debe: ejecuta alter role vz_agente nobypassrls"
+        elif borrado_negocio:
             respuesta["aviso"] = (f"el rol podría borrar, vaciar o cambiar {borrado_negocio} tablas de la tienda: "
                                   "no debería; revisa ACCION_MANUAL__rol_vz_agente_2026-11-27.sql")
         elif barreras < 3:
@@ -440,11 +451,13 @@ class Servicio:
                 for s in resultado.sentencias:
                     cur.execute(s.texto)
                     filas.append(cur.rowcount)
+                    # Dentro de la misma transacción: si se pasa, el rollback deshace TODAS las sentencias del
+                    # archivo (también las anteriores) y el registro en schema_migrations, que va al final.
                     if s.es_update and cur.rowcount > self.limite_update:
                         conn.rollback()
                         registro["filas_afectadas"] = filas
                         s.veredicto, s.categoria = cl.MANUAL, "destructiva"
-                        s.motivo = (f"UPDATE afecta a {cur.rowcount} filas (máximo {self.limite_update}, D2): "
+                        s.motivo = (f"{s.tipo} afecta a {cur.rowcount} filas (máximo {self.limite_update}, D2): "
                                     "deshecho, no se ha aplicado nada")
                         registro["sentencias"] = [x.resumen() for x in resultado.sentencias]
                         raise Rechazo(s.motivo, "requiere_accion_manual", sentencias=registro["sentencias"],

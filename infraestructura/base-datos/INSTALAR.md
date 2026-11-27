@@ -38,22 +38,23 @@ Supabase · rol vz_agente (sin superusuario; los tres vigilantes de la segunda b
 ## Qué es igual que en VeoAura
 
 - El clasificador, el intermediario, el cliente, las unidades de systemd, la auditoría, las copias de estructura y los límites de tiempo: 60 s por sentencia, 5 s de espera por bloqueo y 60 s de transacción inactiva, fijados en el rol y con `set local`.
-- El rol: sin superusuario, sin CREATEROLE ni CREATEDB, sin pertenencia a otros roles, `noinherit` y como mucho 3 conexiones. No tiene nada en `auth`, `storage`, `extensions` ni `vault`.
-- **Los tres vigilantes** (event triggers de la segunda barrera):
+- El rol: sin superusuario, sin CREATEROLE ni CREATEDB, **sin BYPASSRLS** (la protección RLS sigue activa también para él), sin pertenencia a otros roles, `noinherit` y como mucho 3 conexiones. No tiene nada en `auth`, `storage`, `extensions` ni `vault`.
+- **Los tres vigilantes** (event triggers de la segunda barrera), con el mismo código que VeoAura; solo cambian los nombres (comprobado con `diff` el 2026-11-27):
   - `vz_bloquear_drop`: ningún DROP;
   - `vz_bloquear_borrado_de_objetos`: ningún ALTER … DROP;
   - `vz_proteger_tablas_nuevas`: ni DELETE ni TRUNCATE en las tablas que cree.
 - Nunca se ejecutan: DELETE, DROP, TRUNCATE, MERGE, RENAME, DO, COPY, SET ROLE, SQL dinámico, `SECURITY DEFINER`, GRANT que amplíe acceso, RPC existentes y archivos `ACCION_MANUAL__` o con `-- VZ: ACCION_MANUAL`.
-- **MCP de Supabase apagado**, como en VeoAura. La política lo quita de los servidores permitidos y prohíbe `mcp__supabase`.
+- **MCP de Supabase:** se apagará como en VeoAura, pero **en una PR aparte y solo cuando vz-sql esté comprobado en producción**. Hasta entonces sigue encendido.
 - **Política y guardián:** solo la forma exacta de `vz-sql`, sin `$`, comillas invertidas, compuestos ni redirecciones.
 
 ## Diferencias aprobadas por el dueño (2026-11-27)
 
 | Diferencia | Por qué |
 | --- | --- |
-| El rol **lee, inserta y actualiza** las tablas de la tienda (`public`), nunca DELETE ni TRUNCATE | Nuestras migraciones cambian datos de tablas que ya existen (p. ej. los textos de `policy_pages`) y, con el MCP apagado, toda lectura pasa por vz-sql |
-| `UPDATE` en la tienda solo como sentencia principal, con `WHERE` y como mucho 100 filas (si no, se deshace); sin `ON CONFLICT DO UPDATE` y sin INSERT/UPDATE dentro de CTEs o de funciones | Así el límite de filas siempre se puede medir |
-| `BYPASSRLS` | Sin él, la lectura y los UPDATE de tablas con RLS verían 0 filas sin avisar. No da más permisos sobre las tablas |
+| **Permisos tabla a tabla**, sin `on all tables`. CONTENIDO: 14 tablas (lecciones, políticas, categorías, productos, servicios, tarifas y ajustes) con SELECT, INSERT y UPDATE. LECTURA: 46 tablas (pedidos, clientes, analítica, noticias…) solo con SELECT. Fuera quedan 10: claves y nonces, dispositivos, límites de peticiones, conversaciones privadas, notas internas y cuentas personales. Nunca DELETE, TRUNCATE, REFERENCES ni TRIGGER | Nuestras migraciones de datos cambian esas 14 tablas. Los datos de clientes solo se leen: sus correcciones son ACCIÓN MANUAL |
+| **Políticas RLS propias**, `vz_agente_leer`, `vz_agente_insertar` y `vz_agente_actualizar`, solo `to vz_agente` y solo en sus tablas | Con RLS activa, sin ellas vería 0 filas. No cambian nada para la tienda ni para otros roles |
+| Una tabla nueva **no recibe nada sola** | Se añade a una lista del SQL del rol y el dueño lo vuelve a ejecutar (es repetible) |
+| INSERT y UPDATE en la tienda solo como sentencia principal, **como mucho 100 filas por sentencia** (si no, se deshace TODO el archivo); sin `ON CONFLICT DO UPDATE` y sin INSERT/UPDATE dentro de CTEs o de funciones | Así el límite de filas siempre se puede medir |
 | `aplicar` solo acepta `supabase/migrations/<14 cifras>_<nombre>.sql` igual a `origin/main`, una sola vez, y la registra en `supabase_migrations.schema_migrations` | Era nuestra regla con `apply_migration`. VeoAura no la tiene |
 | `estado` comprueba `tablas_negocio_borrables` = 0 y los 3 vigilantes | Sustituye a la comprobación de VeoAura de no leer tablas de negocio |
 | En modo autónomo, las dudas del guardián se **bloquean** (en VeoAura pasan) | Se conserva nuestro guardián, más estricto |
@@ -89,7 +90,7 @@ No reinicia ningún otro servicio: tampoco Claude Remote Control. La prueba de i
    - el host del *Session pooler* (puerto 5432);
    - el usuario `vz_agente.<project_ref>`;
    - la contraseña.
-4. **Política de Claude.** `sudo vz-instalar-claude` (apaga el MCP de Supabase y permite las cinco órdenes de vz-sql).
+4. **Política de Claude.** `sudo vz-instalar-claude` (permite las cinco órdenes de vz-sql; el MCP de Supabase sigue encendido).
 5. **Prueba de humo.**
    - `/usr/local/bin/vz-sql estado` debe dar `estado: ok`, `usuario: vz_agente`, `disponible (3 de 3 vigilantes activos)` y `tablas_negocio_borrables: 0`.
    - Después `/usr/local/bin/vz-sql diagnostico-d8`.
@@ -100,8 +101,24 @@ No reinicia ningún otro servicio: tampoco Claude Remote Control. La prueba de i
 - En Supabase: `alter role vz_agente nologin;`.
 - La política anterior se recupera revirtiendo la PR y ejecutando `sudo vz-instalar-claude`.
 
+## Pruebas en un entorno aislado (antes de instalar)
+
+```bash
+python3 infraestructura/base-datos/test_vz_sql.py --lib .expo/vzsql-lib \
+  --pg-bin node_modules/@embedded-postgres/linux-x64/native/bin --pg-lib <enlaces>:node_modules/@embedded-postgres/linux-x64/native/lib
+```
+
+- **pglast y psycopg:** en `.expo/vzsql-lib`, una carpeta que git ignora, descargados con `descargar_dependencias.py` y su hash verificado.
+- **PostgreSQL de usar y tirar:** el de `embedded-postgres` (ver `docs/pruebas-sql-aisladas.md`), en una carpeta temporal, solo por socket y sin red. Al terminar se para y se borra.
+
+## Cómo se aplica el límite de 100 filas
+
+- **Medición:** el broker ejecuta cada sentencia en la misma transacción y mira `rowcount` justo después.
+- **Si una pasa de 100:** hace `rollback` de la transacción entera. Se deshacen las sentencias anteriores del archivo y también el registro en `schema_migrations`, que va al final. No queda nada.
+- **Comprobación:** lo prueban `test_broker.py` (12e) y `test_integracion_pg.py` («mixta», contra un PostgreSQL real).
+
 ## Riesgos residuales
 
-- **`BYPASSRLS`:** el rol lee todas las filas de `public`, igual que hacía el MCP (que entraba como `postgres`). `auth`, `storage` y `vault` siguen cerrados.
-- **INSERT en la tienda:** no tiene límite de filas. Añadir filas no borra nada, pero un INSERT grande se nota; se revisa en la PR de la migración.
+- **Políticas `using (true)` para `vz_agente`:** en sus 60 tablas ve todas las filas, como antes el MCP (que entraba como `postgres`). Para cualquier otro rol no cambian nada. `auth`, `storage`, `vault` y las 10 tablas privadas siguen cerradas.
+- **Triggers de la app:** el límite de 100 filas cuenta las filas de la sentencia, no las que cambien después los triggers de la app sobre otras tablas.
 - **pglast 7.18:** desde la sesión de Claude, PyPI devolvió 404 al pedir esa versión. Si la descarga falla, el instalador se detiene sin cambiar nada y hay que revisar `requisitos.txt`.

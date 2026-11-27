@@ -8,7 +8,7 @@
 #                 test_clasificador.py, test_broker.py y test_integracion_pg.py.
 # Para qué sirve: Que el guardián la pueda lanzar sin preguntar y que la instalación no siga si algo falla.
 # Conectado con:  todos los archivos de esta carpeta; guardian.py (SCRIPTS_VALIDACION).
-# Utilizado por:  python3 infraestructura/base-datos/test_vz_sql.py [--lib carpeta]
+# Utilizado por:  python3 infraestructura/base-datos/test_vz_sql.py [--lib carpeta] [--pg-bin carpeta --pg-lib a:b]
 # Dependencias:   python3 (parte 1); pglast y psycopg (parte 2).
 # ============================================================================
 import contextlib
@@ -73,8 +73,29 @@ sin_comentarios = "\n".join(linea.split("--", 1)[0] for linea in rol.splitlines(
 comprobar(re.search(r"^--\s*VZ\s*:\s*ACCION_MANUAL", rol, re.M), "el SQL del rol debe llevar la marca VZ: ACCION_MANUAL")
 comprobar("password '__CONTRASENA_DEL_AGENTE__'" in rol and len(re.findall(r"password\s+'", rol)) == 1,
           "el SQL del rol solo debe llevar el marcador de contraseña")
-comprobar("nosuperuser nocreatedb nocreaterole noreplication bypassrls noinherit connection limit 3" in rol,
-          "atributos del rol")
+comprobar(rol.count("nosuperuser nocreatedb nocreaterole noreplication nobypassrls noinherit connection limit 3") == 2,
+          "atributos del rol al crearlo y al repetir (NOBYPASSRLS, como VeoAura)")
+comprobar(not re.search(r"(?<![a-z])bypassrls", sin_comentarios, re.I), "el rol nunca recibe BYPASSRLS")
+comprobar(not re.search(r"on all (tables|sequences)", sin_comentarios, re.I),
+          "permisos tabla a tabla: nada de «on all tables» ni «on all sequences»")
+comprobar(not re.search(r"alter default privileges for role postgres", sin_comentarios, re.I),
+          "las tablas nuevas del dueño no reciben permisos solas")
+# Las políticas RLS propias van solo a vz_agente.
+politicas = re.findall(r"create policy (\w+) on public\.%I for (\w+) to (\w+)", rol)
+comprobar(sorted(politicas) == [("vz_agente_actualizar", "update", "vz_agente"),
+                                ("vz_agente_insertar", "insert", "vz_agente"),
+                                ("vz_agente_leer", "select", "vz_agente")], f"políticas RLS del rol: {politicas}")
+listas = {nombre: re.findall(r"'([a-z_]+)'", cuerpo)
+          for nombre, cuerpo in re.findall(r"(contenido|lectura) text\[\] := array\[(.*?)\];", rol, re.S)}
+comprobar(len(listas.get("contenido", [])) == 14 and len(listas.get("lectura", [])) == 46
+          and not set(listas["contenido"]) & set(listas["lectura"]), f"listas de tablas: {listas}")
+PRIVADAS = {"escaparate_nonces", "admin_avisos_suscripciones", "cliente_dispositivos", "limites_peticiones",
+            "chat_messages", "chat_message_reactions", "product_chat_messages", "blue_ia_mensajes", "customer_notes",
+            "personal_cash_state"}
+comprobar(not PRIVADAS & set(listas.get("contenido", []) + listas.get("lectura", [])),
+          "claves, dispositivos, conversaciones privadas y notas internas fuera de las listas")
+CLIENTES = {"pedidos", "pedido_items", "profiles", "perfiles_cliente", "reservas", "sell_requests", "service_requests"}
+comprobar(not CLIENTES & set(listas.get("contenido", [])), "los datos de clientes solo se leen, nunca se escriben")
 for ajuste in ("statement_timeout = '60s'", "lock_timeout = '5s'", "idle_in_transaction_session_timeout = '60s'"):
     comprobar(f"alter role vz_agente set {ajuste};" in rol, f"el rol debe fijar {ajuste}")
 for vigilante, evento in (("vz_bloquear_drop", "ddl_command_start"), ("vz_bloquear_borrado_de_objetos", "sql_drop"),
@@ -83,12 +104,18 @@ for vigilante, evento in (("vz_bloquear_drop", "ddl_command_start"), ("vz_bloque
 for linea in sin_comentarios.splitlines():
     if re.search(r"\b(drop|truncate)\s+(table|schema|role|function|owned|database)\b|\bdelete\s+from\b", linea, re.I):
         comprobar(False, f"el SQL del rol no debe borrar nada: {linea.strip()}")
-comprobar(re.search(r"grant select, insert, update on all tables in schema public to vz_agente;", rol),
-          "el rol lee, inserta y actualiza la tienda")
-comprobar(re.search(r"revoke delete, truncate, references, trigger on all tables in schema public from vz_agente;",
-                    rol), "el rol nunca borra ni vacía la tienda")
-comprobar(not re.search(r"grant\s+(all|[a-z, ]*\b(delete|truncate)\b)[^;]*to vz_agente", sin_comentarios, re.I),
-          "ningún GRANT de DELETE, TRUNCATE ni ALL al agente")
+comprobar("execute format('grant select on public.%I to vz_agente', t);" in rol
+          and "execute format('grant insert, update on public.%I to vz_agente', t);" in rol,
+          "el rol lee sus tablas y solo inserta/actualiza las de contenido")
+comprobar("execute format('revoke all on %s from vz_agente', r.tabla);" in rol, "repetible: retira lo anterior")
+comprobar(not re.search(r"grant\s+(all|[a-z, ]*\b(delete|truncate|references|trigger)\b)[^;']*to vz_agente",
+                        sin_comentarios, re.I), "ningún GRANT de DELETE, TRUNCATE, REFERENCES, TRIGGER ni ALL al agente")
+# Los tres vigilantes, idénticos a VeoAura salvo los nombres (comprobado con diff el 2026-11-27).
+for cuerpo in ("if (session_user = 'vz_agente' or current_user = 'vz_agente') and tg_tag like 'DROP %' then",
+               "where command_tag in ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO') and object_type = 'table'",
+               "execute format('create trigger vz_sin_delete before delete on %s for each statement '",
+               "execute format('create trigger vz_sin_truncate before truncate on %s for each statement '"):
+    comprobar(cuerpo in rol, f"vigilantes como VeoAura: falta «{cuerpo}»")
 comprobar("grant select, insert on supabase_migrations.schema_migrations to vz_agente;" in rol,
           "registro de migraciones solo lectura y añadir")
 comprobar(not re.search(r"\bon schema (auth|storage|extensions|vault)\b[^;]*to vz_agente", sin_comentarios, re.I),
@@ -129,7 +156,12 @@ hay_pglast = os.path.isdir(os.path.join(lib, "pglast"))
 if not hay_pglast:
     print(f"parte 2 OMITIDA: falta pglast en {lib} (se ejecuta en instalar-sql.sh, que se detiene si falla)")
 else:
+    extra = []  # --pg-bin y --pg-lib pasan a la de integración (PostgreSQL de usar y tirar sin instalar)
+    for opcion in ("--pg-bin", "--pg-lib"):
+        if opcion in sys.argv:
+            extra += [opcion, sys.argv[sys.argv.index(opcion) + 1]]
     for prueba in ("test_clasificador.py", "test_broker.py", "test_integracion_pg.py"):
-        r = subprocess.run([sys.executable, os.path.join(AQUI, prueba), "--lib", lib])
+        r = subprocess.run([sys.executable, os.path.join(AQUI, prueba), "--lib", lib]
+                           + (extra if prueba == "test_integracion_pg.py" else []))
         comprobar(r.returncode == 0, f"falla {prueba}")
 sys.exit(1 if fallos else 0)

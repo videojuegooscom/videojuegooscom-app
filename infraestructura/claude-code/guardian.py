@@ -761,9 +761,9 @@ INTENTO_CONTROLADOR_RE = re.compile(
     r"(vz-publicar\b|python[0-9.]*\s+(-\S+\s+)*\S*(?<![\w-])controlador\.py\b)")
 
 # ============================================================== cliente vz-sql =====
-# Única vía de Claude hacia el Supabase real, para leer y para cambiar (dueño, 2026-11-27: el MCP de
-# Supabase queda apagado como en VeoAura). Forma exacta, sin expansiones ni compuestos; el
-# intermediario (infraestructura/base-datos/broker.py) repite todas las comprobaciones.
+# Vía de Claude hacia el Supabase real, para leer y para cambiar (dueño, 2026-11-27: como VeoAura; el MCP
+# de Supabase se apagará en una PR aparte cuando vz-sql esté comprobado). Forma exacta, sin expansiones ni
+# compuestos; el intermediario (infraestructura/base-datos/broker.py) repite todas las comprobaciones.
 CLIENTE_SQL = "/usr/local/bin/vz-sql"
 MARCA_ACCION_MANUAL_RE = re.compile(r"--\s*VZ\s*:\s*ACCION_MANUAL", re.I)
 OPS_SQL = {"estado", "diagnostico-d8", "consultar", "plan", "aplicar"}

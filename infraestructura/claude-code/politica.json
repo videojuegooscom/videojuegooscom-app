@@ -3,6 +3,7 @@
   "allowManagedHooksOnly": true,
   "allowManagedMcpServersOnly": true,
   "allowedMcpServers": [
+    {"serverName": "supabase"},
     {"serverName": "vercel"},
     {"serverName": "stripe"}
   ],
@@ -159,7 +160,6 @@
       "Edit(//opt/**)",
       "Edit(//home/veoaura/**)",
       "Edit(//home/tradeandoia/**)",
-      "mcp__supabase",
       "mcp__supabase__deploy_edge_function",
       "mcp__supabase__create_branch",
       "mcp__supabase__delete_branch",
@@ -369,6 +369,7 @@
       "Bash(systemctl status *)",
       "Bash(systemctl is-active *)",
       "Bash(systemctl show *)",
+      "mcp__supabase",
       "mcp__vercel",
       "mcp__stripe"
     ]

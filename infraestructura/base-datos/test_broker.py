@@ -80,6 +80,9 @@ class CatalogoSimulado:
     def es_del_agente(self, e, n):
         return n == "vz_ops_prueba"
 
+    def puede(self, e, n, privilegio):  # profiles: tabla de contenido con INSERT y UPDATE
+        return n == "profiles"
+
     def existe_funcion(self, e, n):
         return n in ("registrar_venta", "rpc_definer")
 
@@ -338,6 +341,9 @@ s, cons = servicio(reglas=[TRES, (r"has_table_privilege", {"filas": [(3,)], "col
 r = s.procesar({"orden": "estado"})
 comprobar(r.get("tablas_negocio_borrables") == 3 and "borrar" in r.get("aviso", ""),
           f"estado debe avisar si puede borrar la tienda: {r}")
+s, cons = servicio(reglas=[TRES, (r"rolbypassrls", {"filas": [(True,)], "columnas": ["b"]})])
+r = s.procesar({"orden": "estado"})
+comprobar(r.get("salta_rls") is True and "BYPASSRLS" in r.get("aviso", ""), f"estado debe avisar de BYPASSRLS: {r}")
 s, cons = servicio(reglas=[(r"current_setting\('server_version'\)", {"filas": [("17.6", "vz_agente", 2)],
                                                                     "columnas": ["v", "u", "b"]})])
 r = s.procesar({"orden": "estado"})
@@ -382,6 +388,16 @@ comprobar(r["estado"] == "ok" and cons[-1].commits == 1, f"UPDATE de 1 fila de l
 s, cons = servicio(reglas=[(r"^\s*update", {"rowcount": 101})])
 r = s.procesar({"orden": "aplicar", "archivo": ruta_t})
 comprobar(r["estado"] == "requiere_accion_manual" and cons[-1].commits == 0, f"UPDATE de 101 filas de la tienda: {r}")
+# Varias sentencias y una se pasa del límite: se deshace TODO el archivo (también lo anterior) y no se registra.
+ruta_tm = escribir("supabase/migrations/20261127000016_tienda_mixta.sql",
+                   "create table vz_ops_antes (id int);\nupdate public.profiles set plan = 'a' where id = 7;\n"
+                   "insert into public.profiles (id) select g from generate_series(1, 101) g;\n")
+s, cons = servicio(reglas=[(r"^\s*insert into public\.profiles", {"rowcount": 101}), (r"^\s*update", {"rowcount": 1})])
+r = s.procesar({"orden": "aplicar", "archivo": ruta_tm})
+comprobar(r["estado"] == "requiere_accion_manual" and "101" in r.get("motivo", "") and cons[-1].commits == 0
+          and cons[-1].rollbacks >= 1
+          and not any("schema_migrations" in x and x.lstrip().lower().startswith("insert") for x in cons[-1].ejecutadas),
+          f"INSERT de 101 filas en la tienda: todo deshecho y sin registrar: {r}")
 ruta_td = escribir("supabase/migrations/20261127000015_tienda_borrar.sql", "delete from public.profiles where id = 7;\n")
 s, cons = servicio()
 r = s.procesar({"orden": "aplicar", "archivo": ruta_td})
