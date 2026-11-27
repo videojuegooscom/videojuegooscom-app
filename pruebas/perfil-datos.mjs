@@ -4695,6 +4695,11 @@ async function seccionNE() {
       };
     }, [id, TIRA]);
     ok(m.tira && m.debajo && m.ancho, `NE: ${ruta} trae la tira «${TIRA}» debajo de «También te puede interesar»`);
+    // Pie de página (dueño, 2026-11-27): los iconos de Navegación, Te lo compramos, Políticas y Blog, sin burbuja gris.
+    const iconos = await p.evaluate(() =>
+      Array.from(document.querySelectorAll('[id^="pie-"][id$="-icono"]')).map((x) => ({ id: x.id, fondo: getComputedStyle(x).backgroundColor }))
+    );
+    ok(iconos.length >= 4 && iconos.every((x) => x.fondo === "rgba(0, 0, 0, 0)"), `NE: ${ruta}, los iconos de los desplegables del pie van sin burbuja (${iconos.map((x) => `${x.id}: ${x.fondo}`).join(" · ")})`);
     await capturar(p, `NE-390-${id}`);
     ok(p.errores.length === 0, `NE: ${ruta} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();

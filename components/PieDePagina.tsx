@@ -314,8 +314,9 @@ function FooterAccordionSection({
           gap: 10,
         })}
       >
-        <View style={{ width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: open ? ACCENT : "#EAF6FD" }}>
-          <Ionicons name={icon} size={16} color={open ? "#FFFFFF" : ACCENT} />
+        {/* Solo el icono, sin burbuja de fondo (dueño, 2026-11-27, con captura). */}
+        <View nativeID={`${id}-icono`} style={{ width: 24, height: 30, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name={icon} size={20} color={ACCENT} />
         </View>
         <Text style={{ color: NAVY, fontWeight: "900", fontSize: 16 }}>{title}</Text>
 
