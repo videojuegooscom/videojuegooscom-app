@@ -4542,9 +4542,11 @@ async function seccionNE() {
     datos: [],
     por_que_importa: null,
     publicada: true,
-    imagen_url: null,
+    // Con foto comprobada (dirección que no carga: no se descarga nada), salvo la 4.ª y la 8.ª, que no deben salir en la
+    // tira (dueño, 2026-11-27: «siguen apareciendo noticias sin fotos, arréglalo»).
+    imagen_url: i === 3 || i === 7 ? null : `https://fotos.ejemplo.invalid/noticias/ne${i}.jpg`,
     imagenes: [],
-    imagenes_verificadas: false,
+    imagenes_verificadas: !(i === 3 || i === 7),
     me_gusta: 3,
     publicada_en: new Date(Date.now() - i * 3600000).toISOString(),
     created_at: new Date(Date.now() - i * 3600000).toISOString(),
@@ -4583,6 +4585,7 @@ async function seccionNE() {
     ok(m.titulo && m.tiras === 1, `NE (${nombre}): Inicio trae una sola tira, «${TIRA}» (${m.tiras})`);
     ok(m.orden, `NE (${nombre}): va debajo de «Recién llegado»`);
     ok(m.lista.length === 12 && m.lista[0] === noticias[0].id, `NE (${nombre}): 12 noticias recientes, sin historial la más nueva primero (${m.lista.length})`);
+    ok(!m.lista.includes(noticias[3].id) && !m.lista.includes(noticias[7].id), `NE (${nombre}): las noticias sin foto no salen en la tira`);
     ok(m.enlace === `/noticias/${noticias[0].id}`, `NE (${nombre}): cada tarjeta es un enlace a su noticia (${m.enlace})`);
     ok(m.centrado.length === 0 && m.letra >= 12, `NE (${nombre}): texto centrado y de 12 px o más (${JSON.stringify(m.centrado)}, ${m.letra})`);
     ok(m.dentro && m.ancho, `NE (${nombre}): la tira cabe y la página no se ensancha`);
@@ -4779,7 +4782,7 @@ async function seccionNE() {
         { step_label: "Noticias: barra · volver", sessions: 6 },
       ],
       // Dos de las 24 con foto (línea «Noticias con foto», 2026-11-27).
-      noticiasNW: noticias.map((n, i) => (i < 2 ? { ...n, imagen_url: `https://fotos.ejemplo.invalid/noticias/${i}.jpg` } : n)),
+      noticiasNW: noticias.map((n, i) => (i < 2 ? n : { ...n, imagen_url: null })),
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const a = await pagina(ctx, "/admin/analytics");

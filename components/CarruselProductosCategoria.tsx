@@ -1686,7 +1686,7 @@ export function VistosRecientemente({ pie }: { pie?: React.ReactNode }) {
 // ---------------------------------------------------------------------------------------------------------------------
 // «Recientes noticias que creemos que podrían interesarte» (dueño, 2026-11-27, una sola tira en vez de «Noticias que
 // podrían interesarte» y «Últimas noticias»): en Inicio bajo «Recién llegado» y en Perfil y Cesta bajo «También te puede
-// interesar». Una sola consulta (las 20 últimas publicadas, sin textos largos) guardada 5 minutos en memoria para las
+// interesar». Solo noticias con foto comprobada. Una sola consulta (las 40 últimas publicadas, sin textos largos) guardada 5 minutos en memoria para las
 // tres pantallas. Se enseñan 12: primero las que nombran la consola de lo que el cliente ha mirado en este dispositivo
 // (Vistos recientemente y, en la cesta, lo que lleva) y después las demás, la más nueva primero; todo se calcula en el
 // dispositivo, sin guardar nada. Cada tarjeta es un enlace de verdad a /noticias/<id>.
@@ -1701,8 +1701,9 @@ type NoticiaEstante = { id: string; titulo: string; categoria: string; afectaA: 
 
 // Nombres de la analítica (Administración → Analítica los busca tal cual).
 const ESTANTE_NOMBRE: Record<EstanteNoticias, string> = { recientes: "recientes que podrían interesarte" };
-// Se eligen entre las 20 más nuevas y se enseñan 12.
-const NOTICIAS_RECIENTES = 20;
+// Se eligen entre las 40 más nuevas, SOLO las que tienen foto comprobada (dueño, 2026-11-27: «siguen apareciendo noticias
+// sin fotos, arréglalo»; la que no tiene foto sigue en el Foro y en /noticias), y se enseñan 12.
+const NOTICIAS_RECIENTES = 40;
 const NOTICIAS_MOSTRADAS = 12;
 const NOTICIA_ANCHO = 220;
 const NOTICIA_FOTO_ALTO = 124;
@@ -1762,13 +1763,15 @@ function fechaCorta(iso: string | null): string {
 }
 
 /**
- * «Recientes noticias que creemos que podrían interesarte»: de las NOTICIAS_RECIENTES más nuevas, primero las que nombran
+ * «Recientes noticias que creemos que podrían interesarte»: de las NOTICIAS_RECIENTES más nuevas, solo las que tienen foto
+ * comprobada; primero las que nombran
  * la consola de lo mirado en el dispositivo (y lo de la cesta); dentro de cada grupo, la más nueva primero.
  */
 export function noticiasRecientesParaTi(noticias: NoticiaEstante[], familias: Set<FamiliaConsola>) {
   const coincide = (n: NoticiaEstante) => [...familiasDeTexto(`${n.titulo} ${n.afectaA}`)].some((f) => familias.has(f));
   const lista = noticias
     .slice(0, NOTICIAS_RECIENTES)
+    .filter((n) => !!n.foto)
     .map((n, orden) => ({ n, orden, suya: familias.size > 0 && coincide(n) }))
     .sort((a, b) => Number(b.suya) - Number(a.suya) || a.orden - b.orden)
     .slice(0, NOTICIAS_MOSTRADAS);
