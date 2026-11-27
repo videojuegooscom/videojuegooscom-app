@@ -235,7 +235,8 @@ type IconoPie = React.ComponentProps<typeof Ionicons>["name"];
 // icono azul y nombre, fondo azul muy suave, 48 px de alto. Con `href`, es un enlace de verdad (<a href> en la web,
 // para que Google lo siga), como «Noticias» y las páginas «Compramos».
 function FooterLink({ label, icon, onPress, href, nativeID }: { label: string; icon: IconoPie; onPress?: () => void; href?: Href; nativeID?: string }) {
-  const casilla = { minHeight: 48, borderRadius: 14, backgroundColor: "#F4F9FD", paddingHorizontal: 10, paddingVertical: 8, flexDirection: "row" as const, alignItems: "center" as const, gap: 8 };
+  // Icono y nombre centrados en la casilla (dueño, 2026-11-27, con captura: «que estén centrados»).
+  const casilla = { minHeight: 48, borderRadius: 14, backgroundColor: "#F4F9FD", paddingHorizontal: 10, paddingVertical: 8, flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "center" as const, gap: 8 };
   const boton = (
     <Pressable
       nativeID={nativeID}
@@ -245,7 +246,7 @@ function FooterLink({ label, icon, onPress, href, nativeID }: { label: string; i
       style={href ? casilla : ({ pressed }) => ({ ...casilla, opacity: pressed ? 0.7 : 1 })}
     >
       <Ionicons name={icon} size={18} color={ACCENT} />
-      <Text numberOfLines={2} style={{ flexShrink: 1, color: NAVY, fontWeight: "700", fontSize: TAMANOS.minimo + 1, lineHeight: 18 }}>
+      <Text numberOfLines={2} style={{ flexShrink: 1, color: NAVY, fontWeight: "700", fontSize: TAMANOS.minimo + 1, lineHeight: 18, textAlign: "center" }}>
         {label}
       </Text>
     </Pressable>

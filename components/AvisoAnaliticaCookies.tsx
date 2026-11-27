@@ -113,7 +113,22 @@ export default function AvisoAnaliticaCookies() {
     }).start();
   }, [visible, anim]);
 
+  // Si decide desde Privacidad («Aceptar la analítica» / «Rechazar la analítica», 2026-11-27), el aviso ya no vuelve a
+  // salir al cambiar de pantalla.
+  useEffect(() => {
+    if (!visible) return;
+    let vivo = true;
+    void leerConsentimientoAnalitica().then((c) => {
+      if (vivo && c !== null) setVisible(false);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [pathname, visible]);
+
   const isAdminRoute = pathname?.startsWith("/admin");
+  // En Privacidad no sale: la página tiene sus propios botones para decidir y el aviso los taparía.
+  const enPrivacidad = pathname === "/politicas/privacidad";
   // Se coloca encima de la barra de pestañas, que crece con la zona segura del iPhone.
   const tabBarInset = useMargenInferiorBarraPestanas();
 
@@ -125,7 +140,7 @@ export default function AvisoAnaliticaCookies() {
   // No se pinta nada en /admin (ese aviso es para clientes, no para Jefe
   // gestionando su tienda), antes de saber si hace falta preguntar, o una
   // vez que el visitante ya contestó (o todavía no ha pasado el retraso).
-  if (isAdminRoute || !checked || !visible) return null;
+  if (isAdminRoute || enPrivacidad || !checked || !visible) return null;
 
   return (
     <Animated.View

@@ -1763,6 +1763,8 @@ export default function AdminAnalytics() {
       noticiaBarraComentar: findExact("Noticias: comentar en el Foro"),
       noticiaBarraCompartir: findExact("Noticias: barra · compartir"),
       noticiaBarraVolver: findExact("Noticias: barra · volver"),
+      // Privacidad → «Aceptar la analítica» (2026-11-27). Quien la rechaza no se cuenta (no se registra nada).
+      privacidadAceptan: findExact("Privacidad: analítica aceptada desde la política"),
       // Blue IA fuera del horario del equipo (app/(tabs)/blue-ia.tsx): quién pulsa «Hablar con el equipo» y qué hace.
       fueraHorarioAviso: findExact("Blue IA: fuera de horario, aviso"),
       fueraHorarioBlue: findExact("Blue IA: fuera de horario, sigue con Blue"),
@@ -2526,6 +2528,14 @@ export default function AdminAnalytics() {
                     <Text nativeID="analitica-noticia-barra" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Página de noticia, barra de abajo → me gusta: {coreFunnel.noticiaBarraMeGusta} · comentar: {coreFunnel.noticiaBarraComentar} ·
                       compartir: {coreFunnel.noticiaBarraCompartir} · volver: {coreFunnel.noticiaBarraVolver} sesiones
+                    </Text>
+                  </View>
+                  {/* Analítica con consentimiento (2026-11-27): solo cuenta quien la acepta; quien la rechaza no sale. */}
+                  <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="lock-closed-outline" size={15} color={COLORS.accentDark} />
+                    <Text nativeID="analitica-consentimiento" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Privacidad → aceptan la analítica desde la política: {coreFunnel.privacidadAceptan} sesiones (estos datos solo cuentan a
+                      quien pulsa «Aceptar»; nada de quien rechaza o no contesta)
                     </Text>
                   </View>
                   <View

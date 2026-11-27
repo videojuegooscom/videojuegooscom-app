@@ -4542,9 +4542,11 @@ async function seccionNE() {
     datos: [],
     por_que_importa: null,
     publicada: true,
-    imagen_url: null,
+    // Con foto comprobada (dirección que no carga: no se descarga nada), salvo la 4.ª y la 8.ª, que no deben salir en la
+    // tira (dueño, 2026-11-27: «siguen apareciendo noticias sin fotos, arréglalo»).
+    imagen_url: i === 3 || i === 7 ? null : `https://fotos.ejemplo.invalid/noticias/ne${i}.jpg`,
     imagenes: [],
-    imagenes_verificadas: false,
+    imagenes_verificadas: !(i === 3 || i === 7),
     me_gusta: 3,
     publicada_en: new Date(Date.now() - i * 3600000).toISOString(),
     created_at: new Date(Date.now() - i * 3600000).toISOString(),
@@ -4583,6 +4585,7 @@ async function seccionNE() {
     ok(m.titulo && m.tiras === 1, `NE (${nombre}): Inicio trae una sola tira, «${TIRA}» (${m.tiras})`);
     ok(m.orden, `NE (${nombre}): va debajo de «Recién llegado»`);
     ok(m.lista.length === 12 && m.lista[0] === noticias[0].id, `NE (${nombre}): 12 noticias recientes, sin historial la más nueva primero (${m.lista.length})`);
+    ok(!m.lista.includes(noticias[3].id) && !m.lista.includes(noticias[7].id), `NE (${nombre}): las noticias sin foto no salen en la tira`);
     ok(m.enlace === `/noticias/${noticias[0].id}`, `NE (${nombre}): cada tarjeta es un enlace a su noticia (${m.enlace})`);
     ok(m.centrado.length === 0 && m.letra >= 12, `NE (${nombre}): texto centrado y de 12 px o más (${JSON.stringify(m.centrado)}, ${m.letra})`);
     ok(m.dentro && m.ancho, `NE (${nombre}): la tira cabe y la página no se ensancha`);
@@ -4779,7 +4782,7 @@ async function seccionNE() {
         { step_label: "Noticias: barra · volver", sessions: 6 },
       ],
       // Dos de las 24 con foto (línea «Noticias con foto», 2026-11-27).
-      noticiasNW: noticias.map((n, i) => (i < 2 ? { ...n, imagen_url: `https://fotos.ejemplo.invalid/noticias/${i}.jpg` } : n)),
+      noticiasNW: noticias.map((n, i) => (i < 2 ? n : { ...n, imagen_url: null })),
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const a = await pagina(ctx, "/admin/analytics");
@@ -4802,6 +4805,59 @@ async function seccionNE() {
 // que es el mismo texto que pone la migración 20261127120000_politicas_legales.sql.
 async function seccionPOL() {
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  // Analítica con consentimiento (dueño, 2026-11-27: «sí, cambia la analítica»): sin contestar al aviso no sale nada ni se
+  // guarda nada en el dispositivo; Privacidad lo dice y tiene «Aceptar la analítica» / «Rechazar la analítica».
+  const consentimiento = async () => {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: false, noticiasNW: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    // Visitante que aún no ha contestado: sin decisión guardada.
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.analytics.consent");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    // El índice de noticias apunta «Noticias: índice visto» (con analítica): aquí no debe salir.
+    const p = await pagina(ctx, "/noticias");
+    await p.waitForTimeout(2500);
+    await p.goto(`${BASE}/politicas/privacidad`, { waitUntil: "load" });
+    await p.locator("#privacidad-estado").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const antes = await p.evaluate(() => ({
+      estado: document.getElementById("privacidad-estado")?.textContent ?? "",
+      sesion: localStorage.getItem("videojuegoos.analytics.session_id"),
+      texto: /hasta que pulsas «Aceptar»/.test(document.body.innerText) && !/mientras no contestes/.test(document.body.innerText),
+    }));
+    ok((estado.eventosEnviados ?? []).length === 0 && !antes.sesion, `POL: sin contestar al aviso no se envía nada ni se guarda la visita en el dispositivo (${(estado.eventosEnviados ?? []).length} eventos)`);
+    ok(/Todavía no has elegido/.test(antes.estado) && antes.texto, `POL: Privacidad dice lo que hace la tienda y que aún no se ha contestado («${antes.estado}»)`);
+    const medidas = await p.evaluate(() => ["privacidad-aceptar", "privacidad-rechazar"].map((id) => Math.round(document.getElementById(id)?.getBoundingClientRect().height ?? 0)));
+    ok(medidas.every((h) => h >= 44), `POL: «Aceptar la analítica» y «Rechazar la analítica» de 44 px o más (${medidas.join(", ")})`);
+    // El aviso de cookies no sale en Privacidad (taparía estos botones).
+    await p.waitForTimeout(1200);
+    ok((await p.getByText("Su privacidad es importante para nosotros").count()) === 0, "POL: en Privacidad no sale el aviso de cookies encima de los botones");
+    await p.locator("#privacidad-preferencia").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "POL-390-preferencia");
+    await p.locator("#privacidad-aceptar").click();
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "analitica_preferencia"); i++) await p.waitForTimeout(250);
+    const tras = await p.evaluate(() => ({ estado: document.getElementById("privacidad-estado")?.textContent ?? "", guardado: localStorage.getItem("videojuegoos.analytics.consent") }));
+    ok(/nos estás ayudando/.test(tras.estado) && tras.guardado === "accepted" && (estado.eventosEnviados ?? []).some((e) => e.step_label === "Privacidad: analítica aceptada desde la política"), `POL: «Aceptar la analítica» la activa y se cuenta («${tras.estado}», ${tras.guardado})`);
+    const enviados = (estado.eventosEnviados ?? []).length;
+    await p.locator("#privacidad-rechazar").click();
+    await p.waitForTimeout(600);
+    const fin = await p.evaluate(() => ({ estado: document.getElementById("privacidad-estado")?.textContent ?? "", guardado: localStorage.getItem("videojuegoos.analytics.consent") }));
+    ok(/no compartes tu uso/.test(fin.estado) && fin.guardado === "declined" && (estado.eventosEnviados ?? []).length === enviados, `POL: «Rechazar la analítica» la apaga y no se envía nada más («${fin.estado}», ${fin.guardado})`);
+    ok(p.errores.length === 0, `POL: Privacidad sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+    // Administración → Analítica.
+    const est = { guardados: [], embudo: [{ step_label: "Inicio", sessions: 10 }, { step_label: "Privacidad: analítica aceptada desde la política", sessions: 2 }] };
+    const ctx2 = await contexto(navegador, ADMIN, "admin", est);
+    const a = await pagina(ctx2, "/admin/analytics");
+    await a.locator("#analitica-consentimiento").waitFor({ timeout: 40000 }).catch(() => {});
+    const linea = (await a.locator("#analitica-consentimiento").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/aceptan la analítica desde la política: 2 sesiones/.test(linea), `POL: Administración → Analítica lo cuenta (${linea})`);
+    await ctx2.close();
+  };
   const casos = [
     { ruta: "/politicas/aviso-legal", titulo: "Aviso legal", debe: [/Y4751659B/, /C\. Miguel Servet, 3, 50410 Cuarte de Huerva/, /VideojuegosZaragoza\.com@gmail\.com/, /627 748 741/, /Propiedad intelectual/] },
     { ruta: "/politicas/garantia", titulo: "Garantía", debe: [/Productos nuevos: 3 años/, /segunda mano: 12 meses/, /nunca inferior a 1 año/, /al menos 3 meses/, /no te cuesta nada, tampoco el envío/] },
@@ -4852,8 +4908,22 @@ async function seccionPOL() {
     await p.waitForTimeout(900);
     const pie = await p.evaluate(() => (document.getElementById("pie-politicas")?.innerText ?? "").replace(/\s+/g, " "));
     ok(["Envíos", "Devoluciones", "Privacidad", "Términos y condiciones", "Garantía", "Reparación por envío", "Normas del Foro", "Aviso legal"].every((t) => pie.includes(t)), `POL (${nombre}): el pie «Políticas» trae las 8 (${pie.slice(0, 160)})`);
+    // Icono y nombre centrados en cada pastilla (dueño, 2026-11-27, con captura).
+    const descentradas = await p.evaluate(() =>
+      Array.from(document.querySelectorAll('#pie-politicas [role="button"]:not([aria-expanded]), #pie-politicas a'))
+        .map((b) => {
+          const r = b.getBoundingClientRect();
+          const hijos = Array.from(b.children).map((c) => c.getBoundingClientRect()).filter((c) => c.width > 0);
+          if (!hijos.length || r.width === 0) return null;
+          const centro = (Math.min(...hijos.map((c) => c.left)) + Math.max(...hijos.map((c) => c.right))) / 2;
+          return Math.abs(centro - (r.left + r.width / 2)) > 3 ? (b.textContent ?? "").trim() : null;
+        })
+        .filter(Boolean)
+    );
+    ok(!descentradas.length, `POL (${nombre}): en las pastillas del pie, icono y nombre centrados (${descentradas.join(", ") || "todas"})`);
     await capturar(p, `POL-${nombre}-pie`);
     await p.locator("#pie-politicas").getByText("Aviso legal", { exact: true }).first().scrollIntoViewIfNeeded().catch(() => {});
+    if (nombre === "390") await consentimiento();
     await p.locator("#pie-politicas").getByText("Aviso legal", { exact: true }).first().click().catch(() => {});
     await p.waitForURL(/aviso-legal/, { timeout: 15000 }).catch(() => {});
     ok(/\/politicas\/aviso-legal/.test(p.url()), `POL (${nombre}): «Aviso legal» del pie abre su página`);
