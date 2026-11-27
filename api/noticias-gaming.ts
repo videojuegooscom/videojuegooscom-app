@@ -61,6 +61,12 @@
  *    imagenes_verificadas = true. La app solo enseña fotos verificadas. Si una
  *    subida falla, esa foto se queda con su URL original (nunca se pierde) e
  *    imagenes_meta se deja vacío: la revisión periódica lo reintenta.
+ * 4) Foto desde otro medio (dueño, 2026-11-27): si ninguna foto del artículo
+ *    vale, la noticia (de las últimas 72 h) prueba las de otros medios que
+ *    cuentan lo mismo: los que la IA marca como repetidos de ella (mismo tema)
+ *    y los del RSS con un título parecido. Pasan la misma comprobación con IA,
+ *    con el título y el resumen de nuestra noticia. Como mucho 3 por ejecución;
+ *    la respuesta lo cuenta en «fotos_otra_fuente».
  * Los enlaces de Google Noticias se traducen a la URL real del medio (id en
  * base64 o, en el formato nuevo, la petición batchexecute de Google) y esa URL
  * también se usa para leer el texto del artículo.
@@ -431,6 +437,15 @@ function titulosParecidos(a: Set<string>, b: Set<string>): boolean {
   let comunes = 0;
   for (const p of a) if (b.has(p)) comunes++;
   return comunes / Math.min(a.size, b.size) >= 0.75;
+}
+
+// Más flojo que titulosParecidos: para proponer OTRO medio que quizá cuenta lo mismo y probar sus fotos (nuestro
+// título lo reescribe la IA, así que rara vez coincide tanto). No decide nada: la IA comprueba después cada foto.
+function puedeSerLaMisma(a: Set<string>, b: Set<string>): boolean {
+  if (!a.size || !b.size) return false;
+  let comunes = 0;
+  for (const p of a) if (b.has(p)) comunes++;
+  return comunes >= 3 && comunes / Math.min(a.size, b.size) >= 0.5;
 }
 
 function normalizarUrl(url: string): string {
@@ -1811,7 +1826,87 @@ async function reservarTurno(
 // --- Noticias nuevas ------------------------------------------------------------
 
 // repetidas / poco_interes: descartadas tras el desglose (mismo suceso o poco interés/variedad).
-type Resultado = { candidatas: number; analizadas: number; nuevas: number; repetidas: number; poco_interes: number };
+type Resultado = {
+  candidatas: number;
+  analizadas: number;
+  nuevas: number;
+  repetidas: number;
+  poco_interes: number;
+  fotos_otra_fuente: number;
+};
+
+// --- Foto desde otro medio (dueño, 2026-11-27) ---------------------------------------------------------------------
+// Una noticia de las últimas 72 h que se comprobó y se quedó SIN foto (ninguna del artículo valía) prueba las fotos de
+// otros medios que cuentan lo mismo: (a) los que la IA marca como repetidos de ella (mismo «tema»), con las fotos ya
+// descargadas, y (b) las del RSS con un título parecido (puedeSerLaMisma), leyendo su artículo. Cada foto pasa por la
+// misma comprobación con IA (fotosComprobadas, con el título y el resumen de NUESTRA noticia): solo se guarda si es de
+// esa noticia. Como mucho MAX_FOTOS_OTRA_FUENTE noticias por ejecución y dentro del cupo de comprobaciones.
+const MAX_FOTOS_OTRA_FUENTE = 3;
+const MAX_OTROS_MEDIOS_POR_NOTICIA = 2;
+type SinFoto = { id: string; url: string; titulo: string; resumen: string; tema: string | null; palabras: Set<string> };
+
+async function leerSinFoto(supabase: SupabaseClient): Promise<SinFoto[]> {
+  if (["imagenes_verificadas", "imagenes"].some((c) => columnasQueFaltan.has(c))) return [];
+  const desde = new Date(Date.now() - HORAS_ANTIRREPETIDAS * 3_600_000).toISOString();
+  const consulta = (columnas: string) =>
+    supabase
+      .from("noticias_gaming")
+      .select(columnas)
+      .eq("publicada", true)
+      .eq("imagenes_verificadas", true)
+      .is("imagen_url", null)
+      .gte("created_at", desde)
+      .order("created_at", { ascending: false })
+      .limit(20);
+  let { data, error } = await consulta("id,url,titulo,resumen,tema");
+  if (error && apuntarColumnaQueFalta(error)) ({ data, error } = await consulta("id,url,titulo,resumen"));
+  if (error) {
+    console.warn("Noticias: no se pudieron leer las que no tienen foto:", error.message);
+    return [];
+  }
+  return ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => ({
+    id: String(r.id),
+    url: String(r.url ?? ""),
+    titulo: String(r.titulo ?? ""),
+    resumen: String(r.resumen ?? ""),
+    tema: temaLimpio(r.tema),
+    palabras: palabrasTitulo(String(r.titulo ?? "")),
+  }));
+}
+
+// Comprueba unas fotos ya preparadas para una noticia sin foto y, si alguna es de ella, la guarda. true si se guardó.
+async function ponerFotoDeOtroMedio(
+  supabase: SupabaseClient,
+  openaiKey: string,
+  cupo: CupoIA,
+  prefijoBucket: string,
+  noticia: SinFoto,
+  listas: ImagenParaIA[] | null,
+  restante: () => number
+): Promise<boolean> {
+  const fotos = await fotosComprobadas(openaiKey, cupo, noticia.titulo, noticia.resumen, listas, Math.min(TIMEOUT_VISION_MS, restante() - 2_000));
+  if (!fotos?.length) return false;
+  const copia = await guardarFotosEnBucket(
+    supabase,
+    prefijoBucket,
+    noticia.id,
+    fotos.map((f) => ({ url: f.url, foto: f.foto })),
+    Math.min(TIMEOUT_SUBIDA_MS, restante() - 1_000)
+  );
+  const { error } = await conColumnasOpcionales((limpiar) =>
+    supabase
+      .from("noticias_gaming")
+      .update(limpiar({ imagen_url: copia.imagenes[0] ?? null, imagenes: copia.imagenes, imagenes_meta: copia.completas ? copia.meta : [] }))
+      .eq("id", noticia.id)
+      // Solo si sigue sin foto (otra ejecución a la vez no se pisa).
+      .is("imagen_url", null)
+  );
+  if (error) {
+    console.warn("Noticias: no se pudo guardar la foto de otro medio:", error.message);
+    return false;
+  }
+  return true;
+}
 
 async function recogerNuevas(
   supabase: SupabaseClient,
@@ -1861,6 +1956,20 @@ async function recogerNuevas(
     .map((r) => ({ titulo: String(r.titulo ?? ""), tema: temaLimpio(r.tema) }));
   const temasVistos = new Set<string>(recientes.map((r) => r.tema).filter((t): t is string => !!t));
 
+  // Noticias recientes sin foto y los otros medios que quizá cuentan lo mismo (ver «Foto desde otro medio»).
+  const sinFoto = await leerSinFoto(supabase);
+  const sinFotoPorTema = new Map(sinFoto.filter((s) => s.tema).map((s) => [s.tema as string, s]));
+  const otrosMedios = new Map<string, Candidata[]>();
+  const conFotoNueva = new Set<string>();
+  for (const n of todas) {
+    if (urlsVistas.has(n.url)) continue;
+    const palabras = palabrasTitulo(n.titulo);
+    for (const s of sinFoto) {
+      const lista = otrosMedios.get(s.id) ?? [];
+      if (lista.length < MAX_OTROS_MEDIOS_POR_NOTICIA && puedeSerLaMisma(palabras, s.palabras)) otrosMedios.set(s.id, [...lista, n]);
+    }
+  }
+
   // 3) Quitar duplicados entre fuentes y títulos claramente flojos (códigos
   //    diarios, estudios de mercado…) antes de gastar IA
   const elegidas: Candidata[] = [];
@@ -1884,6 +1993,7 @@ async function recogerNuevas(
   const descartes = { repetidas: 0, poco_interes: 0 };
   const resumenesAntes = cupo.resumenes;
   let siguiente = 0;
+  let fotosOtraFuente = 0;
 
   const trabajador = async () => {
     while (siguiente < elegidas.length) {
@@ -1909,6 +2019,14 @@ async function recogerNuevas(
       // Repetida por tema: lo dice la IA o el tema ya está guardado/aceptado.
       if (d.repetida || (d.tema && temasVistos.has(d.tema))) {
         descartes.repetidas++;
+        // Es otro medio contando una noticia que se quedó sin foto: se prueban sus fotos (ya descargadas) para ella.
+        const suya = d.tema ? sinFotoPorTema.get(d.tema) : undefined;
+        // Deja 2 comprobaciones para las fotos de las noticias nuevas de esta ejecución.
+        if (suya && !conFotoNueva.has(suya.id) && conFotoNueva.size < MAX_FOTOS_OTRA_FUENTE && cupo.comprobaciones < MAX_COMPROBACIONES_IA - 2) {
+          conFotoNueva.add(suya.id);
+          if (!(await ponerFotoDeOtroMedio(supabase, openaiKey, cupo, prefijoBucket, suya, fotosPreparadas, restante))) conFotoNueva.delete(suya.id);
+          else fotosOtraFuente++;
+        }
         continue;
       }
       if (d.tema) temasVistos.add(d.tema);
@@ -1962,6 +2080,27 @@ async function recogerNuevas(
   };
   await Promise.all(Array.from({ length: CONCURRENCIA }, trabajador));
 
+  // Las que siguen sin foto: se leen los otros medios con título parecido y se prueban sus fotos (una noticia cada vez,
+  // un medio detrás de otro, hasta que una valga o se acabe el tiempo o el cupo de comprobaciones).
+  for (const s of sinFoto) {
+    if (conFotoNueva.size >= MAX_FOTOS_OTRA_FUENTE || cupo.comprobaciones >= MAX_COMPROBACIONES_IA) break;
+    if (conFotoNueva.has(s.id)) continue;
+    for (const medio of otrosMedios.get(s.id) ?? []) {
+      if (restante() < 14_000 || cupo.comprobaciones >= MAX_COMPROBACIONES_IA) break;
+      const urlReal = await urlRealDe(medio.url, Math.min(2 * TIMEOUT_GOOGLE_MS, restante() - 12_000));
+      if (normalizarUrl(urlReal) === normalizarUrl(s.url)) continue;
+      const pagina = await leerPaginaArticulo(urlReal, Math.min(TIMEOUT_ARTICULO_MS, restante() - 10_000));
+      const candidatas = unirImagenes(pagina.portada, medio.imagenes, pagina.cuerpo);
+      if (!candidatas.length) continue;
+      const listas = await prepararImagenes(candidatas, Math.min(TIMEOUT_IMAGEN_MS, restante() - 8_000));
+      if (await ponerFotoDeOtroMedio(supabase, openaiKey, cupo, prefijoBucket, s, listas, restante)) {
+        conFotoNueva.add(s.id);
+        fotosOtraFuente++;
+        break;
+      }
+    }
+  }
+
   // Variedad: si hay de otras categorías, como mucho la mitad son «Videojuegos»
   // (se quedan las de más interés; las demás pueden volver a entrar otro día).
   const deVideojuegos = filas.filter((f) => f.categoria === "Videojuegos");
@@ -2000,6 +2139,7 @@ async function recogerNuevas(
     nuevas,
     repetidas: descartes.repetidas,
     poco_interes: descartes.poco_interes,
+    fotos_otra_fuente: fotosOtraFuente,
   };
 }
 

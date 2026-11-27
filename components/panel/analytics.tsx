@@ -1513,6 +1513,27 @@ export default function AdminAnalytics() {
     };
   }, []);
 
+  // Noticias con foto (dueño, 2026-11-27, «foto desde otro medio»): de las 50 últimas publicadas, cuántas llevan foto
+  // comprobada. Solo se pide la columna de la foto. null = no se ha podido contar.
+  const [noticiasConFoto, setNoticiasConFoto] = useState<{ con: number; total: number } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from("noticias_gaming")
+        .select("imagen_url")
+        .eq("publicada", true)
+        .order("publicada_en", { ascending: false, nullsFirst: false })
+        .limit(50);
+      if (!vivo) return;
+      const filas = (data ?? []) as { imagen_url: string | null }[];
+      setNoticiasConFoto(error ? null : { con: filas.filter((f) => !!f.imagen_url).length, total: filas.length });
+    })().catch(() => vivo && setNoticiasConFoto(null));
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
   // Perfiles con teléfono (dueño, 2026-11-13): solo el número (HEAD, sin filas ni teléfonos) y sin la cuenta del
   // administrador. null = la columna aún no existe (migración 20261113120000_perfil_telefono.sql).
   const [perfilesConTelefono, setPerfilesConTelefono] = useState<number | null>(null);
@@ -3177,6 +3198,15 @@ export default function AdminAnalytics() {
                       <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Aún nadie ha abierto la página de una noticia en estas fechas.</Text>
                     )}
                   </View>
+                </View>
+                {/* Fotos de las noticias (2026-11-27): si la del artículo no vale, el robot la busca en otros medios. */}
+                <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                  <Ionicons name="image-outline" size={16} color={COLORS.accentDark} />
+                  <Text nativeID="analitica-noticias-fotos" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                    {noticiasConFoto
+                      ? `Noticias con foto: ${noticiasConFoto.con} de las ${noticiasConFoto.total} últimas (si la del artículo no vale, se busca en otros medios que cuentan lo mismo)`
+                      : "Noticias con foto: no se ha podido contar ahora."}
+                  </Text>
                 </View>
               </View>
             </SectionCard>
