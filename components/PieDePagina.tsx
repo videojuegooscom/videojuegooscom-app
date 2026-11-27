@@ -424,13 +424,17 @@ export default function PieDePagina({
               <FooterLink label="Quiénes somos" icon="people-outline" onPress={() => pushRoute("/quienes-somos" as Href)} />
             </FooterAccordionSection>
 
-            {/* «Compramos tu…» (2026-11-24): enlaces de verdad para que Google encuentre las 5 páginas. */}
+            {/* «Compramos tu…» (2026-11-24): enlaces de verdad para que Google encuentre las 8 páginas. */}
             <FooterAccordionSection id="pie-compramos" title="Te lo compramos" icon="cash-outline" open={abierto === "compramos"} onToggle={() => alternar("compramos")}>
               <FooterLink label="Tu consola" icon="game-controller-outline" href={"/compramos/consolas" as Href} />
               <FooterLink label="Tu móvil" icon="phone-portrait-outline" href={"/compramos/moviles" as Href} />
               <FooterLink label="Tu portátil" icon="laptop-outline" href={"/compramos/portatiles" as Href} />
               <FooterLink label="Tu PC y periféricos" icon="desktop-outline" href={"/compramos/pc" as Href} />
               <FooterLink label="Tu iPad o tablet" icon="tablet-portrait-outline" href={"/compramos/tablets" as Href} />
+              {/* Televisión, cámara y dron (dueño, 2026-11-27). */}
+              <FooterLink label="Tu televisión" icon="tv-outline" href={"/compramos/televisores" as Href} />
+              <FooterLink label="Tu cámara" icon="camera-outline" href={"/compramos/camaras" as Href} />
+              <FooterLink label="Tu dron" icon="airplane-outline" href={"/compramos/drones" as Href} />
             </FooterAccordionSection>
 
             <FooterAccordionSection id="pie-politicas" title="Políticas" icon="document-text-outline" open={abierto === "politicas"} onToggle={() => alternar("politicas")}>

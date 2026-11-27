@@ -366,6 +366,9 @@ const COMPRAMOS: [string, string][] = [
   ["portatiles", "Portátiles"],
   ["pc", "PC y periféricos"],
   ["tablets", "iPad y tablets"],
+  ["televisores", "Televisiones"],
+  ["camaras", "Cámaras"],
+  ["drones", "Drones"],
 ];
 type UsoCompramos = Record<string, { visitas: number; pulsan: number; envian: number }>;
 
