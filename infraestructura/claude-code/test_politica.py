@@ -32,8 +32,17 @@ comprobar("allowManagedPermissionRulesOnly", POL.get("allowManagedPermissionRule
 comprobar("allowManagedHooksOnly", POL.get("allowManagedHooksOnly") is True)
 comprobar("allowManagedMcpServersOnly", POL.get("allowManagedMcpServersOnly") is True)
 # Stripe (2026-11-06): solo lectura, lo garantiza el guardián (revisar_stripe_mcp; casos en test_guardian.py).
+# Supabase (dueño, 2026-11-27): el MCP se apagará como en VeoAura en una PR aparte, SOLO cuando vz-sql
+# esté comprobado en producción («No desactives el MCP hasta verificar que vz-sql funciona correctamente»).
 comprobar("solo MCP supabase, vercel y stripe",
           sorted(s.get("serverName") for s in POL.get("allowedMcpServers", [])) == ["stripe", "supabase", "vercel"])
+comprobar("vz-sql con sus cinco órdenes y nada más",
+          sorted(r for r in P["allow"] if "vz-sql" in r) == sorted([
+              "Bash(/usr/local/bin/vz-sql estado)", "Bash(/usr/local/bin/vz-sql estado --json)",
+              "Bash(/usr/local/bin/vz-sql diagnostico-d8)", "Bash(/usr/local/bin/vz-sql diagnostico-d8 --json)",
+              "Bash(/usr/local/bin/vz-sql consultar *)", "Bash(/usr/local/bin/vz-sql plan *)",
+              "Bash(/usr/local/bin/vz-sql aplicar *)"]))
+comprobar("tiempo de las herramientas MCP 2 min", POL.get("env", {}).get("MCP_TOOL_TIMEOUT") == "120000")
 comprobar("conectores de claude.ai desactivados", POL.get("disableClaudeAiConnectors") is True)
 comprobar("scripts de npm desactivados", POL.get("env", {}).get("npm_config_ignore_scripts") == "true")
 comprobar("defaultMode acceptEdits", P.get("defaultMode") == "acceptEdits")

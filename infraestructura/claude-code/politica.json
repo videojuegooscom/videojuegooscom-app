@@ -11,7 +11,8 @@
   "requiredMinimumVersion": "2.1.294",
   "env": {
     "DISABLE_AUTOUPDATER": "1",
-    "npm_config_ignore_scripts": "true"
+    "npm_config_ignore_scripts": "true",
+    "MCP_TOOL_TIMEOUT": "120000"
   },
   "permissions": {
     "defaultMode": "acceptEdits",
@@ -36,6 +37,7 @@
       "Bash(git push -u origin main)",
       "Bash(git push * *:main)",
       "Bash(git push * --no-verify*)",
+      "Bash(git push * :*)",
       "Bash(git reset --hard *)",
       "Bash(git reset --hard)",
       "Bash(git clean *)",
@@ -296,6 +298,13 @@
       "Bash(python3 infraestructura/base-datos/test_vz_sql.py)",
       "Bash(/usr/local/bin/vz-publicar revisar *)",
       "Bash(/usr/local/bin/vz-publicar publicar *)",
+      "Bash(/usr/local/bin/vz-sql estado)",
+      "Bash(/usr/local/bin/vz-sql estado --json)",
+      "Bash(/usr/local/bin/vz-sql diagnostico-d8)",
+      "Bash(/usr/local/bin/vz-sql diagnostico-d8 --json)",
+      "Bash(/usr/local/bin/vz-sql consultar *)",
+      "Bash(/usr/local/bin/vz-sql plan *)",
+      "Bash(/usr/local/bin/vz-sql aplicar *)",
       "Bash(git status)",
       "Bash(git status *)",
       "Bash(git diff)",

@@ -761,11 +761,12 @@ INTENTO_CONTROLADOR_RE = re.compile(
     r"(vz-publicar\b|python[0-9.]*\s+(-\S+\s+)*\S*(?<![\w-])controlador\.py\b)")
 
 # ============================================================== cliente vz-sql =====
-# Única vía de Claude para CAMBIAR el Supabase real (la lectura va por MCP). Forma exacta, sin
-# expansiones ni compuestos; el intermediario repite todas las comprobaciones.
+# Vía de Claude hacia el Supabase real, para leer y para cambiar (dueño, 2026-11-27: como VeoAura; el MCP
+# de Supabase se apagará en una PR aparte cuando vz-sql esté comprobado). Forma exacta, sin expansiones ni
+# compuestos; el intermediario (infraestructura/base-datos/broker.py) repite todas las comprobaciones.
 CLIENTE_SQL = "/usr/local/bin/vz-sql"
 MARCA_ACCION_MANUAL_RE = re.compile(r"--\s*VZ\s*:\s*ACCION_MANUAL", re.I)
-OPS_SQL = {"estado", "consultar", "plan", "aplicar"}
+OPS_SQL = {"estado", "diagnostico-d8", "consultar", "plan", "aplicar"}
 INTENTO_SQL_RE = re.compile(r"(^|[;&|(`]\s*|=\S*\s+)(\S*/)?vz-sql(\s|$)")
 
 
@@ -799,7 +800,7 @@ def revisar_cliente_sql(comando, cwd):
             k += 2
         else:
             deny("sql-forma", f"Opción no reconocida en vz-sql: {resto[k]}")
-    if orden == "estado" and ({"--archivo", "--sql"} & set(opciones)):
+    if orden in ("estado", "diagnostico-d8") and ({"--archivo", "--sql"} & set(opciones)):
         deny("sql-forma", f"vz-sql {orden} no admite --archivo ni --sql.")
     if orden in ("plan", "aplicar") and ("--sql" in opciones or "--archivo" not in opciones):
         deny("sql-d6", f"vz-sql {orden} solo acepta --archivo con un .sql versionado en supabase/migrations/.")

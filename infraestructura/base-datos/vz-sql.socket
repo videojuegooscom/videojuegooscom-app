@@ -1,0 +1,23 @@
+# == VIDEOJUEGOSZARAGOZA ======================================================
+# Archivo:        infraestructura/base-datos/vz-sql.socket
+#                 (se instala en /etc/systemd/system/vz-sql.socket; copia adaptada de VeoAura)
+# Función:        Socket Unix del broker vz-sql. Solo el usuario vz-sql y el grupo videojuegoszaragoza
+#                 (Claude) pueden conectarse; al primer uso arranca el servicio.
+# Para qué sirve: Que la única vía hacia Supabase sea el broker, sin red ni credenciales.
+# Conectado con:  vz-sql.service, cliente.py (/usr/local/bin/vz-sql).
+# Utilizado por:  systemd.
+# Dependencias:   systemd.
+# =============================================================================
+[Unit]
+Description=VideojuegosZaragoza - socket de vz-sql (acceso controlado a Supabase)
+
+[Socket]
+ListenStream=/run/vz-sql/sql.sock
+SocketUser=vz-sql
+SocketGroup=videojuegoszaragoza
+SocketMode=0660
+DirectoryMode=0755
+Accept=no
+
+[Install]
+WantedBy=sockets.target

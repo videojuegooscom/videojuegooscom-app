@@ -154,6 +154,25 @@ DENY_BASH = [
     "/usr/local/bin/vz-publicar fusionar 7", "/usr/local/bin/vz-publicar publicar 7; git push origin main",
     "bash -c '/usr/local/bin/vz-publicar publicar 7'", "FOO=1 /usr/local/bin/vz-publicar publicar 7",
     "/usr/local/bin/vz-publicar publicar $(echo 7)",
+    # Cliente vz-sql mal invocado (2026-11-27): solo «/usr/local/bin/vz-sql <orden> …», sin compuestos ni expansiones,
+    # plan/aplicar solo con un .sql de supabase/migrations/, nada destructivo ni ACCION_MANUAL.
+    "vz-sql estado", "/tmp/vz-sql estado", "FOO=1 /usr/local/bin/vz-sql estado",
+    "/usr/local/bin/vz-sql estado && ls", "/usr/local/bin/vz-sql estado; git push origin main",
+    "/usr/local/bin/vz-sql estado | cat",
+    "/usr/local/bin/vz-sql borrar", "/usr/local/bin/vz-sql", "/usr/local/bin/vz-sql estado --sql 'select 1'",
+    "/usr/local/bin/vz-sql estado --archivo supabase/migrations/x.sql", "/usr/local/bin/vz-sql estado --forzar",
+    "/usr/local/bin/vz-sql diagnostico-d8 --sql 'select 1'", "/usr/local/bin/vz-sql diagnostico-d8 --forzar",
+    "/usr/local/bin/vz-sql diagnostico-d8 --archivo supabase/migrations/20261127130000_privacidad_consentimiento.sql",
+    "/usr/local/bin/vz-sql aplicar --sql 'create table x (id int)'", "/usr/local/bin/vz-sql plan --sql 'select 1'",
+    "/usr/local/bin/vz-sql aplicar", "/usr/local/bin/vz-sql consultar",
+    "/usr/local/bin/vz-sql consultar --sql 'select 1' --archivo supabase/migrations/x.sql",
+    "/usr/local/bin/vz-sql consultar --sql \"select $X\"", "/usr/local/bin/vz-sql consultar --sql 'select `id`'",
+    "/usr/local/bin/vz-sql consultar --sql 'delete from products'",
+    "/usr/local/bin/vz-sql consultar --sql 'drop table products'",
+    "/usr/local/bin/vz-sql consultar --sql 'select 1 -- VZ: ACCION_MANUAL'",
+    "/usr/local/bin/vz-sql aplicar --archivo /tmp/x.sql", "/usr/local/bin/vz-sql aplicar --archivo .env.local",
+    "/usr/local/bin/vz-sql aplicar --archivo supabase/migrations/ACCION_MANUAL__rol.sql",
+    "/usr/local/bin/vz-sql consultar --sql 'select 1",
     # destructivos varios
     ":(){ :|:& };:", "cat /dev/zero > /dev/sda",
 ]
@@ -298,6 +317,15 @@ PASA = [
     "grep -n gh infraestructura/publicacion/controlador.py",
     "git commit -m 'toca CLAUDE.md y .env.example'", "git log --graph --oneline", "git var GIT_COMMITTER_IDENT",
     "git show HEAD:package.json", "git push origin feat:feat",
+    # Cliente vz-sql bien invocado (2026-11-27): el guardián no decide; lo hace la política (y el intermediario repite
+    # todas las comprobaciones).
+    "/usr/local/bin/vz-sql estado", "/usr/local/bin/vz-sql estado --json",
+    "/usr/local/bin/vz-sql diagnostico-d8", "/usr/local/bin/vz-sql diagnostico-d8 --json",
+    "/usr/local/bin/vz-sql consultar --sql 'select id, title from products where is_active' --json",
+    "/usr/local/bin/vz-sql plan --archivo supabase/migrations/20261127130000_privacidad_consentimiento.sql",
+    "/usr/local/bin/vz-sql aplicar --archivo supabase/migrations/20261127130000_privacidad_consentimiento.sql",
+    # Mencionar vz-sql en un texto no es ejecutarlo.
+    "git commit -m 'Prepara vz-sql y su intermediario'", "gh pr create --title x --body \"vz-sql aplicar falló\"",
 ]
 PASA_OTRAS = [
     mcp("mcp__supabase__list_tables", schemas=["public"], verbose=False), mcp("mcp__supabase__get_advisors", type="security"),
@@ -376,6 +404,8 @@ LIBRE = [
     read(os.path.join(RAIZ, "app/_layout.tsx")), write(f"/tmp/claude-{UID}/notas.txt"),
     bash("python3 --version"), bash("node --version"), bash("npx --no-install expo --version"),
     bash("gh api repos/otro/repo/pulls"), bash("git tag v1.0"), bash("git reflog"),
+    # vz-sql con paréntesis en el SQL: válida para el guardián; en modo sin confirmaciones se aprueba sola.
+    bash("/usr/local/bin/vz-sql consultar --sql 'select count(*) from products'"),
     # Compuestos de los agentes de análisis (capturas del 2026-10-12): alguna parte no está en allow.
     bash("ls && ls app app/admin app/\\(tabs\\) components | head -150 && find app -name \"*.tsx\" | grep -v node_modules | xargs wc -l | sort -n | tail -50"),
     bash("for f in \"app/(tabs)/index.tsx\" app/catalogo.tsx; do echo \"== $f\"; grep -cE \"supabase\" \"$f\"; done"),
