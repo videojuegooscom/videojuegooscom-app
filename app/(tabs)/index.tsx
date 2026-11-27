@@ -2258,7 +2258,7 @@ export default function PantallaInicio() {
               Si no hay nada, no se pinta, ni su separador. */}
           <CarruselProductosCategoria modo="novedades" titulo="Recién llegado" pie={<Separador isMobile={isMobile} />} />
 
-          {/* «Noticias que podrían interesarte» y «Últimas noticias» (dueño, 2026-11-26), cada una con su separador. */}
+          {/* «Recientes noticias que creemos que podrían interesarte» (dueño, 2026-11-27), con su separador. */}
           <NoticiasEstantes pantalla="inicio" separador={<Separador isMobile={isMobile} />} />
 
           {/* Vistos recientemente (mejora 9): solo con 3 o más vistos a la venta en este dispositivo y si no son justo los

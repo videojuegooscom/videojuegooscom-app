@@ -77,7 +77,7 @@
  * a la venta, «Quitar» por producto y «Borrar historial»). Se mide como vistos_mostrado, visto_tocado, visto_quitado y
  * vistos_borrados (solo ids y cuántos) en Administración → Analítica → «Vistos recientemente (30 días)».
  *
- * «Noticias que podrían interesarte» y «Últimas noticias» (dueño, 2026-11-26; NoticiasEstantes, abajo del todo): en Inicio
+ * «Recientes noticias que creemos que podrían interesarte» (dueño, 2026-11-27; NoticiasEstantes, abajo del todo): en Inicio
  * bajo «Recién llegado» y en Perfil y Cesta bajo «También te puede interesar» (tabla noticias_gaming, solo lectura).
  *
  * Tamaños (2026-11-12, grupo 3): nombres a 13 px como mínimo, precios pequeños (menos de 17 px) en el azul de texto
@@ -1684,24 +1684,25 @@ export function VistosRecientemente({ pie }: { pie?: React.ReactNode }) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// «Noticias que podrían interesarte» y «Últimas noticias» (dueño, 2026-11-26, con captura): en Inicio bajo «Recién
-// llegado» y en Perfil y Cesta bajo «También te puede interesar». Una sola consulta (las 60 últimas publicadas, sin
-// textos largos) guardada 5 minutos en memoria para las tres pantallas. «Últimas»: las 10 más nuevas. «Podrían
-// interesarte»: de las demás (sin repetir), primero las que nombran la consola de lo que el cliente ha mirado en este
-// dispositivo (Vistos recientemente y, en la cesta, lo que lleva), luego por «interes» (lo pone la IA al publicarla) y
-// por fecha; todo se calcula en el dispositivo, sin guardar nada. Cada tarjeta es un enlace de verdad a /noticias/<id>.
+// «Recientes noticias que creemos que podrían interesarte» (dueño, 2026-11-27, una sola tira en vez de «Noticias que
+// podrían interesarte» y «Últimas noticias»): en Inicio bajo «Recién llegado» y en Perfil y Cesta bajo «También te puede
+// interesar». Una sola consulta (las 20 últimas publicadas, sin textos largos) guardada 5 minutos en memoria para las
+// tres pantallas. Se enseñan 12: primero las que nombran la consola de lo que el cliente ha mirado en este dispositivo
+// (Vistos recientemente y, en la cesta, lo que lleva) y después las demás, la más nueva primero; todo se calcula en el
+// dispositivo, sin guardar nada. Cada tarjeta es un enlace de verdad a /noticias/<id>.
 // Analítica propia: noticias_estante_mostrado y noticia_estante_tocada (estante, pantalla, id, posición, si iba
-// personalizada), en Administración → Analítica → «Noticias en Inicio, Perfil y Cesta (30 días)».
+// personalizada), en Administración → Analítica (#analitica-noticias-estantes).
 // ---------------------------------------------------------------------------------------------------------------------
 
 export type PantallaNoticias = "inicio" | "perfil" | "cesta";
-type EstanteNoticias = "interes" | "ultimas";
-type NoticiaEstante = { id: string; titulo: string; categoria: string; afectaA: string; interes: number; fecha: string | null; foto: string | null };
+type EstanteNoticias = "recientes";
+type NoticiaEstante = { id: string; titulo: string; categoria: string; afectaA: string; fecha: string | null; foto: string | null };
 
 // Nombres de la analítica (Administración → Analítica los busca tal cual).
-const ESTANTE_NOMBRE: Record<EstanteNoticias, string> = { interes: "podrían interesarte", ultimas: "últimas" };
-const NOTICIAS_ULTIMAS = 10;
-const NOTICIAS_INTERES = 10;
+const ESTANTE_NOMBRE: Record<EstanteNoticias, string> = { recientes: "recientes que podrían interesarte" };
+// Se eligen entre las 20 más nuevas y se enseñan 12.
+const NOTICIAS_RECIENTES = 20;
+const NOTICIAS_MOSTRADAS = 12;
 const NOTICIA_ANCHO = 220;
 const NOTICIA_FOTO_ALTO = 124;
 let noticiasCache: { en: number; filas: Promise<NoticiaEstante[]> } | null = null;
@@ -1718,8 +1719,8 @@ function fotoNoticia(r: Record<string, unknown>): string | null {
 async function consultarNoticiasEstante(): Promise<NoticiaEstante[]> {
   const base = "id,titulo,categoria,afecta_a,imagen_url,publicada_en,created_at";
   const consulta = (columnas: string) =>
-    supabase.from("noticias_gaming").select(columnas).eq("publicada", true).order("publicada_en", { ascending: false, nullsFirst: false }).limit(60);
-  let { data, error } = await consulta(`${base},imagenes,imagenes_verificadas,interes`);
+    supabase.from("noticias_gaming").select(columnas).eq("publicada", true).order("publicada_en", { ascending: false, nullsFirst: false }).limit(NOTICIAS_RECIENTES);
+  let { data, error } = await consulta(`${base},imagenes,imagenes_verificadas`);
   // Sin las columnas opcionales (migración pendiente), con lo básico.
   if (error) ({ data, error } = await consulta(base));
   if (error) throw error;
@@ -1729,7 +1730,6 @@ async function consultarNoticiasEstante(): Promise<NoticiaEstante[]> {
       titulo: String(r.titulo ?? "").trim(),
       categoria: String(r.categoria ?? "").trim() || "Gaming",
       afectaA: String(r.afecta_a ?? "").trim(),
-      interes: Number(r.interes ?? 0) || 0,
       fecha: (r.publicada_en as string | null) ?? (r.created_at as string | null) ?? null,
       foto: fotoNoticia(r),
     }))
@@ -1760,16 +1760,18 @@ function fechaCorta(iso: string | null): string {
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" }).replace(".", "");
 }
 
-/** Reparte las noticias: las últimas y, de las demás, las que podrían interesar (con lo mirado en el dispositivo). */
-export function repartirNoticias(noticias: NoticiaEstante[], familias: Set<FamiliaConsola>) {
-  const ultimas = noticias.slice(0, NOTICIAS_ULTIMAS);
+/**
+ * «Recientes noticias que creemos que podrían interesarte»: de las NOTICIAS_RECIENTES más nuevas, primero las que nombran
+ * la consola de lo mirado en el dispositivo (y lo de la cesta); dentro de cada grupo, la más nueva primero.
+ */
+export function noticiasRecientesParaTi(noticias: NoticiaEstante[], familias: Set<FamiliaConsola>) {
   const coincide = (n: NoticiaEstante) => [...familiasDeTexto(`${n.titulo} ${n.afectaA}`)].some((f) => familias.has(f));
-  const interes = noticias
-    .slice(NOTICIAS_ULTIMAS)
+  const lista = noticias
+    .slice(0, NOTICIAS_RECIENTES)
     .map((n, orden) => ({ n, orden, suya: familias.size > 0 && coincide(n) }))
-    .sort((a, b) => Number(b.suya) - Number(a.suya) || b.n.interes - a.n.interes || a.orden - b.orden)
-    .slice(0, NOTICIAS_INTERES);
-  return { ultimas, interes: interes.map((x) => x.n), personal: interes.some((x) => x.suya) };
+    .sort((a, b) => Number(b.suya) - Number(a.suya) || a.orden - b.orden)
+    .slice(0, NOTICIAS_MOSTRADAS);
+  return { noticias: lista.map((x) => x.n), personal: lista.some((x) => x.suya) };
 }
 
 export function NoticiasEstantes({ pantalla, idsBase, separador }: { pantalla: PantallaNoticias; idsBase?: string[]; separador?: React.ReactNode }) {
@@ -1811,20 +1813,17 @@ export function NoticiasEstantes({ pantalla, idsBase, separador }: { pantalla: P
     };
   }, [clave, leido]);
 
-  const reparto = useMemo(() => (noticias ? repartirNoticias(noticias, familias) : null), [noticias, familias]);
+  const reparto = useMemo(() => (noticias ? noticiasRecientesParaTi(noticias, familias) : null), [noticias, familias]);
   if (!reparto) return null;
   return (
-    <>
-      <CarruselNoticias
-        estante="interes"
-        pantalla={pantalla}
-        titulo="Noticias que podrían interesarte"
-        noticias={reparto.interes}
-        personal={reparto.personal}
-        pie={separador}
-      />
-      <CarruselNoticias estante="ultimas" pantalla={pantalla} titulo="Últimas noticias" noticias={reparto.ultimas} personal={false} pie={separador} />
-    </>
+    <CarruselNoticias
+      estante="recientes"
+      pantalla={pantalla}
+      titulo="Recientes noticias que creemos que podrían interesarte"
+      noticias={reparto.noticias}
+      personal={reparto.personal}
+      pie={separador}
+    />
   );
 }
 

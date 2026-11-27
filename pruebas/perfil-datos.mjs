@@ -1486,6 +1486,24 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       if (/vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "")) return filas[0] ? json(proyecta(filas[0])) : json({ code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned", details: "The result contains 0 rows" }, 406);
       return json(filas.map(proyecta));
     }
+    // Índice ligero del buscador (sección NE: la consola de lo visto elige las noticias primero).
+    if (estado.productosIndice && url.pathname.endsWith("/rest/v1/products") && metodo === "GET" && /view_count/.test(url.searchParams.get("select") ?? "")) {
+      return json(estado.productosIndice);
+    }
+    // «Me gusta» de las noticias (sección NE, barra de la página de la noticia): leer, dar y quitar.
+    if (estado.likesNoticias && url.pathname.endsWith("/rest/v1/noticias_likes")) {
+      const id = (url.searchParams.get("noticia_id") ?? "").replace(/^eq\./, "");
+      if (metodo === "GET") return json(estado.likesNoticias.filter((l) => l.noticia_id === id));
+      if (metodo === "POST") {
+        const fila = JSON.parse(peticion.postData() ?? "{}");
+        estado.likesNoticias.push({ noticia_id: fila.noticia_id, user_id: "yo" });
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+      if (metodo === "DELETE") {
+        estado.likesNoticias = estado.likesNoticias.filter((l) => l.noticia_id !== id);
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+    }
     // Noticias y sus comentarios ficticios (solo si la prueba los da).
     // Noticias nuevas que cuenta Blue (sección MC): la más reciente y el total, como PostgREST (Content-Range).
     if (url.pathname.endsWith("/rest/v1/noticias_gaming") && metodo === "GET" && estado.noticiasNuevasBlue && /select=id(%2C|,)titulo/.test(url.search)) {
@@ -4507,93 +4525,176 @@ async function seccionOF() {
   }
 }
 
-// «Noticias que podrían interesarte» y «Últimas noticias» (dueño, 2026-11-26): en Inicio bajo «Recién llegado» y en Perfil
-// y Cesta bajo «También te puede interesar»; sin repetir noticias entre los dos; tocar una abre su página y se mide.
+// «Recientes noticias que creemos que podrían interesarte» (dueño, 2026-11-27: una sola tira): en Inicio bajo «Recién
+// llegado» y en Perfil y Cesta bajo «También te puede interesar»; tocar una abre su página y se mide. Y la barra fija de
+// abajo de la página de la noticia: volver, me gusta, comentar y compartir.
 async function seccionNE() {
-  const noticias = Array.from({ length: 16 }, (_, i) => ({
+  const noticias = Array.from({ length: 24 }, (_, i) => ({
     id: `0e000000-0000-4000-8000-0000000000${String(i + 10)}`,
     titulo: `Noticia de prueba número ${i + 1} sobre consolas y videojuegos`,
     categoria: i % 2 ? "Consolas" : "Videojuegos",
-    afecta_a: "Jugadores",
+    // La 6.ª habla de Xbox: con una Xbox vista en el dispositivo tiene que salir la primera.
+    afecta_a: i === 5 ? "Propietarios de Xbox Series X" : "Jugadores",
+    resumen: "Resumen de prueba de la noticia, con lo más importante contado en pocas líneas.",
+    fuente: "Vandal",
+    url: "https://vandal.elespanol.com/noticia/prueba",
+    puntos_clave: ["Primer punto clave", "Segundo punto clave"],
+    datos: [],
+    por_que_importa: null,
+    publicada: true,
     imagen_url: null,
     imagenes: [],
     imagenes_verificadas: false,
-    interes: (i * 7) % 10,
+    me_gusta: 3,
     publicada_en: new Date(Date.now() - i * 3600000).toISOString(),
     created_at: new Date(Date.now() - i * 3600000).toISOString(),
   }));
+  const TIRA = "Recientes noticias que creemos que podrían interesarte";
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
   for (const [nombre, vista] of [
     ["360", { viewport: { width: 360, height: 780 } }],
     ["390", {}],
     ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
   ]) {
-    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, noticias };
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, noticiasNW: noticias, likesNoticias: [] };
     const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
     const p = await pagina(ctx, "/");
-    await p.locator("#inicio-noticias-ultimas").waitFor({ timeout: 40000 }).catch(() => {});
-    await p.locator("#inicio-noticias-interes").scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator("#inicio-noticias-recientes").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#inicio-noticias-recientes").scrollIntoViewIfNeeded().catch(() => {});
     await p.waitForTimeout(800);
-    const m = await p.evaluate(() => {
+    const m = await p.evaluate((TIRA) => {
       const ids = (id) => Array.from(document.querySelectorAll(`[id^="${id}-"]`)).map((x) => x.id.slice(id.length + 1));
-      const caja = (id) => document.getElementById(id)?.getBoundingClientRect();
-      const interes = ids("inicio-noticias-interes");
-      const ultimas = ids("inicio-noticias-ultimas");
+      const caja = document.getElementById("inicio-noticias-recientes")?.getBoundingClientRect();
       const textos = Array.from(document.querySelectorAll('[id^="inicio-noticias-"] [dir="auto"]')).filter((x) => /[a-z]/i.test(x.textContent ?? ""));
-      const reciente = caja("inicio-noticias-ultimas");
-      const vistos = document.body.innerText.indexOf("Recién llegado");
+      const t = document.body.innerText;
       return {
-        titulos: document.body.innerText.includes("Noticias que podrían interesarte") && document.body.innerText.includes("Últimas noticias"),
-        interes,
-        ultimas,
-        repetidas: interes.filter((id) => ultimas.includes(id)).length,
-        enlace: document.querySelector('[id^="inicio-noticias-ultimas-"]')?.closest("a")?.getAttribute("href") ?? document.querySelector('[id^="inicio-noticias-ultimas-"]')?.getAttribute("href") ?? "",
+        titulo: t.includes(TIRA) && !t.includes("Últimas noticias") && !t.includes("Noticias que podrían interesarte\n"),
+        tiras: document.querySelectorAll('[id^="inicio-noticias-"]:not([id*="-0e"])').length,
+        lista: ids("inicio-noticias-recientes"),
+        enlace: document.querySelector('[id^="inicio-noticias-recientes-"]')?.closest("a")?.getAttribute("href") ?? document.querySelector('[id^="inicio-noticias-recientes-"]')?.getAttribute("href") ?? "",
         centrado: textos.filter((x) => getComputedStyle(x).textAlign !== "center").map((x) => x.textContent).slice(0, 3),
         letra: Math.min(...textos.map((x) => parseFloat(getComputedStyle(x).fontSize))),
-        // Sin productos de prueba «Recién llegado» no sale: entonces solo cuenta el orden entre los dos.
-        orden: document.body.innerText.indexOf("Noticias que podrían interesarte") > vistos && document.body.innerText.indexOf("Últimas noticias") > document.body.innerText.indexOf("Noticias que podrían interesarte"),
-        dentro: !!reciente && reciente.left >= -1 && reciente.right <= window.innerWidth + 1,
+        // Sin productos de prueba «Recién llegado» no sale (indexOf -1).
+        orden: t.indexOf(TIRA) > t.indexOf("Recién llegado"),
+        dentro: !!caja && caja.left >= -1 && caja.right <= window.innerWidth + 1,
         ancho: document.documentElement.scrollWidth <= window.innerWidth + 1,
       };
-    });
-    ok(m.titulos, `NE (${nombre}): Inicio trae «Noticias que podrían interesarte» y «Últimas noticias»`);
-    ok(m.orden, `NE (${nombre}): van debajo de «Recién llegado», primero las que podrían interesar`);
-    ok(m.ultimas.length === 10 && m.ultimas[0] === noticias[0].id, `NE (${nombre}): «Últimas noticias» con las 10 más nuevas, la última primero (${m.ultimas.length})`);
-    ok(m.interes.length === 6 && m.repetidas === 0, `NE (${nombre}): «Podrían interesarte» con las demás, sin repetir ninguna (${m.interes.length}, repetidas ${m.repetidas})`);
-    ok(m.interes[0] === noticias[14].id, `NE (${nombre}): sin historial, primero la de más interés (${m.interes[0]?.slice(-2)})`);
+    }, TIRA);
+    ok(m.titulo && m.tiras === 1, `NE (${nombre}): Inicio trae una sola tira, «${TIRA}» (${m.tiras})`);
+    ok(m.orden, `NE (${nombre}): va debajo de «Recién llegado»`);
+    ok(m.lista.length === 12 && m.lista[0] === noticias[0].id, `NE (${nombre}): 12 noticias recientes, sin historial la más nueva primero (${m.lista.length})`);
     ok(m.enlace === `/noticias/${noticias[0].id}`, `NE (${nombre}): cada tarjeta es un enlace a su noticia (${m.enlace})`);
     ok(m.centrado.length === 0 && m.letra >= 12, `NE (${nombre}): texto centrado y de 12 px o más (${JSON.stringify(m.centrado)}, ${m.letra})`);
-    ok(m.dentro && m.ancho, `NE (${nombre}): el carrusel cabe y la página no se ensancha`);
-    await p.locator("#inicio-noticias-ultimas").scrollIntoViewIfNeeded().catch(() => {});
+    ok(m.dentro && m.ancho, `NE (${nombre}): la tira cabe y la página no se ensancha`);
     await capturar(p, `NE-${nombre}-inicio`);
-    // Los errores, antes de salir de Inicio (la página de la noticia no tiene datos de prueba).
-    ok(p.errores.length === 0, `NE (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
-    await p.locator(`#inicio-noticias-ultimas-${noticias[0].id}`).click();
+    ok(p.errores.length === 0, `NE (${nombre}): Inicio sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await p.locator(`#inicio-noticias-recientes-${noticias[0].id}`).click();
     await p.waitForURL(/\/noticias\//, { timeout: 15000 }).catch(() => {});
     ok(p.url().includes(`/noticias/${noticias[0].id}`), `NE (${nombre}): tocar una noticia abre su página`);
-    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "noticia_estante_tocada"); i++) await p.waitForTimeout(250);
-    const ev = (estado.eventosEnviados ?? []).filter((e) => e.event_name?.startsWith("noticia")).map((e) => e.step_label);
-    ok(ev.includes("Noticias en estantes: últimas · tocada") && ev.includes("Noticias en estantes: podrían interesarte · vistas"), `NE (${nombre}): la analítica cuenta las vistas y los toques (${ev.join(" | ")})`);
+
+    // La barra fija de abajo de la noticia.
+    await p.locator("#noticia-barra").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const barra = async () =>
+      p.evaluate(() => {
+        const b = document.getElementById("noticia-barra");
+        const r = b?.getBoundingClientRect();
+        const botones = ["noticia-volver", "noticia-me-gusta", "noticia-comentar", "noticia-compartir"].map((id) => document.getElementById(id));
+        // Lo que haya encima de cada botón (vacío = libre).
+        const tapan = botones
+          .map((x) => {
+            const c = x?.getBoundingClientRect();
+            const e = c && document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2);
+            return !!e && x.contains(e) ? "" : `${x?.id}: ${e?.id || e?.tagName || "nada"} ${(e?.textContent ?? "").slice(0, 30)}`;
+          })
+          .filter(Boolean);
+        return {
+          abajo: r ? Math.round(window.innerHeight - r.bottom) : -1,
+          dentro: !!r && r.left >= 0 && r.right <= window.innerWidth,
+          redondeo: b ? parseFloat(getComputedStyle(b).borderTopLeftRadius) : 0,
+          // El nombre (la última línea; la primera es el icono).
+          textos: botones.map((x) => (x?.innerText ?? "").split("\n").map((s) => s.trim()).filter(Boolean).pop() ?? ""),
+          altos: botones.map((x) => Math.round(x?.getBoundingClientRect().height ?? 0)),
+          descentrados: botones.flatMap((x) => Array.from(x?.querySelectorAll('[dir="auto"]') ?? [])).filter((t) => /[a-z]/i.test(t.textContent ?? "") && getComputedStyle(t).textAlign !== "center").map((t) => t.textContent),
+          tapan,
+        };
+      });
+    const arriba = await barra();
+    await p.mouse.wheel(0, 3000);
+    await p.waitForTimeout(700);
+    const tras = await barra();
+    ok(arriba.abajo >= 8 && arriba.abajo <= 40 && arriba.abajo === tras.abajo && arriba.dentro, `NE (${nombre}): la barra queda fija abajo al bajar la página (${arriba.abajo} → ${tras.abajo} px del borde)`);
+    ok(arriba.redondeo >= 16, `NE (${nombre}): la barra es un bloque de esquinas redondeadas (${arriba.redondeo} px)`);
+    ok(arriba.textos.join(" | ") === "Volver | Me gusta · 3 | Comentar | Compartir", `NE (${nombre}): volver, me gusta (con el total), comentar y compartir (${arriba.textos.join(" | ")})`);
+    ok(
+      arriba.altos.every((h) => h >= 44) && !arriba.descentrados.length && !tras.tapan.length,
+      `NE (${nombre}): botones de 44 px o más, centrados y sin nada encima (${arriba.altos.join(", ")} · ${JSON.stringify(arriba.descentrados)} · ${tras.tapan.join(" / ")})`
+    );
+    await capturar(p, `NE-${nombre}-noticia`);
+    await p.locator("#noticia-me-gusta").click();
+    await p.waitForTimeout(600);
+    const tras1 = await barra();
+    ok(tras1.textos[1] === "Me gusta · 4" && estado.likesNoticias.length === 1, `NE (${nombre}): «Me gusta» se guarda y suma uno (${tras1.textos[1]})`);
+    await p.locator("#noticia-me-gusta").click();
+    await p.waitForTimeout(600);
+    ok((await barra()).textos[1] === "Me gusta · 3" && estado.likesNoticias.length === 0, `NE (${nombre}): tocarlo otra vez lo quita`);
+    await p.locator("#noticia-compartir").click().catch(() => {});
+    await p.waitForTimeout(300);
+    ok(p.errores.length === 0, `NE (${nombre}): la noticia sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await p.locator("#noticia-volver").click();
+    await p.waitForURL((u) => !u.pathname.startsWith("/noticias"), { timeout: 15000 }).catch(() => {});
+    ok(!new URL(p.url()).pathname.startsWith("/noticias"), `NE (${nombre}): «Volver» sale de la noticia (${new URL(p.url()).pathname})`);
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.step_label === "Noticias: barra · volver"); i++) await p.waitForTimeout(250);
+    const ev = (estado.eventosEnviados ?? []).map((e) => e.step_label);
+    ok(
+      ["Noticias en estantes: recientes que podrían interesarte · vistas", "Noticias en estantes: recientes que podrían interesarte · tocada", "Noticias: barra · me gusta", "Noticias: barra · compartir", "Noticias: barra · volver"].every((x) => ev.includes(x)),
+      `NE (${nombre}): la analítica cuenta la tira y la barra (${ev.filter((x) => /Noticias/.test(x)).join(" | ")})`
+    );
+    await ctx.close();
+  }
+
+  // Con una Xbox vista en este dispositivo, la noticia de Xbox sale la primera.
+  {
+    const XBOX = "0e000000-0000-4000-8000-00000000aa01";
+    const estado = {
+      filas: perfil,
+      guardados: [],
+      noticiasNW: noticias,
+      productosIndice: [{ id: XBOX, title: "Consola Xbox Series X 1 TB", description: "", price_eur: 380, condition: null, category_id: null, created_at: "2026-11-20T10:00:00Z", view_count: 0, status: "PUBLISHED" }],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await ctx.addInitScript((id) => {
+      try {
+        localStorage.setItem("videojuegoszaragoza:vistos_v1", JSON.stringify([{ id, en: Date.now() }]));
+      } catch {
+        // sin almacenamiento
+      }
+    }, XBOX);
+    const p = await pagina(ctx, "/");
+    await p.locator("#inicio-noticias-recientes").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const primera = await p.evaluate(() => document.querySelector('[id^="inicio-noticias-recientes-"]')?.id.slice("inicio-noticias-recientes-".length) ?? "");
+    ok(primera === noticias[5].id, `NE: con una Xbox vista, la noticia de Xbox sale la primera (${primera.slice(-2)})`);
     await ctx.close();
   }
 
   // Perfil y Cesta: debajo de «También te puede interesar».
   for (const [ruta, id] of [["/perfil", "perfil"], ["/cesta", "cesta"]]) {
-    const ctx = await contexto(navegador, CLIENTE, "user", { filas: perfil, guardados: [], noticias });
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: perfil, guardados: [], noticiasNW: noticias });
     const p = await pagina(ctx, ruta);
-    await p.locator(`#${id}-noticias-ultimas`).waitFor({ timeout: 40000 }).catch(() => {});
-    await p.locator(`#${id}-noticias-interes`).scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator(`#${id}-noticias-recientes`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator(`#${id}-noticias-recientes`).scrollIntoViewIfNeeded().catch(() => {});
     await p.waitForTimeout(600);
-    const m = await p.evaluate((id) => {
+    const m = await p.evaluate(([id, TIRA]) => {
       const t = document.body.innerText;
       const tambien = t.indexOf("También te puede interesar");
       return {
-        las2: !!document.getElementById(`${id}-noticias-interes`) && !!document.getElementById(`${id}-noticias-ultimas`),
-        debajo: tambien < 0 || t.indexOf("Noticias que podrían interesarte") > tambien,
+        tira: !!document.getElementById(`${id}-noticias-recientes`) && t.includes(TIRA) && !t.includes("Últimas noticias"),
+        debajo: tambien < 0 || t.indexOf(TIRA) > tambien,
         ancho: document.documentElement.scrollWidth <= window.innerWidth + 1,
       };
-    }, id);
-    ok(m.las2 && m.debajo && m.ancho, `NE: ${ruta} trae los dos carruseles de noticias debajo de «También te puede interesar»`);
+    }, [id, TIRA]);
+    ok(m.tira && m.debajo && m.ancho, `NE: ${ruta} trae la tira «${TIRA}» debajo de «También te puede interesar»`);
     await capturar(p, `NE-390-${id}`);
     ok(p.errores.length === 0, `NE: ${ruta} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
@@ -4605,17 +4706,21 @@ async function seccionNE() {
       guardados: [],
       embudo: [
         { step_label: "Inicio", sessions: 10 },
-        { step_label: "Noticias en estantes: podrían interesarte · vistas", sessions: 8 },
-        { step_label: "Noticias en estantes: podrían interesarte · tocada", sessions: 3 },
-        { step_label: "Noticias en estantes: últimas · vistas", sessions: 7 },
-        { step_label: "Noticias en estantes: últimas · tocada", sessions: 2 },
+        { step_label: "Noticias en estantes: recientes que podrían interesarte · vistas", sessions: 8 },
+        { step_label: "Noticias en estantes: recientes que podrían interesarte · tocada", sessions: 3 },
+        { step_label: "Noticias: barra · me gusta", sessions: 5 },
+        { step_label: "Noticias: comentar en el Foro", sessions: 4 },
+        { step_label: "Noticias: barra · compartir", sessions: 2 },
+        { step_label: "Noticias: barra · volver", sessions: 6 },
       ],
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const a = await pagina(ctx, "/admin/analytics");
     await a.locator("#analitica-noticias-estantes").waitFor({ timeout: 40000 }).catch(() => {});
     const linea = (await a.locator("#analitica-noticias-estantes").innerText().catch(() => "")).replace(/\s+/g, " ");
-    ok(/«Podrían interesarte»: 8 las ven · 3 entran · «Últimas noticias»: 7 las ven · 2 entran/.test(linea), `NE: Administración → Analítica cuenta los carruseles de noticias (${linea})`);
+    ok(/→ 8 las ven · 3 entran/.test(linea), `NE: Administración → Analítica cuenta la tira de noticias (${linea})`);
+    const barra = (await a.locator("#analitica-noticia-barra").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/me gusta: 5 · comentar: 4 · compartir: 2 · volver: 6/.test(barra), `NE: Administración → Analítica cuenta la barra de la noticia (${barra})`);
     ok(a.errores.length === 0, `NE: Analítica sin errores de JavaScript (${a.errores.length})`);
     await ctx.close();
   }

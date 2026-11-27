@@ -209,8 +209,9 @@ function fechaLarga(iso: string | null): string {
 // Google puede indexar. Los enlaces antiguos /chat-global?tab=news&noticia=<id> siguen abriendo la noticia aquí.
 const URL_NOTICIA_TIENDA = "https://videojuegoszaragoza.com/noticias/";
 
-// «Compartir fuera»: hoja nativa, navigator.share o, si no hay, copiar el enlace.
-async function compartirFuera(n: Noticia): Promise<"compartido" | "copiado" | "nada"> {
+// «Compartir fuera»: hoja nativa, navigator.share o, si no hay, copiar el enlace. También lo usa la barra de abajo de
+// la página de cada noticia (app/noticias/[id].tsx).
+export async function compartirFuera(n: Pick<Noticia, "id" | "titulo">): Promise<"compartido" | "copiado" | "nada"> {
   const enlace = `${URL_NOTICIA_TIENDA}${n.id}`;
   const nav: any = typeof navigator !== "undefined" ? navigator : null;
   const copiar = async () => {

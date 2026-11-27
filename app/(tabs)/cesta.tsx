@@ -1109,7 +1109,7 @@ export default function CestaScreen() {
           <BotonBlueElegir conArticulos={items.length > 0} />
 
           <CarruselProductosCategoria />
-          {/* «Noticias que podrían interesarte» (también con lo que lleva en la cesta) y «Últimas noticias» (dueño, 2026-11-26). */}
+          {/* «Recientes noticias que creemos que podrían interesarte» (también con lo que lleva en la cesta; dueño, 2026-11-27). */}
           <NoticiasEstantes pantalla="cesta" idsBase={idsCesta} />
           {/* Las redes sociales ya salen en el pie de página (PieDePagina): no se repiten. */}
           </View>
