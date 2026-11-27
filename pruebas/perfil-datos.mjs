@@ -4507,6 +4507,120 @@ async function seccionOF() {
   }
 }
 
+// «Noticias que podrían interesarte» y «Últimas noticias» (dueño, 2026-11-26): en Inicio bajo «Recién llegado» y en Perfil
+// y Cesta bajo «También te puede interesar»; sin repetir noticias entre los dos; tocar una abre su página y se mide.
+async function seccionNE() {
+  const noticias = Array.from({ length: 16 }, (_, i) => ({
+    id: `0e000000-0000-4000-8000-0000000000${String(i + 10)}`,
+    titulo: `Noticia de prueba número ${i + 1} sobre consolas y videojuegos`,
+    categoria: i % 2 ? "Consolas" : "Videojuegos",
+    afecta_a: "Jugadores",
+    imagen_url: null,
+    imagenes: [],
+    imagenes_verificadas: false,
+    interes: (i * 7) % 10,
+    publicada_en: new Date(Date.now() - i * 3600000).toISOString(),
+    created_at: new Date(Date.now() - i * 3600000).toISOString(),
+  }));
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  for (const [nombre, vista] of [
+    ["360", { viewport: { width: 360, height: 780 } }],
+    ["390", {}],
+    ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ]) {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, noticias };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await pagina(ctx, "/");
+    await p.locator("#inicio-noticias-ultimas").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#inicio-noticias-interes").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(800);
+    const m = await p.evaluate(() => {
+      const ids = (id) => Array.from(document.querySelectorAll(`[id^="${id}-"]`)).map((x) => x.id.slice(id.length + 1));
+      const caja = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const interes = ids("inicio-noticias-interes");
+      const ultimas = ids("inicio-noticias-ultimas");
+      const textos = Array.from(document.querySelectorAll('[id^="inicio-noticias-"] [dir="auto"]')).filter((x) => /[a-z]/i.test(x.textContent ?? ""));
+      const reciente = caja("inicio-noticias-ultimas");
+      const vistos = document.body.innerText.indexOf("Recién llegado");
+      return {
+        titulos: document.body.innerText.includes("Noticias que podrían interesarte") && document.body.innerText.includes("Últimas noticias"),
+        interes,
+        ultimas,
+        repetidas: interes.filter((id) => ultimas.includes(id)).length,
+        enlace: document.querySelector('[id^="inicio-noticias-ultimas-"]')?.closest("a")?.getAttribute("href") ?? document.querySelector('[id^="inicio-noticias-ultimas-"]')?.getAttribute("href") ?? "",
+        centrado: textos.filter((x) => getComputedStyle(x).textAlign !== "center").map((x) => x.textContent).slice(0, 3),
+        letra: Math.min(...textos.map((x) => parseFloat(getComputedStyle(x).fontSize))),
+        // Sin productos de prueba «Recién llegado» no sale: entonces solo cuenta el orden entre los dos.
+        orden: document.body.innerText.indexOf("Noticias que podrían interesarte") > vistos && document.body.innerText.indexOf("Últimas noticias") > document.body.innerText.indexOf("Noticias que podrían interesarte"),
+        dentro: !!reciente && reciente.left >= -1 && reciente.right <= window.innerWidth + 1,
+        ancho: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      };
+    });
+    ok(m.titulos, `NE (${nombre}): Inicio trae «Noticias que podrían interesarte» y «Últimas noticias»`);
+    ok(m.orden, `NE (${nombre}): van debajo de «Recién llegado», primero las que podrían interesar`);
+    ok(m.ultimas.length === 10 && m.ultimas[0] === noticias[0].id, `NE (${nombre}): «Últimas noticias» con las 10 más nuevas, la última primero (${m.ultimas.length})`);
+    ok(m.interes.length === 6 && m.repetidas === 0, `NE (${nombre}): «Podrían interesarte» con las demás, sin repetir ninguna (${m.interes.length}, repetidas ${m.repetidas})`);
+    ok(m.interes[0] === noticias[14].id, `NE (${nombre}): sin historial, primero la de más interés (${m.interes[0]?.slice(-2)})`);
+    ok(m.enlace === `/noticias/${noticias[0].id}`, `NE (${nombre}): cada tarjeta es un enlace a su noticia (${m.enlace})`);
+    ok(m.centrado.length === 0 && m.letra >= 12, `NE (${nombre}): texto centrado y de 12 px o más (${JSON.stringify(m.centrado)}, ${m.letra})`);
+    ok(m.dentro && m.ancho, `NE (${nombre}): el carrusel cabe y la página no se ensancha`);
+    await p.locator("#inicio-noticias-ultimas").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `NE-${nombre}-inicio`);
+    // Los errores, antes de salir de Inicio (la página de la noticia no tiene datos de prueba).
+    ok(p.errores.length === 0, `NE (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await p.locator(`#inicio-noticias-ultimas-${noticias[0].id}`).click();
+    await p.waitForURL(/\/noticias\//, { timeout: 15000 }).catch(() => {});
+    ok(p.url().includes(`/noticias/${noticias[0].id}`), `NE (${nombre}): tocar una noticia abre su página`);
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "noticia_estante_tocada"); i++) await p.waitForTimeout(250);
+    const ev = (estado.eventosEnviados ?? []).filter((e) => e.event_name?.startsWith("noticia")).map((e) => e.step_label);
+    ok(ev.includes("Noticias en estantes: últimas · tocada") && ev.includes("Noticias en estantes: podrían interesarte · vistas"), `NE (${nombre}): la analítica cuenta las vistas y los toques (${ev.join(" | ")})`);
+    await ctx.close();
+  }
+
+  // Perfil y Cesta: debajo de «También te puede interesar».
+  for (const [ruta, id] of [["/perfil", "perfil"], ["/cesta", "cesta"]]) {
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: perfil, guardados: [], noticias });
+    const p = await pagina(ctx, ruta);
+    await p.locator(`#${id}-noticias-ultimas`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator(`#${id}-noticias-interes`).scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(600);
+    const m = await p.evaluate((id) => {
+      const t = document.body.innerText;
+      const tambien = t.indexOf("También te puede interesar");
+      return {
+        las2: !!document.getElementById(`${id}-noticias-interes`) && !!document.getElementById(`${id}-noticias-ultimas`),
+        debajo: tambien < 0 || t.indexOf("Noticias que podrían interesarte") > tambien,
+        ancho: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      };
+    }, id);
+    ok(m.las2 && m.debajo && m.ancho, `NE: ${ruta} trae los dos carruseles de noticias debajo de «También te puede interesar»`);
+    await capturar(p, `NE-390-${id}`);
+    ok(p.errores.length === 0, `NE: ${ruta} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // Administración → Analítica.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Noticias en estantes: podrían interesarte · vistas", sessions: 8 },
+        { step_label: "Noticias en estantes: podrían interesarte · tocada", sessions: 3 },
+        { step_label: "Noticias en estantes: últimas · vistas", sessions: 7 },
+        { step_label: "Noticias en estantes: últimas · tocada", sessions: 2 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const a = await pagina(ctx, "/admin/analytics");
+    await a.locator("#analitica-noticias-estantes").waitFor({ timeout: 40000 }).catch(() => {});
+    const linea = (await a.locator("#analitica-noticias-estantes").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/«Podrían interesarte»: 8 las ven · 3 entran · «Últimas noticias»: 7 las ven · 2 entran/.test(linea), `NE: Administración → Analítica cuenta los carruseles de noticias (${linea})`);
+    ok(a.errores.length === 0, `NE: Analítica sin errores de JavaScript (${a.errores.length})`);
+    await ctx.close();
+  }
+}
+
 async function seccionRE() {
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
   const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, resenas: [], publicarResenas: true };
@@ -26755,6 +26869,7 @@ try {
   if (SOLO === "Z") await seccionZ();
   if (SOLO === "RE") await seccionRE();
   if (SOLO === "OF") await seccionOF();
+  if (SOLO === "NE") await seccionNE();
   if (SOLO === "EN") await seccionEN();
   if (SOLO === "NO") await seccionNO();
   if (SOLO === "BU") await seccionBU();

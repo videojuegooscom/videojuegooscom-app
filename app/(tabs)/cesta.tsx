@@ -72,7 +72,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import CarruselProductosCategoria, { CompletaTuCompra, tipoDeArticulo } from "../../components/CarruselProductosCategoria";
+import CarruselProductosCategoria, { CompletaTuCompra, NoticiasEstantes, tipoDeArticulo } from "../../components/CarruselProductosCategoria";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PieDePagina from "../../components/PieDePagina";
@@ -1109,6 +1109,8 @@ export default function CestaScreen() {
           <BotonBlueElegir conArticulos={items.length > 0} />
 
           <CarruselProductosCategoria />
+          {/* «Noticias que podrían interesarte» (también con lo que lleva en la cesta) y «Últimas noticias» (dueño, 2026-11-26). */}
+          <NoticiasEstantes pantalla="cesta" idsBase={idsCesta} />
           {/* Las redes sociales ya salen en el pie de página (PieDePagina): no se repiten. */}
           </View>
 

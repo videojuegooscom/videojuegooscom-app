@@ -107,7 +107,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { BarraBusquedaFlotante } from "../../components/BarraBusqueda";
-import CarruselProductosCategoria, { VistosRecientemente } from "../../components/CarruselProductosCategoria";
+import CarruselProductosCategoria, { NoticiasEstantes, VistosRecientemente } from "../../components/CarruselProductosCategoria";
 import {
   FotoEntera,
   OPACIDAD_PORTADA_DEFECTO,
@@ -2257,6 +2257,9 @@ export default function PantallaInicio() {
           {/* Recién llegado: lo último que ha entrado (también lo que llega de VeoAura).
               Si no hay nada, no se pinta, ni su separador. */}
           <CarruselProductosCategoria modo="novedades" titulo="Recién llegado" pie={<Separador isMobile={isMobile} />} />
+
+          {/* «Noticias que podrían interesarte» y «Últimas noticias» (dueño, 2026-11-26), cada una con su separador. */}
+          <NoticiasEstantes pantalla="inicio" separador={<Separador isMobile={isMobile} />} />
 
           {/* Vistos recientemente (mejora 9): solo con 3 o más vistos a la venta en este dispositivo y si no son justo los
               de «Recién llegado». Debajo de la oferta y de la primera sección: no empuja la primera pantalla. */}
