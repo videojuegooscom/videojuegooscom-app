@@ -145,6 +145,9 @@ comprobar("USUARIO_PRUEBAS=videojuegoszaragoza" in instalar and "SUDO_USER" not 
           "las pruebas van como el usuario del proyecto, no como quien ejecuta sudo (veoaura no lee el repositorio)")
 comprobar("2>/dev/null)\" ]" not in instalar and "|| abortar \"git no puede leer" in instalar,
           "la comprobación de cambios sin commit falla cerrado si git no puede leer el repositorio")
+comprobar('chattr -a "$LOG/auditoria.jsonl"' in instalar
+          and instalar.index("stat -c '%U:%G %a'") < instalar.index('chown vz-sql:vz-sql "$LOG/auditoria.jsonl"'),
+          "repetible: no intenta cambiar el dueño de la auditoría con el solo-añadir puesto")
 comprobar("rm -rf /" not in instalar and "userdel" not in instalar and "systemctl restart" not in instalar,
           "el instalador no borra usuarios ni reinicia servicios")
 

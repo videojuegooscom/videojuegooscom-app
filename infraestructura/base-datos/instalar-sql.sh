@@ -91,11 +91,19 @@ else
   chown root:vz-sql "$ETC/conexion.env"; chmod 0640 "$ETC/conexion.env"
   echo "$ETC/conexion.env ya existe: no se toca su contenido."
 fi
+# Repetible: si una instalación anterior ya la dejó bien (vz-sql:vz-sql 640 y solo-añadir), no se toca. Si no,
+# se le quita un momento el solo-añadir para poder corregir dueño y permisos (con +a ni root puede cambiarlos).
 touch "$LOG/auditoria.jsonl"
-chown vz-sql:vz-sql "$LOG/auditoria.jsonl"
-chmod 0640 "$LOG/auditoria.jsonl"
-chattr +a "$LOG/auditoria.jsonl" 2>/dev/null && echo "auditoría en modo solo-añadir (chattr +a)" \
-  || echo "AVISO: el sistema de archivos no admite chattr +a; la auditoría queda en 0640"
+if [ "$(stat -c '%U:%G %a' "$LOG/auditoria.jsonl")" = "vz-sql:vz-sql 640" ] \
+   && lsattr -d "$LOG/auditoria.jsonl" 2>/dev/null | cut -d' ' -f1 | grep -q a; then
+  echo "auditoría ya en modo solo-añadir (chattr +a): no se toca"
+else
+  chattr -a "$LOG/auditoria.jsonl" 2>/dev/null || true
+  chown vz-sql:vz-sql "$LOG/auditoria.jsonl"
+  chmod 0640 "$LOG/auditoria.jsonl"
+  chattr +a "$LOG/auditoria.jsonl" 2>/dev/null && echo "auditoría en modo solo-añadir (chattr +a)" \
+    || echo "AVISO: el sistema de archivos no admite chattr +a; la auditoría queda en 0640"
+fi
 
 paso "6/8 Pruebas (como $USUARIO_PRUEBAS, sin privilegios)"
 # test_vz_sql.py: comprobaciones propias y, con pglast, test_clasificador, test_broker y test_integracion_pg.
