@@ -104,9 +104,14 @@ No reinicia ningún otro servicio: tampoco Claude Remote Control. La prueba de i
 ## Pruebas en un entorno aislado (antes de instalar)
 
 ```bash
-python3 infraestructura/base-datos/test_vz_sql.py --lib .expo/vzsql-lib \
-  --pg-bin node_modules/@embedded-postgres/linux-x64/native/bin --pg-lib <enlaces>:node_modules/@embedded-postgres/linux-x64/native/lib
+python3 infraestructura/base-datos/test_vz_sql.py
 ```
+
+Sin opciones, la batería busca sola:
+- pglast, en `/opt/vz-sql/lib` o, si no está instalado, en `.expo/vzsql-lib`;
+- los binarios de PostgreSQL, en `/usr/lib/postgresql` o, si no los hay, en `node_modules/@embedded-postgres` con los enlaces de `.expo/vzsql-pglib`.
+
+También admite `--lib`, `--pg-bin` y `--pg-lib`.
 
 - **pglast y psycopg:** en `.expo/vzsql-lib`, una carpeta que git ignora, descargados con `descargar_dependencias.py` y su hash verificado.
 - **PostgreSQL de usar y tirar:** el de `embedded-postgres` (ver `docs/pruebas-sql-aisladas.md`), en una carpeta temporal, solo por socket y sin red. Al terminar se para y se borra.

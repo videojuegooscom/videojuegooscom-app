@@ -34,13 +34,13 @@ def _argumento(nombre):
 
 # --pg-bin carpeta con initdb y pg_ctl; --pg-lib carpeta de sus librerías (p. ej. los binarios de embedded-postgres,
 # ver docs/pruebas-sql-aisladas.md). Así se prueba en un PostgreSQL de usar y tirar sin instalar nada en el sistema.
-if _argumento("--pg-lib"):
-    os.environ["LD_LIBRARY_PATH"] = ":".join(os.path.abspath(p) for p in _argumento("--pg-lib").split(":") if p)
+RAIZ_REPO = os.path.dirname(os.path.dirname(AQUI))
+EMBEBIDO = os.path.join(RAIZ_REPO, "node_modules", "@embedded-postgres", "linux-x64", "native")
 
 
 def binarios():
     candidatos = [_argumento("--pg-bin"), os.environ.get("VZ_PG_BIN", "")] + \
-        sorted(glob.glob("/usr/lib/postgresql/*/bin"), reverse=True)
+        sorted(glob.glob("/usr/lib/postgresql/*/bin"), reverse=True) + [os.path.join(EMBEBIDO, "bin")]
     for c in candidatos:
         if c and os.path.exists(os.path.join(c, "initdb")) and os.path.exists(os.path.join(c, "pg_ctl")):
             return c
@@ -48,6 +48,12 @@ def binarios():
 
 
 BIN = binarios()
+librerias = _argumento("--pg-lib")
+if not librerias and BIN == os.path.join(EMBEBIDO, "bin"):
+    # embedded-postgres sin su script de instalación: enlaces de .expo/vzsql-pglib y sus librerías.
+    librerias = os.path.join(RAIZ_REPO, ".expo", "vzsql-pglib") + ":" + os.path.join(EMBEBIDO, "lib")
+if librerias:
+    os.environ["LD_LIBRARY_PATH"] = ":".join(os.path.abspath(p) for p in librerias.split(":") if p)
 if not BIN:
     print("OMITIDA: no hay PostgreSQL local (initdb/pg_ctl). Instálalo para ejecutar esta prueba (ver INSTALAR.md).")
     sys.exit(0)

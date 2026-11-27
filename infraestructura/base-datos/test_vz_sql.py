@@ -151,7 +151,12 @@ comprobar(cliente.ORDENES == ("estado", "diagnostico-d8", "consultar", "plan", "
 print(f"parte 1: {comprobaciones - len(fallos)}/{comprobaciones} comprobaciones correctas")
 
 # 7. Parte 2: pruebas que necesitan pglast (y psycopg / PostgreSQL local para la de integración).
-lib = sys.argv[sys.argv.index("--lib") + 1] if "--lib" in sys.argv else os.environ.get("VZ_SQL_LIB", "/opt/vz-sql/lib")
+# Sin --lib: la instalada (/opt/vz-sql/lib) o, para probar ANTES de instalar, la copia aislada del proyecto
+# (.expo/vzsql-lib, que git ignora; ver INSTALAR.md «Pruebas en un entorno aislado»).
+RAIZ_REPO = os.path.dirname(os.path.dirname(AQUI))
+candidatas = ([sys.argv[sys.argv.index("--lib") + 1]] if "--lib" in sys.argv else
+              [os.environ.get("VZ_SQL_LIB", ""), "/opt/vz-sql/lib", os.path.join(RAIZ_REPO, ".expo", "vzsql-lib")])
+lib = next((c for c in candidatas if c and os.path.isdir(os.path.join(c, "pglast"))), candidatas[-1])
 hay_pglast = os.path.isdir(os.path.join(lib, "pglast"))
 if not hay_pglast:
     print(f"parte 2 OMITIDA: falta pglast en {lib} (se ejecuta en instalar-sql.sh, que se detiene si falla)")
