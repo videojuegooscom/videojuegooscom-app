@@ -97,7 +97,13 @@ export function EnlaceNormasForo({ desde, onAbrir }: { desde: "foro" | "comentar
       nativeID={`normas-foro-${desde}`}
       onPress={() => {
         medirEvento("foro_normas_abiertas", "Foro: normas abiertas", { metadata: { desde } });
-        onAbrir?.();
+        // Desde una hoja: primero se cierra y, cuando ha terminado de bajar, se abren las normas (si se abren a la vez,
+        // la capa de la hoja puede quedarse encima, invisible, y no dejar desplazar ni tocar «Volver»).
+        if (onAbrir) {
+          onAbrir();
+          setTimeout(() => router.push("/politicas/normas-foro" as Href), 350);
+          return;
+        }
         router.push("/politicas/normas-foro" as Href);
       }}
       accessibilityRole="link"

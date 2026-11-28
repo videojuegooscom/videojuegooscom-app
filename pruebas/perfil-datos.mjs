@@ -11704,6 +11704,64 @@ async function seccionNW() {
     await p.waitForTimeout(600);
     const normas = await p.evaluate(() => ({ ruta: location.pathname, hoja: !!document.getElementById("comentarios-hoja") }));
     ok(/normas-foro/.test(normas.ruta) && !normas.hoja, `NW: «Leer las normas del Foro» cierra la hoja y abre las normas delante (${JSON.stringify(normas)})`);
+    // En las normas (dueño, 2026-11-28): nada invisible tapa la página, se desplaza con la rueda y con el dedo, y los dos
+    // «Volver» (arriba a la izquierda y el flotante de abajo) devuelven a la noticia.
+    const tapadoNormas = async () =>
+      p.evaluate(() => {
+        const puntos = [[window.innerWidth / 2, window.innerHeight / 2], [40, window.innerHeight - 40]];
+        return puntos
+          .map(([x, y]) => document.elementFromPoint(x, y))
+          .filter((e) => e && e.closest('[aria-modal="true"], [role="dialog"]'))
+          .length;
+      });
+    const desplazado = async () =>
+      p.evaluate(() => Math.max(...[...document.querySelectorAll("div")].filter((d) => d.scrollHeight > d.clientHeight + 20 && /auto|scroll/.test(getComputedStyle(d).overflowY)).map((d) => d.scrollTop), window.scrollY, 0));
+    for (const [ancho, alto, nombre] of [[390, 844, "390"], [360, 640, "360"], [1280, 480, "1280"]]) {
+      await p.setViewportSize({ width: ancho, height: alto });
+      await p.waitForTimeout(400);
+      const tapas = await tapadoNormas();
+      await p.mouse.move(ancho / 2, alto / 2);
+      await p.mouse.wheel(0, 4000);
+      await p.waitForTimeout(800);
+      const tras = await desplazado();
+      // Al final, la última línea queda entera por encima del «Volver» flotante (no tapada como en la foto del dueño).
+      const fin = await p.evaluate(() => {
+        const ultimo = [...document.querySelectorAll('[dir="auto"]')].filter((e) => /ha sido un error/.test(e.textContent ?? "")).pop();
+        const boton = document.getElementById("boton-atras-flotante")?.getBoundingClientRect();
+        const r = ultimo?.getBoundingClientRect();
+        return { textoAbajo: Math.round(r?.bottom ?? 9999), botonArriba: Math.round(boton?.top ?? 0), alto: window.innerHeight };
+      });
+      ok(
+        tapas === 0 && tras > 0 && fin.textoAbajo <= fin.botonArriba,
+        `NW (${nombre}): las normas se desplazan hasta el final, nada las tapa y el «Volver» flotante no pisa la última línea (${JSON.stringify({ tapas, desplazado: tras, ...fin })})`
+      );
+      await p.mouse.wheel(0, -4000);
+      await p.waitForTimeout(400);
+    }
+    await p.setViewportSize({ width: 390, height: 844 });
+    await capturar(p, "NW1h-normas-390");
+    // Con el dedo (pantalla táctil): se arrastra hacia arriba y baja.
+    const cdp = await ctx.newCDPSession(p);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 195, y: 600 }] });
+    for (let i = 1; i <= 10; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 195, y: 600 - i * 35 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await p.waitForTimeout(800);
+    const conDedo = await desplazado();
+    ok(conDedo > 0, `NW: las normas se desplazan con el dedo (${conDedo} px)`);
+    await p.locator("#boton-atras-flotante").click();
+    await p.waitForURL(/\/noticias\//, { timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const trasFlotante = await p.evaluate(() => location.pathname);
+    ok(/^\/noticias\//.test(trasFlotante), `NW: el «Volver» flotante de las normas vuelve a la noticia (${trasFlotante})`);
+    await p.goto(`${BASE}/politicas/normas-foro`, { waitUntil: "load" });
+    await p.locator('[aria-label="Volver"]').first().waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const arriba = p.locator('[aria-label="Volver"]').first();
+    await arriba.click();
+    await p.waitForURL((u) => !/normas-foro/.test(u.pathname), { timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const trasArriba = await p.evaluate(() => location.pathname);
+    ok(!/normas-foro/.test(trasArriba), `NW: el «Volver» de arriba de las normas sale de ellas (${trasArriba})`);
     ok(p.errores.length === 0, `NW: comentarios sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
