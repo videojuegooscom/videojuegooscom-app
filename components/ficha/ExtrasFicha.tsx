@@ -285,7 +285,9 @@ export function InsigniasConfianza({ revisado, garantiaMeses }: { revisado: bool
   } as const;
   const texto = { color: COLORES_TEXTO.texto, fontWeight: "800", fontSize: TAMANOS.minimo + 0.5, lineHeight: 18, flexShrink: 1, textAlign: "center" } as const;
   return (
-    <View nativeID="ficha-confianza" style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, maxWidth: "100%" }}>
+    // «ficha-insignias» (2026-11-28): antes «ficha-confianza», que choca con el apartado «Compra con confianza» del final de
+    // la ficha (app/producto/[id].tsx) y las pruebas encontraban el otro.
+    <View nativeID="ficha-insignias" style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, maxWidth: "100%" }}>
       {revisado ? (
         <View nativeID="ficha-revisado" style={chip}>
           <Ionicons name="checkmark-circle" size={16} color={VERDE_CONFIANZA} />
