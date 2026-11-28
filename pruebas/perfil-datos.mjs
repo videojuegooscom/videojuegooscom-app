@@ -17157,7 +17157,7 @@ async function seccionFCONF() {
     const detalle = await texto(p, "#ficha-entrega-detalle");
     ok(/Entrega estimada/.test(detalle) && /si lo pides hoy antes de las 16:30/.test(detalle) && !/garantiza/i.test(detalle), `FCONF: dice «Entrega estimada … si lo pides hoy antes de las 16:30», sin garantizarlo (${detalle})`);
     ok(/Código postal 50410 \(de tu perfil\)/.test(await texto(p, "#ficha-entrega-cp-actual")), `FCONF: dice de dónde sale el código (${await texto(p, "#ficha-entrega-cp-actual")})`);
-    ok((await texto(p, "#ficha-revisado")) === "Revisado por nuestro equipo" && (await texto(p, "#ficha-garantia")) === "Garantía de 12 meses", `FCONF: con lo que marcó el dueño, «Revisado por nuestro equipo» y «Garantía de 12 meses» (${await texto(p, "#ficha-confianza")})`);
+    ok((await texto(p, "#ficha-revisado")) === "Revisado por nuestro equipo" && (await texto(p, "#ficha-garantia")) === "Garantía de 12 meses", `FCONF: con lo que marcó el dueño, «Revisado por nuestro equipo» y «Garantía de 12 meses» (${await texto(p, "#ficha-insignias")})`);
     await esperar(p, () => evento(estado, "ficha_entrega_estimada").length > 0);
     const e1 = evento(estado, "ficha_entrega_estimada")[0];
     ok(e1?.metadata?.tipo === "mismo_dia" && e1?.metadata?.origen === "perfil" && evento(estado, "ficha_entrega_estimada").length === 1, `FCONF: se mide «ficha_entrega_estimada» una vez: mismo_dia, del perfil (${JSON.stringify(e1?.metadata ?? null)})`);
@@ -17210,7 +17210,7 @@ async function seccionFCONF() {
     ok(local === "Zaragoza y Cuarte de Huerva: llega hoy entre las 17:15 y las 19:00", `FCONF: domingo en Madrid → Zaragoza «llega hoy entre las 17:15 y las 19:00» (con la fecha de Madrid, no la del navegador) (${local})`);
     ok(resto === "Resto de España: llega entre el miércoles y el jueves", `FCONF: y el resto de España «entre el miércoles y el jueves» (${resto})`);
     ok(!llegaDomingo(await texto(p, "#ficha-entrega")) && /sin contar domingos/.test(await texto(p, "#ficha-entrega-detalle")), `FCONF: sin domingos (${await texto(p, "#ficha-entrega-detalle")})`);
-    ok((await p.locator("#ficha-confianza").count()) === 0 && (await p.locator("#ficha-revisado").count()) === 0 && (await p.locator("#ficha-garantia").count()) === 0, "FCONF: sin marcar por el dueño, ni insignia ni garantía");
+    ok((await p.locator("#ficha-insignias").count()) === 0 && (await p.locator("#ficha-revisado").count()) === 0 && (await p.locator("#ficha-garantia").count()) === 0, "FCONF: sin marcar por el dueño, ni insignia ni garantía");
     const boton = await p.evaluate(() => {
       const e = document.getElementById("ficha-entrega-cp-boton");
       return e ? { texto: e.innerText.trim(), alto: Math.round(e.getBoundingClientRect().height) } : null;
@@ -17239,7 +17239,7 @@ async function seccionFCONF() {
     const estado = { filas: [sinCp], guardados: [], aceptaAnalitica: true, producto: producto({ revisado: false, garantia_meses: 6 }), fotosProducto: fotos };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await abrirFicha(ctx, estado);
-    ok((await texto(p, "#ficha-garantia")) === "Garantía de 6 meses" && (await p.locator("#ficha-revisado").count()) === 0, `FCONF: solo con meses, «Garantía de 6 meses» y sin la insignia (${await texto(p, "#ficha-confianza")})`);
+    ok((await texto(p, "#ficha-garantia")) === "Garantía de 6 meses" && (await p.locator("#ficha-revisado").count()) === 0, `FCONF: solo con meses, «Garantía de 6 meses» y sin la insignia (${await texto(p, "#ficha-insignias")})`);
     ok(p.errores.length === 0, `FCONF3: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
@@ -17247,7 +17247,7 @@ async function seccionFCONF() {
     const estado = { filas: [sinCp], guardados: [], aceptaAnalitica: true, producto: producto(), fotosProducto: fotos };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await abrirFicha(ctx, estado);
-    ok((await p.locator("#ficha-confianza").count()) === 0 && (await p.locator("#ficha-entrega").count()) === 1 && (await p.getByText("Comprar ya", { exact: true }).count()) >= 1, "FCONF: sin la columna, la ficha sale entera, sin insignias y con la entrega estimada");
+    ok((await p.locator("#ficha-insignias").count()) === 0 && (await p.locator("#ficha-entrega").count()) === 1 && (await p.getByText("Comprar ya", { exact: true }).count()) >= 1, "FCONF: sin la columna, la ficha sale entera, sin insignias y con la entrega estimada");
     ok(p.errores.length === 0, `FCONF: sin la columna, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
@@ -17362,7 +17362,7 @@ async function seccionFCONF() {
     await p.locator("#ficha-entrega-cp").waitFor({ timeout: 8000 }).catch(() => {});
     const d = await sinDesborde(p);
     const cajas = await p.evaluate(() =>
-      ["ficha-entrega", "ficha-confianza", "ficha-revisado", "ficha-garantia"].map((id) => {
+      ["ficha-entrega", "ficha-insignias", "ficha-revisado", "ficha-garantia"].map((id) => {
         const r = document.getElementById(id)?.getBoundingClientRect();
         return r ? { id, izq: Math.round(r.left), der: Math.round(r.right), v: window.innerWidth } : { id, falta: true };
       })
