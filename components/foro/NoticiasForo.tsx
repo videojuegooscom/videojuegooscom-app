@@ -1485,7 +1485,19 @@ function BotonNoticia({
 // Las respuestas (columna respuesta_a) y los «me gusta» (tabla noticias_comentarios_likes) llegan con la migración
 // 20261128010000_comentarios_respuestas_y_likes: mientras no esté aplicada, la hoja funciona igual sin ellos.
 
-const EMOJIS_RAPIDOS = ["❤️", "🙌", "🔥", "👏", "😢", "😍", "😮", "😂"];
+// Carrusel de emojis (se desliza a los lados): los de Instagram y algunos más de jugones.
+const EMOJIS_RAPIDOS = ["❤️", "🙌", "🔥", "👏", "😢", "😍", "😮", "😂", "🤩", "👀", "💯", "🎮", "🕹️", "😎", "🤔", "🙏"];
+// Sugerencias de comentario según la categoría de la noticia (dueño, 2026-11-28): frases cortas que se pueden tocar para
+// empezar el comentario. Solo preguntas u opiniones, sin datos inventados ni promesas de la tienda.
+const SUGERENCIAS_COMENTARIO: Record<string, string[]> = {
+  Consolas: ["¡Me la pillo!", "¿Cuánto costará en España?", "¿La tendréis en la tienda?", "Prefiero esperar opiniones", "¿Merece la pena el cambio?"],
+  Videojuegos: ["¡Qué ganas de jugarlo!", "¿Alguien lo ha probado?", "Pinta muy bien", "Esperaré a que baje de precio", "¿En qué consolas sale?"],
+  "PC gaming": ["¿Merece la pena actualizar?", "¿Cuánto costará en España?", "Mi PC ya pide cambio", "Buena pinta", "¿Alguien lo ha probado?"],
+  "Móviles y tablets": ["¿Qué tal para jugar?", "¿Cuánto costará en España?", "¿Cuánto aguanta la batería?", "Me interesa", "¿Alguien lo tiene?"],
+  Accesorios: ["¡Lo quiero!", "¿Lo tendréis en la tienda?", "¿Funciona con mi consola?", "Qué buena idea", "¿Alguien lo ha probado?"],
+  Ofertas: ["¡Buen precio!", "¿Hasta cuándo dura?", "¿Lo tendréis en la tienda?", "Me lo pillo", "¿Merece la pena?"],
+  Gaming: ["¡Qué interesante!", "¿Alguien sabe más?", "Muy buena noticia", "No me lo esperaba", "¿Qué opináis?"],
+};
 const RESPUESTAS_VISIBLES = 2;
 
 type ComentarioHoja = ComentarioNoticia & { respuesta_a?: string | null };
@@ -1551,12 +1563,15 @@ function CorazonComentario({ id, total, mio, onPress }: { id: string; total: num
 
 export function HojaComentariosNoticia({
   noticiaId,
+  categoria,
   abierta,
   onCerrar,
   onComentado,
   onPedirSesion,
 }: {
   noticiaId: string;
+  /** Categoría de la noticia, para las sugerencias de comentario. */
+  categoria?: string | null;
   abierta: boolean;
   onCerrar: () => void;
   /** Cambio en el total (+1 al enviar, -1 al eliminar), para el contador del botón «Comentar». */
@@ -1564,10 +1579,11 @@ export function HojaComentariosNoticia({
   /** Sin sesión: la página manda a entrar o crear cuenta y vuelve a la noticia. */
   onPedirSesion: () => void;
 }) {
-  const { height, width } = useWindowDimensions();
+  const { height } = useWindowDimensions();
   const alto = Math.round((height > 0 ? height : 800) * 0.78);
-  // Ocho emojis de 44 px no caben en un móvil estrecho (360 px): ahí van siete, sin salirse.
-  const emojis = width > 0 && width < 380 ? EMOJIS_RAPIDOS.filter((e) => e !== "😮") : EMOJIS_RAPIDOS;
+  const sugerencias = SUGERENCIAS_COMENTARIO[categoria ?? ""] ?? SUGERENCIAS_COMENTARIO.Gaming;
+  // Alto del texto escrito: la caja crece con cada línea (hasta 5) y luego se desplaza por dentro.
+  const [altoTexto, setAltoTexto] = useState(22);
   const [lista, setLista] = useState<ComentarioHoja[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1612,6 +1628,92 @@ export function HojaComentariosNoticia({
       onPanResponderTerminate: () => Animated.spring(arrastre, { toValue: 0, useNativeDriver: false }).start(),
     })
   ).current;
+
+  // En el móvil (web) se puede deslizar hacia abajo en CUALQUIER parte de la hoja (dueño, 2026-11-28), no solo en el
+  // título. Para no cerrarla sin querer al leer: dentro de la lista solo cuenta si la lista ya estaba arriba del todo al
+  // empezar a deslizar (como Instagram); si estaba más abajo, el dedo desplaza los comentarios. Las filas que se mueven a
+  // los lados (sugerencias, emojis) y la caja de escribir no cierran. El asa y el título siguen con su PanResponder (ratón).
+  useEffect(() => {
+    if (!abierta || Platform.OS !== "web" || typeof document === "undefined") return;
+    let hoja: HTMLElement | null = null;
+    let quitar: (() => void) | null = null;
+    const enganchar = () => {
+      hoja = document.getElementById("comentarios-hoja");
+      if (!hoja) return false;
+      let inicio: { x: number; y: number; t: number; puede: boolean } | null = null;
+      let modo: "nada" | "cerrar" | null = null;
+      let ultimo = 0;
+      const lista = () => document.querySelector<HTMLElement>("#comentarios-lista");
+      const alEmpezar = (e: TouchEvent) => {
+        const t = e.touches[0];
+        const objetivo = e.target as HTMLElement | null;
+        modo = null;
+        ultimo = 0;
+        if (!t || e.touches.length > 1 || !objetivo || objetivo.closest("#comentarios-asa") || objetivo.closest("textarea, input")) {
+          inicio = null;
+          return;
+        }
+        const l = lista();
+        const enLista = !!l && l.contains(objetivo);
+        inicio = { x: t.clientX, y: t.clientY, t: Date.now(), puede: !enLista || (l?.scrollTop ?? 0) <= 0 };
+      };
+      const alMover = (e: TouchEvent) => {
+        const t = e.touches[0];
+        if (!inicio || !t) return;
+        const dy = t.clientY - inicio.y;
+        const dx = t.clientX - inicio.x;
+        if (modo === null) {
+          if (Math.abs(dy) < 8 && Math.abs(dx) < 8) return;
+          modo = inicio.puede && dy > 0 && dy > Math.abs(dx) * 1.2 ? "cerrar" : "nada";
+        }
+        if (modo !== "cerrar") return;
+        if (e.cancelable) e.preventDefault();
+        ultimo = Math.max(0, dy);
+        arrastre.setValue(ultimo);
+      };
+      const alSoltar = () => {
+        if (modo === "cerrar" && inicio) {
+          const rapido = ultimo / Math.max(1, Date.now() - inicio.t) > 0.8;
+          if (ultimo > 110 || (ultimo > 40 && rapido)) cerrarRef.current();
+          else Animated.spring(arrastre, { toValue: 0, useNativeDriver: false }).start();
+        }
+        inicio = null;
+        modo = null;
+      };
+      hoja.addEventListener("touchstart", alEmpezar, { passive: true });
+      hoja.addEventListener("touchmove", alMover, { passive: false });
+      hoja.addEventListener("touchend", alSoltar);
+      hoja.addEventListener("touchcancel", alSoltar);
+      quitar = () => {
+        hoja?.removeEventListener("touchstart", alEmpezar);
+        hoja?.removeEventListener("touchmove", alMover);
+        hoja?.removeEventListener("touchend", alSoltar);
+        hoja?.removeEventListener("touchcancel", alSoltar);
+      };
+      return true;
+    };
+    // La hoja (Modal) aparece un instante después de abrirse.
+    let intentos = 0;
+    const reloj = setInterval(() => {
+      if (enganchar() || ++intentos > 40) clearInterval(reloj);
+    }, 50);
+    return () => {
+      clearInterval(reloj);
+      quitar?.();
+    };
+  }, [abierta, arrastre]);
+
+  // En la web el alto del texto se mide en la propia caja (scrollHeight) cada vez que cambia lo escrito.
+  useEffect(() => {
+    if (!abierta || Platform.OS !== "web" || typeof document === "undefined") return;
+    const caja = document.getElementById("comentarios-texto") as HTMLTextAreaElement | null;
+    if (!caja) return;
+    const antes = caja.style.height;
+    caja.style.height = "0px";
+    const medido = caja.scrollHeight - 24;
+    caja.style.height = antes;
+    setAltoTexto(Math.max(22, medido));
+  }, [texto, abierta]);
 
   const cambiarTexto = (t: string) => {
     const nuevo = t.slice(0, MAX_COMENTARIO);
@@ -1990,8 +2092,47 @@ export function HojaComentariosNoticia({
                     Borrador · lo dejaste a medias
                   </Text>
                 ) : null}
-                <View nativeID="comentarios-emojis" style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  {emojis.map((e) => (
+                {/* De arriba abajo (dueño, 2026-11-28): sugerencias de comentario, carrusel de emojis y la caja. */}
+                <ScrollView
+                  nativeID="comentarios-sugerencias"
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}
+                >
+                  {sugerencias.map((s) => (
+                    <Pressable
+                      key={s}
+                      onPress={() => {
+                        cambiarTexto(texto.trim() ? `${texto.trimEnd()} ${s}` : s);
+                        medirEvento("noticia_comentario_sugerencia", "Noticias: sugerencia de comentario", { path: `/noticias/${noticiaId}` });
+                        setTimeout(() => caja_ref.current?.focus(), 30);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Sugerencia: ${s}`}
+                      style={({ pressed }) => ({
+                        minHeight: TACTIL.minimo,
+                        paddingHorizontal: 14,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: COLORS.accentBorder,
+                        backgroundColor: pressed ? COLORS.accentSoft : COLORS.bg,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      })}
+                    >
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14, textAlign: "center" }}>{s}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                <ScrollView
+                  nativeID="comentarios-emojis"
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={{ gap: 2 }}
+                >
+                  {EMOJIS_RAPIDOS.map((e) => (
                     <Pressable
                       key={e}
                       onPress={() => cambiarTexto(texto + e)}
@@ -2002,7 +2143,7 @@ export function HojaComentariosNoticia({
                       <Text style={{ fontSize: 24, textAlign: "center" }}>{e}</Text>
                     </Pressable>
                   ))}
-                </View>
+                </ScrollView>
                 <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
                   <View style={{ flex: 1, minHeight: 48, borderRadius: 24, borderWidth: 1, borderColor: COLORS.accentBorder, backgroundColor: COLORS.accentSoft, paddingHorizontal: 16, justifyContent: "center" }}>
                     <TextInput
@@ -2013,10 +2154,13 @@ export function HojaComentariosNoticia({
                       placeholder={respondiendo ? `Responde a ${respondiendo.nombre}…` : "¿Qué opinas de esto?"}
                       placeholderTextColor={COLORS.muted}
                       multiline
-                      // Una línea al empezar (en la web, una fila); crece al escribir hasta 110 px.
+                      // Una línea al empezar; crece con cada línea escrita hasta 5 y luego se desplaza por dentro.
                       numberOfLines={1}
+                      onContentSizeChange={(e) => {
+                        if (Platform.OS !== "web") setAltoTexto(e.nativeEvent.contentSize.height);
+                      }}
                       accessibilityLabel="Escribe tu comentario"
-                      style={{ fontSize: CAMPO.letra, lineHeight: 22, color: COLORS.text, paddingVertical: 12, maxHeight: 110, textAlign: "center", outlineStyle: "none" } as object}
+                      style={{ fontSize: CAMPO.letra, lineHeight: 22, color: COLORS.text, paddingVertical: 12, height: Math.min(22 * 5, Math.max(22, altoTexto)) + 24, textAlign: "center", outlineStyle: "none" } as object}
                     />
                   </View>
                   <Pressable

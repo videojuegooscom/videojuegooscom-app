@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, type Href } from "expo-router";
 import { useEffect, useState } from "react";
 import { Modal, Pressable, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ImagenInteligente from "../ImagenInteligente";
 import { CAMPO, COLORES_TEXTO } from "../../constants/temaTienda";
 import { medirEvento } from "../../lib/analiticaPropia";
@@ -305,13 +306,21 @@ export function ConfirmarEliminar({
   onCancelar: () => void;
   onConfirmar: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   return (
+    // Abajo, al alcance del pulgar (dueño, 2026-11-28): hoja pegada abajo con los dos botones grandes uno encima del otro;
+    // tocar fuera es «Cancelar».
     <Modal visible transparent animationType="fade" onRequestClose={onCancelar}>
       <View
         nativeID="foro-confirmar-eliminar"
-        style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.55)", alignItems: "center", justifyContent: "center", padding: 16 }}
+        style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.55)", alignItems: "center", justifyContent: "flex-end", paddingHorizontal: 12, paddingBottom: 16 + Math.round(insets.bottom) }}
       >
-        <View style={{ width: "100%", maxWidth: 380, backgroundColor: "#FFFFFF", borderRadius: 24, padding: 18, gap: 12, alignItems: "center" }}>
+        <Pressable
+          accessibilityLabel="Cancelar"
+          onPress={eliminando ? undefined : onCancelar}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+        />
+        <View style={{ width: "100%", maxWidth: 520, backgroundColor: "#FFFFFF", borderRadius: 26, padding: 18, gap: 12, alignItems: "center" }}>
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(220,38,38,0.10)", alignItems: "center", justifyContent: "center" }}>
             <Ionicons name="trash-outline" size={24} color="#DC2626" />
           </View>
@@ -336,14 +345,30 @@ export function ConfirmarEliminar({
               {error}
             </Text>
           ) : null}
-          <View style={{ flexDirection: "row", gap: 10, alignSelf: "stretch" }}>
+          <View style={{ gap: 10, alignSelf: "stretch" }}>
             <Pressable
+              nativeID="foro-eliminar-si"
+              onPress={onConfirmar}
+              disabled={eliminando}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                minHeight: 56,
+                borderRadius: 999,
+                backgroundColor: "#DC2626",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: eliminando ? 0.6 : pressed ? 0.88 : 1,
+              })}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16.5, textAlign: "center" }}>{eliminando ? "Eliminando…" : "Eliminar"}</Text>
+            </Pressable>
+            <Pressable
+              nativeID="foro-eliminar-no"
               onPress={onCancelar}
               disabled={eliminando}
               accessibilityRole="button"
               style={({ pressed }) => ({
-                flex: 1,
-                minHeight: 46,
+                minHeight: 56,
                 borderRadius: 999,
                 borderWidth: 1.5,
                 borderColor: "#E3EAF2",
@@ -352,23 +377,7 @@ export function ConfirmarEliminar({
                 opacity: pressed ? 0.85 : 1,
               })}
             >
-              <Text style={{ color: "#0B2138", fontWeight: "900", fontSize: 15.5 }}>Cancelar</Text>
-            </Pressable>
-            <Pressable
-              onPress={onConfirmar}
-              disabled={eliminando}
-              accessibilityRole="button"
-              style={({ pressed }) => ({
-                flex: 1,
-                minHeight: 46,
-                borderRadius: 999,
-                backgroundColor: "#DC2626",
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: eliminando ? 0.6 : pressed ? 0.88 : 1,
-              })}
-            >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15.5 }}>{eliminando ? "Eliminando…" : "Eliminar"}</Text>
+              <Text style={{ color: "#0B2138", fontWeight: "900", fontSize: 16.5, textAlign: "center" }}>Cancelar</Text>
             </Pressable>
           </View>
         </View>

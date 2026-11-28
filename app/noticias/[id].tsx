@@ -715,6 +715,7 @@ export default function NoticiaScreen() {
       {n ? (
         <HojaComentariosNoticia
           noticiaId={n.id}
+          categoria={n.categoria}
           abierta={comentariosAbiertos}
           onCerrar={() => setComentariosAbiertos(false)}
           onComentado={(cambio) => setTotalComentarios((t) => Math.max(0, (t ?? 0) + cambio))}
