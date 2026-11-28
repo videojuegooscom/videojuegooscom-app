@@ -90,11 +90,14 @@ export function textoSilencio(hasta: string): string {
 
 // Junto al aviso de silencio, el enlace a las Normas del Foro (app/politicas/[slug].tsx, «normas-foro»; se editan en
 // Administración → Políticas): así la persona sabe por qué. Administración → Usuarios cuenta quién las abre.
-export function EnlaceNormasForo({ desde }: { desde: "foro" | "comentarios" }) {
+// `onAbrir`: si el enlace está dentro de una hoja (comentarios), se cierra antes para que las normas no queden detrás.
+export function EnlaceNormasForo({ desde, onAbrir }: { desde: "foro" | "comentarios"; onAbrir?: () => void }) {
   return (
     <Pressable
+      nativeID={`normas-foro-${desde}`}
       onPress={() => {
         medirEvento("foro_normas_abiertas", "Foro: normas abiertas", { metadata: { desde } });
+        onAbrir?.();
         router.push("/politicas/normas-foro" as Href);
       }}
       accessibilityRole="link"

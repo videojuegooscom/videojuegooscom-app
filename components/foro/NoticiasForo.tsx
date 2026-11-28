@@ -1479,8 +1479,75 @@ function BotonNoticia({
 // colores»: hoja que sube desde abajo con asa, «Comentarios», la lista, emojis rápidos y «¿Qué opinas de esto?». Misma
 // tabla y mismas reglas que los comentarios del Foro (leer es público; escribir pide sesión; silenciados no pueden;
 // un administrador puede eliminar). Textos centrados (lección «Texto centrado siempre»): el avatar a un lado.
+// Retoques del dueño (2026-11-28): se cierra SOLO arrastrando hacia abajo (sin «X» ni tocar fuera); lo que se estaba
+// escribiendo queda como «Borrador»; con el teclado abierto, la caja va justo encima (como Instagram); «Leer las normas»
+// cierra la hoja antes de abrirlas; «me gusta» a cada comentario y respuestas, con «Ver N respuestas más» si hay más de 2.
+// Las respuestas (columna respuesta_a) y los «me gusta» (tabla noticias_comentarios_likes) llegan con la migración
+// 20261128010000_comentarios_respuestas_y_likes: mientras no esté aplicada, la hoja funciona igual sin ellos.
 
 const EMOJIS_RAPIDOS = ["❤️", "🙌", "🔥", "👏", "😢", "😍", "😮", "😂"];
+const RESPUESTAS_VISIBLES = 2;
+
+type ComentarioHoja = ComentarioNoticia & { respuesta_a?: string | null };
+
+// Borrador de cada noticia: en memoria y en el dispositivo (sobrevive a cerrar la hoja o recargar la página).
+const BORRADORES = new Map<string, string>();
+const claveBorrador = (noticiaId: string) => `videojuegoszaragoza:borrador_comentario:${noticiaId}`;
+function leerBorrador(noticiaId: string): string {
+  if (BORRADORES.has(noticiaId)) return BORRADORES.get(noticiaId) ?? "";
+  try {
+    return (typeof localStorage !== "undefined" && localStorage.getItem(claveBorrador(noticiaId))) || "";
+  } catch {
+    return "";
+  }
+}
+function guardarBorrador(noticiaId: string, texto: string) {
+  BORRADORES.set(noticiaId, texto);
+  try {
+    if (typeof localStorage === "undefined") return;
+    if (texto.trim()) localStorage.setItem(claveBorrador(noticiaId), texto);
+    else localStorage.removeItem(claveBorrador(noticiaId));
+  } catch {
+    // sin almacenamiento: el borrador vive solo en memoria
+  }
+}
+// La columna o la tabla nuevas aún no existen (migración sin aplicar): se sigue sin esa parte.
+function faltaEnBase(error: unknown, nombre: string): boolean {
+  const e = error as { code?: unknown; message?: unknown } | null;
+  const codigo = String(e?.code ?? "");
+  return codigo === "42703" || codigo === "42P01" || codigo === "PGRST204" || codigo === "PGRST205" || String(e?.message ?? "").includes(nombre);
+}
+
+// Corazón de un comentario: salta al darle, como el de la barra de la noticia.
+function CorazonComentario({ id, total, mio, onPress }: { id: string; total: number; mio: boolean; onPress: () => void }) {
+  const escala = useRef(new Animated.Value(1)).current;
+  const pulsar = () => {
+    if (!mio) {
+      escala.setValue(1);
+      Animated.sequence([
+        Animated.timing(escala, { toValue: 1.45, duration: 140, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== "web" }),
+        Animated.timing(escala, { toValue: 0.88, duration: 110, easing: Easing.inOut(Easing.quad), useNativeDriver: Platform.OS !== "web" }),
+        Animated.spring(escala, { toValue: 1, friction: 4, tension: 160, useNativeDriver: Platform.OS !== "web" }),
+      ]).start();
+    }
+    onPress();
+  };
+  return (
+    <Pressable
+      nativeID={`comentario-me-gusta-${id}`}
+      onPress={pulsar}
+      accessibilityRole="button"
+      accessibilityLabel={mio ? "Quitar me gusta del comentario" : "Me gusta el comentario"}
+      accessibilityState={{ selected: mio }}
+      style={{ width: TACTIL.minimo, minHeight: TACTIL.minimo, alignItems: "center", justifyContent: "center" }}
+    >
+      <Animated.View style={{ transform: [{ scale: escala }] }}>
+        <Ionicons name={mio ? "heart" : "heart-outline"} size={18} color={mio ? "#E5484D" : COLORS.soft} />
+      </Animated.View>
+      {total > 0 ? <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo, textAlign: "center" }}>{total}</Text> : null}
+    </Pressable>
+  );
+}
 
 export function HojaComentariosNoticia({
   noticiaId,
@@ -1501,31 +1568,74 @@ export function HojaComentariosNoticia({
   const alto = Math.round((height > 0 ? height : 800) * 0.78);
   // Ocho emojis de 44 px no caben en un móvil estrecho (360 px): ahí van siete, sin salirse.
   const emojis = width > 0 && width < 380 ? EMOJIS_RAPIDOS.filter((e) => e !== "😮") : EMOJIS_RAPIDOS;
-  const [lista, setLista] = useState<ComentarioNoticia[]>([]);
+  const [lista, setLista] = useState<ComentarioHoja[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [texto, setTexto] = useState("");
+  const [esBorrador, setEsBorrador] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [conSesion, setConSesion] = useState<boolean | null>(null);
+  const [miId, setMiId] = useState<string | null>(null);
   const [perfiles, setPerfiles] = useState<Record<string, PerfilForo>>({});
   const esAdmin = useEsAdminForo();
-  const [aEliminar, setAEliminar] = useState<ComentarioNoticia | null>(null);
+  const [aEliminar, setAEliminar] = useState<ComentarioHoja | null>(null);
   const [eliminando, setEliminando] = useState(false);
   const [errorEliminar, setErrorEliminar] = useState<string | null>(null);
+  // Respuestas y «me gusta» (si la migración ya está aplicada).
+  const [conRespuestas, setConRespuestas] = useState(true);
+  const [conLikes, setConLikes] = useState(true);
+  const [likes, setLikes] = useState<Record<string, number>>({});
+  const [misLikes, setMisLikes] = useState<Set<string>>(new Set());
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
+  const [respondiendo, setRespondiendo] = useState<{ id: string; nombre: string } | null>(null);
+  // Teclado del móvil en la web: cuánto tapa por abajo y alto visible, para dejar la caja justo encima.
+  const [teclado, setTeclado] = useState<{ tapa: number; visible: number | null }>({ tapa: 0, visible: null });
   const vivo = useRef(true);
   const lista_ref = useRef<ScrollView>(null);
-  // Arrastrar el asa hacia abajo la cierra, como en Instagram.
+  const caja_ref = useRef<TextInput>(null);
+  // Se cierra SOLO arrastrando hacia abajo (asa y título), como en Instagram.
   const arrastre = useRef(new Animated.Value(0)).current;
+  const cerrarRef = useRef(onCerrar);
+  cerrarRef.current = onCerrar;
   const gestos = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_e, g) => g.dy > 6,
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, g) => g.dy > 4,
+      // Que la lista o el navegador no se queden el gesto a medias (si no, la hoja vuelve sin cerrarse).
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
       onPanResponderMove: (_e, g) => arrastre.setValue(Math.max(0, g.dy)),
       onPanResponderRelease: (_e, g) => {
-        if (g.dy > 90) onCerrar();
-        Animated.spring(arrastre, { toValue: 0, useNativeDriver: false }).start();
+        if (g.dy > 90 || (g.dy > 30 && g.vy > 0.8)) cerrarRef.current();
+        else Animated.spring(arrastre, { toValue: 0, useNativeDriver: false }).start();
       },
+      onPanResponderTerminate: () => Animated.spring(arrastre, { toValue: 0, useNativeDriver: false }).start(),
     })
   ).current;
+
+  const cambiarTexto = (t: string) => {
+    const nuevo = t.slice(0, MAX_COMENTARIO);
+    setTexto(nuevo);
+    setEsBorrador(false);
+    guardarBorrador(noticiaId, nuevo);
+  };
+
+  useEffect(() => {
+    if (!abierta || Platform.OS !== "web" || typeof window === "undefined") return;
+    const vv = (window as unknown as { visualViewport?: VisualViewport }).visualViewport;
+    if (!vv) return;
+    const medir = () => {
+      const tapa = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      setTeclado({ tapa: tapa > 60 ? tapa : 0, visible: Math.round(vv.height) });
+    };
+    medir();
+    vv.addEventListener("resize", medir);
+    vv.addEventListener("scroll", medir);
+    return () => {
+      vv.removeEventListener("resize", medir);
+      vv.removeEventListener("scroll", medir);
+    };
+  }, [abierta]);
 
   useEffect(() => {
     vivo.current = true;
@@ -1539,21 +1649,94 @@ export function HojaComentariosNoticia({
     arrastre.setValue(0);
     setCargando(true);
     setError(null);
-    void supabase.auth.getSession().then(({ data }) => vivo.current && setConSesion(!!data.session?.user));
+    setRespondiendo(null);
+    // Lo que se estaba escribiendo la última vez vuelve como «Borrador».
+    const borrador = leerBorrador(noticiaId);
+    setTexto(borrador);
+    setEsBorrador(!!borrador.trim());
     (async () => {
-      const { data, error: fallo } = await supabase
-        .from("noticias_comentarios")
-        .select("id,created_at,autor,texto,user_id")
-        .eq("noticia_id", noticiaId)
-        .eq("oculto", false)
-        .order("created_at", { ascending: true })
-        .limit(200);
+      const { data: s } = await supabase.auth.getSession();
+      const uid = s.session?.user?.id ?? null;
+      if (vivo.current) {
+        setConSesion(!!uid);
+        setMiId(uid);
+      }
+      const pedir = (columnas: string) =>
+        supabase.from("noticias_comentarios").select(columnas).eq("noticia_id", noticiaId).eq("oculto", false).order("created_at", { ascending: true }).limit(300);
+      let { data, error: fallo } = await pedir("id,created_at,autor,texto,user_id,respuesta_a");
+      let respuestas = true;
+      if (fallo && faltaEnBase(fallo, "respuesta_a")) {
+        respuestas = false;
+        ({ data, error: fallo } = await pedir("id,created_at,autor,texto,user_id"));
+      }
       if (!vivo.current) return;
-      if (fallo) setError("No se pudieron cargar los comentarios.");
-      else setLista((data ?? []) as ComentarioNoticia[]);
+      setConRespuestas(respuestas);
+      if (fallo) {
+        setError("No se pudieron cargar los comentarios.");
+        setCargando(false);
+        return;
+      }
+      const filas = (data ?? []) as unknown as ComentarioHoja[];
+      setLista(filas);
       setCargando(false);
+      // «Me gusta» de los comentarios (total y los míos).
+      if (!filas.length) return;
+      const { data: ls, error: falloLikes } = await supabase
+        .from("noticias_comentarios_likes")
+        .select("comentario_id,user_id")
+        .in("comentario_id", filas.map((f) => f.id));
+      if (!vivo.current) return;
+      if (falloLikes) {
+        if (faltaEnBase(falloLikes, "noticias_comentarios_likes")) setConLikes(false);
+        return;
+      }
+      setConLikes(true);
+      const totales: Record<string, number> = {};
+      const mios = new Set<string>();
+      for (const l of (ls ?? []) as { comentario_id: string; user_id: string }[]) {
+        totales[l.comentario_id] = (totales[l.comentario_id] ?? 0) + 1;
+        if (uid && l.user_id === uid) mios.add(l.comentario_id);
+      }
+      setLikes(totales);
+      setMisLikes(mios);
     })();
   }, [abierta, noticiaId, arrastre]);
+
+  async function alternarLike(c: ComentarioHoja) {
+    if (!miId) {
+      onPedirSesion();
+      return;
+    }
+    const tenia = misLikes.has(c.id);
+    const aplicar = (mio: boolean) => {
+      setMisLikes((prev) => {
+        const n = new Set(prev);
+        if (mio) n.add(c.id);
+        else n.delete(c.id);
+        return n;
+      });
+      setLikes((prev) => ({ ...prev, [c.id]: Math.max(0, (prev[c.id] ?? 0) + (mio ? 1 : -1)) }));
+    };
+    aplicar(!tenia);
+    const { error: fallo } = tenia
+      ? await supabase.from("noticias_comentarios_likes").delete().eq("comentario_id", c.id).eq("user_id", miId)
+      : await supabase.from("noticias_comentarios_likes").insert({ comentario_id: c.id });
+    // 23505: ya lo había dado (otro dispositivo): se queda dado.
+    if (fallo && !(!tenia && fallo.code === "23505")) aplicar(tenia);
+    else if (!tenia) medirEvento("noticia_comentario_like", "Noticias: me gusta a un comentario", { path: `/noticias/${noticiaId}` });
+  }
+
+  function responder(c: ComentarioHoja, nombre: string) {
+    if (!miId) {
+      onPedirSesion();
+      return;
+    }
+    // Las respuestas cuelgan siempre del comentario principal (un solo nivel, como Instagram).
+    const principal = c.respuesta_a ? c.respuesta_a : c.id;
+    setRespondiendo({ id: principal, nombre });
+    if (!texto.trim().startsWith(`@${nombre}`)) cambiarTexto(`@${nombre} ${texto}`.slice(0, MAX_COMENTARIO));
+    setTimeout(() => caja_ref.current?.focus(), 60);
+  }
 
   useEffect(() => {
     const ids = lista.map((c) => c.user_id).filter((id): id is string => Boolean(id));
@@ -1581,18 +1764,27 @@ export function HojaComentariosNoticia({
         onPedirSesion();
         return;
       }
+      const respuestaA = conRespuestas && respondiendo ? respondiendo.id : null;
       const { data, error: fallo } = await supabase
         .from("noticias_comentarios")
-        .insert({ noticia_id: noticiaId, autor: nombreVisibleForo(user), texto: limpio })
-        .select("id,created_at,autor,texto,user_id")
+        .insert({ noticia_id: noticiaId, autor: nombreVisibleForo(user), texto: limpio, ...(respuestaA ? { respuesta_a: respuestaA } : {}) })
+        .select(conRespuestas ? "id,created_at,autor,texto,user_id,respuesta_a" : "id,created_at,autor,texto,user_id")
         .single();
       if (fallo) throw fallo;
       if (!vivo.current) return;
-      setLista((prev) => [...prev, data as ComentarioNoticia]);
+      setLista((prev) => [...prev, data as unknown as ComentarioHoja]);
       setTexto("");
+      setEsBorrador(false);
+      guardarBorrador(noticiaId, "");
+      setRespondiendo(null);
       onComentado(1);
-      medirEvento("noticia_comentario", "Noticias: comentario enviado desde la noticia", { path: `/noticias/${noticiaId}` });
-      setTimeout(() => lista_ref.current?.scrollToEnd({ animated: true }), 80);
+      if (respuestaA) {
+        setAbiertos((prev) => new Set(prev).add(respuestaA));
+        medirEvento("noticia_comentario_respuesta", "Noticias: respuesta a un comentario", { path: `/noticias/${noticiaId}` });
+      } else {
+        medirEvento("noticia_comentario", "Noticias: comentario enviado desde la noticia", { path: `/noticias/${noticiaId}` });
+        setTimeout(() => lista_ref.current?.scrollToEnd({ animated: true }), 80);
+      }
     } catch (e) {
       console.warn("Error enviando el comentario:", e);
       const silenciado = String((e as { code?: unknown } | null)?.code ?? "") === "42501";
@@ -1618,8 +1810,10 @@ export function HojaComentariosNoticia({
       if (!Array.isArray(data) || data.length === 0) throw new Error("no borrado");
       if (!vivo.current) return;
       const id = aEliminar.id;
-      setLista((prev) => prev.filter((c) => c.id !== id));
-      onComentado(-1);
+      // Con el comentario se van de la vista sus respuestas.
+      const quitados = lista.filter((c) => c.id === id || c.respuesta_a === id).length;
+      setLista((prev) => prev.filter((c) => c.id !== id && c.respuesta_a !== id));
+      onComentado(-quitados);
       setAEliminar(null);
     } catch (e) {
       console.warn("Error eliminando el comentario:", e);
@@ -1631,18 +1825,14 @@ export function HojaComentariosNoticia({
 
   return (
     <Modal visible={abierta} transparent animationType="slide" onRequestClose={onCerrar}>
-      <View style={{ flex: 1, justifyContent: "flex-end" }}>
-        <Pressable
-          nativeID="comentarios-fondo"
-          accessibilityRole="button"
-          accessibilityLabel="Cerrar comentarios"
-          onPress={onCerrar}
-          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(3,10,18,0.45)" }}
-        />
+      {/* Con el teclado abierto (web del móvil) la hoja se apoya justo encima de él y se ajusta al alto visible. */}
+      <View style={{ flex: 1, justifyContent: "flex-end", paddingBottom: teclado.tapa }}>
+        {/* Fondo oscuro: NO cierra al tocarlo (dueño, 2026-11-28: solo con el gesto hacia abajo). */}
+        <View nativeID="comentarios-fondo" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(3,10,18,0.45)" }} />
         <Animated.View
           nativeID="comentarios-hoja"
           style={{
-            height: alto,
+            height: teclado.tapa && teclado.visible ? Math.min(alto, teclado.visible - 12) : alto,
             width: "100%",
             maxWidth: 640,
             alignSelf: "center",
@@ -1654,23 +1844,18 @@ export function HojaComentariosNoticia({
             boxShadow: "0px -8px 30px rgba(11,33,56,0.18)",
           }}
         >
-          {/* Asa y título: se arrastran hacia abajo para cerrar. */}
-          <View {...gestos.panHandlers} style={{ alignItems: "center", paddingTop: 10, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+          {/* Asa y título: la única forma de cerrar es arrastrarlos hacia abajo con el pulgar (como Instagram). */}
+          <View
+            nativeID="comentarios-asa"
+            {...gestos.panHandlers}
+            accessibilityHint="Desliza hacia abajo para cerrar"
+            style={{ alignItems: "center", paddingTop: 10, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border, cursor: "grab", touchAction: "none" } as object}
+          >
             <View style={{ width: 44, height: 5, borderRadius: 3, backgroundColor: "#C9D6E3" }} />
             <View style={{ width: "100%", minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: 6 }}>
               <Text nativeID="comentarios-titulo" accessibilityRole="header" style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
                 Comentarios{lista.length ? ` · ${lista.length}` : ""}
               </Text>
-              <Pressable
-                nativeID="comentarios-cerrar"
-                onPress={onCerrar}
-                accessibilityRole="button"
-                accessibilityLabel="Cerrar comentarios"
-                hitSlop={6}
-                style={({ pressed }) => ({ position: "absolute", right: 10, width: TACTIL.minimo, height: TACTIL.minimo, borderRadius: TACTIL.minimo / 2, alignItems: "center", justifyContent: "center", backgroundColor: pressed ? COLORS.accentSoft : "transparent" })}
-              >
-                <Ionicons name="close" size={22} color={COLORS.text} />
-              </Pressable>
             </View>
           </View>
 
@@ -1684,38 +1869,85 @@ export function HojaComentariosNoticia({
                 <Text style={{ color: COLORS.muted, fontSize: 14, textAlign: "center" }}>¡Sé el primero en opinar!</Text>
               </View>
             ) : (
-              lista.map((c) => {
-                const perfil = c.user_id ? perfiles[c.user_id] : undefined;
-                const nombre = perfil?.usuario || c.autor;
-                return (
-                  <View key={c.id} nativeID={`comentario-${c.id}`} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
-                    <AvatarCircle username={nombre} foto={perfil?.foto || undefined} size={36} />
-                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                      <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo, textAlign: "center" }}>
-                        <Text style={{ color: COLORS.text, fontWeight: "900" }}>{nombre}</Text>
-                        {` · ${haceTiempo(c.created_at)}`}
-                      </Text>
-                      <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 21, textAlign: "center" }}>{c.texto}</Text>
+              (() => {
+                const principales = lista.filter((c) => !c.respuesta_a);
+                const respuestasDe = (id: string) => lista.filter((c) => c.respuesta_a === id);
+                // Un comentario (o una respuesta, más pequeña y metida): avatar, usuario · hace, texto, «Responder» y el
+                // corazón con su número a la derecha; la papelera del administrador debajo del corazón.
+                const fila = (c: ComentarioHoja, esRespuesta: boolean) => {
+                  const perfil = c.user_id ? perfiles[c.user_id] : undefined;
+                  const nombre = perfil?.usuario || c.autor;
+                  return (
+                    <View key={c.id} nativeID={`comentario-${c.id}`} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, marginLeft: esRespuesta ? 46 : 0 }}>
+                      <AvatarCircle username={nombre} foto={perfil?.foto || undefined} size={esRespuesta ? 28 : 36} />
+                      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                        <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                          <Text style={{ color: COLORS.text, fontWeight: "900" }}>{nombre}</Text>
+                          {` · ${haceTiempo(c.created_at)}`}
+                        </Text>
+                        <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 21, textAlign: "center" }}>{c.texto}</Text>
+                        {conRespuestas ? (
+                          <Pressable
+                            nativeID={`comentario-responder-${c.id}`}
+                            onPress={() => responder(c, nombre)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Responder a ${nombre}`}
+                            style={{ alignSelf: "center", minHeight: TACTIL.minimo, minWidth: TACTIL.minimo, paddingHorizontal: 8, justifyContent: "center" }}
+                          >
+                            <Text style={{ color: COLORS.soft, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>Responder</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                      <View style={{ alignItems: "center" }}>
+                        {conLikes ? (
+                          <CorazonComentario id={c.id} total={likes[c.id] ?? 0} mio={misLikes.has(c.id)} onPress={() => void alternarLike(c)} />
+                        ) : (
+                          <View style={{ width: TACTIL.minimo }} />
+                        )}
+                        {esAdmin ? (
+                          <Pressable
+                            onPress={() => {
+                              setErrorEliminar(null);
+                              setAEliminar(c);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Eliminar comentario"
+                            hitSlop={8}
+                            style={({ pressed }) => ({ width: TACTIL.minimo, height: TACTIL.minimo, borderRadius: TACTIL.minimo / 2, alignItems: "center", justifyContent: "center", backgroundColor: pressed ? "rgba(220,38,38,0.12)" : "transparent" })}
+                          >
+                            <Ionicons name="trash-outline" size={17} color="#DC2626" />
+                          </Pressable>
+                        ) : null}
+                      </View>
                     </View>
-                    {esAdmin ? (
-                      <Pressable
-                        onPress={() => {
-                          setErrorEliminar(null);
-                          setAEliminar(c);
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel="Eliminar comentario"
-                        hitSlop={8}
-                        style={({ pressed }) => ({ width: TACTIL.minimo, height: TACTIL.minimo, borderRadius: TACTIL.minimo / 2, alignItems: "center", justifyContent: "center", backgroundColor: pressed ? "rgba(220,38,38,0.12)" : "transparent" })}
-                      >
-                        <Ionicons name="trash-outline" size={17} color="#DC2626" />
-                      </Pressable>
-                    ) : (
-                      <View style={{ width: 36 }} />
-                    )}
-                  </View>
-                );
-              })
+                  );
+                };
+                return principales.map((c) => {
+                  const respuestas = respuestasDe(c.id);
+                  const todas = abiertos.has(c.id) || respuestas.length <= RESPUESTAS_VISIBLES;
+                  const visibles = todas ? respuestas : respuestas.slice(0, RESPUESTAS_VISIBLES);
+                  const ocultas = respuestas.length - visibles.length;
+                  return (
+                    <View key={c.id} style={{ gap: 10 }}>
+                      {fila(c, false)}
+                      {visibles.map((r) => fila(r, true))}
+                      {ocultas > 0 ? (
+                        <Pressable
+                          nativeID={`comentario-ver-mas-${c.id}`}
+                          onPress={() => setAbiertos((prev) => new Set(prev).add(c.id))}
+                          accessibilityRole="button"
+                          style={{ marginLeft: 46, minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}
+                        >
+                          <View style={{ width: 24, height: 1, backgroundColor: COLORS.border }} />
+                          <Text style={{ color: COLORS.soft, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                            {`Ver ${ocultas} ${ocultas === 1 ? "respuesta más" : "respuestas más"}`}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  );
+                });
+              })()
             )}
           </ScrollView>
 
@@ -1737,11 +1969,32 @@ export function HojaComentariosNoticia({
               </Pressable>
             ) : (
               <>
+                {respondiendo ? (
+                  <View nativeID="comentarios-respondiendo" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: COLORS.accentSoft, borderRadius: 12, paddingLeft: 12 }}>
+                    <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center", flexShrink: 1 }}>
+                      Respondiendo a <Text style={{ color: COLORS.text, fontWeight: "900" }}>{respondiendo.nombre}</Text>
+                    </Text>
+                    <Pressable
+                      nativeID="comentarios-respondiendo-quitar"
+                      onPress={() => setRespondiendo(null)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Dejar de responder"
+                      style={{ width: TACTIL.minimo, height: TACTIL.minimo, alignItems: "center", justifyContent: "center" }}
+                    >
+                      <Ionicons name="close" size={18} color={COLORS.soft} />
+                    </Pressable>
+                  </View>
+                ) : null}
+                {esBorrador && texto ? (
+                  <Text nativeID="comentarios-borrador" style={{ color: COLORS.soft, fontSize: TAMANOS.minimo, fontWeight: "800", textAlign: "center" }}>
+                    Borrador · lo dejaste a medias
+                  </Text>
+                ) : null}
                 <View nativeID="comentarios-emojis" style={{ flexDirection: "row", justifyContent: "space-between" }}>
                   {emojis.map((e) => (
                     <Pressable
                       key={e}
-                      onPress={() => setTexto((t) => (t + e).slice(0, MAX_COMENTARIO))}
+                      onPress={() => cambiarTexto(texto + e)}
                       accessibilityRole="button"
                       accessibilityLabel={`Añadir ${e}`}
                       style={({ pressed }) => ({ width: TACTIL.minimo, height: TACTIL.minimo, borderRadius: TACTIL.minimo / 2, alignItems: "center", justifyContent: "center", backgroundColor: pressed ? COLORS.accentSoft : "transparent" })}
@@ -1754,9 +2007,10 @@ export function HojaComentariosNoticia({
                   <View style={{ flex: 1, minHeight: 48, borderRadius: 24, borderWidth: 1, borderColor: COLORS.accentBorder, backgroundColor: COLORS.accentSoft, paddingHorizontal: 16, justifyContent: "center" }}>
                     <TextInput
                       nativeID="comentarios-texto"
+                      ref={caja_ref}
                       value={texto}
-                      onChangeText={(t) => setTexto(t.slice(0, MAX_COMENTARIO))}
-                      placeholder="¿Qué opinas de esto?"
+                      onChangeText={cambiarTexto}
+                      placeholder={respondiendo ? `Responde a ${respondiendo.nombre}…` : "¿Qué opinas de esto?"}
                       placeholderTextColor={COLORS.muted}
                       multiline
                       // Una línea al empezar (en la web, una fila); crece al escribir hasta 110 px.
@@ -1777,7 +2031,8 @@ export function HojaComentariosNoticia({
                     {enviando ? <ActivityIndicator color="#FFFFFF" /> : <Ionicons name="paper-plane" size={20} color="#FFFFFF" />}
                   </Pressable>
                 </View>
-                <EnlaceNormasForo desde="comentarios" />
+                {/* Con el teclado abierto se esconde, como en Instagram; al abrirlas se cierra la hoja (el borrador se queda). */}
+                {teclado.tapa ? null : <EnlaceNormasForo desde="comentarios" onAbrir={onCerrar} />}
               </>
             )}
           </View>

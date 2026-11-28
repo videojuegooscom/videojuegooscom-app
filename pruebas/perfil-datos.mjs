@@ -1504,6 +1504,22 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         return r.fulfill({ status: 204, headers: CORS, body: "" });
       }
     }
+    // «Me gusta» de los comentarios de una noticia (hoja de comentarios, 2026-11-28): leer, dar y quitar. Sin
+    // `likesComentarios` la tabla no existe (migración sin aplicar) y la hoja esconde los corazones.
+    if (url.pathname.endsWith("/rest/v1/noticias_comentarios_likes")) {
+      if (!estado.likesComentarios) return json({ code: "PGRST205", message: "Could not find the table 'public.noticias_comentarios_likes' in the schema cache" }, 404);
+      const id = (url.searchParams.get("comentario_id") ?? "").replace(/^eq\./, "");
+      if (metodo === "GET") return json(estado.likesComentarios);
+      if (metodo === "POST") {
+        const fila = JSON.parse(peticion.postData() ?? "{}");
+        estado.likesComentarios.push({ comentario_id: fila.comentario_id, user_id: estado.miIdForo ?? "yo" });
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+      if (metodo === "DELETE") {
+        estado.likesComentarios = estado.likesComentarios.filter((l) => !(l.comentario_id === id && l.user_id === (estado.miIdForo ?? "yo")));
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+    }
     // Noticias y sus comentarios ficticios (solo si la prueba los da).
     // Noticias nuevas que cuenta Blue (sección MC): la más reciente y el total, como PostgREST (Content-Range).
     if (url.pathname.endsWith("/rest/v1/noticias_gaming") && metodo === "GET" && estado.noticiasNuevasBlue && /select=id(%2C|,)titulo/.test(url.search)) {
@@ -1584,6 +1600,9 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(sin, 201) : json([sin], 201);
       }
       if (metodo === "GET" && estado.comentarios) {
+        if (estado.comentariosSinRespuestas && /respuesta_a/.test(url.searchParams.get("select") ?? "")) {
+          return json({ code: "42703", message: "column noticias_comentarios.respuesta_a does not exist" }, 400);
+        }
         const visibles = estado.comentarios.filter((c) => !(estado.ocultados ?? []).some((o) => o.id === c.id));
         if ((url.searchParams.get("select") ?? "").startsWith("noticia_id")) return json(visibles.map((c) => ({ noticia_id: c.noticia_id })));
         return json(visibles.map(({ noticia_id: _n, ...c }) => c));
@@ -11647,12 +11666,154 @@ async function seccionNW() {
       ["Noticias: barra · comentar", "Noticias: comentario enviado desde la noticia"].every((l) => (estado.eventosEnviados ?? []).some((e) => e.step_label === l)),
       "NW: abrir los comentarios y publicar uno se cuenta en Analítica"
     );
-    // Cerrar: la «X» la cierra y «Comentar» ya cuenta 2.
-    await p.locator("#comentarios-cerrar").click();
-    await p.waitForTimeout(700);
+    // Cerrar (dueño, 2026-11-28): sin «X» y tocar fuera NO cierra; solo deslizar hacia abajo el asa. Lo que estaba a medias
+    // queda como «Borrador» al volver a abrir.
+    await p.locator("#comentarios-texto").click();
+    await p.keyboard.type("Lo dejo a medias");
+    const sinX = await p.evaluate(() => !document.getElementById("comentarios-cerrar"));
+    await p.mouse.click(195, 60);
+    await p.waitForTimeout(500);
+    const sigue = await p.evaluate(() => !!document.getElementById("comentarios-hoja"));
+    ok(sinX && sigue, `NW: sin «X» y tocar fuera no cierra la hoja (${JSON.stringify({ sinX, sigue })})`);
+    const deslizar = async (cuanto) => {
+      const asa = await p.locator("#comentarios-asa").boundingBox();
+      await p.mouse.move(asa.x + asa.width / 2, asa.y + 12);
+      await p.mouse.down();
+      for (let i = 1; i <= 8; i++) await p.mouse.move(asa.x + asa.width / 2, asa.y + 12 + (cuanto * i) / 8);
+      await p.mouse.up();
+      await p.waitForTimeout(800);
+    };
+    await deslizar(40);
+    const pocoDeslizar = await p.evaluate(() => !!document.getElementById("comentarios-hoja"));
+    ok(pocoDeslizar, "NW: deslizar un poco no cierra (la hoja vuelve a su sitio)");
+    await deslizar(180);
     const cerrada = await p.evaluate(() => ({ hoja: !!document.getElementById("comentarios-hoja"), comentar: document.getElementById("noticia-comentar")?.innerText.trim() ?? "" }));
-    ok(!cerrada.hoja && /Comentar · 2$/.test(cerrada.comentar), `NW: la «X» cierra la hoja y «Comentar» suma el nuevo (${JSON.stringify(cerrada)})`);
+    ok(!cerrada.hoja && /Comentar · 2$/.test(cerrada.comentar), `NW: deslizar hacia abajo cierra la hoja y «Comentar» suma el nuevo (${JSON.stringify(cerrada)})`);
+    await p.locator("#noticia-comentar").click();
+    await p.locator("#comentarios-borrador").waitFor({ timeout: 10000 }).catch(() => {});
+    const borrador = await p.evaluate(() => ({
+      caja: document.getElementById("comentarios-texto")?.value ?? "",
+      aviso: document.getElementById("comentarios-borrador")?.innerText.trim() ?? "",
+    }));
+    ok(borrador.caja === "Lo dejo a medias" && /^Borrador/.test(borrador.aviso), `NW: al volver, el texto a medias sigue como «Borrador» (${JSON.stringify(borrador)})`);
+    await capturar(p, "NW1d-comentarios-borrador");
+    // «Leer las normas del Foro» cierra la hoja antes de ir a las normas (antes quedaban detrás).
+    await p.locator("#comentarios-texto").blur();
+    await p.locator("#normas-foro-comentarios").click();
+    await p.waitForURL(/normas-foro/, { timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const normas = await p.evaluate(() => ({ ruta: location.pathname, hoja: !!document.getElementById("comentarios-hoja") }));
+    ok(/normas-foro/.test(normas.ruta) && !normas.hoja, `NW: «Leer las normas del Foro» cierra la hoja y abre las normas delante (${JSON.stringify(normas)})`);
     ok(p.errores.length === 0, `NW: comentarios sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // NW1e) Respuestas y «me gusta» en los comentarios (dueño, 2026-11-28), como Instagram: 2 respuestas a la vista y
+  // «Ver N respuestas más»; responder; el corazón suma y resta.
+  {
+    const ANA = "22222222-2222-4222-8222-222222222222";
+    const padre = "c-padre";
+    const estado = {
+      guardados: [],
+      filas: PERFIL,
+      aceptaAnalitica: true,
+      noticiasNW: NOTICIAS,
+      miIdForo: CLIENTE.id,
+      comentarios: [
+        { id: padre, noticia_id: N1, created_at: "2026-11-27T20:00:00Z", autor: "Luis", texto: "¿Alguien la ha reservado ya?", user_id: ANA, respuesta_a: null },
+        ...["Yo sí, en la tienda", "Todavía no", "Esperaré a las ofertas", "Me la regalan"].map((t, i) => ({
+          id: `c-r${i + 1}`, noticia_id: N1, created_at: `2026-11-27T21:0${i}:00Z`, autor: ["Marta", "Iván", "Sara", "Pablo"][i], texto: t, user_id: null, respuesta_a: padre,
+        })),
+        { id: "c-otro", noticia_id: N1, created_at: "2026-11-27T22:00:00Z", autor: "Elena", texto: "Qué ganas de probarla", user_id: null, respuesta_a: null },
+      ],
+      likesComentarios: [{ comentario_id: padre, user_id: ANA }, { comentario_id: padre, user_id: "otro" }],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/noticias/${N1}`);
+    await p.locator("#noticia-comentar").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    await p.locator("#noticia-comentar").click();
+    await p.locator(`#comentario-${padre}`).waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const hilo = await p.evaluate(() => ({
+      visibles: ["c-r1", "c-r2", "c-r3", "c-r4"].filter((id) => document.getElementById(`comentario-${id}`)),
+      verMas: document.getElementById("comentario-ver-mas-c-padre")?.innerText.trim() ?? "",
+      corazon: document.getElementById("comentario-me-gusta-c-padre")?.innerText.trim() ?? "",
+      responder: !!document.getElementById("comentario-responder-c-r1"),
+    }));
+    ok(
+      hilo.visibles.join() === "c-r1,c-r2" && hilo.verMas === "Ver 2 respuestas más" && /2/.test(hilo.corazon) && hilo.responder,
+      `NW: se ven 2 respuestas, «Ver 2 respuestas más», el corazón con su número y «Responder» (${JSON.stringify(hilo)})`
+    );
+    for (const [ancho, alto, nombre] of [[360, 740, "360"], [390, 844, "390"], [1280, 900, "1280"]]) {
+      await p.setViewportSize({ width: ancho, height: alto });
+      await p.waitForTimeout(500);
+      await capturar(p, `NW1e-respuestas-${nombre}`);
+    }
+    await p.setViewportSize({ width: 390, height: 844 });
+    await p.locator("#comentario-ver-mas-c-padre").click();
+    await p.waitForTimeout(400);
+    const todas = await p.evaluate(() => ({
+      visibles: ["c-r1", "c-r2", "c-r3", "c-r4"].filter((id) => document.getElementById(`comentario-${id}`)).length,
+      verMas: !!document.getElementById("comentario-ver-mas-c-padre"),
+    }));
+    ok(todas.visibles === 4 && !todas.verMas, `NW: «Ver 2 respuestas más» enseña el resto (${JSON.stringify(todas)})`);
+    // «Me gusta» a un comentario: suma uno y se guarda; otra vez, lo quita.
+    await p.locator("#comentario-me-gusta-c-otro").click();
+    await p.waitForTimeout(500);
+    const dado = await p.evaluate(() => document.getElementById("comentario-me-gusta-c-otro")?.innerText.trim() ?? "");
+    ok(/1/.test(dado) && estado.likesComentarios.some((l) => l.comentario_id === "c-otro" && l.user_id === CLIENTE.id), `NW: el corazón del comentario suma uno y se guarda («${dado}»)`);
+    await p.locator("#comentario-me-gusta-c-otro").click();
+    await p.waitForTimeout(500);
+    ok(!estado.likesComentarios.some((l) => l.comentario_id === "c-otro"), "NW: tocar otra vez el corazón lo quita");
+    // Responder a una respuesta: cuelga del comentario de arriba y lleva «@nombre».
+    await p.locator("#comentario-responder-c-r2").click();
+    await p.waitForTimeout(400);
+    const resp = await p.evaluate(() => ({
+      barra: document.getElementById("comentarios-respondiendo")?.innerText.replace(/\s+/g, " ").trim() ?? "",
+      caja: document.getElementById("comentarios-texto")?.value ?? "",
+      foco: document.activeElement?.id ?? "",
+      normas: !!document.getElementById("normas-foro-comentarios"),
+    }));
+    ok(/Respondiendo a Iván/.test(resp.barra) && resp.caja === "@Iván " && resp.foco === "comentarios-texto", `NW: «Responder» pone «@Iván» y abre la caja para escribir (${JSON.stringify(resp)})`);
+    await capturar(p, "NW1f-respondiendo-390");
+    await p.keyboard.type("yo tampoco");
+    await p.locator("#comentarios-enviar").click();
+    await p.waitForTimeout(800);
+    const nueva = estado.comentarios.find((c) => c.id.startsWith("c-nuevo"));
+    ok(nueva?.respuesta_a === padre && nueva?.texto === "@Iván yo tampoco", `NW: la respuesta se guarda colgando del comentario de arriba (${JSON.stringify(nueva)})`);
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.step_label === "Noticias: respuesta a un comentario"); i++) await p.waitForTimeout(250);
+    ok(
+      ["Noticias: me gusta a un comentario", "Noticias: respuesta a un comentario"].every((l) => (estado.eventosEnviados ?? []).some((e) => e.step_label === l)),
+      "NW: los «me gusta» y las respuestas a comentarios se cuentan en Analítica"
+    );
+    ok(p.errores.length === 0, `NW: respuestas y «me gusta» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // NW1g) Sin la migración (no hay respuesta_a ni la tabla de «me gusta») la hoja sale igual, sin «Responder» ni corazones.
+  {
+    const estado = {
+      guardados: [],
+      filas: PERFIL,
+      noticiasNW: NOTICIAS,
+      comentariosSinRespuestas: true,
+      comentarios: [{ id: "c-1", noticia_id: N1, created_at: "2026-11-27T20:00:00Z", autor: "Luis", texto: "Qué ganas de probarla", user_id: null }],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/noticias/${N1}`);
+    await p.locator("#noticia-comentar").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    await p.locator("#noticia-comentar").click();
+    await p.locator("#comentario-c-1").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const sin = await p.evaluate(() => ({
+      comentario: !!document.getElementById("comentario-c-1"),
+      responder: !!document.getElementById("comentario-responder-c-1"),
+      corazon: !!document.getElementById("comentario-me-gusta-c-1"),
+    }));
+    ok(sin.comentario && !sin.responder && !sin.corazon, `NW: sin la migración se ven los comentarios, sin «Responder» ni corazones (${JSON.stringify(sin)})`);
+    ok(p.errores.length === 0, `NW: sin la migración, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
 

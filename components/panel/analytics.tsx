@@ -1763,6 +1763,8 @@ export default function AdminAnalytics() {
       // Hasta el 2026-11-27 «Comentar» llevaba al Foro; desde entonces abre la hoja de comentarios (se suman las dos).
       noticiaBarraComentar: findExact("Noticias: comentar en el Foro") + findExact("Noticias: barra · comentar"),
       noticiaComentariosEnviados: findExact("Noticias: comentario enviado desde la noticia"),
+      noticiaComentarioRespuestas: findExact("Noticias: respuesta a un comentario"),
+      noticiaComentarioLikes: findExact("Noticias: me gusta a un comentario"),
       noticiaBarraCompartir: findExact("Noticias: barra · compartir"),
       noticiaBarraVolver: findExact("Noticias: barra · volver"),
       // Privacidad → «Aceptar la analítica» (2026-11-27). Quien la rechaza no se cuenta (no se registra nada).
@@ -2533,7 +2535,8 @@ export default function AdminAnalytics() {
                     <Text nativeID="analitica-noticia-barra" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Página de noticia, barra de abajo → me gusta: {coreFunnel.noticiaBarraMeGusta} · comentar: {coreFunnel.noticiaBarraComentar} ·
                       compartir: {coreFunnel.noticiaBarraCompartir} · volver: {coreFunnel.noticiaBarraVolver} sesiones · comentarios
-                      escritos desde la noticia: {coreFunnel.noticiaComentariosEnviados}
+                      escritos desde la noticia: {coreFunnel.noticiaComentariosEnviados} · respuestas a comentarios:{" "}
+                      {coreFunnel.noticiaComentarioRespuestas} · me gusta a comentarios: {coreFunnel.noticiaComentarioLikes}
                     </Text>
                   </View>
                   {/* Analítica con consentimiento (2026-11-27): solo cuenta quien la acepta; quien la rechaza no sale. */}
