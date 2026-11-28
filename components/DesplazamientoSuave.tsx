@@ -24,7 +24,81 @@
  */
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, Dimensions, Easing, Platform, Pressable, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from "react-native";
+import { Animated, Dimensions, Easing, Platform, Pressable, ScrollView, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from "react-native";
+
+/**
+ * Carruseles que avanzan solos (dueño, 2026-11-28), al ritmo de los de artículos (components/CarruselProductosCategoria:
+ * un paso cada 3,8 s). `esperaMs`: lo que espera quieto antes del primer paso (comentarios: 5 s «estable»); `pausaMs`:
+ * lo que espera tras tocar, deslizar o escribir. Varios carriles del mismo hook avanzan A LA VEZ (sugerencias y emojis
+ * de los comentarios). Al llegar al final vuelve al principio. Uso: const auto = useCarruselesAutomaticos(activo);
+ * <ScrollView horizontal {...auto.carril("emojis", ref, 138)}>; auto.pausar() al escribir o al usar las flechas.
+ */
+export const CARRUSEL_PASO_MS = 3800;
+type CarrilAuto = { ref: React.RefObject<ScrollView | null>; x: number; visible: number; total: number; paso: number };
+export function useCarruselesAutomaticos(activo: boolean, { esperaMs = CARRUSEL_PASO_MS, pausaMs = 9000, pasoMs = CARRUSEL_PASO_MS } = {}) {
+  const carriles = useRef(new Map<string, CarrilAuto>()).current;
+  const quietoHasta = useRef(0);
+  const pausar = useCallback(() => {
+    quietoHasta.current = Date.now() + pausaMs;
+  }, [pausaMs]);
+  useEffect(() => {
+    if (!activo) return;
+    let quieto = false;
+    try {
+      quieto = Platform.OS === "web" && typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      quieto = false;
+    }
+    if (quieto) return;
+    quietoHasta.current = Date.now() + esperaMs;
+    let ultimo = 0;
+    const reloj = setInterval(() => {
+      const ahora = Date.now();
+      if (ahora < quietoHasta.current || ahora - ultimo < pasoMs) return;
+      ultimo = ahora;
+      carriles.forEach((c) => {
+        const maxX = c.total - c.visible;
+        if (maxX <= 8) return; // cabe todo: no hace falta moverse
+        // Ya al final: vuelve al principio; si no, avanza un paso sin pasarse del final (aunque el último sea más corto).
+        c.ref.current?.scrollTo({ x: c.x >= maxX - 4 ? 0 : Math.min(maxX, c.x + c.paso), animated: true });
+      });
+    }, 200);
+    return () => clearInterval(reloj);
+  }, [activo, esperaMs, pasoMs, carriles]);
+  const carril = useCallback(
+    (id: string, ref: React.RefObject<ScrollView | null>, paso: number) => {
+      let c = carriles.get(id);
+      if (!c) {
+        c = { ref, x: 0, visible: 0, total: 0, paso };
+        carriles.set(id, c);
+      }
+      c.ref = ref;
+      c.paso = paso;
+      const este = c;
+      return {
+        ref,
+        scrollEventThrottle: 16,
+        onScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+          const n = e.nativeEvent;
+          este.x = n.contentOffset.x;
+          este.visible = n.layoutMeasurement.width;
+          este.total = n.contentSize.width;
+        },
+        onLayout: (e: LayoutChangeEvent) => {
+          este.visible = e.nativeEvent.layout.width;
+        },
+        onContentSizeChange: (w: number) => {
+          este.total = w;
+        },
+        onTouchStart: pausar,
+        onScrollBeginDrag: pausar,
+        onPointerDown: pausar,
+      };
+    },
+    [carriles, pausar]
+  );
+  return { carril, pausar };
+}
 
 /**
  * Hojas que suben desde abajo (comentarios, avisos del pie, historial de Blue, filtros), con su fondo oscuro (dueño,

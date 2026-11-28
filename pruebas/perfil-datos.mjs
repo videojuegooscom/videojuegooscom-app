@@ -27881,8 +27881,78 @@ async function seccionHOJA() {
   }
 }
 
+// CARR (dueño, 2026-11-28): en los comentarios, las sugerencias y los emojis avanzan solos y A LA VEZ tras 5 s con la
+// hoja quieta (no antes), y escribir los para; la tira de noticias (Cesta) se mueve sola como la de artículos.
+async function seccionCARR() {
+  const N = "0e000000-0000-4000-8000-0000000000c1";
+  const foto = (n) => `https://fotos.ejemplo.invalid/storage/v1/object/public/noticias/carr${n}.jpg`;
+  const noticia = (i) => ({
+    id: i === 0 ? N : `0e000000-0000-4000-8000-0000000001${String(i).padStart(2, "0")}`, url: "https://vandal.elespanol.com/noticia/1", fuente: "Vandal",
+    imagen_url: foto(i), imagenes: [foto(i)], imagenes_verificadas: true, imagenes_meta: [], titulo: `Noticia de prueba número ${i + 1}`, categoria: "Consolas",
+    resumen: "Resumen de la noticia.", puntos_clave: [], datos: [], por_que_importa: null, afecta_a: null, contexto: null, publicada: true, me_gusta: 0,
+    created_at: "2026-11-08T08:00:00Z", publicada_en: `2026-11-${String(20 - (i % 10)).padStart(2, "0")}T07:30:00Z`,
+  });
+  const NOTICIAS = Array.from({ length: 12 }, (_, i) => noticia(i));
+  const PERFIL_COMPLETO = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  for (const [ancho, alto, nombre] of [[390, 844, "390"], [1280, 900, "1280"]]) {
+    const estado = { filas: PERFIL_COMPLETO, guardados: [], noticiasNW: NOTICIAS, noticias: NOTICIAS, comentarios: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { viewport: { width: ancho, height: alto } });
+    const p = await pagina(ctx, `/noticias/${N}`);
+    await p.locator("#noticia-comentar").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1200);
+    await p.locator("#noticia-comentar").click();
+    await p.locator("#comentarios-emojis").waitFor({ timeout: 10000 }).catch(() => {});
+    const pos = () =>
+      p.evaluate(() => ({
+        sugerencias: Math.round(document.getElementById("comentarios-sugerencias")?.scrollLeft ?? -1),
+        emojis: Math.round(document.getElementById("comentarios-emojis")?.scrollLeft ?? -1),
+      }));
+    await p.waitForTimeout(4000);
+    const a4 = await pos();
+    await p.waitForTimeout(2600);
+    const a66 = await pos();
+    ok(a4.sugerencias === 0 && a4.emojis === 0, `CARR (${nombre}): con la hoja recién abierta, los carruseles esperan quietos (a los 4 s: ${JSON.stringify(a4)})`);
+    ok(
+      (ancho >= 700 || a66.sugerencias > 0) && a66.emojis > 0,
+      `CARR (${nombre}): a los ~5 s de estar quieta, sugerencias y emojis avanzan solos a la vez (a los 6,6 s: ${JSON.stringify(a66)})`
+    );
+    // Escribir los para: tras escribir, en 3 s no se mueven.
+    await p.locator("#comentarios-texto").click();
+    await p.keyboard.type("hola");
+    const trasEscribir = await pos();
+    await p.waitForTimeout(3000);
+    const luego = await pos();
+    ok(
+      luego.emojis === trasEscribir.emojis && luego.sugerencias === trasEscribir.sugerencias,
+      `CARR (${nombre}): al escribir se paran (${JSON.stringify({ trasEscribir, luego })})`
+    );
+    ok(p.errores.length === 0, `CARR (${nombre}): comentarios sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await p.close();
+    // Tira de noticias en la Cesta: se mueve sola.
+    const c = await pagina(ctx, "/cesta");
+    const tira = c.locator('[id$="-noticias-recientes"] [class*="ScrollView"], [id$="-noticias-recientes"] div').first();
+    await c.locator('[id$="-noticias-recientes"]').first().waitFor({ timeout: 40000 }).catch(() => {});
+    await c.locator('[id$="-noticias-recientes"]').first().scrollIntoViewIfNeeded().catch(() => {});
+    const desplazamiento = () =>
+      c.evaluate(() => {
+        const raiz = document.querySelector('[id$="-noticias-recientes"]');
+        const scroller = [...(raiz?.querySelectorAll("div") ?? [])].find((d) => d.scrollWidth > d.clientWidth + 20 && /auto|scroll/.test(getComputedStyle(d).overflowX));
+        return scroller ? Math.round(scroller.scrollLeft) : -1;
+      });
+    const n0 = await desplazamiento();
+    await c.waitForTimeout(8500);
+    const n1 = await desplazamiento();
+    ok(n0 >= 0 && n1 > n0, `CARR (${nombre}): la tira de noticias de la Cesta se mueve sola, como la de artículos (${n0} → ${n1} px)`);
+    void tira;
+    ok(c.errores.length === 0, `CARR (${nombre}): Cesta sin errores de JavaScript (${c.errores[0] ?? "ninguno"})`);
+    await c.close();
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "CARR") await seccionCARR();
   if (SOLO === "HOJA") await seccionHOJA();
   if (SOLO === "BLANCO") await seccionBLANCO();
   if (SOLO === "PANSCROLL") await seccionPANSCROLL();
