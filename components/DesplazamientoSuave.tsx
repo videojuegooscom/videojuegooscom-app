@@ -24,7 +24,41 @@
  */
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, Platform, Pressable, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from "react-native";
+import { Animated, Dimensions, Easing, Platform, Pressable, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from "react-native";
+
+/**
+ * Hojas que suben desde abajo (comentarios, avisos del pie, historial de Blue, filtros), con su fondo oscuro (dueño,
+ * 2026-11-28: el «slide» del Modal subía y bajaba el fondo entero como una tapadera con borde). Ahora el Modal va sin
+ * animación propia (animationType="none" y visible={montada}) y aquí se animan por separado: el fondo se FUNDE y solo
+ * la hoja sube (al abrir) o baja (al cerrar); el Modal se desmonta al terminar de bajar. Con «Reducir movimiento», sin
+ * animación. Uso: const h = useHojaAbajo(abierta); <Modal visible={h.montada} animationType="none">, el fondo en un
+ * Animated.View con h.fondo y la hoja con h.hoja (o h.subida sumada a su propio arrastre).
+ */
+export function useHojaAbajo(visible: boolean) {
+  const [montada, setMontada] = useState(visible);
+  const progreso = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const nativo = Platform.OS !== "web";
+  useEffect(() => {
+    let quieto = false;
+    try {
+      quieto = Platform.OS === "web" && typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      quieto = false;
+    }
+    progreso.stopAnimation();
+    if (visible) {
+      setMontada(true);
+      Animated.timing(progreso, { toValue: 1, duration: quieto ? 0 : 320, easing: Easing.out(Easing.cubic), useNativeDriver: nativo }).start();
+      return;
+    }
+    Animated.timing(progreso, { toValue: 0, duration: quieto ? 0 : 230, easing: Easing.in(Easing.cubic), useNativeDriver: nativo }).start(({ finished }) => {
+      if (finished) setMontada(false);
+    });
+  }, [visible, progreso, nativo]);
+  const alto = Math.max(600, Dimensions.get("window").height);
+  const subida = progreso.interpolate({ inputRange: [0, 1], outputRange: [alto, 0] });
+  return { montada, progreso, subida, fondo: { opacity: progreso }, hoja: { transform: [{ translateY: subida }] } };
+}
 
 const SUBIDA_PX = 14;
 const DURACION_MS = 420;

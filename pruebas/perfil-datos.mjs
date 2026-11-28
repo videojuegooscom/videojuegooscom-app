@@ -27759,8 +27759,131 @@ async function seccionBLANCO() {
   }
 }
 
+// HOJA (dueño, 2026-11-28): al abrir y cerrar las hojas de abajo se veía subir y bajar el fondo oscuro entero, como una
+// tapadera con borde (animationType «slide» del Modal). Ahora el fondo solo se funde y lo único que se mueve es la hoja.
+// Se mide fotograma a fotograma, al abrir y al cerrar, en las cuatro: comentarios de una noticia, avisos de «Compra con
+// confianza», filtros del catálogo e Historial de Blue IA, en el móvil (390) y en el ordenador (1280).
+async function seccionHOJA() {
+  const N = "0e000000-0000-4000-8000-0000000000b1";
+  const NOTICIA = {
+    id: N, url: "https://vandal.elespanol.com/noticia/1", fuente: "Vandal", imagen_url: null, imagenes: [], imagenes_verificadas: false, imagenes_meta: [],
+    titulo: "Nueva consola portátil anunciada para marzo", categoria: "Consolas", resumen: "La marca ha presentado una consola portátil nueva.",
+    puntos_clave: ["Sale en marzo"], datos: [], por_que_importa: "Cambia la gama.", afecta_a: "Jugadores.", contexto: null, publicada: true, me_gusta: 0,
+    created_at: "2026-11-08T08:00:00Z", publicada_en: "2026-11-09T07:30:00Z",
+  };
+  const PERFIL_COMPLETO = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const muestrear = (p, fondo, hoja, ms) =>
+    p.evaluate(
+      ([fondo, hoja, ms]) => {
+        window.__muestras = [];
+        const t0 = performance.now();
+        const opacidad = (e) => {
+          let o = 1;
+          for (let n = e; n; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity);
+          return Math.round(o * 100) / 100;
+        };
+        const paso = () => {
+          const f = document.querySelector(fondo);
+          const h = document.querySelector(hoja);
+          window.__muestras.push({
+            fArriba: f ? Math.round(f.getBoundingClientRect().top) : null,
+            fOp: f ? opacidad(f) : null,
+            hArriba: h ? Math.round(h.getBoundingClientRect().top) : null,
+            hOp: h ? opacidad(h) : null,
+          });
+          if (performance.now() - t0 < ms) requestAnimationFrame(paso);
+        };
+        requestAnimationFrame(paso);
+      },
+      [fondo, hoja, ms]
+    );
+  const leer = async (p) => {
+    await p.waitForTimeout(800);
+    return (await p.evaluate(() => window.__muestras)).filter((m) => m.fArriba !== null && m.hArriba !== null);
+  };
+  // Al abrir: el fondo nunca se desplaza (arriba = 0) y pasa de casi transparente a opaco; la hoja sube (o, en el panel
+  // centrado del ordenador, aparece con un fundido). Al cerrar, al revés, y al final ya no está.
+  const comprobar = (nombre, que, abrir, cerrar, movil) => {
+    if (abrir.length < 2 || cerrar.length < 2) {
+      ok(false, `HOJA (${nombre}): en ${que} no se pudo medir la animación (${abrir.length} y ${cerrar.length} fotogramas)`);
+      return;
+    }
+    const fondoQuieto = [...abrir, ...cerrar].every((m) => Math.abs(m.fArriba) <= 1);
+    const funde = abrir.length > 3 && abrir[0].fOp < 0.6 && abrir[abrir.length - 1].fOp >= 0.95 && cerrar.length > 1 && cerrar[cerrar.length - 1].fOp < cerrar[0].fOp;
+    const hojaSube = movil ? abrir[0].hArriba > abrir[abrir.length - 1].hArriba + 100 : abrir[0].hOp < 0.6 && abrir[abrir.length - 1].hOp >= 0.95;
+    const hojaBaja = movil ? cerrar[cerrar.length - 1].hArriba > cerrar[0].hArriba + 60 : cerrar[cerrar.length - 1].hOp < cerrar[0].hOp;
+    ok(
+      fondoQuieto && funde && hojaSube && hojaBaja,
+      `HOJA (${nombre}): en ${que} el fondo solo se funde (no se desplaza) y solo la hoja ${movil ? "sube y baja" : "aparece y se va"} (${JSON.stringify({
+        fondoQuieto, funde, hojaSube, hojaBaja, abrir: [abrir[0], abrir[abrir.length - 1]], cerrar: [cerrar[0], cerrar[cerrar.length - 1]], marcos: [abrir.length, cerrar.length],
+      })})`
+    );
+  };
+  for (const [ancho, alto, nombre] of [[390, 844, "390"], [1280, 900, "1280"]]) {
+    const movil = ancho < 700;
+    const estado = { filas: PERFIL_COMPLETO, guardados: [], noticiasNW: [NOTICIA], comentarios: [], categorias: [], megusta: { productos: [], servicios: [] } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { viewport: { width: ancho, height: alto } });
+    // 1) Comentarios de una noticia (también en el ordenador es una hoja de abajo).
+    const p = await pagina(ctx, `/noticias/${N}`);
+    await p.locator("#noticia-comentar").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    await muestrear(p, "#comentarios-fondo", "#comentarios-hoja", 600);
+    await p.locator("#noticia-comentar").click();
+    const abrirC = await leer(p);
+    await muestrear(p, "#comentarios-fondo", "#comentarios-hoja", 600);
+    await p.keyboard.press("Escape");
+    const cerrarC = await leer(p);
+    comprobar(nombre, "los comentarios", abrirC, cerrarC, true);
+    ok(!(await p.evaluate(() => !!document.getElementById("comentarios-hoja"))), `HOJA (${nombre}): al terminar de bajar, la hoja de comentarios se quita`);
+    // 2) «Compra con confianza» (pie de la noticia): Garantía.
+    await p.locator("#noticia-confianza").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(400);
+    await muestrear(p, "#confianza-velo", "#confianza-ventana", 600);
+    await p.locator("#noticia-confianza").getByText("Garantía").first().click();
+    const abrirG = await leer(p);
+    await muestrear(p, "#confianza-velo", "#confianza-ventana", 600);
+    await p.locator("#confianza-cerrar").click();
+    const cerrarG = await leer(p);
+    comprobar(nombre, "«Compra con confianza»", abrirG, cerrarG, true);
+    const texto = cerrarG.length ? "ok" : "sin muestras";
+    ok(texto === "ok" && !(await p.evaluate(() => !!document.getElementById("confianza-ventana"))), `HOJA (${nombre}): el aviso se quita al terminar (${texto})`);
+    ok(p.errores.length === 0, `HOJA (${nombre}): noticia sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await p.close();
+    // 3) Filtros del catálogo (en el móvil hoja de abajo; en el ordenador, panel centrado con fundido).
+    const c = await pagina(ctx, "/catalogo");
+    await c.locator("#catalogo-filtros").waitFor({ timeout: 40000 }).catch(() => {});
+    await c.waitForTimeout(1200);
+    await muestrear(c, "#filtros-fondo", "#filtros-panel", 600);
+    await c.locator("#catalogo-filtros").click();
+    const abrirF = await leer(c);
+    await muestrear(c, "#filtros-fondo", "#filtros-panel", 600);
+    await c.locator("#filtros-cerrar").click();
+    const cerrarF = await leer(c);
+    comprobar(nombre, "los filtros", abrirF, cerrarF, movil);
+    ok(c.errores.length === 0, `HOJA (${nombre}): catálogo sin errores de JavaScript (${c.errores[0] ?? "ninguno"})`);
+    await c.close();
+    // 4) Historial de Blue IA.
+    const b = await pagina(ctx, "/blue-ia");
+    const botonHistorial = b.getByRole("button", { name: "Historial" }).first();
+    await botonHistorial.waitFor({ timeout: 40000 }).catch(() => {});
+    await b.waitForTimeout(1200);
+    await muestrear(b, "#blue-ia-historial-velo", "#blue-ia-historial", 600);
+    await botonHistorial.click();
+    const abrirH = await leer(b);
+    await capturar(b, `HOJA-historial-${nombre}`);
+    await muestrear(b, "#blue-ia-historial-velo", "#blue-ia-historial", 600);
+    await b.locator("#blue-ia-historial-fondo").click({ position: { x: 20, y: 20 } });
+    const cerrarH = await leer(b);
+    comprobar(nombre, "el Historial de Blue IA", abrirH, cerrarH, true);
+    ok(b.errores.length === 0, `HOJA (${nombre}): Blue IA sin errores de JavaScript (${b.errores[0] ?? "ninguno"})`);
+    await b.close();
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "HOJA") await seccionHOJA();
   if (SOLO === "BLANCO") await seccionBLANCO();
   if (SOLO === "PANSCROLL") await seccionPANSCROLL();
   if (SOLO === "CANCAV") await seccionCANCAV();

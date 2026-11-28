@@ -133,7 +133,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
-import { ActivityIndicator, Linking, Modal, PanResponder, Platform, Pressable, ScrollView, Share, StatusBar, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Animated, Linking, Modal, PanResponder, Platform, Pressable, ScrollView, Share, StatusBar, Text, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -183,7 +183,7 @@ import { BotonComparar, CompletaTuCompra, NoticiasEstantes, ProductosParecidos, 
 import PieDePagina, { FilaConfianza, VentanaInformacion, type DatoConfianza } from "../../components/PieDePagina";
 import { BUY_NOW_MARK_KEY, BuyNowMark, COLORS, CartItem, Product, ProductMediaRow, asProductCondition, detectAdmin, fetchProductRow, getLikedProductIds, labelCondition, loadCart, loadProductMediaRows, mapDbStatusToUi, normalizeProductMediaRows, pickInitialHeroImage, pushRoute, replaceRoute, saveCart, saveLikedProductIds, smartBack } from "../../components/ficha/DatosFicha";
 import { FichaProducto } from "../../components/ficha/FichaProducto";
-import { AparecerAlVer } from "../../components/DesplazamientoSuave";
+import { AparecerAlVer, useHojaAbajo } from "../../components/DesplazamientoSuave";
 import { AvisoPrecioFicha, EntregaEstimadaFicha, InsigniasConfianza, PreguntarArticulo, VOLVER_TRAS_ACCESO_FICHA_KEY } from "../../components/ficha/ExtrasFicha";
 export { FichaProducto } from "../../components/ficha/FichaProducto";
 export type { Caracteristica } from "../../components/ficha/DatosFicha";
@@ -1483,6 +1483,7 @@ function ReservarConSenal({
   const diasMax = Number(ajustes.dias_max ?? 0);
   const tipo = ajustes.tipo_arras ?? "penitenciales";
   const [abierto, setAbierto] = useState(false);
+  const animReserva = useHojaAbajo(abierto);
   const [conSesion, setConSesion] = useState<boolean | null>(null);
   const [invitacion, setInvitacion] = useState(false);
   const [dias, setDias] = useState(() => Math.max(1, Math.min(escala[0]?.hasta_dias ?? 1, diasMax || 1)));
@@ -1627,11 +1628,20 @@ function ReservarConSenal({
         </View>
       ) : null}
 
-      <Modal visible={abierto} transparent animationType="fade" onRequestClose={() => setAbierto(false)}>
-        <View style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.45)", justifyContent: width >= 700 ? "center" : "flex-end", alignItems: "center" }}>
-          <View
+      {/* El fondo se funde y la hoja sube desde abajo (móvil) o aparece con un fundido (ordenador), también al cerrar
+          (useHojaAbajo, 2026-11-28). */}
+      <Modal visible={animReserva.montada} transparent animationType="none" onRequestClose={() => setAbierto(false)}>
+        <View style={{ flex: 1, justifyContent: width >= 700 ? "center" : "flex-end", alignItems: "center" }}>
+          <Animated.View
+            nativeID="reserva-velo"
+            style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(11,33,56,0.45)" }, animReserva.fondo]}
+          />
+          <Animated.View
             nativeID="reserva-hoja"
             style={{
+              ...(width >= 700
+                ? { opacity: animReserva.progreso, transform: [{ translateY: animReserva.progreso.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] }
+                : animReserva.hoja),
               width: "100%",
               maxWidth: 520,
               maxHeight: "92%",
@@ -1755,7 +1765,7 @@ function ReservarConSenal({
                 Se paga en la página segura de Stripe. Podrás seguir tu reserva en Mis pedidos.
               </Text>
             </ScrollView>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     </View>

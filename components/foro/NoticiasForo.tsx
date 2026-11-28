@@ -20,6 +20,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Link, router, useFocusEffect, type Href } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, LayoutAnimation, Modal, PanResponder, PixelRatio, Platform, Pressable, ScrollView, Share, Switch, Text, TextInput, useWindowDimensions, View, type ViewStyle } from "react-native";
+import { useHojaAbajo } from "../DesplazamientoSuave";
 import CargaMarca from "../marca/CargaMarca";
 import MarcaAnimada from "../marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../PerfilPublico";
@@ -1611,6 +1612,7 @@ export function HojaComentariosNoticia({
   const caja_ref = useRef<TextInput>(null);
   // Se cierra SOLO arrastrando hacia abajo (asa y título), como en Instagram.
   const arrastre = useRef(new Animated.Value(0)).current;
+  const animHoja = useHojaAbajo(abierta);
   const cerrarRef = useRef(onCerrar);
   cerrarRef.current = onCerrar;
   const gestos = useRef(
@@ -1926,11 +1928,12 @@ export function HojaComentariosNoticia({
   };
 
   return (
-    <Modal visible={abierta} transparent animationType="slide" onRequestClose={onCerrar}>
+    // Sin la animación del Modal: el fondo se funde y solo la hoja sube y baja (useHojaAbajo).
+    <Modal visible={animHoja.montada} transparent animationType="none" onRequestClose={onCerrar}>
       {/* Con el teclado abierto (web del móvil) la hoja se apoya justo encima de él y se ajusta al alto visible. */}
       <View style={{ flex: 1, justifyContent: "flex-end", paddingBottom: teclado.tapa }}>
         {/* Fondo oscuro: NO cierra al tocarlo (dueño, 2026-11-28: solo con el gesto hacia abajo). */}
-        <View nativeID="comentarios-fondo" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(3,10,18,0.45)" }} />
+        <Animated.View nativeID="comentarios-fondo" style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(3,10,18,0.45)" }, animHoja.fondo]} />
         <Animated.View
           nativeID="comentarios-hoja"
           style={{
@@ -1942,7 +1945,7 @@ export function HojaComentariosNoticia({
             borderTopLeftRadius: 26,
             borderTopRightRadius: 26,
             overflow: "hidden",
-            transform: [{ translateY: arrastre }],
+            transform: [{ translateY: Animated.add(arrastre, animHoja.subida) }],
             boxShadow: "0px -8px 30px rgba(11,33,56,0.18)",
           }}
         >

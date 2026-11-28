@@ -130,6 +130,7 @@ import { abrirChatEquipo } from "../../components/ConversacionProducto";
 import { portadasDeProductos } from "../../components/BarraBusqueda";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ImagenInteligente from "../../components/ImagenInteligente";
+import { useHojaAbajo } from "../../components/DesplazamientoSuave";
 import { medirEvento } from "../../lib/analiticaPropia";
 import { estadoAtencion, HORARIO_CORTO, type EstadoAtencion } from "../../lib/horarioAtencion";
 import { abrirDescarga, abrirEnlaceExterno } from "../../lib/abrirEnlaceExterno";
@@ -1645,6 +1646,7 @@ function BlueIAHistorialModal({
   onDeshacer: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const animHoja = useHojaAbajo(visible);
   // «Archivadas» se ve en la misma hoja, en lugar de la lista; al cerrar la hoja vuelve a la lista.
   const [verArchivadas, setVerArchivadas] = useState(false);
   useEffect(() => {
@@ -1654,22 +1656,25 @@ function BlueIAHistorialModal({
     if (verArchivadas && archivadas.length === 0) setVerArchivadas(false);
   }, [verArchivadas, archivadas.length]);
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={animHoja.montada} animationType="none" onRequestClose={onClose}>
       {/* Hoja que sube desde abajo (dueño, 2026-11-26: «profesional y práctico para el dedo gordo de la mano derecha»):
           la lista y los botones quedan en la mitad de abajo, al alcance del pulgar; se cierra tocando fuera o con
-          «Cerrar», abajo, en vez de la X de arriba a la derecha. */}
-      <Pressable
-        nativeID="blue-ia-historial-fondo"
-        onPress={onClose}
-        style={{ flex: 1, backgroundColor: COLORS.overlay, justifyContent: "flex-end", alignItems: "center" }}
-      >
+          «Cerrar», abajo, en vez de la X de arriba a la derecha. El fondo se funde y solo la hoja sube y baja
+          (useHojaAbajo, 2026-11-28). */}
+      <View style={{ flex: 1, justifyContent: "flex-end", alignItems: "center" }}>
+        <Animated.View nativeID="blue-ia-historial-velo" style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: COLORS.overlay }, animHoja.fondo]}>
+          <Pressable nativeID="blue-ia-historial-fondo" accessibilityLabel="Cerrar historial" onPress={onClose} style={{ flex: 1 }} />
+        </Animated.View>
+        <Animated.View style={[{ width: "100%", alignItems: "center", maxHeight: "86%" }, animHoja.hoja]}>
         <Pressable
           nativeID="blue-ia-historial"
           onPress={() => {}}
           style={{
             width: "100%",
             maxWidth: 520,
-            maxHeight: "86%",
+            // El 86 % de la pantalla ya lo pone su envoltura animada; aquí se encoge dentro de ella.
+            maxHeight: "100%",
+            flexShrink: 1,
             backgroundColor: "#FFFFFF",
             borderTopLeftRadius: 26,
             borderTopRightRadius: 26,
@@ -1828,7 +1833,8 @@ function BlueIAHistorialModal({
             </Pressable>
           </View>
         </Pressable>
-      </Pressable>
+        </Animated.View>
+      </View>
     </Modal>
   );
 }
