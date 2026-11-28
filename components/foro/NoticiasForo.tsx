@@ -20,6 +20,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Link, router, useFocusEffect, type Href } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, LayoutAnimation, Modal, PanResponder, PixelRatio, Platform, Pressable, ScrollView, Share, Switch, Text, TextInput, useWindowDimensions, View, type ViewStyle } from "react-native";
+import { useCarruselesAutomaticos, useHojaAbajo } from "../DesplazamientoSuave";
 import CargaMarca from "../marca/CargaMarca";
 import MarcaAnimada from "../marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../PerfilPublico";
@@ -1611,6 +1612,12 @@ export function HojaComentariosNoticia({
   const caja_ref = useRef<TextInput>(null);
   // Se cierra SOLO arrastrando hacia abajo (asa y título), como en Instagram.
   const arrastre = useRef(new Animated.Value(0)).current;
+  const animHoja = useHojaAbajo(abierta);
+  // Sugerencias y emojis avanzan solos y a la vez tras 5 s con la hoja quieta (dueño, 2026-11-28); se paran 5 s al
+  // tocarlos o al escribir.
+  const sugerencias_ref = useRef<ScrollView>(null);
+  const emojis_ref = useRef<ScrollView>(null);
+  const autoCarruseles = useCarruselesAutomaticos(abierta && conSesion !== false, { esperaMs: 5000, pausaMs: 5000 });
   const cerrarRef = useRef(onCerrar);
   cerrarRef.current = onCerrar;
   const gestos = useRef(
@@ -1717,6 +1724,7 @@ export function HojaComentariosNoticia({
 
   const cambiarTexto = (t: string) => {
     const nuevo = t.slice(0, MAX_COMENTARIO);
+    autoCarruseles.pausar();
     setTexto(nuevo);
     setEsBorrador(false);
     guardarBorrador(noticiaId, nuevo);
@@ -1926,11 +1934,12 @@ export function HojaComentariosNoticia({
   };
 
   return (
-    <Modal visible={abierta} transparent animationType="slide" onRequestClose={onCerrar}>
+    // Sin la animación del Modal: el fondo se funde y solo la hoja sube y baja (useHojaAbajo).
+    <Modal visible={animHoja.montada} transparent animationType="none" onRequestClose={onCerrar}>
       {/* Con el teclado abierto (web del móvil) la hoja se apoya justo encima de él y se ajusta al alto visible. */}
       <View style={{ flex: 1, justifyContent: "flex-end", paddingBottom: teclado.tapa }}>
         {/* Fondo oscuro: NO cierra al tocarlo (dueño, 2026-11-28: solo con el gesto hacia abajo). */}
-        <View nativeID="comentarios-fondo" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(3,10,18,0.45)" }} />
+        <Animated.View nativeID="comentarios-fondo" style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(3,10,18,0.45)" }, animHoja.fondo]} />
         <Animated.View
           nativeID="comentarios-hoja"
           style={{
@@ -1942,7 +1951,7 @@ export function HojaComentariosNoticia({
             borderTopLeftRadius: 26,
             borderTopRightRadius: 26,
             overflow: "hidden",
-            transform: [{ translateY: arrastre }],
+            transform: [{ translateY: Animated.add(arrastre, animHoja.subida) }],
             boxShadow: "0px -8px 30px rgba(11,33,56,0.18)",
           }}
         >
@@ -2095,6 +2104,7 @@ export function HojaComentariosNoticia({
                 {/* De arriba abajo (dueño, 2026-11-28): sugerencias de comentario, carrusel de emojis y la caja. */}
                 <ScrollView
                   nativeID="comentarios-sugerencias"
+                  {...autoCarruseles.carril("sugerencias", sugerencias_ref, 150)}
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
@@ -2127,6 +2137,7 @@ export function HojaComentariosNoticia({
                 </ScrollView>
                 <ScrollView
                   nativeID="comentarios-emojis"
+                  {...autoCarruseles.carril("emojis", emojis_ref, TACTIL.minimo * 3 + 6)}
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"

@@ -50,6 +50,7 @@ import { Animated, Easing, Modal, PanResponder, Platform, Pressable, Text, View 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/temaTienda";
 import { abrirPreferenciasAnalitica, medirEvento } from "../lib/analiticaPropia";
+import { useHojaAbajo } from "./DesplazamientoSuave";
 import EnlacesRedesSociales from "./EnlacesRedesSociales";
 import MarcaAnimada from "./marca/MarcaAnimada";
 import { VentanaMejoras } from "./VentanaValoracion";
@@ -124,8 +125,13 @@ export function FilaConfianza({ isMobile, onPressItem }: { isMobile?: boolean; o
  * de alto); también se pasa deslizando a izquierda o derecha, con las flechas del teclado, y se cierra tocando fuera o
  * con Escape. `onCambiar` recibe el aviso al que se pasa.
  */
-export function VentanaInformacion({ item, onClose, onCambiar }: { item: DatoConfianza | null; onClose: () => void; onCambiar?: (item: DatoConfianza) => void }) {
+export function VentanaInformacion({ item: itemActual, onClose, onCambiar }: { item: DatoConfianza | null; onClose: () => void; onCambiar?: (item: DatoConfianza) => void }) {
   const insets = useSafeAreaInsets();
+  const animHoja = useHojaAbajo(!!itemActual);
+  // Mientras la hoja baja al cerrar, sigue enseñando el último aviso (si no, se vaciaría a mitad de animación).
+  const ultimo = useRef<DatoConfianza | null>(itemActual);
+  if (itemActual) ultimo.current = itemActual;
+  const item = itemActual ?? ultimo.current;
   const i = item ? DATOS_CONFIANZA.findIndex((d) => d.title === item.title) : -1;
   const total = DATOS_CONFIANZA.length;
   const ir = (paso: number) => {
@@ -145,14 +151,14 @@ export function VentanaInformacion({ item, onClose, onCambiar }: { item: DatoCon
     })
   ).current;
   useEffect(() => {
-    if (!item || Platform.OS !== "web" || typeof window === "undefined") return;
+    if (!itemActual || Platform.OS !== "web" || typeof window === "undefined") return;
     const tecla = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight") irRef.current(1);
       else if (e.key === "ArrowLeft") irRef.current(-1);
     };
     window.addEventListener("keydown", tecla);
     return () => window.removeEventListener("keydown", tecla);
-  }, [item]);
+  }, [itemActual]);
 
   const flecha = (paso: number, nombre: string, icono: "chevron-back" | "chevron-forward") => (
     <Pressable
@@ -167,8 +173,13 @@ export function VentanaInformacion({ item, onClose, onCambiar }: { item: DatoCon
   );
 
   return (
-    <Modal visible={!!item} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable nativeID="confianza-fondo" style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end", alignItems: "center" }} onPress={onClose}>
+    // El fondo se funde y solo la hoja sube y baja (useHojaAbajo); mientras baja sigue enseñando el último aviso.
+    <Modal visible={animHoja.montada} transparent animationType="none" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: "flex-end", alignItems: "center" }}>
+        <Animated.View nativeID="confianza-velo" style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)" }, animHoja.fondo]}>
+          <Pressable nativeID="confianza-fondo" accessibilityLabel="Cerrar" style={{ flex: 1 }} onPress={onClose} />
+        </Animated.View>
+        <Animated.View style={[{ width: "100%", alignItems: "center" }, animHoja.hoja]}>
         <Pressable
           nativeID="confianza-ventana"
           onPress={() => {}}
@@ -213,7 +224,8 @@ export function VentanaInformacion({ item, onClose, onCambiar }: { item: DatoCon
             {flecha(1, "Aviso siguiente", "chevron-forward")}
           </View>
         </Pressable>
-      </Pressable>
+        </Animated.View>
+      </View>
     </Modal>
   );
 }

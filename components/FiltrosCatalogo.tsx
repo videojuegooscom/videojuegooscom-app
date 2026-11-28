@@ -32,7 +32,8 @@
  */
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Modal, PanResponder, Platform, Pressable, ScrollView, Text, View, type LayoutChangeEvent } from "react-native";
+import { ActivityIndicator, Animated, Modal, PanResponder, Platform, Pressable, ScrollView, Text, View, type LayoutChangeEvent } from "react-native";
+import { useHojaAbajo } from "./DesplazamientoSuave";
 import { medirEvento } from "../lib/analiticaPropia";
 import { COLORES_TEXTO, TACTIL } from "../constants/temaTienda";
 
@@ -470,6 +471,7 @@ export default function FiltrosCatalogo({
   disponibles?: FiltrosDisponibles | null;
 }) {
   const [open, setOpen] = useState(false);
+  const animHoja = useHojaAbajo(open);
   const usedSelected = condition === "USED" || USED_DETAIL.some((d) => d.key === condition);
 
   // Filtros activos (el orden no cuenta como filtro; dentro de una categoría, la categoría tampoco).
@@ -519,10 +521,12 @@ export default function FiltrosCatalogo({
       </Pressable>
 
       {/* Panel de filtros: hoja inferior en móvil, ventana centrada en escritorio. */}
+      {/* Sin la animación del Modal (2026-11-28): el fondo se funde y el panel sube desde abajo (móvil) o aparece con un
+          fundido y una subida corta (ordenador), también al cerrar (useHojaAbajo). */}
       <Modal
-        visible={open}
+        visible={animHoja.montada}
         transparent
-        animationType={isMobile ? "slide" : "fade"}
+        animationType="none"
         onRequestClose={() => setOpen(false)}
       >
         <View
@@ -534,21 +538,16 @@ export default function FiltrosCatalogo({
           }}
         >
           {/* Fondo oscuro: tocarlo cierra el panel. */}
-          <Pressable
-            onPress={() => setOpen(false)}
-            accessibilityLabel="Cerrar filtros"
-            style={{
-              position: "absolute",
-              top: 0,
-              right: 0,
-              bottom: 0,
-              left: 0,
-              backgroundColor: "rgba(11,33,56,0.45)",
-            }}
-          />
+          <Animated.View nativeID="filtros-fondo" style={[{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(11,33,56,0.45)" }, animHoja.fondo]}>
+            <Pressable onPress={() => setOpen(false)} accessibilityLabel="Cerrar filtros" style={{ flex: 1 }} />
+          </Animated.View>
 
-          <View
+          <Animated.View
+            nativeID="filtros-panel"
             style={{
+              ...(isMobile
+                ? animHoja.hoja
+                : { opacity: animHoja.progreso, transform: [{ translateY: animHoja.progreso.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] }),
               width: "100%",
               maxWidth: isMobile ? undefined : 560,
               maxHeight: isMobile ? "88%" : "86%",
@@ -787,7 +786,7 @@ export default function FiltrosCatalogo({
                 <Ionicons name="close" size={26} color={COLORS.text} />
               </Pressable>
             </View>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     </View>

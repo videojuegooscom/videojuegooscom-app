@@ -182,6 +182,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Dimensions, Easing, Modal, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import { useHojaAbajo } from "./DesplazamientoSuave";
 import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -277,6 +278,7 @@ export default function AsistenteBlue() {
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
   const [panelOpen, setPanelOpen] = useState(false);
+  const animPanel = useHojaAbajo(panelOpen);
   const panelOpenRef = useRef(false);
   panelOpenRef.current = panelOpen;
   // «Mejoras en la tienda»: la cajita de ideas que se abre desde el Asistente.
@@ -422,6 +424,7 @@ export default function AsistenteBlue() {
   // Instalar la tienda como app: cómo se ofrece en este dispositivo y los pasos de iPhone.
   const [modoInst, setModoInst] = useState<"prompt" | "ios" | null>(null);
   const [pasosIosAbiertos, setPasosIosAbiertos] = useState(false);
+  const animPasosIos = useHojaAbajo(pasosIosAbiertos);
   // Propuesta de Blue al dueño (panel de administración): tema abierto, su respuesta y estado.
   const [propuesta, setPropuesta] = useState<TemaConocimiento | null>(null);
   const [respuestaProp, setRespuestaProp] = useState("");
@@ -2395,11 +2398,13 @@ export default function AsistenteBlue() {
       </View>
       )}
 
-      <Modal visible={panelOpen} transparent animationType="fade" onRequestClose={() => setPanelOpen(false)}>
-        <Pressable
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end", alignItems: "center" }}
-          onPress={() => setPanelOpen(false)}
-        >
+      {/* El fondo se funde y solo la hoja sube y baja (useHojaAbajo, 2026-11-28). */}
+      <Modal visible={animPanel.montada} transparent animationType="none" onRequestClose={() => setPanelOpen(false)}>
+        <View style={{ flex: 1, justifyContent: "flex-end", alignItems: "center" }}>
+          <Animated.View style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)" }, animPanel.fondo]}>
+            <Pressable onPress={() => setPanelOpen(false)} accessibilityLabel="Cerrar" style={{ flex: 1 }} />
+          </Animated.View>
+          <Animated.View style={[{ width: "100%", alignItems: "center", maxHeight: "80%" }, animPanel.hoja]}>
           <Pressable
             onPress={() => {}}
             style={{
@@ -2410,7 +2415,8 @@ export default function AsistenteBlue() {
               borderTopRightRadius: 24,
               padding: 18,
               paddingBottom: Platform.OS === "ios" ? 34 : 22,
-              maxHeight: "80%",
+              maxHeight: "100%",
+              flexShrink: 1,
             }}
           >
             <Pressable onPress={() => setPanelOpen(false)} hitSlop={10} style={{ position: "absolute", top: 14, right: 16, zIndex: 2 }}>
@@ -2915,7 +2921,8 @@ export default function AsistenteBlue() {
               ) : null}
             </ScrollView>
           </Pressable>
-        </Pressable>
+          </Animated.View>
+        </View>
       </Modal>
 
       {guiaAbierta ? (
@@ -3005,11 +3012,12 @@ export default function AsistenteBlue() {
       </Modal>
 
       {/* iPhone/iPad: no hay botón de instalar; se enseñan los pasos de Safari. */}
-      <Modal visible={pasosIosAbiertos} transparent animationType="fade" onRequestClose={() => setPasosIosAbiertos(false)}>
-        <Pressable
-          onPress={() => setPasosIosAbiertos(false)}
-          style={{ flex: 1, backgroundColor: FONDO_GUIA, justifyContent: "flex-end", alignItems: "center", padding: 12 }}
-        >
+      <Modal visible={animPasosIos.montada} transparent animationType="none" onRequestClose={() => setPasosIosAbiertos(false)}>
+        <View style={{ flex: 1, justifyContent: "flex-end", alignItems: "center", padding: 12 }}>
+          <Animated.View style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: FONDO_GUIA }, animPasosIos.fondo]}>
+            <Pressable onPress={() => setPasosIosAbiertos(false)} accessibilityLabel="Cerrar" style={{ flex: 1 }} />
+          </Animated.View>
+          <Animated.View style={[{ width: "100%", alignItems: "center" }, animPasosIos.hoja]}>
           <Pressable
             onPress={() => undefined}
             style={{ width: "100%", maxWidth: 420, backgroundColor: COLORS.bg, borderRadius: 24, padding: 20, gap: 12, alignItems: "center" }}
@@ -3027,7 +3035,8 @@ export default function AsistenteBlue() {
               <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Entendido</Text>
             </Pressable>
           </Pressable>
-        </Pressable>
+          </Animated.View>
+        </View>
       </Modal>
 
       {/* «Mejoras en la tienda» (desde el Asistente). */}

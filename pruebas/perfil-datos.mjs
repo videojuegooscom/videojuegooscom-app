@@ -27759,8 +27759,247 @@ async function seccionBLANCO() {
   }
 }
 
+// HOJA (dueño, 2026-11-28): al abrir y cerrar las hojas de abajo se veía subir y bajar el fondo oscuro entero, como una
+// tapadera con borde (animationType «slide» del Modal). Ahora el fondo solo se funde y lo único que se mueve es la hoja.
+// Se mide fotograma a fotograma, al abrir y al cerrar, en las cuatro: comentarios de una noticia, avisos de «Compra con
+// confianza», filtros del catálogo e Historial de Blue IA, en el móvil (390) y en el ordenador (1280).
+async function seccionHOJA() {
+  const N = "0e000000-0000-4000-8000-0000000000b1";
+  const NOTICIA = {
+    id: N, url: "https://vandal.elespanol.com/noticia/1", fuente: "Vandal", imagen_url: null, imagenes: [], imagenes_verificadas: false, imagenes_meta: [],
+    titulo: "Nueva consola portátil anunciada para marzo", categoria: "Consolas", resumen: "La marca ha presentado una consola portátil nueva.",
+    puntos_clave: ["Sale en marzo"], datos: [], por_que_importa: "Cambia la gama.", afecta_a: "Jugadores.", contexto: null, publicada: true, me_gusta: 0,
+    created_at: "2026-11-08T08:00:00Z", publicada_en: "2026-11-09T07:30:00Z",
+  };
+  const PERFIL_COMPLETO = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const muestrear = (p, fondo, hoja, ms) =>
+    p.evaluate(
+      ([fondo, hoja, ms]) => {
+        window.__muestras = [];
+        const t0 = performance.now();
+        const opacidad = (e) => {
+          let o = 1;
+          for (let n = e; n; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity);
+          return Math.round(o * 100) / 100;
+        };
+        const paso = () => {
+          const f = document.querySelector(fondo);
+          const h = document.querySelector(hoja);
+          window.__muestras.push({
+            fArriba: f ? Math.round(f.getBoundingClientRect().top) : null,
+            fOp: f ? opacidad(f) : null,
+            hArriba: h ? Math.round(h.getBoundingClientRect().top) : null,
+            hOp: h ? opacidad(h) : null,
+          });
+          if (performance.now() - t0 < ms) requestAnimationFrame(paso);
+        };
+        requestAnimationFrame(paso);
+      },
+      [fondo, hoja, ms]
+    );
+  const leer = async (p) => {
+    await p.waitForTimeout(800);
+    return (await p.evaluate(() => window.__muestras)).filter((m) => m.fArriba !== null && m.hArriba !== null);
+  };
+  // Al abrir: el fondo nunca se desplaza (arriba = 0) y pasa de casi transparente a opaco; la hoja sube (o, en el panel
+  // centrado del ordenador, aparece con un fundido). Al cerrar, al revés, y al final ya no está.
+  const comprobar = (nombre, que, abrir, cerrar, movil) => {
+    if (abrir.length < 2 || cerrar.length < 2) {
+      ok(false, `HOJA (${nombre}): en ${que} no se pudo medir la animación (${abrir.length} y ${cerrar.length} fotogramas)`);
+      return;
+    }
+    const fondoQuieto = [...abrir, ...cerrar].every((m) => Math.abs(m.fArriba) <= 1);
+    const funde = abrir.length > 3 && abrir[0].fOp < 0.6 && abrir[abrir.length - 1].fOp >= 0.95 && cerrar.length > 1 && cerrar[cerrar.length - 1].fOp < cerrar[0].fOp;
+    const hojaSube = movil ? abrir[0].hArriba > abrir[abrir.length - 1].hArriba + 100 : abrir[0].hOp < 0.6 && abrir[abrir.length - 1].hOp >= 0.95;
+    const hojaBaja = movil ? cerrar[cerrar.length - 1].hArriba > cerrar[0].hArriba + 60 : cerrar[cerrar.length - 1].hOp < cerrar[0].hOp;
+    ok(
+      fondoQuieto && funde && hojaSube && hojaBaja,
+      `HOJA (${nombre}): en ${que} el fondo solo se funde (no se desplaza) y solo la hoja ${movil ? "sube y baja" : "aparece y se va"} (${JSON.stringify({
+        fondoQuieto, funde, hojaSube, hojaBaja, abrir: [abrir[0], abrir[abrir.length - 1]], cerrar: [cerrar[0], cerrar[cerrar.length - 1]], marcos: [abrir.length, cerrar.length],
+      })})`
+    );
+  };
+  for (const [ancho, alto, nombre] of [[390, 844, "390"], [1280, 900, "1280"]]) {
+    const movil = ancho < 700;
+    const estado = { filas: PERFIL_COMPLETO, guardados: [], noticiasNW: [NOTICIA], comentarios: [], categorias: [], megusta: { productos: [], servicios: [] } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { viewport: { width: ancho, height: alto } });
+    // 1) Comentarios de una noticia (también en el ordenador es una hoja de abajo).
+    const p = await pagina(ctx, `/noticias/${N}`);
+    await p.locator("#noticia-comentar").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    await muestrear(p, "#comentarios-fondo", "#comentarios-hoja", 600);
+    await p.locator("#noticia-comentar").click();
+    const abrirC = await leer(p);
+    await muestrear(p, "#comentarios-fondo", "#comentarios-hoja", 600);
+    await p.keyboard.press("Escape");
+    const cerrarC = await leer(p);
+    comprobar(nombre, "los comentarios", abrirC, cerrarC, true);
+    ok(!(await p.evaluate(() => !!document.getElementById("comentarios-hoja"))), `HOJA (${nombre}): al terminar de bajar, la hoja de comentarios se quita`);
+    // 2) «Compra con confianza» (pie de la noticia): Garantía.
+    await p.locator("#noticia-confianza").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(400);
+    await muestrear(p, "#confianza-velo", "#confianza-ventana", 600);
+    await p.locator("#noticia-confianza").getByText("Garantía").first().click();
+    const abrirG = await leer(p);
+    await muestrear(p, "#confianza-velo", "#confianza-ventana", 600);
+    await p.locator("#confianza-cerrar").click();
+    const cerrarG = await leer(p);
+    comprobar(nombre, "«Compra con confianza»", abrirG, cerrarG, true);
+    const texto = cerrarG.length ? "ok" : "sin muestras";
+    ok(texto === "ok" && !(await p.evaluate(() => !!document.getElementById("confianza-ventana"))), `HOJA (${nombre}): el aviso se quita al terminar (${texto})`);
+    ok(p.errores.length === 0, `HOJA (${nombre}): noticia sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await p.close();
+    // 3) Filtros del catálogo (en el móvil hoja de abajo; en el ordenador, panel centrado con fundido).
+    const c = await pagina(ctx, "/catalogo");
+    await c.locator("#catalogo-filtros").waitFor({ timeout: 40000 }).catch(() => {});
+    await c.waitForTimeout(1200);
+    await muestrear(c, "#filtros-fondo", "#filtros-panel", 600);
+    await c.locator("#catalogo-filtros").click();
+    const abrirF = await leer(c);
+    await muestrear(c, "#filtros-fondo", "#filtros-panel", 600);
+    await c.locator("#filtros-cerrar").click();
+    const cerrarF = await leer(c);
+    comprobar(nombre, "los filtros", abrirF, cerrarF, movil);
+    ok(c.errores.length === 0, `HOJA (${nombre}): catálogo sin errores de JavaScript (${c.errores[0] ?? "ninguno"})`);
+    await c.close();
+    // 4) Historial de Blue IA.
+    const b = await pagina(ctx, "/blue-ia");
+    const botonHistorial = b.getByRole("button", { name: "Historial" }).first();
+    await botonHistorial.waitFor({ timeout: 40000 }).catch(() => {});
+    await b.waitForTimeout(1200);
+    await muestrear(b, "#blue-ia-historial-velo", "#blue-ia-historial", 600);
+    await botonHistorial.click();
+    const abrirH = await leer(b);
+    await capturar(b, `HOJA-historial-${nombre}`);
+    await muestrear(b, "#blue-ia-historial-velo", "#blue-ia-historial", 600);
+    await b.locator("#blue-ia-historial-fondo").click({ position: { x: 20, y: 20 } });
+    const cerrarH = await leer(b);
+    comprobar(nombre, "el Historial de Blue IA", abrirH, cerrarH, true);
+    ok(b.errores.length === 0, `HOJA (${nombre}): Blue IA sin errores de JavaScript (${b.errores[0] ?? "ninguno"})`);
+    await b.close();
+    await ctx.close();
+  }
+}
+
+// CARR (dueño, 2026-11-28): en los comentarios, las sugerencias y los emojis avanzan solos y A LA VEZ tras 5 s con la
+// hoja quieta (no antes), y escribir los para; la tira de noticias (Cesta) se mueve sola como la de artículos.
+async function seccionCARR() {
+  const N = "0e000000-0000-4000-8000-0000000000c1";
+  const foto = (n) => `https://fotos.ejemplo.invalid/storage/v1/object/public/noticias/carr${n}.jpg`;
+  const noticia = (i) => ({
+    id: i === 0 ? N : `0e000000-0000-4000-8000-0000000001${String(i).padStart(2, "0")}`, url: "https://vandal.elespanol.com/noticia/1", fuente: "Vandal",
+    imagen_url: foto(i), imagenes: [foto(i)], imagenes_verificadas: true, imagenes_meta: [], titulo: `Noticia de prueba número ${i + 1}`, categoria: "Consolas",
+    resumen: "Resumen de la noticia.", puntos_clave: [], datos: [], por_que_importa: null, afecta_a: null, contexto: null, publicada: true, me_gusta: 0,
+    created_at: "2026-11-08T08:00:00Z", publicada_en: `2026-11-${String(20 - (i % 10)).padStart(2, "0")}T07:30:00Z`,
+  });
+  const NOTICIAS = Array.from({ length: 12 }, (_, i) => noticia(i));
+  const PERFIL_COMPLETO = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  for (const [ancho, alto, nombre] of [[390, 844, "390"], [1280, 900, "1280"]]) {
+    const estado = { filas: PERFIL_COMPLETO, guardados: [], noticiasNW: NOTICIAS, noticias: NOTICIAS, comentarios: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { viewport: { width: ancho, height: alto } });
+    const p = await pagina(ctx, `/noticias/${N}`);
+    await p.locator("#noticia-comentar").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1200);
+    await p.locator("#noticia-comentar").click();
+    await p.locator("#comentarios-emojis").waitFor({ timeout: 10000 }).catch(() => {});
+    const pos = () =>
+      p.evaluate(() => ({
+        sugerencias: Math.round(document.getElementById("comentarios-sugerencias")?.scrollLeft ?? -1),
+        emojis: Math.round(document.getElementById("comentarios-emojis")?.scrollLeft ?? -1),
+      }));
+    await p.waitForTimeout(4000);
+    const a4 = await pos();
+    await p.waitForTimeout(2600);
+    const a66 = await pos();
+    ok(a4.sugerencias === 0 && a4.emojis === 0, `CARR (${nombre}): con la hoja recién abierta, los carruseles esperan quietos (a los 4 s: ${JSON.stringify(a4)})`);
+    ok(
+      (ancho >= 700 || a66.sugerencias > 0) && a66.emojis > 0,
+      `CARR (${nombre}): a los ~5 s de estar quieta, sugerencias y emojis avanzan solos a la vez (a los 6,6 s: ${JSON.stringify(a66)})`
+    );
+    // Escribir los para: tras escribir, en 3 s no se mueven.
+    await p.locator("#comentarios-texto").click();
+    await p.keyboard.type("hola");
+    const trasEscribir = await pos();
+    await p.waitForTimeout(3000);
+    const luego = await pos();
+    ok(
+      luego.emojis === trasEscribir.emojis && luego.sugerencias === trasEscribir.sugerencias,
+      `CARR (${nombre}): al escribir se paran (${JSON.stringify({ trasEscribir, luego })})`
+    );
+    ok(p.errores.length === 0, `CARR (${nombre}): comentarios sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await p.close();
+    // Tira de noticias en la Cesta: se mueve sola.
+    const c = await pagina(ctx, "/cesta");
+    const tira = c.locator('[id$="-noticias-recientes"] [class*="ScrollView"], [id$="-noticias-recientes"] div').first();
+    await c.locator('[id$="-noticias-recientes"]').first().waitFor({ timeout: 40000 }).catch(() => {});
+    await c.locator('[id$="-noticias-recientes"]').first().scrollIntoViewIfNeeded().catch(() => {});
+    const desplazamiento = () =>
+      c.evaluate(() => {
+        const raiz = document.querySelector('[id$="-noticias-recientes"]');
+        const scroller = [...(raiz?.querySelectorAll("div") ?? [])].find((d) => d.scrollWidth > d.clientWidth + 20 && /auto|scroll/.test(getComputedStyle(d).overflowX));
+        return scroller ? Math.round(scroller.scrollLeft) : -1;
+      });
+    const n0 = await desplazamiento();
+    await c.waitForTimeout(8500);
+    const n1 = await desplazamiento();
+    ok(n0 >= 0 && n1 > n0, `CARR (${nombre}): la tira de noticias de la Cesta se mueve sola, como la de artículos (${n0} → ${n1} px)`);
+    void tira;
+    ok(c.errores.length === 0, `CARR (${nombre}): Cesta sin errores de JavaScript (${c.errores[0] ?? "ninguno"})`);
+    await c.close();
+    await ctx.close();
+  }
+}
+
+// PANELN (dueño, 2026-11-28): en Perfil, el botón «Panel de control» del administrador lleva un «+N» rojo con todas las
+// novedades del panel (las mismas que los números de sus recuadros); sin novedades, nada. Móvil y ordenador.
+async function seccionPANELN() {
+  const hace = (min) => new Date(Date.now() - min * 60000).toISOString();
+  const PERFIL_ADMIN = [{ user_id: ADMIN.id, nombre: "Daniel", usuario: "VideojuegosZaragoza", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", role: "admin" }];
+  for (const [ancho, alto, nombre] of [[390, 844, "390"], [1280, 900, "1280"]]) {
+    for (const [caso, novedades, esperado] of [
+      ["con novedades", { pedidos: [hace(30), hace(90)], service_requests: [hace(60)], chatsSinLeer: 3 }, 6],
+      ["sin novedades", { chatsSinLeer: 0 }, 0],
+    ]) {
+      const estado = { filas: PERFIL_ADMIN, guardados: [], noticiasNW: [], novedades };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, { viewport: { width: ancho, height: alto } });
+      const p = await pagina(ctx, "/perfil");
+      const boton = p.getByRole("button", { name: /^Panel de control/ });
+      await boton.first().waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(2500);
+      const datos = await p.evaluate(() => {
+        const ins = document.getElementById("perfil-panel-novedades");
+        const btn = ins?.closest('[role="button"]') ?? [...document.querySelectorAll('[role="button"]')].find((b) => /^Panel de control/.test(b.getAttribute("aria-label") ?? ""));
+        const rb = btn?.getBoundingClientRect();
+        const ri = ins?.getBoundingClientRect();
+        return {
+          texto: ins?.innerText.trim() ?? "",
+          etiqueta: btn?.getAttribute("aria-label") ?? "",
+          dentro: !ri || (!!rb && ri.left >= rb.left && ri.right <= rb.right && ri.top >= rb.top - 1 && ri.bottom <= rb.bottom + 1),
+          color: ins ? getComputedStyle(ins).color : "",
+          fondo: ins ? getComputedStyle(ins).backgroundColor : "",
+        };
+      });
+      if (esperado) {
+        // Solo el número en rojo, sin burbuja (dueño, 2026-11-28).
+        ok(
+          datos.texto === `+${esperado}` && datos.etiqueta === `Panel de control, ${esperado} novedades` && datos.dentro && datos.color === "rgb(229, 72, 77)" && datos.fondo === "rgba(0, 0, 0, 0)",
+          `PANELN (${nombre}): ${caso}, «Panel de control» lleva el número «+${esperado}» en rojo, sin burbuja, dentro del botón (${JSON.stringify(datos)})`
+        );
+        await capturar(p, `PANELN-${nombre}`);
+      } else {
+        ok(datos.texto === "" && datos.etiqueta === "Panel de control", `PANELN (${nombre}): ${caso}, «Panel de control» va sin número (${JSON.stringify(datos)})`);
+      }
+      ok(p.errores.length === 0, `PANELN (${nombre}): Perfil sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "PANELN") await seccionPANELN();
+  if (SOLO === "CARR") await seccionCARR();
+  if (SOLO === "HOJA") await seccionHOJA();
   if (SOLO === "BLANCO") await seccionBLANCO();
   if (SOLO === "PANSCROLL") await seccionPANSCROLL();
   if (SOLO === "CANCAV") await seccionCANCAV();

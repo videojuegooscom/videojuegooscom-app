@@ -105,7 +105,7 @@ import type { NativeScrollEvent, NativeSyntheticEvent, ViewStyle } from "react-n
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ImagenInteligente from "./ImagenInteligente";
-import { AparecerAlVer } from "./DesplazamientoSuave";
+import { AparecerAlVer, useCarruselesAutomaticos } from "./DesplazamientoSuave";
 import { useRecarga } from "./TirarParaActualizar";
 import { cargarIndiceBusqueda, palabrasBusqueda, portadasDeProductos, type ProductoIndice } from "./BarraBusqueda";
 import { supabase } from "../lib/supabase";
@@ -1850,6 +1850,9 @@ function CarruselNoticias({
   const scrollX = useRef(0);
   const anchoVisible = useRef(0);
   const anchoTotal = useRef(0);
+  // Se mueve sola al ritmo de los carruseles de artículos (dueño, 2026-11-28): un paso cada 3,8 s y 9 s quieta al tocarla.
+  const auto = useCarruselesAutomaticos(noticias.length > 0, { esperaMs: AUTO_PASO_MS, pausaMs: AUTO_PAUSA_MS, pasoMs: AUTO_PASO_MS });
+  const autoCarril = auto.carril("noticias", scrollRef, NOTICIA_ANCHO + CARD_GAP);
   const [izquierda, setIzquierda] = useState(false);
   const [derecha, setDerecha] = useState(false);
   const medido = useRef(false);
@@ -1871,11 +1874,12 @@ function CarruselNoticias({
 
   const mover = useCallback(
     (dir: 1 | -1) => {
+      auto.pausar();
       const visibles = Math.max(1, Math.floor(anchoVisible.current / paso));
       const maxX = Math.max(0, anchoTotal.current - anchoVisible.current);
       scrollRef.current?.scrollTo({ x: Math.min(maxX, Math.max(0, scrollX.current + visibles * paso * dir)), animated: true });
     },
-    [paso]
+    [paso, auto]
   );
 
   if (!noticias.length) return null;
@@ -1893,6 +1897,7 @@ function CarruselNoticias({
           decelerationRate="fast"
           scrollEventThrottle={16}
           onScroll={(e) => {
+            autoCarril.onScroll(e);
             const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
             scrollX.current = contentOffset.x;
             anchoVisible.current = layoutMeasurement.width;
@@ -1900,13 +1905,17 @@ function CarruselNoticias({
             flechas();
           }}
           onLayout={(e) => {
+            autoCarril.onLayout(e);
             anchoVisible.current = e.nativeEvent.layout.width;
             flechas();
           }}
           onContentSizeChange={(w) => {
+            autoCarril.onContentSizeChange(w);
             anchoTotal.current = w;
             flechas();
           }}
+          onTouchStart={auto.pausar}
+          onScrollBeginDrag={auto.pausar}
           contentContainerStyle={{ gap: CARD_GAP, paddingRight: 4 }}
         >
           {noticias.map((n, i) => (
