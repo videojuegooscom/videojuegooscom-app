@@ -1765,6 +1765,7 @@ export default function AdminAnalytics() {
       noticiaComentariosEnviados: findExact("Noticias: comentario enviado desde la noticia"),
       noticiaComentarioRespuestas: findExact("Noticias: respuesta a un comentario"),
       noticiaComentarioLikes: findExact("Noticias: me gusta a un comentario"),
+      noticiaComentarioSugerencias: findExact("Noticias: sugerencia de comentario"),
       noticiaBarraCompartir: findExact("Noticias: barra · compartir"),
       noticiaBarraVolver: findExact("Noticias: barra · volver"),
       // Privacidad → «Aceptar la analítica» (2026-11-27). Quien la rechaza no se cuenta (no se registra nada).
@@ -2536,7 +2537,8 @@ export default function AdminAnalytics() {
                       Página de noticia, barra de abajo → me gusta: {coreFunnel.noticiaBarraMeGusta} · comentar: {coreFunnel.noticiaBarraComentar} ·
                       compartir: {coreFunnel.noticiaBarraCompartir} · volver: {coreFunnel.noticiaBarraVolver} sesiones · comentarios
                       escritos desde la noticia: {coreFunnel.noticiaComentariosEnviados} · respuestas a comentarios:{" "}
-                      {coreFunnel.noticiaComentarioRespuestas} · me gusta a comentarios: {coreFunnel.noticiaComentarioLikes}
+                      {coreFunnel.noticiaComentarioRespuestas} · me gusta a comentarios: {coreFunnel.noticiaComentarioLikes} ·
+                      sugerencias de comentario tocadas: {coreFunnel.noticiaComentarioSugerencias}
                     </Text>
                   </View>
                   {/* Analítica con consentimiento (2026-11-27): solo cuenta quien la acepta; quien la rechaza no sale. */}

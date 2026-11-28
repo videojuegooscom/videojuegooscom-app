@@ -11624,7 +11624,7 @@ async function seccionNW() {
       ruta: location.pathname,
     }));
     ok(
-      hoja.titulo === "Comentarios · 1" && /Luis/.test(hoja.lista) && /Qué ganas de probarla/.test(hoja.lista) && hoja.emojis === 8 && hoja.placeholder === "¿Qué opinas de esto?" && hoja.ruta === `/noticias/${N1}`,
+      hoja.titulo === "Comentarios · 1" && /Luis/.test(hoja.lista) && /Qué ganas de probarla/.test(hoja.lista) && hoja.emojis === 16 && hoja.placeholder === "¿Qué opinas de esto?" && hoja.ruta === `/noticias/${N1}`,
       `NW: «Comentar» abre la hoja de comentarios en la noticia, como Instagram (${JSON.stringify(hoja)})`
     );
     // Textos centrados y botones de 44 px o más.
@@ -11639,13 +11639,26 @@ async function seccionNW() {
       await p.setViewportSize({ width: ancho, height: alto });
       await p.waitForTimeout(500);
       await capturar(p, `NW1c-comentarios-${nombre}`);
-      // Nada se sale por los lados y la caja de escribir empieza con una línea (48-56 px).
+      // De arriba abajo: sugerencias, carrusel de emojis (se desliza a los lados, dentro de la pantalla) y la caja, que
+      // empieza con una línea (48-56 px); la página no se ensancha.
       const medidas = await p.evaluate(() => {
-        const emojis = [...document.querySelectorAll("#comentarios-emojis [role='button']")].map((b) => b.getBoundingClientRect());
-        const caja = document.getElementById("comentarios-texto")?.parentElement?.getBoundingClientRect();
-        return { fuera: emojis.filter((r) => r.left < 0 || r.right > window.innerWidth).length, cuantos: emojis.length, alto: Math.round(caja?.height ?? 0) };
+        const caja = (id) => document.getElementById(id)?.getBoundingClientRect();
+        const sug = caja("comentarios-sugerencias");
+        const emo = caja("comentarios-emojis");
+        const texto = document.getElementById("comentarios-texto")?.parentElement?.getBoundingClientRect();
+        return {
+          orden: !!sug && !!emo && !!texto && sug.bottom <= emo.top + 1 && emo.bottom <= texto.top + 1,
+          dentro: !!emo && !!sug && emo.left >= 0 && emo.right <= window.innerWidth && sug.left >= 0 && sug.right <= window.innerWidth,
+          desliza: (document.getElementById("comentarios-emojis")?.scrollWidth ?? 0) > (document.getElementById("comentarios-emojis")?.clientWidth ?? 0),
+          sugerencias: [...document.querySelectorAll("#comentarios-sugerencias [role='button']")].map((b) => b.innerText.trim()),
+          alto: Math.round(texto?.height ?? 0),
+          ancho: document.documentElement.scrollWidth <= window.innerWidth,
+        };
       });
-      ok(medidas.fuera === 0 && medidas.alto >= 46 && medidas.alto <= 56, `NW (${nombre}): emojis dentro de la pantalla y caja de una línea (${JSON.stringify(medidas)})`);
+      ok(
+        medidas.orden && medidas.dentro && medidas.desliza && medidas.sugerencias.length === 5 && medidas.alto >= 46 && medidas.alto <= 56 && medidas.ancho,
+        `NW (${nombre}): sugerencias, carrusel de emojis y caja de una línea, en ese orden y dentro de la pantalla (${JSON.stringify(medidas)})`
+      );
     }
     await p.setViewportSize({ width: 390, height: 844 });
     // Escribir texto y añadir un emoji rápido (se pone al final, como en Instagram), y publicar.
@@ -11666,6 +11679,63 @@ async function seccionNW() {
       ["Noticias: barra · comentar", "Noticias: comentario enviado desde la noticia"].every((l) => (estado.eventosEnviados ?? []).some((e) => e.step_label === l)),
       "NW: abrir los comentarios y publicar uno se cuenta en Analítica"
     );
+    // Sugerencia de comentario: tocarla la pone en la caja (y se cuenta en Analítica).
+    await p.locator("#comentarios-sugerencias [role='button']").first().click();
+    await p.waitForTimeout(300);
+    const conSugerencia = await p.evaluate(() => document.getElementById("comentarios-texto")?.value ?? "");
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.step_label === "Noticias: sugerencia de comentario"); i++) await p.waitForTimeout(250);
+    ok(
+      conSugerencia === "¡Me la pillo!" && (estado.eventosEnviados ?? []).some((e) => e.step_label === "Noticias: sugerencia de comentario"),
+      `NW: tocar una sugerencia la escribe en la caja y se cuenta en Analítica («${conSugerencia}»)`
+    );
+    // La caja crece con cada línea (hasta 5) y vuelve a una línea al borrarla.
+    const altoCaja = () => p.evaluate(() => Math.round(document.getElementById("comentarios-texto")?.parentElement?.getBoundingClientRect().height ?? 0));
+    const unaLinea = await altoCaja();
+    await p.locator("#comentarios-texto").click();
+    await p.keyboard.press("End");
+    for (const l of ["segunda línea", "tercera línea", "cuarta línea"]) {
+      await p.keyboard.press("Enter");
+      await p.keyboard.type(l);
+    }
+    await p.waitForTimeout(300);
+    const cuatroLineas = await altoCaja();
+    for (let i = 0; i < 4; i++) {
+      await p.keyboard.press("Enter");
+      await p.keyboard.type("más");
+    }
+    await p.waitForTimeout(300);
+    const ochoLineas = await altoCaja();
+    await capturar(p, "NW1i-caja-crece-390");
+    await p.keyboard.press("Control+A");
+    await p.keyboard.press("Backspace");
+    await p.waitForTimeout(300);
+    const vacia = await altoCaja();
+    ok(
+      cuatroLineas >= unaLinea + 60 && ochoLineas > cuatroLineas && ochoLineas <= 140 && vacia <= unaLinea + 2,
+      `NW: la caja crece con las líneas (hasta 5) y vuelve al borrar (${JSON.stringify({ unaLinea, cuatroLineas, ochoLineas, vacia })})`
+    );
+    // Deslizar hacia abajo con el dedo en CUALQUIER parte de la hoja (la lista arriba del todo) la cierra; no solo el título.
+    const cdpHoja = await ctx.newCDPSession(p);
+    const dedo = async (x, y0, y1, pasos = 10) => {
+      await cdpHoja.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: y0 }] });
+      for (let i = 1; i <= pasos; i++) await cdpHoja.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y0 + ((y1 - y0) * i) / pasos }] });
+      await cdpHoja.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await p.waitForTimeout(900);
+    };
+    const listaCaja = await p.locator("#comentarios-lista").boundingBox();
+    await dedo(195, listaCaja.y + 40, listaCaja.y + 260);
+    const trasDedo = await p.evaluate(() => !!document.getElementById("comentarios-hoja"));
+    ok(!trasDedo, "NW: deslizar hacia abajo con el dedo en medio de los comentarios cierra la hoja");
+    await p.locator("#noticia-comentar").click();
+    await p.locator("#comentarios-hoja").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(700);
+    const emojisCaja = await p.locator("#comentarios-emojis").boundingBox();
+    await dedo(195, emojisCaja.y + 10, emojisCaja.y + 200);
+    const trasEmojis = await p.evaluate(() => !!document.getElementById("comentarios-hoja"));
+    ok(!trasEmojis, "NW: deslizar hacia abajo desde la zona de abajo (emojis) también cierra la hoja");
+    await p.locator("#noticia-comentar").click();
+    await p.locator("#comentarios-hoja").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(700);
     // Cerrar (dueño, 2026-11-28): sin «X» y tocar fuera NO cierra; solo deslizar hacia abajo el asa. Lo que estaba a medias
     // queda como «Borrador» al volver a abrir.
     await p.locator("#comentarios-texto").click();
@@ -11783,6 +11853,10 @@ async function seccionNW() {
           id: `c-r${i + 1}`, noticia_id: N1, created_at: `2026-11-27T21:0${i}:00Z`, autor: ["Marta", "Iván", "Sara", "Pablo"][i], texto: t, user_id: null, respuesta_a: padre,
         })),
         { id: "c-otro", noticia_id: N1, created_at: "2026-11-27T22:00:00Z", autor: "Elena", texto: "Qué ganas de probarla", user_id: null, respuesta_a: null },
+        // Muchos más, para comprobar que desplazarse por la lista no cierra la hoja.
+        ...Array.from({ length: 12 }, (_, i) => ({
+          id: `c-mas-${i}`, noticia_id: N1, created_at: `2026-11-27T23:${String(10 + i)}:00Z`, autor: `Jugador ${i + 1}`, texto: `Comentario número ${i + 1} sobre la consola`, user_id: null, respuesta_a: null,
+        })),
       ],
       likesComentarios: [{ comentario_id: padre, user_id: ANA }, { comentario_id: padre, user_id: "otro" }],
     };
@@ -11816,6 +11890,24 @@ async function seccionNW() {
       verMas: !!document.getElementById("comentario-ver-mas-c-padre"),
     }));
     ok(todas.visibles === 4 && !todas.verMas, `NW: «Ver 2 respuestas más» enseña el resto (${JSON.stringify(todas)})`);
+    // Con muchos comentarios y la lista ya bajada, deslizar el dedo hacia abajo SUBE la lista y NO cierra la hoja; solo
+    // cuando la lista está arriba del todo, el siguiente deslizamiento la cierra.
+    const cdpLista = await ctx.newCDPSession(p);
+    const dedoLista = async (y0, y1) => {
+      await cdpLista.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 195, y: y0 }] });
+      for (let i = 1; i <= 10; i++) await cdpLista.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 195, y: y0 + ((y1 - y0) * i) / 10 }] });
+      await cdpLista.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await p.waitForTimeout(900);
+    };
+    const posLista = () => p.evaluate(() => Math.round(document.getElementById("comentarios-lista")?.scrollTop ?? -1));
+    const cajaLista = await p.locator("#comentarios-lista").boundingBox();
+    await dedoLista(cajaLista.y + cajaLista.height - 30, cajaLista.y + 40);
+    const bajada = await posLista();
+    await dedoLista(cajaLista.y + 40, cajaLista.y + 160);
+    const trasSubir = { abierta: await p.evaluate(() => !!document.getElementById("comentarios-hoja")), pos: await posLista() };
+    ok(bajada > 50 && trasSubir.abierta && trasSubir.pos < bajada, `NW: con la lista bajada, deslizar hacia abajo sube los comentarios y NO cierra la hoja (${JSON.stringify({ bajada, ...trasSubir })})`);
+    await p.evaluate(() => document.getElementById("comentarios-lista")?.scrollTo({ top: 0 }));
+    await p.waitForTimeout(300);
     // «Me gusta» a un comentario: suma uno y se guarda; otra vez, lo quita.
     await p.locator("#comentario-me-gusta-c-otro").click();
     await p.waitForTimeout(500);
@@ -28201,6 +28293,17 @@ try {
     ok(/¿Eliminar este mensaje\?/.test(tv) && /Luis Romero/.test(tv) && /Buenas a todos/.test(tv) && /No se puede deshacer/.test(tv), "J: antes de borrar pide confirmación y enseña quién lo escribió y qué dice");
     await p.waitForTimeout(500); // (la ventana entra con un fundido)
     await capturar(p, "J2-foro-confirmar");
+    // Al alcance del pulgar (dueño, 2026-11-28): los dos botones abajo, uno encima del otro, de 56 px y a todo el ancho.
+    const pulgar = await p.evaluate(() => {
+      const r = (id) => document.getElementById(id)?.getBoundingClientRect();
+      const si = r("foro-eliminar-si");
+      const no = r("foro-eliminar-no");
+      return { si: si && { arriba: Math.round(si.top), alto: Math.round(si.height), ancho: Math.round(si.width) }, no: no && { abajo: Math.round(no.bottom), alto: Math.round(no.height) }, pantalla: window.innerHeight, ancho: window.innerWidth };
+    });
+    ok(
+      !!pulgar.si && !!pulgar.no && pulgar.si.arriba > pulgar.pantalla * 0.6 && pulgar.no.abajo <= pulgar.pantalla - 12 && pulgar.si.alto >= 56 && pulgar.no.alto >= 56 && pulgar.si.ancho >= pulgar.ancho - 80,
+      `J: «Eliminar» y «Cancelar» abajo, grandes y a todo el ancho, para el pulgar (${JSON.stringify(pulgar)})`
+    );
     await ventana.getByText("Cancelar", { exact: true }).click();
     await p.waitForTimeout(400);
     ok((await ventana.count()) === 0 && !(estado.borrados ?? []).length && (await p.getByText("Buenas a todos", { exact: true }).count()) === 1, "J: «Cancelar» no borra nada");
