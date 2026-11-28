@@ -1284,7 +1284,7 @@ export default function BlueIAScreen() {
 
   return (
     <>
-    // paddingBottom 0: el hueco de abajo del iPhone ya lo deja la barra de secciones (si no, trozo blanco encima; 2026-11-28).
+    {/* paddingBottom 0: el hueco de abajo del iPhone ya lo deja la barra de secciones (si no, trozo blanco encima; 2026-11-28). */}
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg, paddingBottom: 0 }}>
       <StatusBar barStyle="dark-content" />
 
