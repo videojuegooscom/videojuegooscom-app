@@ -88,8 +88,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { CabeceraPanel } from "../../lib/admin/productos.componentes";
-import { leerPanelVistos, sombraSuave, type SeccionConNovedades } from "../../lib/admin/productos.utilidades";
-import { supabase } from "../../lib/supabase";
+import { contarNovedadesPanel, sombraSuave, type NovedadesPanel, type NovedadPanel, type SeccionConNovedades } from "../../lib/admin/productos.utilidades";
 import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import AvisosMovil from "../../components/AvisosMovil";
 import { Cifra, FilaCifras, Seccion } from "../../components/admin/PiezasPanelAdmin";
@@ -128,67 +127,11 @@ const columnStyle = { width: "100%", maxWidth: 1040, alignSelf: "center" } as co
 // o no la sección. Se cuenta sin descargar filas (solo el número). Si algo falla, ese recuadro no enseña nada: nunca un
 // número inventado. Los recuadros sin movimiento de fuera (Categorías, Inventario, Políticas…) no llevan contador.
 // ---------------------------------------------------------------------------------------------------------------------
-type Novedad = { n: number; texto: string };
-type Novedades = Partial<Record<SeccionConNovedades, Novedad>>;
-
-const DIAS_PRIMERA_VEZ = 7;
-const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
-
-async function contarNovedades(): Promise<Novedades> {
-  const vistos = await leerPanelVistos();
-  const haceDias = new Date(Date.now() - DIAS_PRIMERA_VEZ * 86400000).toISOString();
-  const desde = (s: SeccionConNovedades) => vistos[s] ?? haceDias;
-  const cuantos = async (consulta: PromiseLike<{ count: number | null; error: unknown }>) => {
-    try {
-      const { count, error } = await consulta;
-      return error ? 0 : Math.max(0, count ?? 0);
-    } catch {
-      return 0;
-    }
-  };
-  const solo = { count: "exact" as const, head: true };
-  const [pedidos, servicios, cotizaciones, chats, productos, escaparate, registros, resenas, revisiones, ideas] = await Promise.all([
-    cuantos(supabase.from("pedidos").select("id", solo).gt("created_at", desde("pedidos"))),
-    cuantos(supabase.from("service_requests").select("id", solo).gt("created_at", desde("services"))),
-    cuantos(supabase.from("sell_requests").select("id", solo).gt("created_at", desde("cotizaciones"))),
-    (async () => {
-      try {
-        const { data, error } = await supabase.rpc("get_unread_chat_count");
-        return error ? 0 : Math.max(0, Number(data) || 0);
-      } catch {
-        return 0;
-      }
-    })(),
-    // Artículos que han llegado de VeoAura (los que crea el administrador no son novedad para él).
-    cuantos(supabase.from("products").select("id", solo).not("id_veoaura", "is", null).gt("created_at", desde("products"))),
-    // De VeoAura: artículos vendidos allí y avisos que no se pudieron guardar.
-    cuantos(supabase.from("escaparate_registro").select("id", solo).or("resultado.eq.error,evento.eq.vendido").gt("recibido_en", desde("escaparate"))),
-    cuantos(supabase.from("profiles").select("id", solo).or("role.is.null,role.neq.admin").gt("created_at", desde("users"))),
-    cuantos(supabase.from("store_reviews").select("id", solo).gt("created_at", desde("users"))),
-    cuantos(supabase.from("auditorias_web").select("id", solo).gt("ejecutada_en", desde("auditorias"))),
-    // Ideas de «Mejoras en la tienda» sin leer que han llegado desde la última visita (Usuarios → «Ideas de mejora»).
-    cuantos(supabase.from("mejoras_tienda").select("id", solo).eq("leida", false).gt("created_at", desde("users"))),
-  ]);
-  const novedad = (n: number, texto: string): Novedad | undefined => (n > 0 ? { n, texto } : undefined);
-  const participacion = [
-    registros ? plural(registros, "usuario nuevo", "usuarios nuevos") : "",
-    resenas ? plural(resenas, "reseña nueva", "reseñas nuevas") : "",
-    ideas ? plural(ideas, "idea de mejora nueva", "ideas de mejora nuevas") : "",
-  ].filter(Boolean);
-  return {
-    pedidos: novedad(pedidos, plural(pedidos, "pedido nuevo", "pedidos nuevos")),
-    services: novedad(servicios, plural(servicios, "solicitud de servicio nueva", "solicitudes de servicio nuevas")),
-    cotizaciones: novedad(cotizaciones, plural(cotizaciones, "cotización nueva", "cotizaciones nuevas")),
-    chats: novedad(chats, plural(chats, "conversación sin leer", "conversaciones sin leer")),
-    products: novedad(productos, plural(productos, "artículo nuevo de VeoAura", "artículos nuevos de VeoAura")),
-    escaparate: novedad(escaparate, plural(escaparate, "aviso de VeoAura (venta o error)", "avisos de VeoAura (ventas o errores)")),
-    users: novedad(
-      registros + resenas + ideas,
-      participacion.length > 1 ? `${participacion.slice(0, -1).join(", ")} y ${participacion[participacion.length - 1]}` : participacion.join("")
-    ),
-    auditorias: novedad(revisiones, plural(revisiones, "revisión nueva", "revisiones nuevas")),
-  };
-}
+// (El recuento está en lib/admin/productos.utilidades.ts → contarNovedadesPanel: también lo usa Perfil para el número de
+// «Panel de control».)
+type Novedad = NovedadPanel;
+type Novedades = NovedadesPanel;
+const contarNovedades = contarNovedadesPanel;
 
 // Las cifras clave de arriba (lo nuevo de cada apartado, de contarNovedades) y los grupos de recuadros.
 // [apartado, etiqueta, etiqueta con 1, icono]

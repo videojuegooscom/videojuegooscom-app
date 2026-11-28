@@ -27950,8 +27950,52 @@ async function seccionCARR() {
   }
 }
 
+// PANELN (dueño, 2026-11-28): en Perfil, el botón «Panel de control» del administrador lleva un «+N» rojo con todas las
+// novedades del panel (las mismas que los números de sus recuadros); sin novedades, nada. Móvil y ordenador.
+async function seccionPANELN() {
+  const hace = (min) => new Date(Date.now() - min * 60000).toISOString();
+  const PERFIL_ADMIN = [{ user_id: ADMIN.id, nombre: "Daniel", usuario: "VideojuegosZaragoza", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", role: "admin" }];
+  for (const [ancho, alto, nombre] of [[390, 844, "390"], [1280, 900, "1280"]]) {
+    for (const [caso, novedades, esperado] of [
+      ["con novedades", { pedidos: [hace(30), hace(90)], service_requests: [hace(60)], chatsSinLeer: 3 }, 6],
+      ["sin novedades", { chatsSinLeer: 0 }, 0],
+    ]) {
+      const estado = { filas: PERFIL_ADMIN, guardados: [], noticiasNW: [], novedades };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, { viewport: { width: ancho, height: alto } });
+      const p = await pagina(ctx, "/perfil");
+      const boton = p.getByRole("button", { name: /^Panel de control/ });
+      await boton.first().waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(2500);
+      const datos = await p.evaluate(() => {
+        const ins = document.getElementById("perfil-panel-novedades");
+        const btn = ins?.closest('[role="button"]') ?? [...document.querySelectorAll('[role="button"]')].find((b) => /^Panel de control/.test(b.getAttribute("aria-label") ?? ""));
+        const rb = btn?.getBoundingClientRect();
+        const ri = ins?.getBoundingClientRect();
+        return {
+          texto: ins?.innerText.trim() ?? "",
+          etiqueta: btn?.getAttribute("aria-label") ?? "",
+          dentro: !ri || (!!rb && ri.left >= rb.left && ri.right <= rb.right && ri.top >= rb.top - 1 && ri.bottom <= rb.bottom + 1),
+          fondo: ins ? getComputedStyle(ins).backgroundColor : "",
+        };
+      });
+      if (esperado) {
+        ok(
+          datos.texto === `+${esperado}` && datos.etiqueta === `Panel de control, ${esperado} novedades` && datos.dentro && datos.fondo === "rgb(229, 72, 77)",
+          `PANELN (${nombre}): ${caso}, «Panel de control» lleva un «+${esperado}» rojo dentro del botón (${JSON.stringify(datos)})`
+        );
+        await capturar(p, `PANELN-${nombre}`);
+      } else {
+        ok(datos.texto === "" && datos.etiqueta === "Panel de control", `PANELN (${nombre}): ${caso}, «Panel de control» va sin número (${JSON.stringify(datos)})`);
+      }
+      ok(p.errores.length === 0, `PANELN (${nombre}): Perfil sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "PANELN") await seccionPANELN();
   if (SOLO === "CARR") await seccionCARR();
   if (SOLO === "HOJA") await seccionHOJA();
   if (SOLO === "BLANCO") await seccionBLANCO();

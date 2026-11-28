@@ -193,6 +193,7 @@ import { abrirDescarga, abrirEnlaceExterno } from "../../lib/abrirEnlaceExterno"
 import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { eurosReserva, fechaReserva, rellenarCondicionesReserva } from "../../lib/reservas";
+import { contarNovedadesPanel, totalNovedadesPanel } from "../../lib/admin/productos.utilidades";
 
 // Ficha a la que volver tras iniciar sesión o registrarse (la deja «Comprar ya» de la ficha).
 const VOLVER_TRAS_ACCESO_KEY = "videojuegoszaragoza:volver_tras_acceso";
@@ -254,12 +255,17 @@ function BotonCuenta({
   principal = false,
   cargando = false,
   textoCargando,
+  insignia = 0,
+  insigniaID,
 }: {
   titulo: string;
   onPress: () => void;
   principal?: boolean;
   cargando?: boolean;
   textoCargando?: string;
+  /** Novedades pendientes: un «+N» rojo junto al nombre; con 0, nada. */
+  insignia?: number;
+  insigniaID?: string;
 }) {
   const color = principal ? "#FFFFFF" : COLORS.text;
   const estrecho = useWindowDimensions().width < 380;
@@ -268,7 +274,7 @@ function BotonCuenta({
       onPress={onPress}
       disabled={cargando}
       accessibilityRole="button"
-      accessibilityLabel={titulo}
+      accessibilityLabel={insignia > 0 ? `${titulo}, ${insignia} ${insignia === 1 ? "novedad" : "novedades"}` : titulo}
       style={({ pressed }) => ({
         flex: 1,
         minWidth: 0,
@@ -291,6 +297,16 @@ function BotonCuenta({
       <Text numberOfLines={1} style={{ color, fontWeight: "900", fontSize: estrecho ? 14 : 15 }}>
         {cargando && textoCargando ? textoCargando : titulo}
       </Text>
+      {insignia > 0 ? (
+        // Rojo, como los números del Panel de control y de Blue; el nombre del botón ya lo dice (no se lee dos veces).
+        <View
+          nativeID={insigniaID}
+          aria-hidden
+          style={{ minWidth: 30, height: 26, borderRadius: 13, paddingHorizontal: 7, backgroundColor: "#E5484D", borderWidth: 2, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}
+        >
+          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13, lineHeight: 16, textAlign: "center" }}>{`+${insignia}`}</Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -923,6 +939,30 @@ export default function PerfilScreen() {
   const [recargarPerfil, setRecargarPerfil] = useState(0);
   useFocusEffect(useCallback(() => setRecargarPerfil((n) => n + 1), []));
 
+  // Administrador: en «Panel de control» un «+N» con todas las novedades del panel (pedidos, chats, solicitudes,
+  // cotizaciones, VeoAura, usuarios, revisiones…; las mismas que los números de cada recuadro). Sin novedades, nada.
+  // Se cuenta al entrar en Perfil y cada 2 minutos mientras se está en él (dueño, 2026-11-28).
+  const [novedadesPanel, setNovedadesPanel] = useState(0);
+  useFocusEffect(
+    useCallback(() => {
+      if (sessionRole !== "admin") {
+        setNovedadesPanel(0);
+        return;
+      }
+      let vivo = true;
+      const contar = () =>
+        void contarNovedadesPanel()
+          .then((n) => vivo && setNovedadesPanel(totalNovedadesPanel(n)))
+          .catch(() => {});
+      contar();
+      const reloj = setInterval(contar, 120_000);
+      return () => {
+        vivo = false;
+        clearInterval(reloj);
+      };
+    }, [sessionRole])
+  );
+
   // «Comprar ya» sin sesión deja aquí la ficha a la que volver: en cuanto hay sesión (al iniciar
   // sesión o al crear la cuenta) se vuelve a esa ficha. La marca caduca a los 30 minutos.
   useEffect(() => {
@@ -1212,7 +1252,7 @@ export default function PerfilScreen() {
       ) : null}
       {sessionRole === "admin" ? (
         <View style={{ flexDirection: "row", gap: 10, alignSelf: "stretch" }}>
-          <BotonCuenta titulo="Panel de control" principal onPress={openAdminPanel} />
+          <BotonCuenta titulo="Panel de control" principal onPress={openAdminPanel} insignia={novedadesPanel} insigniaID="perfil-panel-novedades" />
         </View>
       ) : null}
     </View>
