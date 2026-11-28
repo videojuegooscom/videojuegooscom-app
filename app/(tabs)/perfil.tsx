@@ -298,14 +298,10 @@ function BotonCuenta({
         {cargando && textoCargando ? textoCargando : titulo}
       </Text>
       {insignia > 0 ? (
-        // Rojo, como los números del Panel de control y de Blue; el nombre del botón ya lo dice (no se lee dos veces).
-        <View
-          nativeID={insigniaID}
-          aria-hidden
-          style={{ minWidth: 30, height: 26, borderRadius: 13, paddingHorizontal: 7, backgroundColor: "#E5484D", borderWidth: 2, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}
-        >
-          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13, lineHeight: 16, textAlign: "center" }}>{`+${insignia}`}</Text>
-        </View>
+        // Solo el número en rojo, sin burbuja (dueño, 2026-11-28); el nombre del botón ya lo dice (no se lee dos veces).
+        <Text nativeID={insigniaID} aria-hidden style={{ color: "#E5484D", fontWeight: "900", fontSize: estrecho ? 14 : 15, textAlign: "center" }}>
+          {`+${insignia}`}
+        </Text>
       ) : null}
     </Pressable>
   );

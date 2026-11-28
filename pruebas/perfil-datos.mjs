@@ -27975,13 +27975,15 @@ async function seccionPANELN() {
           texto: ins?.innerText.trim() ?? "",
           etiqueta: btn?.getAttribute("aria-label") ?? "",
           dentro: !ri || (!!rb && ri.left >= rb.left && ri.right <= rb.right && ri.top >= rb.top - 1 && ri.bottom <= rb.bottom + 1),
+          color: ins ? getComputedStyle(ins).color : "",
           fondo: ins ? getComputedStyle(ins).backgroundColor : "",
         };
       });
       if (esperado) {
+        // Solo el número en rojo, sin burbuja (dueño, 2026-11-28).
         ok(
-          datos.texto === `+${esperado}` && datos.etiqueta === `Panel de control, ${esperado} novedades` && datos.dentro && datos.fondo === "rgb(229, 72, 77)",
-          `PANELN (${nombre}): ${caso}, «Panel de control» lleva un «+${esperado}» rojo dentro del botón (${JSON.stringify(datos)})`
+          datos.texto === `+${esperado}` && datos.etiqueta === `Panel de control, ${esperado} novedades` && datos.dentro && datos.color === "rgb(229, 72, 77)" && datos.fondo === "rgba(0, 0, 0, 0)",
+          `PANELN (${nombre}): ${caso}, «Panel de control» lleva el número «+${esperado}» en rojo, sin burbuja, dentro del botón (${JSON.stringify(datos)})`
         );
         await capturar(p, `PANELN-${nombre}`);
       } else {
