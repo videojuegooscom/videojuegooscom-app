@@ -299,7 +299,13 @@ function BotonCuenta({
       </Text>
       {insignia > 0 ? (
         // Solo el número en rojo, sin burbuja (dueño, 2026-11-28); el nombre del botón ya lo dice (no se lee dos veces).
-        <Text nativeID={insigniaID} aria-hidden style={{ color: "#E5484D", fontWeight: "900", fontSize: estrecho ? 14 : 15, textAlign: "center" }}>
+        // Más grueso (dueño, 2026-11-28): ya va en el grosor máximo (900), así que se le suma una sombra roja pegada de
+        // 0,8 px a cada lado, que engorda el trazo sin difuminarlo, y un punto más de tamaño.
+        <Text
+          nativeID={insigniaID}
+          aria-hidden
+          style={{ color: "#E5484D", fontWeight: "900", fontSize: estrecho ? 15 : 16, textAlign: "center", textShadowColor: "#E5484D", textShadowOffset: { width: 0.8, height: 0 }, textShadowRadius: 0 }}
+        >
           {`+${insignia}`}
         </Text>
       ) : null}
