@@ -1290,6 +1290,7 @@ Reglas:
 - "interes": entero de 1 a 10 pensando en un lector español que compra, vende o repara consolas, móviles, PC y accesorios.
   Sube el interés: lanzamientos y precios en España, consolas y hardware nuevo, ofertas reales con precio, averías y reparaciones comunes (mando drift, sobrecalentamiento, pantallas), retrocompatibilidad, cambios en servicios (PlayStation Plus, Game Pass, Nintendo Switch Online), grandes lanzamientos (GTA 6 y similares) y cambios que afectan a lo que el lector ya tiene.
   Baja el interés (4 o menos): códigos diarios de juegos gratuitos, estudios de mercado genéricos o previsiones a muchos años, concursos o eventos locales, noticias de otros países sin efecto en España, rumores sin fuente, notas de prensa menores, actualizaciones pequeñas de un solo juego, eSports locales y listas de relleno.
+- Solo euros: si la noticia da precios, ofertas, ventas o cifras de dinero en otra moneda (dólares, pesos, libras, yenes…) o trata de tiendas u ofertas de fuera de España (Walmart, Bodega Aurrera, Liverpool, Buen Fin…), "relevante" es false. Nunca conviertas monedas ni menciones otra moneda.
 - PROHIBIDO inventar datos, precios, fechas, nombres o declaraciones que no estén en el texto. Si el texto es escaso, sé breve y general en vez de rellenar.
 - Nunca incluyas URLs ni markdown.`;
 
@@ -1826,14 +1827,30 @@ async function reservarTurno(
 // --- Noticias nuevas ------------------------------------------------------------
 
 // repetidas / poco_interes: descartadas tras el desglose (mismo suceso o poco interés/variedad).
+// otra_moneda: descartadas por llevar precios o cifras en otra moneda que no es el euro (dueño, 2026-11-28).
 type Resultado = {
   candidatas: number;
   analizadas: number;
   nuevas: number;
   repetidas: number;
   poco_interes: number;
+  otra_moneda: number;
   fotos_otra_fuente: number;
 };
+
+// Otra moneda que no es el euro (dueño, 2026-11-28: «no quiero que aparezcan otras monedas que no sean euros»): símbolos
+// ($, £, ¥), códigos (USD, MXN…) y nombres (dólares, pesos, libras esterlinas, yenes). «pesos» solo cuenta junto a una
+// cifra o con su país, para no confundirlo con el peso de una consola. La misma lista está en la migración
+// 20261128020000_noticias_sin_otras_monedas.sql, que retiró las ya publicadas.
+// Los códigos, en mayúsculas exactas (si no, «pen drive» o «cad» contarían).
+const CODIGO_MONEDA = /\b(?:USD|MXN|ARS|CLP|COP|PEN|GBP|JPY|CNY|KRW|INR|BRL|CAD|AUD)\b/;
+const OTRA_MONEDA =
+  /[$£¥₩₹]|\bd[oó]lar(?:es)?\b|\blibras?\s+esterlinas?\b|\d\s*yen\b|\byenes\b|\d\s*pesos\b|\bpesos\s+(?:mexicanos|argentinos|chilenos|colombianos|uruguayos)\b|\breales\s+brasile/i;
+
+export function llevaOtraMoneda(...textos: (string | string[] | null | undefined)[]): boolean {
+  const lleva = (x: string) => OTRA_MONEDA.test(x) || CODIGO_MONEDA.test(x);
+  return textos.some((t) => (Array.isArray(t) ? t.some(lleva) : !!t && lleva(t)));
+}
 
 // --- Foto desde otro medio (dueño, 2026-11-27) ---------------------------------------------------------------------
 // Una noticia de las últimas 72 h que se comprobó y se quedó SIN foto (ninguna del artículo valía) prueba las fotos de
@@ -1990,7 +2007,7 @@ async function recogerNuevas(
   //    siguientes llamadas ya las ven) y su tema no puede repetirse.
   const filas: Record<string, unknown>[] = [];
   const aceptadas: Reciente[] = [];
-  const descartes = { repetidas: 0, poco_interes: 0 };
+  const descartes = { repetidas: 0, poco_interes: 0, otra_moneda: 0 };
   const resumenesAntes = cupo.resumenes;
   let siguiente = 0;
   let fotosOtraFuente = 0;
@@ -2012,6 +2029,11 @@ async function recogerNuevas(
       const d = await desglosarConIA(openaiKey, n, pagina.texto, [...aceptadas, ...recientes], ms);
       const fotosPreparadas = await descargas;
       if (!d || !d.relevante) continue;
+      // Solo euros: si el original o lo redactado lleva otra moneda, fuera (aunque la IA la haya dado por buena).
+      if (llevaOtraMoneda(n.titulo, n.descripcion, d.titulo, d.resumen, d.puntos_clave, d.datos, d.por_que_importa, d.contexto)) {
+        descartes.otra_moneda++;
+        continue;
+      }
       if (d.interes === null || d.interes < INTERES_MINIMO) {
         descartes.poco_interes++;
         continue;
@@ -2139,6 +2161,7 @@ async function recogerNuevas(
     nuevas,
     repetidas: descartes.repetidas,
     poco_interes: descartes.poco_interes,
+    otra_moneda: descartes.otra_moneda,
     fotos_otra_fuente: fotosOtraFuente,
   };
 }

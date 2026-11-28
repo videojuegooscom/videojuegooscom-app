@@ -1222,7 +1222,9 @@ export default function PerfilScreen() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
+      {/* paddingBottom 0: el hueco de abajo del iPhone ya lo deja la barra de secciones; si no, salía un trozo blanco
+          encima de ella (dueño, 2026-11-28), que Inicio no tiene. */}
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg, paddingBottom: 0 }}>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}

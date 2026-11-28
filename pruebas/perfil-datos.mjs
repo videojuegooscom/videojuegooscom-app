@@ -27588,8 +27588,88 @@ async function seccionPANSCROLL() {
   }
 }
 
+// BLANCO (dueño, 2026-11-28): en Perfil, Cesta, Foro y Blue IA había un trozo blanco justo encima de la barra de
+// secciones; en Inicio el contenido llega hasta la barra. Era el hueco de abajo del iPhone (safe-area-inset-bottom) que
+// SafeAreaView añadía a la pantalla además del que ya deja la barra. Chromium no tiene ese hueco (vale 0), así que se
+// comprueba que ningún elemento de la pantalla, salvo la barra, lleve una regla CSS con safe-area-inset-bottom, y se mide
+// que el contenido llega hasta la barra.
+async function seccionBLANCO() {
+  const rutas = [["/", "Inicio"], ["/perfil", "Perfil"], ["/cesta", "Cesta"], ["/chat-global", "Foro"], ["/blue-ia", "Blue IA"]];
+  const PERFIL_COMPLETO = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  for (const [ancho, alto, nombre] of [[390, 844, "390"], [360, 740, "360"]]) {
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: PERFIL_COMPLETO, guardados: [], noticiasNW: [] }, { viewport: { width: ancho, height: alto } });
+    for (const [ruta, seccion] of rutas) {
+      const p = await pagina(ctx, ruta);
+      await p.waitForTimeout(3500);
+      await p.mouse.move(ancho / 2, alto / 2);
+      await p.mouse.wheel(0, 500);
+      await p.waitForTimeout(800);
+      const medida = await p.evaluate(() => {
+        const barra = [...document.querySelectorAll('[role="tablist"]')].pop();
+        const arriba = barra ? barra.getBoundingClientRect().top : window.innerHeight;
+        const x = window.innerWidth / 2;
+        const cadena = (e) => {
+          const out = [];
+          for (let n = e, i = 0; n && i < 7; n = n.parentElement, i++) {
+            const s = getComputedStyle(n);
+            out.push(`${n.id || n.getAttribute("data-testid") || n.tagName.toLowerCase()}[${s.position},${s.backgroundColor},${Math.round(n.getBoundingClientRect().top)}-${Math.round(n.getBoundingClientRect().bottom)},pb=${s.paddingBottom},mb=${s.marginBottom}]`);
+          }
+          return out.join(" < ");
+        };
+        // Primer punto (subiendo desde la barra) en el que hay contenido de la página dentro de algo que se desplaza.
+        let hueco = 0;
+        for (let y = arriba - 2; y > arriba - 200; y -= 2) {
+          const e = document.elementFromPoint(x, y);
+          let enScroll = false;
+          for (let n = e; n; n = n.parentElement) {
+            const s = getComputedStyle(n);
+            if (/auto|scroll/.test(s.overflowY) && n.scrollHeight > n.clientHeight + 4) {
+              enScroll = true;
+              break;
+            }
+          }
+          if (enScroll) break;
+          hueco += 2;
+        }
+        // Elementos fuera de la barra con una regla de relleno inferior que usa safe-area-inset-bottom.
+        const reglas = [];
+        for (const hoja of document.styleSheets) {
+          let lista = [];
+          try {
+            lista = [...hoja.cssRules];
+          } catch {
+            continue;
+          }
+          for (const r of lista) if (r.selectorText && /padding-bottom[^;]*safe-area-inset-bottom/.test(r.cssText)) reglas.push(r.selectorText);
+        }
+        const conHueco = reglas.flatMap((s) => {
+          try {
+            return [...document.querySelectorAll(s)];
+          } catch {
+            return [];
+          }
+        }).filter((e) => !e.closest('[role="tablist"]') && !e.querySelector('[role="tablist"]') && e.getBoundingClientRect().height > 0 && !e.closest('[aria-modal="true"]'));
+        return { arriba: Math.round(arriba), hueco, conHueco: conHueco.map((e) => e.id || e.className.slice(0, 40)), justoEncima: cadena(document.elementFromPoint(x, arriba - 10)) };
+      });
+      ok(
+        medida.conHueco.length === 0,
+        `BLANCO (${nombre}): en ${seccion} nada añade el hueco del iPhone encima de la barra de secciones (${JSON.stringify(medida.conHueco)})`
+      );
+      // Cesta vacía y el Foro/Blue sin mensajes pueden acabar antes: ahí solo cuenta lo de arriba.
+      if (seccion === "Inicio" || seccion === "Perfil") {
+        ok(medida.hueco <= 4, `BLANCO (${nombre}): en ${seccion} el contenido llega hasta la barra de secciones (${medida.hueco} px · ${medida.justoEncima.slice(0, 120)})`);
+      }
+      await capturar(p, `BLANCO-${seccion.replace(/\s/g, "")}-${nombre}`);
+      ok(p.errores.length === 0, `BLANCO (${nombre}): ${seccion} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await p.close();
+    }
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "BLANCO") await seccionBLANCO();
   if (SOLO === "PANSCROLL") await seccionPANSCROLL();
   if (SOLO === "CANCAV") await seccionCANCAV();
   if (SOLO === "CONTRA") await seccionCONTRA();
