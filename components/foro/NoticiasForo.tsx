@@ -19,12 +19,13 @@ import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, router, useFocusEffect, type Href } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, LayoutAnimation, Modal, PixelRatio, Platform, Pressable, ScrollView, Share, Switch, Text, TextInput, useWindowDimensions, View, type ViewStyle } from "react-native";
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, LayoutAnimation, Modal, PanResponder, PixelRatio, Platform, Pressable, ScrollView, Share, Switch, Text, TextInput, useWindowDimensions, View, type ViewStyle } from "react-native";
 import CargaMarca from "../marca/CargaMarca";
 import MarcaAnimada from "../marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../PerfilPublico";
 import { CAMPO, TACTIL, TAMANOS } from "../../constants/temaTienda";
 import { marcarFinCarga, marcarInicioCarga } from "../../lib/estadoCarga";
+import { medirEvento } from "../../lib/analiticaPropia";
 import { supabase } from "../../lib/supabase";
 import { AvatarCircle, COLORS, ConfirmarEliminar, EnlaceNormasForo, NOTICIAS_VISTAS_KEY, faltaTabla, guardarPreferencias, nombreVisibleForo, useEsAdminForo } from "./PiezasForo";
 
@@ -1470,6 +1471,332 @@ function BotonNoticia({
       ) : null}
       {iconoDetras ? icon : null}
     </Pressable>
+  );
+}
+
+// --- Hoja de comentarios de la página de la noticia (dueño, 2026-11-27) -------------------------------------------------
+// «Que cuando le dé a comentar se abra como en Instagram para dejar un comentario o leerlos… con nuestro diseño de
+// colores»: hoja que sube desde abajo con asa, «Comentarios», la lista, emojis rápidos y «¿Qué opinas de esto?». Misma
+// tabla y mismas reglas que los comentarios del Foro (leer es público; escribir pide sesión; silenciados no pueden;
+// un administrador puede eliminar). Textos centrados (lección «Texto centrado siempre»): el avatar a un lado.
+
+const EMOJIS_RAPIDOS = ["❤️", "🙌", "🔥", "👏", "😢", "😍", "😮", "😂"];
+
+export function HojaComentariosNoticia({
+  noticiaId,
+  abierta,
+  onCerrar,
+  onComentado,
+  onPedirSesion,
+}: {
+  noticiaId: string;
+  abierta: boolean;
+  onCerrar: () => void;
+  /** Cambio en el total (+1 al enviar, -1 al eliminar), para el contador del botón «Comentar». */
+  onComentado: (cambio: number) => void;
+  /** Sin sesión: la página manda a entrar o crear cuenta y vuelve a la noticia. */
+  onPedirSesion: () => void;
+}) {
+  const { height, width } = useWindowDimensions();
+  const alto = Math.round((height > 0 ? height : 800) * 0.78);
+  // Ocho emojis de 44 px no caben en un móvil estrecho (360 px): ahí van siete, sin salirse.
+  const emojis = width > 0 && width < 380 ? EMOJIS_RAPIDOS.filter((e) => e !== "😮") : EMOJIS_RAPIDOS;
+  const [lista, setLista] = useState<ComentarioNoticia[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [texto, setTexto] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [conSesion, setConSesion] = useState<boolean | null>(null);
+  const [perfiles, setPerfiles] = useState<Record<string, PerfilForo>>({});
+  const esAdmin = useEsAdminForo();
+  const [aEliminar, setAEliminar] = useState<ComentarioNoticia | null>(null);
+  const [eliminando, setEliminando] = useState(false);
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null);
+  const vivo = useRef(true);
+  const lista_ref = useRef<ScrollView>(null);
+  // Arrastrar el asa hacia abajo la cierra, como en Instagram.
+  const arrastre = useRef(new Animated.Value(0)).current;
+  const gestos = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) => g.dy > 6,
+      onPanResponderMove: (_e, g) => arrastre.setValue(Math.max(0, g.dy)),
+      onPanResponderRelease: (_e, g) => {
+        if (g.dy > 90) onCerrar();
+        Animated.spring(arrastre, { toValue: 0, useNativeDriver: false }).start();
+      },
+    })
+  ).current;
+
+  useEffect(() => {
+    vivo.current = true;
+    return () => {
+      vivo.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!abierta) return;
+    arrastre.setValue(0);
+    setCargando(true);
+    setError(null);
+    void supabase.auth.getSession().then(({ data }) => vivo.current && setConSesion(!!data.session?.user));
+    (async () => {
+      const { data, error: fallo } = await supabase
+        .from("noticias_comentarios")
+        .select("id,created_at,autor,texto,user_id")
+        .eq("noticia_id", noticiaId)
+        .eq("oculto", false)
+        .order("created_at", { ascending: true })
+        .limit(200);
+      if (!vivo.current) return;
+      if (fallo) setError("No se pudieron cargar los comentarios.");
+      else setLista((data ?? []) as ComentarioNoticia[]);
+      setCargando(false);
+    })();
+  }, [abierta, noticiaId, arrastre]);
+
+  useEffect(() => {
+    const ids = lista.map((c) => c.user_id).filter((id): id is string => Boolean(id));
+    if (!ids.length) return;
+    let sigue = true;
+    perfilesPublicos(ids)
+      .then((encontrados) => sigue && setPerfiles(Object.fromEntries(encontrados)))
+      .catch(() => {});
+    return () => {
+      sigue = false;
+    };
+  }, [lista]);
+
+  const limpio = texto.trim();
+  const puedeEnviar = limpio.length >= 1 && limpio.length <= MAX_COMENTARIO && !enviando;
+
+  const enviar = async () => {
+    if (!puedeEnviar) return;
+    setEnviando(true);
+    setError(null);
+    try {
+      const { data: sesion } = await supabase.auth.getSession();
+      const user = sesion.session?.user;
+      if (!user) {
+        onPedirSesion();
+        return;
+      }
+      const { data, error: fallo } = await supabase
+        .from("noticias_comentarios")
+        .insert({ noticia_id: noticiaId, autor: nombreVisibleForo(user), texto: limpio })
+        .select("id,created_at,autor,texto,user_id")
+        .single();
+      if (fallo) throw fallo;
+      if (!vivo.current) return;
+      setLista((prev) => [...prev, data as ComentarioNoticia]);
+      setTexto("");
+      onComentado(1);
+      medirEvento("noticia_comentario", "Noticias: comentario enviado desde la noticia", { path: `/noticias/${noticiaId}` });
+      setTimeout(() => lista_ref.current?.scrollToEnd({ animated: true }), 80);
+    } catch (e) {
+      console.warn("Error enviando el comentario:", e);
+      const silenciado = String((e as { code?: unknown } | null)?.code ?? "") === "42501";
+      if (vivo.current) {
+        setError(
+          silenciado
+            ? "Ahora mismo no puedes comentar: un administrador te ha silenciado en el Foro durante unos días."
+            : "No se pudo enviar el comentario. Inténtalo de nuevo."
+        );
+      }
+    } finally {
+      if (vivo.current) setEnviando(false);
+    }
+  };
+
+  const confirmarEliminar = async () => {
+    if (!aEliminar || eliminando) return;
+    setEliminando(true);
+    setErrorEliminar(null);
+    try {
+      const { data, error: fallo } = await supabase.from("noticias_comentarios").update({ oculto: true }).eq("id", aEliminar.id).select("id");
+      if (fallo) throw fallo;
+      if (!Array.isArray(data) || data.length === 0) throw new Error("no borrado");
+      if (!vivo.current) return;
+      const id = aEliminar.id;
+      setLista((prev) => prev.filter((c) => c.id !== id));
+      onComentado(-1);
+      setAEliminar(null);
+    } catch (e) {
+      console.warn("Error eliminando el comentario:", e);
+      if (vivo.current) setErrorEliminar("No se ha podido eliminar el comentario. Inténtalo de nuevo.");
+    } finally {
+      if (vivo.current) setEliminando(false);
+    }
+  };
+
+  return (
+    <Modal visible={abierta} transparent animationType="slide" onRequestClose={onCerrar}>
+      <View style={{ flex: 1, justifyContent: "flex-end" }}>
+        <Pressable
+          nativeID="comentarios-fondo"
+          accessibilityRole="button"
+          accessibilityLabel="Cerrar comentarios"
+          onPress={onCerrar}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(3,10,18,0.45)" }}
+        />
+        <Animated.View
+          nativeID="comentarios-hoja"
+          style={{
+            height: alto,
+            width: "100%",
+            maxWidth: 640,
+            alignSelf: "center",
+            backgroundColor: COLORS.bg,
+            borderTopLeftRadius: 26,
+            borderTopRightRadius: 26,
+            overflow: "hidden",
+            transform: [{ translateY: arrastre }],
+            boxShadow: "0px -8px 30px rgba(11,33,56,0.18)",
+          }}
+        >
+          {/* Asa y título: se arrastran hacia abajo para cerrar. */}
+          <View {...gestos.panHandlers} style={{ alignItems: "center", paddingTop: 10, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+            <View style={{ width: 44, height: 5, borderRadius: 3, backgroundColor: "#C9D6E3" }} />
+            <View style={{ width: "100%", minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: 6 }}>
+              <Text nativeID="comentarios-titulo" accessibilityRole="header" style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
+                Comentarios{lista.length ? ` · ${lista.length}` : ""}
+              </Text>
+              <Pressable
+                nativeID="comentarios-cerrar"
+                onPress={onCerrar}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar comentarios"
+                hitSlop={6}
+                style={({ pressed }) => ({ position: "absolute", right: 10, width: TACTIL.minimo, height: TACTIL.minimo, borderRadius: TACTIL.minimo / 2, alignItems: "center", justifyContent: "center", backgroundColor: pressed ? COLORS.accentSoft : "transparent" })}
+              >
+                <Ionicons name="close" size={22} color={COLORS.text} />
+              </Pressable>
+            </View>
+          </View>
+
+          <ScrollView ref={lista_ref} nativeID="comentarios-lista" style={{ flex: 1 }} contentContainerStyle={{ padding: 14, gap: 14, flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+            {cargando ? (
+              <ActivityIndicator color={AZUL_NOTICIAS} style={{ marginTop: 24 }} />
+            ) : lista.length === 0 && !error ? (
+              <View nativeID="comentarios-vacio" style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 30 }}>
+                <Ionicons name="chatbubbles-outline" size={40} color={AZUL_NOTICIAS} />
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>Todavía no hay comentarios</Text>
+                <Text style={{ color: COLORS.muted, fontSize: 14, textAlign: "center" }}>¡Sé el primero en opinar!</Text>
+              </View>
+            ) : (
+              lista.map((c) => {
+                const perfil = c.user_id ? perfiles[c.user_id] : undefined;
+                const nombre = perfil?.usuario || c.autor;
+                return (
+                  <View key={c.id} nativeID={`comentario-${c.id}`} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+                    <AvatarCircle username={nombre} foto={perfil?.foto || undefined} size={36} />
+                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                      <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                        <Text style={{ color: COLORS.text, fontWeight: "900" }}>{nombre}</Text>
+                        {` · ${haceTiempo(c.created_at)}`}
+                      </Text>
+                      <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 21, textAlign: "center" }}>{c.texto}</Text>
+                    </View>
+                    {esAdmin ? (
+                      <Pressable
+                        onPress={() => {
+                          setErrorEliminar(null);
+                          setAEliminar(c);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Eliminar comentario"
+                        hitSlop={8}
+                        style={({ pressed }) => ({ width: TACTIL.minimo, height: TACTIL.minimo, borderRadius: TACTIL.minimo / 2, alignItems: "center", justifyContent: "center", backgroundColor: pressed ? "rgba(220,38,38,0.12)" : "transparent" })}
+                      >
+                        <Ionicons name="trash-outline" size={17} color="#DC2626" />
+                      </Pressable>
+                    ) : (
+                      <View style={{ width: 36 }} />
+                    )}
+                  </View>
+                );
+              })
+            )}
+          </ScrollView>
+
+          {/* Abajo, como en Instagram: emojis rápidos y la caja de escribir (o, sin sesión, entrar para comentar). */}
+          <View style={{ borderTopWidth: 1, borderTopColor: COLORS.border, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12, gap: 8, backgroundColor: COLORS.bg }}>
+            {error ? (
+              <Text nativeID="comentarios-error" style={{ color: "#B91C1C", fontSize: 13, fontWeight: "700", textAlign: "center" }}>
+                {error}
+              </Text>
+            ) : null}
+            {conSesion === false ? (
+              <Pressable
+                nativeID="comentarios-entrar"
+                onPress={onPedirSesion}
+                accessibilityRole="button"
+                style={({ pressed }) => ({ minHeight: 48, borderRadius: 999, alignItems: "center", justifyContent: "center", backgroundColor: AZUL_NOTICIAS, opacity: pressed ? 0.88 : 1 })}
+              >
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15, textAlign: "center" }}>Inicia sesión para comentar</Text>
+              </Pressable>
+            ) : (
+              <>
+                <View nativeID="comentarios-emojis" style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  {emojis.map((e) => (
+                    <Pressable
+                      key={e}
+                      onPress={() => setTexto((t) => (t + e).slice(0, MAX_COMENTARIO))}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Añadir ${e}`}
+                      style={({ pressed }) => ({ width: TACTIL.minimo, height: TACTIL.minimo, borderRadius: TACTIL.minimo / 2, alignItems: "center", justifyContent: "center", backgroundColor: pressed ? COLORS.accentSoft : "transparent" })}
+                    >
+                      <Text style={{ fontSize: 24, textAlign: "center" }}>{e}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
+                  <View style={{ flex: 1, minHeight: 48, borderRadius: 24, borderWidth: 1, borderColor: COLORS.accentBorder, backgroundColor: COLORS.accentSoft, paddingHorizontal: 16, justifyContent: "center" }}>
+                    <TextInput
+                      nativeID="comentarios-texto"
+                      value={texto}
+                      onChangeText={(t) => setTexto(t.slice(0, MAX_COMENTARIO))}
+                      placeholder="¿Qué opinas de esto?"
+                      placeholderTextColor={COLORS.muted}
+                      multiline
+                      // Una línea al empezar (en la web, una fila); crece al escribir hasta 110 px.
+                      numberOfLines={1}
+                      accessibilityLabel="Escribe tu comentario"
+                      style={{ fontSize: CAMPO.letra, lineHeight: 22, color: COLORS.text, paddingVertical: 12, maxHeight: 110, textAlign: "center", outlineStyle: "none" } as object}
+                    />
+                  </View>
+                  <Pressable
+                    nativeID="comentarios-enviar"
+                    onPress={enviar}
+                    disabled={!puedeEnviar}
+                    accessibilityRole="button"
+                    accessibilityLabel="Publicar comentario"
+                    accessibilityState={{ disabled: !puedeEnviar }}
+                    style={({ pressed }) => ({ width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: puedeEnviar ? AZUL_NOTICIAS : "#C9D6E3", opacity: pressed ? 0.85 : 1 })}
+                  >
+                    {enviando ? <ActivityIndicator color="#FFFFFF" /> : <Ionicons name="paper-plane" size={20} color="#FFFFFF" />}
+                  </Pressable>
+                </View>
+                <EnlaceNormasForo desde="comentarios" />
+              </>
+            )}
+          </View>
+        </Animated.View>
+      </View>
+      {aEliminar ? (
+        <ConfirmarEliminar
+          que="comentario"
+          autor={aEliminar.autor}
+          texto={aEliminar.texto}
+          eliminando={eliminando}
+          error={errorEliminar}
+          onCancelar={() => {
+            if (!eliminando) setAEliminar(null);
+          }}
+          onConfirmar={confirmarEliminar}
+        />
+      ) : null}
+    </Modal>
   );
 }
 

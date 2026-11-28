@@ -16,9 +16,10 @@
  * «Por qué importa», «A quién afecta» y «Fuente: <medio>» con enlace al original (fuera de la tienda, nofollow). Al
  * final, «Compra con confianza» y el pie de página. Abajo, fija y siempre a la vista (dueño, 2026-11-27), una barra
  * blanca de esquinas redondeadas con «Volver», «Me gusta» (con el total; sin cuenta lleva a entrar y vuelve aquí; tabla
- * noticias_likes, la misma del Foro), «Comentar» (abre la noticia en el Foro, /chat-global?tab=news&noticia=<id>, donde
- * viven los comentarios) y «Compartir» (compartirFuera de components/foro/NoticiasForo.tsx). Analítica propia:
- * «Noticias: barra · me gusta/compartir/volver» y «Noticias: comentar en el Foro» (Administración → Analítica,
+ * noticias_likes, la misma del Foro), «Comentar · N» (desde el 2026-11-27 abre aquí mismo la hoja de comentarios al
+ * estilo Instagram, HojaComentariosNoticia de components/foro/NoticiasForo.tsx, con los mismos comentarios que el Foro) y
+ * «Compartir» (compartirFuera). La barra es una burbuja azul claro. Analítica propia: «Noticias: barra · me
+ * gusta/comentar/compartir/volver» y «Noticias: comentario enviado desde la noticia» (Administración → Analítica,
  * #analitica-noticia-barra).
  *
  * Columnas opcionales: «contexto» la añade otra migración; si aún no existe (42703/PGRST204) la consulta se repite sin
@@ -44,8 +45,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { compartirFuera } from "../../components/foro/NoticiasForo";
-import { Linking, Platform, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
+import { compartirFuera, HojaComentariosNoticia } from "../../components/foro/NoticiasForo";
+import { Animated, Easing, Linking, Platform, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
 import { Link, router, useLocalSearchParams, type Href } from "expo-router";
 import { useProgresoDesplazamiento } from "../../components/DesplazamientoSuave";
 import { Ionicons } from "@expo/vector-icons";
@@ -307,6 +308,7 @@ function BotonBarra({
   onPress,
   color,
   activo,
+  escala,
 }: {
   id: string;
   icono: React.ComponentProps<typeof Ionicons>["name"];
@@ -315,6 +317,8 @@ function BotonBarra({
   onPress: () => void;
   color?: string;
   activo?: boolean;
+  /** Tamaño animado del icono (el salto del corazón al dar «Me gusta»). */
+  escala?: Animated.Value;
 }) {
   return (
     <Pressable
@@ -323,9 +327,11 @@ function BotonBarra({
       accessibilityRole="button"
       accessibilityLabel={etiqueta}
       accessibilityState={activo === undefined ? undefined : { selected: activo }}
-      style={({ pressed }) => ({ flex: 1, minHeight: 52, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 2, backgroundColor: pressed ? COLORS.accent2 : "transparent" })}
+      style={({ pressed }) => ({ flex: 1, minHeight: 52, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 2, backgroundColor: pressed ? COLORS.accentBorder : "transparent" })}
     >
-      <Ionicons name={icono} size={21} color={color ?? COLORS.text} />
+      <Animated.View nativeID={`${id}-icono`} style={escala ? { transform: [{ scale: escala }] } : undefined}>
+        <Ionicons name={icono} size={21} color={color ?? COLORS.text} />
+      </Animated.View>
       <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
         {texto}
       </Text>
@@ -380,10 +386,35 @@ export default function NoticiaScreen() {
 
   useEffect(() => (n ? ponerCabecera(n) : undefined), [n]);
 
+  // «Comentar» abre la hoja de comentarios aquí mismo, como en Instagram (dueño, 2026-11-27), en vez de llevar al Foro.
+  const [comentariosAbiertos, setComentariosAbiertos] = useState(false);
+  const [totalComentarios, setTotalComentarios] = useState<number | null>(null);
   function comentar() {
     if (!n) return;
-    medirEvento("noticia_comentar", "Noticias: comentar en el Foro", { path: `/noticias/${n.id}` });
-    router.push(`/chat-global?tab=news&noticia=${encodeURIComponent(n.id)}` as Href);
+    medirEvento("noticia_barra", "Noticias: barra · comentar", { path: `/noticias/${n.id}` });
+    setComentariosAbiertos(true);
+  }
+  useEffect(() => {
+    if (!n) return;
+    let vivo = true;
+    void supabase
+      .from("noticias_comentarios")
+      .select("id")
+      .eq("noticia_id", n.id)
+      .eq("oculto", false)
+      .limit(500)
+      .then(({ data, error }) => {
+        if (vivo && !error && Array.isArray(data)) setTotalComentarios(data.length);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [n]);
+  async function pedirSesionParaComentar() {
+    if (!n) return;
+    setComentariosAbiertos(false);
+    await AsyncStorage.setItem("videojuegoszaragoza:volver_tras_acceso", JSON.stringify({ ruta: `/noticias/${n.id}`, hasta: Date.now() + 30 * 60 * 1000 })).catch(() => {});
+    router.push(`/perfil?acceso=entrar&aviso=${encodeURIComponent("Inicia sesión o crea tu cuenta gratis para comentar. Al terminar volverás a esta noticia.")}` as Href);
   }
 
   // Barra fija de abajo (dueño, 2026-11-27): volver, me gusta, comentar y compartir, siempre a mano.
@@ -413,6 +444,18 @@ export default function NoticiaScreen() {
     };
   }, [n]);
 
+  // Salto del corazón al dar «Me gusta», como en Instagram (dueño, 2026-11-27): crece, se encoge un poco y vuelve.
+  const escalaCorazon = useRef(new Animated.Value(1)).current;
+  function saltarCorazon() {
+    escalaCorazon.stopAnimation();
+    escalaCorazon.setValue(1);
+    Animated.sequence([
+      Animated.timing(escalaCorazon, { toValue: 1.45, duration: 140, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== "web" }),
+      Animated.timing(escalaCorazon, { toValue: 0.88, duration: 110, easing: Easing.inOut(Easing.quad), useNativeDriver: Platform.OS !== "web" }),
+      Animated.spring(escalaCorazon, { toValue: 1, friction: 4, tension: 160, useNativeDriver: Platform.OS !== "web" }),
+    ]).start();
+  }
+
   async function alternarMeGusta() {
     if (!n || guardandoMeGusta.current) return;
     medirBarra("me gusta");
@@ -427,6 +470,7 @@ export default function NoticiaScreen() {
     guardandoMeGusta.current = true;
     const siguiente = !meGusta;
     setMeGusta(siguiente);
+    if (siguiente) saltarCorazon();
     setTotalMeGusta((t) => (t == null ? t : Math.max(0, t + (siguiente ? 1 : -1))));
     const { error } = siguiente
       ? await supabase.from("noticias_likes").insert({ noticia_id: n.id })
@@ -615,7 +659,9 @@ export default function NoticiaScreen() {
       {n ? (
         <View
           pointerEvents="box-none"
-          style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: isMobile ? 12 : 24, paddingBottom: Math.max(12, insets.bottom + 8), alignItems: "center" }}
+          // Mismos márgenes que el contenido de la página (dueño, 2026-11-27: «que respeten los márgenes inferiores y de
+          // los lados»): 16 px a los lados en el móvil (24 en el ordenador) y 16 abajo, más la zona segura del iPhone.
+          style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: pagePadding, paddingBottom: Math.max(16, insets.bottom + 12), alignItems: "center" }}
         >
           {copiado ? (
             <View nativeID="noticia-copiado" style={{ marginBottom: 8, borderRadius: 999, backgroundColor: COLORS.text, paddingHorizontal: 14, paddingVertical: 8 }}>
@@ -628,10 +674,11 @@ export default function NoticiaScreen() {
               width: "100%",
               maxWidth: 560,
               flexDirection: "row",
-              backgroundColor: "#FFFFFF",
+              // Burbuja en azul claro para que destaque (dueño, 2026-11-27).
+              backgroundColor: COLORS.accent2,
               borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
+              borderWidth: 1.5,
+              borderColor: COLORS.accentBorder,
               paddingVertical: 4,
               paddingHorizontal: 4,
               boxShadow: "0px 6px 24px rgba(11,33,56,0.14)",
@@ -648,9 +695,16 @@ export default function NoticiaScreen() {
               texto={totalMeGusta ? `Me gusta · ${totalMeGusta}` : "Me gusta"}
               etiqueta={meGusta ? "Quitar me gusta" : "Me gusta"}
               activo={meGusta}
+              escala={escalaCorazon}
               onPress={alternarMeGusta}
             />
-            <BotonBarra id="noticia-comentar" icono="chatbubble-outline" texto="Comentar" etiqueta="Comentar en el Foro" onPress={comentar} />
+            <BotonBarra
+              id="noticia-comentar"
+              icono="chatbubble-outline"
+              texto={totalComentarios ? `Comentar · ${totalComentarios}` : "Comentar"}
+              etiqueta="Ver y escribir comentarios"
+              onPress={comentar}
+            />
             <BotonBarra id="noticia-compartir" icono="share-outline" texto="Compartir" etiqueta="Compartir la noticia" onPress={compartir} />
           </View>
         </View>
@@ -658,6 +712,15 @@ export default function NoticiaScreen() {
       {/* Barra fina de progreso a la izquierda (páginas largas, 2026-11-25). Solo sale si la noticia es larga. */}
       {progresoScroll.barra}
       <VentanaInformacion item={infoConfianza} onClose={() => setInfoConfianza(null)} onCambiar={setInfoConfianza} />
+      {n ? (
+        <HojaComentariosNoticia
+          noticiaId={n.id}
+          abierta={comentariosAbiertos}
+          onCerrar={() => setComentariosAbiertos(false)}
+          onComentado={(cambio) => setTotalComentarios((t) => Math.max(0, (t ?? 0) + cambio))}
+          onPedirSesion={() => void pedirSesionParaComentar()}
+        />
+      ) : null}
     </View>
   );
 }

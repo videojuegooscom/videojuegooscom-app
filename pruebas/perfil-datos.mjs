@@ -1575,6 +1575,14 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         estado.ocultados = [...(estado.ocultados ?? []), { id, cuerpo: JSON.parse(peticion.postData() ?? "{}") }];
         return json([{ id }]);
       }
+      // Comentario nuevo (hoja de comentarios de la noticia, 2026-11-27): se apunta y se devuelve como lo haría Supabase.
+      if (metodo === "POST" && estado.comentarios) {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        const fila = { id: `c-nuevo-${estado.comentarios.length + 1}`, created_at: new Date().toISOString(), user_id: null, ...cuerpo };
+        estado.comentarios.push(fila);
+        const { noticia_id: _n, ...sin } = fila;
+        return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(sin, 201) : json([sin], 201);
+      }
       if (metodo === "GET" && estado.comentarios) {
         const visibles = estado.comentarios.filter((c) => !(estado.ocultados ?? []).some((o) => o.id === c.id));
         if ((url.searchParams.get("select") ?? "").startsWith("noticia_id")) return json(visibles.map((c) => ({ noticia_id: c.noticia_id })));
@@ -4614,6 +4622,9 @@ async function seccionNE() {
         return {
           abajo: r ? Math.round(window.innerHeight - r.bottom) : -1,
           dentro: !!r && r.left >= 0 && r.right <= window.innerWidth,
+          izquierda: r ? Math.round(r.left) : -1,
+          derecha: r ? Math.round(window.innerWidth - r.right) : -1,
+          fondo: b ? getComputedStyle(b).backgroundColor : "",
           redondeo: b ? parseFloat(getComputedStyle(b).borderTopLeftRadius) : 0,
           // El nombre (la última línea; la primera es el icono).
           textos: botones.map((x) => (x?.innerText ?? "").split("\n").map((s) => s.trim()).filter(Boolean).pop() ?? ""),
@@ -4628,14 +4639,37 @@ async function seccionNE() {
     const tras = await barra();
     ok(arriba.abajo >= 8 && arriba.abajo <= 40 && arriba.abajo === tras.abajo && arriba.dentro, `NE (${nombre}): la barra queda fija abajo al bajar la página (${arriba.abajo} → ${tras.abajo} px del borde)`);
     ok(arriba.redondeo >= 16, `NE (${nombre}): la barra es un bloque de esquinas redondeadas (${arriba.redondeo} px)`);
+    // Márgenes como el contenido (dueño, 2026-11-27): 16 px abajo y, en el móvil, 16 a cada lado; en el ordenador va
+    // centrada (máx. 560 px). Fondo en el azul claro secundario de la tienda (#EAF6FD).
+    const lados = nombre === "1280" ? arriba.izquierda >= 24 && Math.abs(arriba.izquierda - arriba.derecha) <= 2 : arriba.izquierda === 16 && arriba.derecha === 16;
+    ok(arriba.abajo >= 16 && lados && arriba.fondo === "rgb(234, 246, 253)", `NE (${nombre}): la barra respeta los márgenes (abajo ${arriba.abajo}, izquierda ${arriba.izquierda}, derecha ${arriba.derecha}) y va en azul claro (${arriba.fondo})`);
     ok(arriba.textos.join(" | ") === "Volver | Me gusta · 3 | Comentar | Compartir", `NE (${nombre}): volver, me gusta (con el total), comentar y compartir (${arriba.textos.join(" | ")})`);
     ok(
       arriba.altos.every((h) => h >= 44) && !arriba.descentrados.length && !tras.tapan.length,
       `NE (${nombre}): botones de 44 px o más, centrados y sin nada encima (${arriba.altos.join(", ")} · ${JSON.stringify(arriba.descentrados)} · ${tras.tapan.join(" / ")})`
     );
     await capturar(p, `NE-${nombre}-noticia`);
+    // Salto del corazón como en Instagram (dueño, 2026-11-27): se mide el tamaño del icono durante ~0,6 s.
+    await p.evaluate(() => {
+      window.__escalasCorazon = [];
+      const icono = document.getElementById("noticia-me-gusta-icono");
+      const medir = () => {
+        const t = icono ? getComputedStyle(icono).transform : "none";
+        const m = /matrix\(([^,]+)/.exec(t);
+        window.__escalasCorazon.push(m ? Number(m[1]) : 1);
+        if (window.__escalasCorazon.length < 40) requestAnimationFrame(medir);
+      };
+      requestAnimationFrame(medir);
+    });
     await p.locator("#noticia-me-gusta").click();
-    await p.waitForTimeout(600);
+    await p.waitForTimeout(900);
+    const escalas = await p.evaluate(() => window.__escalasCorazon ?? []);
+    const finalCorazon = await p.evaluate(() => {
+      const t = getComputedStyle(document.getElementById("noticia-me-gusta-icono")).transform;
+      const m = /matrix\(([^,]+)/.exec(t);
+      return m ? Number(m[1]) : 1;
+    });
+    ok(Math.max(...escalas) >= 1.3 && Math.min(...escalas) <= 0.95 && Math.abs(finalCorazon - 1) < 0.02, `NE (${nombre}): al dar «Me gusta» el corazón salta (crece, se encoge y vuelve) como en Instagram (máx ${Math.max(...escalas).toFixed(2)} · mín ${Math.min(...escalas).toFixed(2)} · final ${finalCorazon.toFixed(2)})`);
     const tras1 = await barra();
     ok(tras1.textos[1] === "Me gusta · 4" && estado.likesNoticias.length === 1, `NE (${nombre}): «Me gusta» se guarda y suma uno (${tras1.textos[1]})`);
     await p.locator("#noticia-me-gusta").click();
@@ -4777,7 +4811,10 @@ async function seccionNE() {
         { step_label: "Noticias en estantes: recientes que podrían interesarte · vistas", sessions: 8 },
         { step_label: "Noticias en estantes: recientes que podrían interesarte · tocada", sessions: 3 },
         { step_label: "Noticias: barra · me gusta", sessions: 5 },
-        { step_label: "Noticias: comentar en el Foro", sessions: 4 },
+        // Antes del 2026-11-27 «Comentar» llevaba al Foro; ahora abre la hoja: se suman (3 + 1 = 4).
+        { step_label: "Noticias: comentar en el Foro", sessions: 3 },
+        { step_label: "Noticias: barra · comentar", sessions: 1 },
+        { step_label: "Noticias: comentario enviado desde la noticia", sessions: 2 },
         { step_label: "Noticias: barra · compartir", sessions: 2 },
         { step_label: "Noticias: barra · volver", sessions: 6 },
       ],
@@ -4790,7 +4827,7 @@ async function seccionNE() {
     const linea = (await a.locator("#analitica-noticias-estantes").innerText().catch(() => "")).replace(/\s+/g, " ");
     ok(/→ 8 las ven · 3 entran/.test(linea), `NE: Administración → Analítica cuenta la tira de noticias (${linea})`);
     const barra = (await a.locator("#analitica-noticia-barra").innerText().catch(() => "")).replace(/\s+/g, " ");
-    ok(/me gusta: 5 · comentar: 4 · compartir: 2 · volver: 6/.test(barra), `NE: Administración → Analítica cuenta la barra de la noticia (${barra})`);
+    ok(/me gusta: 5 · comentar: 4 · compartir: 2 · volver: 6 sesiones · comentarios escritos desde la noticia: 2/.test(barra), `NE: Administración → Analítica cuenta la barra de la noticia y los comentarios escritos (${barra})`);
     await a.locator("#analitica-noticias-fotos").scrollIntoViewIfNeeded().catch(() => {});
     const fotos = (await a.locator("#analitica-noticias-fotos").innerText().catch(() => "")).replace(/\s+/g, " ");
     ok(/Noticias con foto: 2 de las 24 últimas/.test(fotos), `NE: Administración → Analítica dice cuántas noticias tienen foto (${fotos})`);
@@ -11462,9 +11499,16 @@ async function seccionNW() {
       };
     });
 
-  // NW1) La página de la noticia, su cabecera para Google, la analítica y «Comentar en el Foro».
+  // NW1) La página de la noticia, su cabecera para Google, la analítica y «Comentar» (desde el 2026-11-27, la hoja de
+  // comentarios al estilo Instagram en la propia noticia).
   {
-    const estado = { guardados: [], filas: PERFIL, aceptaAnalitica: true, noticiasNW: NOTICIAS };
+    const estado = {
+      guardados: [],
+      filas: PERFIL,
+      aceptaAnalitica: true,
+      noticiasNW: NOTICIAS,
+      comentarios: [{ id: "c-1", noticia_id: N1, created_at: "2026-11-27T20:00:00Z", autor: "Luis", texto: "Qué ganas de probarla", user_id: null }],
+    };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, `/noticias/${N1}`);
     await p.locator("#noticia-titulo").waitFor({ timeout: 40000 }).catch(() => {});
@@ -11541,10 +11585,74 @@ async function seccionNW() {
       });
       return fuera.length ? `tapado en ${fuera.length} de 3 puntos` : "libre";
     });
-    ok(tapado === "libre", `NW: nada tapa «Comentar en el Foro» (${tapado})`);
+    ok(tapado === "libre", `NW: nada tapa «Comentar» (${tapado})`);
+    // La burbuja de la barra, en azul claro (dueño, 2026-11-27) y «Comentar» con el número de comentarios.
+    const barra = await p.evaluate(() => {
+      const b = document.getElementById("noticia-barra");
+      return { fondo: b ? getComputedStyle(b).backgroundColor : "", comentar: document.getElementById("noticia-comentar")?.innerText.trim() ?? "" };
+    });
+    // (innerText lleva delante el carácter del icono)
+    ok(barra.fondo === "rgb(234, 246, 253)" && /Comentar · 1$/.test(barra.comentar), `NW: la barra va en azul claro y «Comentar» dice cuántos hay (${JSON.stringify(barra)})`);
+    // «Comentar» abre la hoja de comentarios aquí mismo (no lleva al Foro).
     await p.locator("#noticia-comentar").click();
-    await p.waitForURL(/\/chat-global/, { timeout: 15000 }).catch(() => {});
-    ok(p.url().includes(`/chat-global?tab=news&noticia=${N1}`), `NW: «Comentar en el Foro» abre la noticia en el Foro (${p.url().replace(BASE, "")})`);
+    await p.locator("#comentarios-hoja").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(700);
+    const hoja = await p.evaluate(() => ({
+      titulo: document.getElementById("comentarios-titulo")?.innerText.trim() ?? "",
+      lista: document.getElementById("comentarios-lista")?.innerText.replace(/\s+/g, " ").trim() ?? "",
+      emojis: document.querySelectorAll("#comentarios-emojis [role='button']").length,
+      placeholder: document.getElementById("comentarios-texto")?.getAttribute("placeholder") ?? "",
+      ruta: location.pathname,
+    }));
+    ok(
+      hoja.titulo === "Comentarios · 1" && /Luis/.test(hoja.lista) && /Qué ganas de probarla/.test(hoja.lista) && hoja.emojis === 8 && hoja.placeholder === "¿Qué opinas de esto?" && hoja.ruta === `/noticias/${N1}`,
+      `NW: «Comentar» abre la hoja de comentarios en la noticia, como Instagram (${JSON.stringify(hoja)})`
+    );
+    // Textos centrados y botones de 44 px o más.
+    const forma = await p.evaluate(() => {
+      const hojaEl = document.getElementById("comentarios-hoja");
+      const textos = [...(hojaEl?.querySelectorAll('[dir="auto"]') ?? [])].filter((x) => /[a-zá-ú]{3}/i.test(x.textContent ?? "") && !x.closest('[role="button"]') && x.parentElement?.closest('[dir="auto"]') === null);
+      const botones = [...(hojaEl?.querySelectorAll('[role="button"]') ?? [])].map((b) => Math.round(Math.min(b.getBoundingClientRect().width, b.getBoundingClientRect().height)));
+      return { descentrados: textos.filter((x) => getComputedStyle(x).textAlign !== "center").map((x) => x.textContent), minimo: Math.min(...botones) };
+    });
+    ok(!forma.descentrados.length && forma.minimo >= 44, `NW: en la hoja, textos centrados y botones de 44 px o más (${JSON.stringify(forma)})`);
+    for (const [ancho, alto, nombre] of [[360, 740, "360"], [390, 844, "390"], [1280, 900, "1280"]]) {
+      await p.setViewportSize({ width: ancho, height: alto });
+      await p.waitForTimeout(500);
+      await capturar(p, `NW1c-comentarios-${nombre}`);
+      // Nada se sale por los lados y la caja de escribir empieza con una línea (48-56 px).
+      const medidas = await p.evaluate(() => {
+        const emojis = [...document.querySelectorAll("#comentarios-emojis [role='button']")].map((b) => b.getBoundingClientRect());
+        const caja = document.getElementById("comentarios-texto")?.parentElement?.getBoundingClientRect();
+        return { fuera: emojis.filter((r) => r.left < 0 || r.right > window.innerWidth).length, cuantos: emojis.length, alto: Math.round(caja?.height ?? 0) };
+      });
+      ok(medidas.fuera === 0 && medidas.alto >= 46 && medidas.alto <= 56, `NW (${nombre}): emojis dentro de la pantalla y caja de una línea (${JSON.stringify(medidas)})`);
+    }
+    await p.setViewportSize({ width: 390, height: 844 });
+    // Escribir texto y añadir un emoji rápido (se pone al final, como en Instagram), y publicar.
+    await p.locator("#comentarios-texto").click();
+    await p.keyboard.type("Me encanta ");
+    await p.locator("#comentarios-emojis [role='button']").nth(2).click();
+    await p.locator("#comentarios-enviar").click();
+    await p.locator("#comentarios-lista").getByText("Me encanta", { exact: false }).first().waitFor({ timeout: 10000 }).catch(() => {});
+    const tras = await p.evaluate(() => ({
+      lista: document.getElementById("comentarios-lista")?.innerText ?? "",
+      titulo: document.getElementById("comentarios-titulo")?.innerText.trim() ?? "",
+      caja: document.getElementById("comentarios-texto")?.value ?? "",
+    }));
+    const enviado = estado.comentarios.find((c) => c.id.startsWith("c-nuevo"));
+    ok(enviado?.texto === "Me encanta 🔥" && enviado?.noticia_id === N1 && /Me encanta 🔥/.test(tras.lista) && tras.titulo === "Comentarios · 2" && tras.caja === "", `NW: el comentario se publica y sale en la lista (${JSON.stringify({ enviado, titulo: tras.titulo, caja: tras.caja })})`);
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.step_label === "Noticias: comentario enviado desde la noticia"); i++) await p.waitForTimeout(250);
+    ok(
+      ["Noticias: barra · comentar", "Noticias: comentario enviado desde la noticia"].every((l) => (estado.eventosEnviados ?? []).some((e) => e.step_label === l)),
+      "NW: abrir los comentarios y publicar uno se cuenta en Analítica"
+    );
+    // Cerrar: la «X» la cierra y «Comentar» ya cuenta 2.
+    await p.locator("#comentarios-cerrar").click();
+    await p.waitForTimeout(700);
+    const cerrada = await p.evaluate(() => ({ hoja: !!document.getElementById("comentarios-hoja"), comentar: document.getElementById("noticia-comentar")?.innerText.trim() ?? "" }));
+    ok(!cerrada.hoja && /Comentar · 2$/.test(cerrada.comentar), `NW: la «X» cierra la hoja y «Comentar» suma el nuevo (${JSON.stringify(cerrada)})`);
+    ok(p.errores.length === 0, `NW: comentarios sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
 
