@@ -9566,13 +9566,20 @@ async function seccionBV() {
     const porSegundo = Math.round(fluidez.distintos / fluidez.segundos);
     ok(porSegundo >= 30 && fluidez.distintos >= fluidez.marcos * 0.8, `BV: la barra avanza fluida, un punto distinto en cada fotograma (${porSegundo} por segundo; ${fluidez.distintos} de ${fluidez.marcos} fotogramas)`);
     // Lo anima el navegador por su cuenta (solo transform y opacity): no se para aunque el JavaScript vaya ocupado.
+    // Se lee tras el siguiente fotograma: el reloj de las animaciones (document.timeline) solo se pone al día al pintar, así
+    // que leerlo justo después de tener el JavaScript ocupado da el valor de antes aunque la barra haya seguido en pantalla.
     const animacion = () =>
-      p.evaluate(() => {
-        const anims = document.getElementById("bienvenida-relleno")?.getAnimations?.() ?? [];
-        const propiedades = anims.flatMap((a) => a.effect.getKeyframes().flatMap((k) => Object.keys(k))).filter((k) => !["offset", "computedOffset", "easing", "composite"].includes(k));
-        const t = anims[0]?.currentTime;
-        return { t: typeof t === "number" ? t : -1, propiedades: [...new Set(propiedades)] };
-      });
+      p.evaluate(
+        () =>
+          new Promise((listo) =>
+            requestAnimationFrame(() => {
+              const anims = document.getElementById("bienvenida-relleno")?.getAnimations?.() ?? [];
+              const propiedades = anims.flatMap((a) => a.effect.getKeyframes().flatMap((k) => Object.keys(k))).filter((k) => !["offset", "computedOffset", "easing", "composite"].includes(k));
+              const t = anims[0]?.currentTime;
+              listo({ t: typeof t === "number" ? t : -1, propiedades: [...new Set(propiedades)] });
+            })
+          )
+      );
     const antesOcupado = await animacion();
     await p.evaluate(() => {
       const t0 = performance.now();
